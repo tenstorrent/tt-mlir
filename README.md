@@ -1,1 +1,7 @@
 # ttmlc
+
+Build
+
+```bash
+make
+```
