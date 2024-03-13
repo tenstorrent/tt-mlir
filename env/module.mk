@@ -20,7 +20,7 @@ $(CONDA_ENV)/bin/activate: $(CONDA_ENV_INSTALLER)
 $(TTMLC_ENV): $(TTMLC_ENV)/.dep ;
 
 $(TTMLC_ENV)/.dep: $(CONDA_ENV)/bin/activate env/environment.yml python/requirements.txt
-	bash -c "source $(CONDA_ENV)/bin/activate && conda env create -f env/environment.yml"
+	bash -c "source $(CONDA_ENV)/bin/activate && conda env create -f env/environment.yml || true"
 	bash -c "source env/activate && pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r python/requirements.txt"
 	touch $@
 

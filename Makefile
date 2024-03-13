@@ -7,6 +7,7 @@ all: build
 
 build: $(OUT)/bin/ttmlir-opt
 
+.PHONY: $(OUT)/bin/ttmlir-opt
 $(OUT)/bin/ttmlir-opt: $(OUT)/CMakeCache.txt
 	bash -c "source env/activate && cmake --build $(OUT)"
 
