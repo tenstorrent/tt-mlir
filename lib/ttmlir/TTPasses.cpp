@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include <iostream>
+
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -15,13 +17,16 @@ namespace mlir::tt {
 #include "ttmlir/TTPasses.h.inc"
 
 namespace {
-class TTSwitchBarFooRewriter : public OpRewritePattern<func::FuncOp> {
+class TTSwitchBarFooRewriter : public OpRewritePattern<linalg::GenericOp> {
 public:
-  using OpRewritePattern<func::FuncOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(func::FuncOp op,
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    if (op.getSymName() == "bar") {
-      rewriter.modifyOpInPlace(op, [&op]() { op.setSymName("foo"); });
+    std::cout << std::string("asdf ") << op->getName().getStringRef().str()
+              << std::endl;
+    op->dump();
+    if (op->getName().getStringRef() == "bar") {
+      // rewriter.modifyOpInPlace(op, [&op]() { op.setSymName("foo"); });
       return success();
     }
     return failure();
@@ -34,6 +39,7 @@ public:
   using impl::TTSwitchBarFooBase<
       TTSwitchBarFoo>::TTSwitchBarFooBase;
   void runOnOperation() final {
+    std::cout << std::string("asdfasdf") << std::endl;
     RewritePatternSet patterns(&getContext());
     patterns.add<TTSwitchBarFooRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
