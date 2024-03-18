@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/TTDialect.h"
+
+#include "mlir/InitAllDialects.h"
 #include "ttmlir/TTOps.h"
 #include "ttmlir/TTTypes.h"
 

@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
   registry.insert<mlir::tt::TTDialect, mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
                   mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-                  mlir::cf::ControlFlowDialect>();
+                  mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect>();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "ttmlir optimizer driver\n", registry));
