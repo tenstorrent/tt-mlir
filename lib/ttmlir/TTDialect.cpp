@@ -6,7 +6,7 @@
 
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/TTOps.h"
-#include "ttmlir/TTTypes.h"
+#include "ttmlir/TTOpsTypes.h"
 
 using namespace mlir;
 using namespace mlir::tt;

@@ -5,7 +5,7 @@
 #ifndef TTMLIR_TTMLIR_TTOPS_TD
 #define TTMLIR_TTMLIR_TTOPS_TD
 
-include "ttmlir/TTTypes.td"
+include "ttmlir/TTOpsTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 

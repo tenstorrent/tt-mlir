@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/TTTypes.h"
+#include "ttmlir/TTOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -10,6 +10,8 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir::tt;
+
+#include "ttmlir/TTOpsEnums.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/TTOpsTypes.cpp.inc"

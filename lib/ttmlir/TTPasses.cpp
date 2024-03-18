@@ -38,7 +38,44 @@ public:
     packedSizes.push_back(tile_size);
     packedSizes.push_back(tile_size);
 
-    return linalg::pack(rewriter, op, packedSizes);
+    auto packResult = linalg::pack(rewriter, op, packedSizes);
+    if (LogicalResult(packResult).failed())
+      return packResult;
+
+    // struct PackResult {
+    //   SmallVector<tensor::PackOp> packOps;
+    //   linalg::LinalgOp packedLinalgOp;
+    //   SmallVector<tensor::UnPackOp> unPackOps;
+    // };
+
+    return packResult;
+  }
+};
+
+class TTVectorizeRewriter : public OpRewritePattern<linalg::GenericOp> {
+public:
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
+                                PatternRewriter &rewriter) const final {
+    std::cout << "asdfvec" << std::endl;
+    op.dump();
+    /*
+    /// Emit a suitable vector form for an operation. If provided,
+    /// `inputVectorSizes` are used to vectorize this operation.
+    /// `inputVectorSizes` must match the rank of the iteration space of the
+    /// operation and the sizes must be smaller or equal than their counterpart
+    /// interation space sizes, if static. `inputVectorShapes` also allows the
+    /// vectorization of operations with dynamic shapes.
+    LogicalResult vectorize(RewriterBase & rewriter, Operation * op,
+                            ArrayRef<int64_t> inputVectorSizes = {},
+                            ArrayRef<bool> inputScalableVecDims = {},
+                            bool vectorizeNDExtract = false,
+                            bool flatten1DDepthwiseConv = false);
+    */
+    SmallVector<int64_t> inputVectorSizes = {1, 1, 32, 32};
+    SmallVector<bool> inputScalableVecDims = {true, true, true, true};
+    return linalg::vectorize(rewriter, op, inputVectorSizes,
+                             inputScalableVecDims);
   }
 };
 
@@ -47,8 +84,6 @@ public:
   using impl::TTPackGenericBase<
       TTPackGeneric>::TTPackGenericBase;
   void runOnOperation() final {
-    auto module = getOperation();
-    module.dump();
     RewritePatternSet patterns(&getContext());
     patterns.add<TTPackGenericRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
@@ -62,16 +97,14 @@ public:
   using impl::TTTilizeBase<TTTilize>::TTTilizeBase;
   void runOnOperation() final {
     std::cout << "asdfhi" << std::endl;
-    auto module = getOperation();
-    module.dump();
-#if 0
+#if 1
     auto module = getOperation();
     module.walk([](linalg::GenericOp generic) {
       for (auto i : generic.getInputs()) {
-        i.dump();
+        i.getType().dump();
       }
       for (auto o : generic.getOutputs()) {
-        o.dump();
+        o.getType().dump();
       }
     });
 #endif

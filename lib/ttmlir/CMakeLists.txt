@@ -1,5 +1,5 @@
 add_mlir_dialect_library(MLIRTT
-        TTTypes.cpp
+        TTOpsTypes.cpp
         TTDialect.cpp
         TTOps.cpp
         TTPasses.cpp
