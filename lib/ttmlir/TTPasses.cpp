@@ -13,15 +13,16 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "ttmlir/TTOpsTypes.h"
 #include "ttmlir/TTPasses.h"
 
 namespace mlir::tt {
-#define GEN_PASS_DEF_TTPACKGENERIC
+#define GEN_PASS_DEF_TTTilize
 #define GEN_PASS_DEF_TTTILIZE
 #include "ttmlir/TTPasses.h.inc"
 
 namespace {
-class TTPackGenericRewriter : public OpRewritePattern<linalg::GenericOp> {
+class TTTilizeRewriter : public OpRewritePattern<linalg::GenericOp> {
 public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(linalg::GenericOp op,
@@ -38,10 +39,22 @@ public:
     packedSizes.push_back(tile_size);
     packedSizes.push_back(tile_size);
 
+    // Use linalg::pack to do most of the heavy lifting, we will pack the tensor
+    // first and use the PackResult struct to replace with tt tilize instead.
     auto packResult = linalg::pack(rewriter, op, packedSizes);
-    if (LogicalResult(packResult).failed())
-      return packResult;
+    if (failed(packResult))
+      return failure();
 
+    auto tileTy = rewriter.getType<TileType>(32, 32, DataType::Float32);
+    for (auto input : packResult->packedLinalgOp.getDpsInputs()) {
+      auto tensorTy = dyn_cast<TensorType>(input.getType());
+      tensorTy.dump();
+      auto shape = tensorTy.getShape();
+      assert(shape.size() > 2);
+      auto tiledTensorTy =
+          tensorTy.clone(shape.take_front(shape.size() - 2), tileTy);
+      tiledTensorTy.dump();
+    }
     // struct PackResult {
     //   SmallVector<tensor::PackOp> packOps;
     //   linalg::LinalgOp packedLinalgOp;
@@ -52,63 +65,19 @@ public:
   }
 };
 
-class TTVectorizeRewriter : public OpRewritePattern<linalg::GenericOp> {
+class TTTilize : public impl::TTTilizeBase<TTTilize> {
 public:
-  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
-                                PatternRewriter &rewriter) const final {
-    std::cout << "asdfvec" << std::endl;
-    op.dump();
-    /*
-    /// Emit a suitable vector form for an operation. If provided,
-    /// `inputVectorSizes` are used to vectorize this operation.
-    /// `inputVectorSizes` must match the rank of the iteration space of the
-    /// operation and the sizes must be smaller or equal than their counterpart
-    /// interation space sizes, if static. `inputVectorShapes` also allows the
-    /// vectorization of operations with dynamic shapes.
-    LogicalResult vectorize(RewriterBase & rewriter, Operation * op,
-                            ArrayRef<int64_t> inputVectorSizes = {},
-                            ArrayRef<bool> inputScalableVecDims = {},
-                            bool vectorizeNDExtract = false,
-                            bool flatten1DDepthwiseConv = false);
-    */
-    SmallVector<int64_t> inputVectorSizes = {1, 1, 32, 32};
-    SmallVector<bool> inputScalableVecDims = {true, true, true, true};
-    return linalg::vectorize(rewriter, op, inputVectorSizes,
-                             inputScalableVecDims);
-  }
-};
-
-class TTPackGeneric : public impl::TTPackGenericBase<TTPackGeneric> {
-public:
-  using impl::TTPackGenericBase<
-      TTPackGeneric>::TTPackGenericBase;
+  using impl::TTTilizeBase<
+      TTTilize>::TTTilizeBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTPackGenericRewriter>(&getContext());
+    patterns.add<TTTilizeRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();
   }
-};
-
-class TTTilize : public impl::TTTilizeBase<TTTilize> {
-public:
-  using impl::TTTilizeBase<TTTilize>::TTTilizeBase;
-  void runOnOperation() final {
-    std::cout << "asdfhi" << std::endl;
-#if 1
-    auto module = getOperation();
-    module.walk([](linalg::GenericOp generic) {
-      for (auto i : generic.getInputs()) {
-        i.getType().dump();
-      }
-      for (auto o : generic.getOutputs()) {
-        o.getType().dump();
-      }
-    });
-#endif
-    // signalPassFailure();
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::TTDialect>();
   }
 };
 } // namespace

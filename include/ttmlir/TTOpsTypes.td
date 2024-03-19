@@ -23,7 +23,7 @@ def TT_Tile : TT_Type<"Tile", "tile"> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
     let parameters = (ins "unsigned":$height, "unsigned":$width, "DataType":$dataType);
-    let assemblyFormat = "`<` $height`x`$width`,` $dataType `>`";
+    let assemblyFormat = "`<` $height `x` $width`,` $dataType `>`";
 }
 
 #endif
