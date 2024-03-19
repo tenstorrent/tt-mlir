@@ -12,7 +12,7 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 def TT_Dialect : Dialect {
-    let name = "ttmlir";
+    let name = "tt";
     let summary = "A TT out-of-tree MLIR dialect.";
     let description = [{
         This dialect is an example of an out-of-tree MLIR dialect designed to

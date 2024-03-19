@@ -1,4 +1,4 @@
-add_mlir_dialect(TTOps ttmlir)
+add_mlir_dialect(TTOps tt)
 add_mlir_doc(TTDialect TTDialect ttmlir/ -gen-dialect-doc)
 add_mlir_doc(TTOps TTOps ttmlir/ -gen-op-doc)
 
