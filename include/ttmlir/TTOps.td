@@ -7,32 +7,53 @@
 
 include "ttmlir/TTOpsTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
-include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
+include "mlir/IR/CommonTypeConstraints.td"
 
-def TT_FooOp : TT_Op<"foo", [Pure,
-                                             SameOperandsAndResultType]> {
-    let summary = "Illustrates how to define an operation.";
+def TT_TilizeOp : TT_Op<"tilize", [DestinationStyleOpInterface, 
+                                  TypesMatchWith<"result type matches type of dest",
+                                   "dest", "result",
+                                   "$_self">]> {
+    let summary = "Tilize op.";
     let description = [{
-        The `TT.foo` operation illustrates how to define a new
-        operation in a dialect. It uses an operation trait to declare that it
-        has no side effects.
-
-        This operation takes an integer argument and returns an integer.
-
-        Example:
-
-        ```mlir
-        %0 = arith.constant 2 : i32
-        // Apply the foo operation to %0
-        %1 = TT.foo %0 : i32
-        ```
+      Tilize operation
     }];
 
-    let arguments = (ins I32:$input);
-    let results = (outs I32:$res);
+    let arguments = (ins AnyRankedTensor:$source,
+                     AnyRankedTensor:$dest,
+                     Optional<AnyType>:$padding_value);
+    let results = (outs AnyRankedTensor:$result);
 
     let assemblyFormat = [{
-        $input attr-dict `:` type($input)
+      $source
+      (`padding_value` `(` $padding_value^ `:` type($padding_value) `)`)?
+      `into` $dest attr-dict `:` type($source) `->` type($dest)
+    }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getDestMutable(); }
+    }];
+}
+
+def TT_UntilizeOp : TT_Op<"untilize", [DestinationStyleOpInterface, 
+                                  TypesMatchWith<"result type matches type of dest",
+                                   "dest", "result",
+                                   "$_self">]> {
+    let summary = "Untilize op.";
+    let description = [{
+      Untilize operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$source,
+                     AnyRankedTensor:$dest);
+    let results = (outs AnyRankedTensor:$result);
+
+    let assemblyFormat = [{
+      $source `into` $dest attr-dict `:` type($source) `->` type($dest)
+    }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getDestMutable(); }
     }];
 }
 

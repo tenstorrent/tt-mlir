@@ -22,7 +22,7 @@ namespace mlir::tt {
 #include "ttmlir/TTPasses.h.inc"
 
 namespace {
-class TTTilizeRewriter : public OpRewritePattern<linalg::GenericOp> {
+class TTPackRewriter : public OpRewritePattern<linalg::GenericOp> {
 public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(linalg::GenericOp op,
@@ -34,6 +34,7 @@ public:
       }
     }
 
+#if 0
     SmallVector<OpFoldResult> packedSizes;
     auto tile_size = rewriter.getI64IntegerAttr(32);
     packedSizes.push_back(tile_size);
@@ -41,34 +42,33 @@ public:
 
     // Use linalg::pack to do most of the heavy lifting, we will pack the tensor
     // first and use the PackResult struct to replace with tt tilize instead.
-    auto packResult = linalg::pack(rewriter, op, packedSizes);
-    if (failed(packResult))
-      return failure();
+    return linalg::pack(rewriter, op, packedSizes);
+#endif
+    SmallVector<tt::TilizeOp> tilizeOps;
+    SmallVector<tt::TilizeOp> untilizeOps;
+
+    for (OpOperand *operand : linalgOp.getDpsInputOperands()) {
+    }
 
     auto tileTy = rewriter.getType<TileType>(32, 32, DataType::Float32);
-    for (auto input : packResult->packedLinalgOp.getDpsInputs()) {
-      auto tensorTy = dyn_cast<TensorType>(input.getType());
-      tensorTy.dump();
-      auto shape = tensorTy.getShape();
-      assert(shape.size() > 2);
-      auto tiledTensorTy =
-          tensorTy.clone(shape.take_front(shape.size() - 2), tileTy);
-      tiledTensorTy.dump();
-    }
-    // struct PackResult {
-    //   SmallVector<tensor::PackOp> packOps;
-    //   linalg::LinalgOp packedLinalgOp;
-    //   SmallVector<tensor::UnPackOp> unPackOps;
-    // };
+    auto packDest = op.getDest();
+    auto tensorTy = dyn_cast<TensorType>(packDest.getType());
+    auto shape = tensorTy.getShape();
+    assert(shape.size() > 2);
+    auto dest = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), shape.take_front(shape.size() - 2), tileTy);
+    Value padding = nullptr;
+    auto tilize = rewriter.create<tt::TilizeOp>(op.getLoc(), op.getSource(),
+                                                dest, padding);
+    tilize.dump();
 
-    return packResult;
+    return failure();
   }
 };
 
 class TTTilize : public impl::TTTilizeBase<TTTilize> {
 public:
-  using impl::TTTilizeBase<
-      TTTilize>::TTTilizeBase;
+  using impl::TTTilizeBase<TTTilize>::TTTilizeBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTTilizeRewriter>(&getContext());
