@@ -12,6 +12,8 @@
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 
+#include "ttmlir/TTOpsTypes.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/TTOps.h.inc"
 
