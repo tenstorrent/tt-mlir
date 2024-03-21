@@ -1,0 +1,21 @@
+include "program.fbs";
+
+namespace tt;
+
+
+table DispatchCommand {
+  programs: [Program];
+}
+
+union CommandType {
+  dispatch: DispatchCommand,
+}
+
+table Command {
+  name: string;
+  type: CommandType;
+}
+
+table CommandQueue {
+  commands: [Command];
+}

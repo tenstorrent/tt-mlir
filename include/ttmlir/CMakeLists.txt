@@ -11,3 +11,6 @@ mlir_tablegen(TTOpsEnums.h.inc -gen-enum-decls)
 mlir_tablegen(TTOpsEnums.cpp.inc -gen-enum-defs)
 add_public_tablegen_target(MLIRTTOpsEnumsIncGen)
 add_dependencies(mlir-headers MLIRTTOpsEnumsIncGen)
+
+add_subdirectory(Target)
+add_dependencies(mlir-headers TT_FBS)

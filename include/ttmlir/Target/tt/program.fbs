@@ -1,0 +1,30 @@
+include "types.fbs";
+
+namespace tt;
+
+enum CoreType : ushort {
+  BRISC = 0,
+  NCRISC = 1,
+  TRISC0 = 2,
+  TRISC1 = 3,
+  TRISC2 = 4,
+  ERISC = 5,
+}
+
+enum KernelBinaryType: ushort {
+  Source = 0,
+  ELF = 1,
+}
+
+table Kernel {
+  name: string;
+  core_type: CoreType;
+  binary_type: KernelBinaryType;
+  binary: string;
+}
+
+table Program {
+  name: string;
+  kernels: [Kernel];
+  core_ranges: [Dim2dRange];
+}

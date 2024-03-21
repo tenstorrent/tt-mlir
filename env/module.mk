@@ -6,8 +6,9 @@ CMAKE=$(TOOLCHAIN_ENV)/bin/cmake
 NINJA=$(TOOLCHAIN_ENV)/bin/ninja
 LLVM_BUILD_DIR=$(TOOLCHAIN_ENV)/llvm_build
 LLVM_INSTALL=$(LLVM_BUILD_DIR)/.installed
+FLATBUFFERS_INSTALL=$(TOOLCHAIN_ENV)/bin/flatc
 
-env: $(TTMLC_ENV) $(LLVM_INSTALL) ;
+env: $(TTMLC_ENV) $(LLVM_INSTALL) $(FLATBUFFERS_INSTALL) ;
 conda_env: $(TTMLC_ENV) ;
 toolchain: $(LLVM_INSTALL) ;
 
@@ -36,3 +37,10 @@ $(CMAKE):
 $(NINJA):
 	mkdir -p $(TOOLCHAIN_ENV)/bin
 	bash -c "cd $(TOOLCHAIN_ENV)/bin && curl -LO https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-linux.zip && unzip ninja-linux.zip && rm ninja-linux.zip"
+
+$(FLATBUFFERS_INSTALL): $(CMAKE) $(NINJA)
+	git submodule update --init --recursive
+	mkdir -p $(TOOLCHAIN_ENV)/bin
+	PATH=$(TOOLCHAIN_ENV)/bin:$(PATH) cmake -S third_party/flatbuffers -B $(TOOLCHAIN_ENV)/flatbuffers_build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$(TOOLCHAIN_ENV)
+	PATH=$(TOOLCHAIN_ENV)/bin:$(PATH) cmake --build $(TOOLCHAIN_ENV)/flatbuffers_build
+	PATH=$(TOOLCHAIN_ENV)/bin:$(PATH) cmake --install $(TOOLCHAIN_ENV)/flatbuffers_build

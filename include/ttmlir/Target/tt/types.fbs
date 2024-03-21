@@ -1,0 +1,28 @@
+namespace tt;
+
+struct Dim2d {
+  y: int;
+  x: int;
+}
+
+struct Dim2dRange {
+  loc: Dim2d;
+  size: Dim2d;
+}
+
+enum DataType: ushort {
+    Float32 = 0,
+    Float16 = 1,
+    Bfp8 = 2,
+    Bfp4 = 3,
+    Bfp2 = 11,
+    Float16_b = 5,
+    Bfp8_b = 6,
+    Bfp4_b = 7,
+    Bfp2_b = 15,
+    Lf8 = 10,
+    UInt16 = 12,
+    Int8 = 14,
+    Tf32 = 4,
+    UInt32 = 8,
+}
