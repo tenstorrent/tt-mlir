@@ -11,16 +11,23 @@ enum CoreType : ushort {
   ERISC = 5,
 }
 
-enum KernelBinaryType: ushort {
-  Source = 0,
-  ELF = 1,
+table Source {
+  source: string;
+}
+
+table Binary {
+  data: [ubyte];
+}
+
+union KernelBinary {
+  Source,
+  Binary,
 }
 
 table Kernel {
   name: string;
   core_type: CoreType;
-  binary_type: KernelBinaryType;
-  binary: string;
+  binary: KernelBinary;
 }
 
 table Program {

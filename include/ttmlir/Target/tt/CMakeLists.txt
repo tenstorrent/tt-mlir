@@ -5,6 +5,7 @@ set(TT_FBS_GEN_SOURCES
   device_desc.fbs
   program.fbs
   types.fbs
+  workload.fbs
 )
 
 set(TT_FBS_GEN_OUTPUTS)

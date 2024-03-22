@@ -16,11 +16,14 @@
 #include "ttmlir/TTOpsTypes.h"
 #include "ttmlir/TTPasses.h"
 
+#include "ttmlir/Target/TTTarget.h"
+
 template <typename T> T div_up(T n, T d) { return (n + d - 1) / d; }
 
 namespace mlir::tt {
 #define GEN_PASS_DEF_TTTILIZE
 #define GEN_PASS_DEF_TTPARALLELIZE
+#define GEN_PASS_DEF_TTCODEGEN
 #include "ttmlir/TTPasses.h.inc"
 
 class TTTilizeRewriter : public OpRewritePattern<linalg::GenericOp> {
@@ -28,12 +31,13 @@ public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    for (auto attr : op.getIndexingMapsAttr()) {
-      AffineMap map = dyn_cast<AffineMapAttr>(attr).getValue();
-      if (not map.isIdentity()) {
-        return op.emitError("Unsupported affine map access pattern for tilization");
-      }
-    }
+    // for (auto attr : op.getIndexingMapsAttr()) {
+    //   AffineMap map = dyn_cast<AffineMapAttr>(attr).getValue();
+    //   if (not map.isIdentity()) {
+    //     return op.emitError("Unsupported affine map access pattern for
+    //     tilization");
+    //   }
+    // }
 
     auto tileTy = rewriter.getType<TileType>(32, 32, DataType::Float32);
     SmallVector<Value> tilizeOps;
@@ -45,9 +49,11 @@ public:
                                      tileTy](Value tensor) -> Value {
       auto tensorTy = dyn_cast<TensorType>(tensor.getType());
       SmallVector<int64_t> shape(tensorTy.getShape());
-      assert(shape.size() >= 2);
-      shape[shape.size() - 2] = div_up(shape[shape.size() - 2], 32l);
-      shape[shape.size() - 1] = div_up(shape[shape.size() - 1], 32l);
+      // assert(shape.size() >= 2);
+      if (shape.size() >= 2)
+        shape[shape.size() - 2] = div_up(shape[shape.size() - 2], 32l);
+      if (shape.size() >= 1)
+        shape[shape.size() - 1] = div_up(shape[shape.size() - 1], 32l);
       return rewriter.create<tensor::EmptyOp>(op.getLoc(), shape, tileTy);
     };
 
@@ -186,6 +192,19 @@ public:
   }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::TTDialect>();
+  }
+};
+
+class TTCodeGen : public impl::TTCodeGenBase<TTCodeGen> {
+public:
+  using impl::TTCodeGenBase<TTCodeGen>::TTCodeGenBase;
+
+  void runOnOperation() final {
+    // ModuleOp module = getOperation();
+    ::tt::WorkloadT workload;
+    ::flatbuffers::FlatBufferBuilder fbb;
+    ::tt::FinishSizePrefixedWorkloadBuffer(
+        fbb, ::tt::CreateWorkload(fbb, &workload));
   }
 };
 } // namespace mlir::tt

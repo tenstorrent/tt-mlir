@@ -17,5 +17,6 @@ table Command {
 }
 
 table CommandQueue {
+  name: string;
   commands: [Command];
 }
