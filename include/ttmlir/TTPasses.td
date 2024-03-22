@@ -23,4 +23,11 @@ def TTTilize: Pass<"tt-tilize", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTParallelize: Pass<"tt-parallelize", "::mlir::ModuleOp"> {
+  let summary = "Parallelize all tensors and ops.";
+  let description = [{
+    todo
+  }];
+}
+
 #endif

@@ -19,11 +19,10 @@
 template <typename T> T div_up(T n, T d) { return (n + d - 1) / d; }
 
 namespace mlir::tt {
-#define GEN_PASS_DEF_TTTilize
 #define GEN_PASS_DEF_TTTILIZE
+#define GEN_PASS_DEF_TTPARALLELIZE
 #include "ttmlir/TTPasses.h.inc"
 
-namespace {
 class TTTilizeRewriter : public OpRewritePattern<linalg::GenericOp> {
 public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
@@ -57,8 +56,8 @@ public:
         return failure(); // Already lowered to tile
       auto dest = createTilizedEmptyTensor(input);
       Value padding = nullptr; // TODO
-      auto tilize =
-          rewriter.create<tt::TilizeOp>(op.getLoc(), input, dest, padding);
+      auto tilize = rewriter.create<tt::TensorTilizeOp>(op.getLoc(), input,
+                                                        dest, padding);
       tilizeOps.push_back(tilize);
     }
 
@@ -99,7 +98,7 @@ public:
 
     auto originalOutputs = op.getOutputs();
     for (OpResult result : tilizedLinalgOp.getResults()) {
-      untilizeOps.push_back(rewriter.create<tt::UntilizeOp>(
+      untilizeOps.push_back(rewriter.create<tt::TensorUntilizeOp>(
           tilizedLinalgOp.getLoc(), result,
           originalOutputs[result.getResultNumber()]));
     }
@@ -122,7 +121,71 @@ public:
   }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::TTDialect>();
+    registry.insert<mlir::vector::VectorDialect>();
   }
 };
-} // namespace
+
+class TTParallelize : public impl::TTParallelizeBase<TTParallelize> {
+public:
+  using impl::TTParallelizeBase<TTParallelize>::TTParallelizeBase;
+
+  template <typename TensorTyT>
+  static TensorTyT parallelize(TensorTyT tensorTy, int64_t y = 1,
+                               int64_t x = 1) {
+    SmallVector<int64_t> shape(tensorTy.getShape());
+    shape.insert(shape.begin(), 1);
+    shape.insert(shape.begin(), 1);
+    return tensorTy.clone(shape);
+  }
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    MLIRContext &ctx = getContext();
+
+    llvm::SmallDenseSet<Value, 32> processed;
+    module->walk([&processed, &ctx](linalg::GenericOp op) {
+      for (Value input : op.getInputs()) {
+        if (processed.contains(input))
+          continue;
+        input.setType(parallelize(dyn_cast<TensorType>(input.getType())));
+        if (auto tilizeOp = input.getDefiningOp<tt::TensorTilizeOp>()) {
+          auto dest = tilizeOp.getDest();
+          dest.setType(parallelize(dyn_cast<RankedTensorType>(dest.getType())));
+        }
+      }
+
+      for (Value output : op.getOutputs()) {
+        if (processed.contains(output))
+          continue;
+        output.setType(parallelize(dyn_cast<TensorType>(output.getType())));
+      }
+
+      for (Value result : op.getResults()) {
+        if (processed.contains(result))
+          continue;
+        result.setType(parallelize(dyn_cast<TensorType>(result.getType())));
+      }
+
+      SmallVector<Attribute> parAffineMaps;
+      for (Attribute attr : op.getIndexingMaps()) {
+        auto affineMapAttr = cast<AffineMapAttr>(attr);
+        parAffineMaps.push_back(AffineMapAttr::get(
+            affineMapAttr.getAffineMap()
+                .shiftDims(2)
+                .insertResult(mlir::getAffineDimExpr(1, &ctx), 0)
+                .insertResult(mlir::getAffineDimExpr(0, &ctx), 0)));
+      }
+      op.setIndexingMapsAttr(ArrayAttr::get(&ctx, parAffineMaps));
+
+      SmallVector<Attribute> parIteratorTypes(op.getIteratorTypes().getValue());
+      auto iteratorTypeAttr = linalg::IteratorTypeAttr::get(&ctx, utils::IteratorType::parallel);
+      parIteratorTypes.insert(parIteratorTypes.begin(), iteratorTypeAttr);
+      parIteratorTypes.insert(parIteratorTypes.begin(), iteratorTypeAttr);
+      op.setIteratorTypesAttr(ArrayAttr::get(&ctx, parIteratorTypes));
+    });
+  }
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::TTDialect>();
+  }
+};
 } // namespace mlir::tt

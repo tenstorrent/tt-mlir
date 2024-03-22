@@ -10,13 +10,13 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/CommonTypeConstraints.td"
 
-def TT_TilizeOp : TT_Op<"tilize", [DestinationStyleOpInterface, 
+def TT_TensorTilizeOp : TT_Op<"tensor_tilize", [DestinationStyleOpInterface, 
                                   TypesMatchWith<"result type matches type of dest",
                                    "dest", "result",
                                    "$_self">]> {
-    let summary = "Tilize op.";
+    let summary = "Tensor tilize op.";
     let description = [{
-      Tilize operation
+      Tensor tilize operation
     }];
 
     let arguments = (ins AnyRankedTensor:$source,
@@ -35,13 +35,13 @@ def TT_TilizeOp : TT_Op<"tilize", [DestinationStyleOpInterface,
     }];
 }
 
-def TT_UntilizeOp : TT_Op<"untilize", [DestinationStyleOpInterface, 
+def TT_TensorUntilizeOp : TT_Op<"tensor_untilize", [DestinationStyleOpInterface, 
                                   TypesMatchWith<"result type matches type of dest",
                                    "dest", "result",
                                    "$_self">]> {
-    let summary = "Untilize op.";
+    let summary = "Tensor untilize op.";
     let description = [{
-      Untilize operation
+      Tensor untilize operation
     }];
 
     let arguments = (ins AnyRankedTensor:$source,

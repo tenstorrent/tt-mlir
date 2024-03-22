@@ -21,5 +21,6 @@ def compile(gm, example_inputs):
 if True:
     resnet18 = vis_models.resnet18(pretrained=True)
     resnet18.train(False)
-    module = torch.compile(resnet18, backend=compile)
-    module(torch.randn(1, 3, 224, 224))
+    with torch.no_grad():
+        module = torch.compile(resnet18, backend=compile)
+        module(torch.randn(1, 3, 224, 224))
