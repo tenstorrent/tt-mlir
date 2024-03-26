@@ -24,7 +24,17 @@ namespace mlir::tt {
 #define GEN_PASS_DEF_TTTILIZE
 #define GEN_PASS_DEF_TTPARALLELIZE
 #define GEN_PASS_DEF_TTCODEGEN
+#define GEN_PASS_DEF_TTLOWER
 #include "ttmlir/TTPasses.h.inc"
+
+class TTMatmulToGenericRewriter : public OpRewritePattern<linalg::MatmulOp> {
+public:
+  using OpRewritePattern<linalg::MatmulOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(linalg::MatmulOp op,
+                                PatternRewriter &rewriter) const final {
+    return generalizeNamedOp(rewriter, op);
+  }
+};
 
 class TTTilizeRewriter : public OpRewritePattern<linalg::GenericOp> {
 public:
@@ -120,7 +130,7 @@ public:
   using impl::TTTilizeBase<TTTilize>::TTTilizeBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTTilizeRewriter>(&getContext());
+    patterns.add<TTMatmulToGenericRewriter, TTTilizeRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();
@@ -189,6 +199,69 @@ public:
       parIteratorTypes.insert(parIteratorTypes.begin(), iteratorTypeAttr);
       op.setIteratorTypesAttr(ArrayAttr::get(&ctx, parIteratorTypes));
     });
+  }
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::TTDialect>();
+  }
+};
+
+class TTLowerRewriter : public OpRewritePattern<linalg::GenericOp> {
+public:
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
+                                PatternRewriter &rewriter) const final {
+    if (op.getOperation()->getParentOp()->getName() ==
+        OperationName("tt.dispatch", getContext()))
+      return failure();
+    op.getOperation()->getParentOp()->getName().dump();
+    // Create a new dispatch op
+    auto resultTypesRange = ValueRange(op.getResults()).getTypes();
+    SmallVector<Type> resultTypes(resultTypesRange.begin(),
+                                  resultTypesRange.end());
+    auto dispatch = rewriter.create<tt::DispatchOp>(
+        op.getLoc(), resultTypes, op.getInputs(), op.getOutputs(),
+        AffineMap::getMultiDimIdentityMap(2, getContext()));
+
+    // Create a new basic block for the dispatch op
+    Block *block = rewriter.createBlock(&dispatch.getRegion());
+
+    // Inherit the arguments from generic op
+    std::size_t inputsSize = op.getInputs().size();
+    std::size_t outputsSize = op.getOutputs().size();
+    auto inputTypesRange = ValueRange(op.getInputs()).getTypes();
+    auto outputTypesRange = ValueRange(op.getOutputs()).getTypes();
+    SmallVector<Type> blockArgumentTypes;
+    blockArgumentTypes.append(inputTypesRange.begin(), inputTypesRange.end());
+    blockArgumentTypes.append(outputTypesRange.begin(), outputTypesRange.end());
+    SmallVector<Location> blockArgumentLocs(inputsSize + outputsSize,
+                                            dispatch.getLoc());
+
+    // Rewire the generic op arguments to the dispatch inputs
+    (void)block->addArguments(blockArgumentTypes, blockArgumentLocs);
+    auto blockArguments = block->getArguments();
+    op.getInputsMutable().assign(blockArguments.slice(0, inputsSize));
+    op.getOutputsMutable().assign(blockArguments.slice(inputsSize));
+
+    // Move the generic op into the dispatch block
+    Operation *generic = op.getOperation()->clone();
+    block->push_back(generic);
+    rewriter.setInsertionPoint(block, block->end());
+    rewriter.create<tt::YieldOp>(dispatch.getLoc(),
+                                 ValueRange({generic->getResult(0)}));
+    rewriter.replaceOp(op, dispatch);
+    return success();
+  }
+};
+
+class TTLower : public impl::TTLowerBase<TTLower> {
+public:
+  using impl::TTLowerBase<TTLower>::TTLowerBase;
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTLowerRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+      signalPassFailure();
   }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::TTDialect>();

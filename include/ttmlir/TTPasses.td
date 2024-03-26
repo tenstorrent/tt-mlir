@@ -30,6 +30,13 @@ def TTParallelize: Pass<"tt-parallelize", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTLower: Pass<"tt-lower", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    todo
+  }];
+}
+
 def TTCodeGen: Pass<"tt-code-gen", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
