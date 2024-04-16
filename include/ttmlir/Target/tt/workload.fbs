@@ -1,0 +1,13 @@
+include "device_desc.fbs";
+include "command.fbs";
+
+namespace tt;
+
+table Workload {
+  device_desc: DeviceDesc;
+  command_queues: [CommandQueue];
+}
+
+root_type Workload;
+file_identifier "TTBI";
+file_extension "ttb";
