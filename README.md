@@ -26,3 +26,10 @@ make
   - triscs: unpack / math / pack
     - Affine.for lowering inside kernel body (i.e. all affine dims except c0, c1, g0, g1)
 - Serialize to flatbuffer
+
+## Tried
+
+- Vectorization
+  - This pass automatically inserts outer loops, ideally we'd want to stay affine longer
+- Tiling
+  - This pass also automatically inserts loops

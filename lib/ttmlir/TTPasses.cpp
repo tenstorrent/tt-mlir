@@ -4,6 +4,7 @@
 
 #include <iostream>
 
+#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -205,7 +206,7 @@ public:
   }
 };
 
-class TTLowerRewriter : public OpRewritePattern<linalg::GenericOp> {
+class TTLowerDispatchRewriter : public OpRewritePattern<linalg::GenericOp> {
 public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
 
@@ -299,12 +300,39 @@ public:
   }
 };
 
+class TTLowerBuffersRewriter : public OpRewritePattern<linalg::GenericOp> {
+public:
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
+                                PatternRewriter &rewriter) const final {
+#if 1
+    bufferization::BufferizationOptions opt;
+    return bufferization::bufferizeOp(op.getOperation(), opt);
+#else
+    return failure();
+#endif
+  }
+};
+
+class TTLowerKernelLoopsRewriter : public OpRewritePattern<linalg::GenericOp> {
+public:
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
+                                PatternRewriter &rewriter) const final {
+    return failure();
+    return linalgOpToAffineLoops(rewriter, op);
+  }
+};
+
 class TTLower : public impl::TTLowerBase<TTLower> {
 public:
   using impl::TTLowerBase<TTLower>::TTLowerBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTLowerRewriter>(&getContext());
+    patterns.add<TTLowerDispatchRewriter, TTLowerBuffersRewriter,
+                 TTLowerKernelLoopsRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();
