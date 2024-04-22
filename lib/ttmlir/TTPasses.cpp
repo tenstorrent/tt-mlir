@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
+// SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -306,9 +306,14 @@ public:
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-#if 1
-    bufferization::BufferizationOptions opt;
-    return bufferization::bufferizeOp(op.getOperation(), opt);
+#if 0
+    // bufferization::BufferizationOptions opt;
+    // return bufferization::bufferizeOp(op.getOperation(), opt);
+
+    linalg::BufferizeToAllocationOptions opt;
+    auto v = linalg::bufferizeToAllocation(rewriter, opt, op.getOperation());
+    v.dump();
+    return success();
 #else
     return failure();
 #endif
@@ -321,8 +326,18 @@ public:
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
+    // return failure();
+    // return linalgOpToAffineLoops(rewriter, op);
+
+    auto loopRanges = cast<linalg::LinalgOp>(op.getOperation())
+                          .createLoopRanges(rewriter, op.getLoc());
+    auto iteratorTypes = op.getIteratorTypesArray();
+    for (auto const& r : loopRanges) {
+      r.offset.dump();
+      r.size.dump();
+      r.stride.dump();
+    }
     return failure();
-    return linalgOpToAffineLoops(rewriter, op);
   }
 };
 

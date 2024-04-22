@@ -3,8 +3,8 @@ import torch
 import torch._dynamo as dynamo
 import torch_mlir
 
-output_type = "linalg-on-tensors"
-# output_type = "tosa"
+# output_type = "linalg-on-tensors"
+output_type = "tosa"
 # output_type = "stablehlo"
 
 torch._dynamo.reset()

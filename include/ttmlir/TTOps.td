@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.     ■ Too many errors emitted, stopping now
+// SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -85,7 +85,9 @@ def TT_YieldOp : TT_Op<"yield", [Pure, ReturnLike, Terminator]> {
     let arguments = (ins Variadic<AnyType>:$values);
 }
 
-// TODO: Make these Tensix dialect
+//===----------------------------------------------------------------------===//
+// TODO: Make everything below Tensix dialect
+//===----------------------------------------------------------------------===//
 def TT_PackOp : TT_Op<"pack"> {
     let summary = "Pack op.";
     let description = [{

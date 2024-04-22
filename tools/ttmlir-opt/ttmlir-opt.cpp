@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
+// SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
                   mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
                   mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
                   mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-                  mlir::vector::VectorDialect>();
+                  mlir::tosa::TosaDialect, mlir::vector::VectorDialect>();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "ttmlir optimizer driver\n", registry));
