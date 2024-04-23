@@ -1,10 +1,34 @@
 # ttmlir
 
-Build
+## Build
 
 ```bash
 make
+source env/activate
 ```
+
+## This repo is very much a work in progress
+
+- mlir input tosa/linalg examples `test/ttmlir`.
+- scratch.mlir is the scratch pad space I'm using for outlining the design of the dialect.
+- Simple linalg test `./build/bin/ttmlir-opt --tt-tilize --tt-parallelize --tt-lower --tt-code-gen test/ttmlir/simple_eltwise_linalg.mlir`
+- Simple tosa test still WIP, pass order is still TBD.
+
+## Useful links / reading
+
+- [affine dialect](https://mlir.llvm.org/docs/Dialects/Affine/)
+  - Affine map is a really powerful primitive that can be used to describe most data movement patterns.
+  - It can also be used to describe memory layouts.
+- [linalg dialect](https://mlir.llvm.org/docs/Dialects/Linalg/)
+- [tosa dialect](https://mlir.llvm.org/docs/Dialects/TOSA/)
+- [memref dialect](https://mlir.llvm.org/docs/Dialects/MemRef/)
+- [tosa spec](https://www.mlplatform.org/tosa/tosa_spec.html)
+- [torch-mlir](https://github.com/llvm/torch-mlir)
+  - See `python/resnet18.py` for an example of collecting torch-mlir output.
+  - `source env/activate && python python/resnet18.py > resnet18_linalg.mlir`
+  - Uncomment `output_type = "linalg-on-tensors"` to get linalg output.
+  - Uncomment `resnet50` to get resnet50 output.
+  - Tosa dialect by default embeds all constant tensor data + weights in the IR making it too large to checkin. Hopefully there's a way to disable this.
 
 ## Types
 
@@ -16,29 +40,36 @@ make
 - tt.layout: A layout op. This op implements tensor layout conversions, where layout refers to how the tensor data is physically laid out in memory and sliced accross cores.
 - tt.dispatch: Dispatch a kernel to a device grid. Has only a few flavors:
   - `tt.builtin`: A builtin kernel. This is a kernel that is written by hand / implemented in the runtime.
-  - `tt.layout`: TBD
   - `linalg.generic`: A generic linalg op. The compiler generates a kernel for this op.
-- tt.barrier: A barrier op. This op is used to synchronize the host and device.
+- tt.barrier: TBD. A barrier op. This op is used to synchronize the host and device.
 
-## Transforms
+## Proposed Transforms
 
 - Tosa/Linalg input
-- Tilize
-- Lower tosa/linalg.generic to tt.dispatch (essentially the same op, but with multiple region bodies)
-- Lower mlir.tensor to tt.tensor
+- High level optimization passes
+  - e.g. constant folding `createTosaLayerwiseConstantFoldPass`
+  - Transpose / reshape cancelation
+- Lower tosa/linalg to tt.dispatch
+- Lower mlir.tensor to tt.tensor, see scratch.mlir for some potential tt.tensor ideas
+- Op Fusion, hoisting ops into the region body of a dispatch op.
 - Parallelize, needs to solve for:
-  - Insert affine dims c0, c1 (cluster grid size) and g0, g1 (device grid size)
-  - Tensor sharding (how we can legally divide the tensor)
+  - Insert affine dims d0, d1 (cluster device indices) and c0, c1 (device core indices)
+  - Tensor blocking (how we can legally divide the tensor) (described by affine maps)
   - Buffer alloc (manage tensor allocations, L1 vs DRAM)
   - Cost modeling of op
-  - Cost modeling of data movement between ops, i.e. reshard
-  - Do we want a new tensor type that explicitly annotates grid par?
-- Lower kernel 5 ways:
-  - brisc: read from DRAM / remote core i.e. matmul systolic inner dim
-  - ncrisc: write to DRAM
-  - triscs: unpack / math / pack
-    - Affine.for lowering inside kernel body (i.e. all affine dims except c0, c1, g0, g1)
+  - Cost modeling of tt.layout (reblocking)
+- Automatic generation of data movement kernels
+- Loading the tt.builtin kernels from source, i.e. Tosa path
+- Automatic generation of compute kernels for linalg.generic ops
 - Serialize to flatbuffer
+  - Eventually there will be a runtime subdir that can execute the flatbuffer
+  - The flatbuffer can be trivially serialized to disk and deployed
+  - Flatbuffer API is all C++, so it should be easy to integrate in embedded systems
+  - See .fbs files for an outline of the idea
+
+## Opens
+
+- How to represent pipeline parallelism?
 
 ## Tried
 

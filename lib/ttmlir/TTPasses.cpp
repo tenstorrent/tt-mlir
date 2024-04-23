@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -206,7 +207,8 @@ public:
   }
 };
 
-class TTLowerDispatchRewriter : public OpRewritePattern<linalg::GenericOp> {
+class TTLowerLinalgGenericToDispatchRewriter
+    : public OpRewritePattern<linalg::GenericOp> {
 public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
 
@@ -300,43 +302,15 @@ public:
   }
 };
 
-class TTLowerBuffersRewriter : public OpRewritePattern<linalg::GenericOp> {
+class TTLowerTosaElementwiseToDispatchRewriter
+    : public OpRewritePattern<tosa::MulOp> {
 public:
-  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+  using OpRewritePattern<tosa::MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
+  LogicalResult matchAndRewrite(tosa::MulOp op,
                                 PatternRewriter &rewriter) const final {
-#if 0
-    // bufferization::BufferizationOptions opt;
-    // return bufferization::bufferizeOp(op.getOperation(), opt);
-
-    linalg::BufferizeToAllocationOptions opt;
-    auto v = linalg::bufferizeToAllocation(rewriter, opt, op.getOperation());
-    v.dump();
-    return success();
-#else
-    return failure();
-#endif
-  }
-};
-
-class TTLowerKernelLoopsRewriter : public OpRewritePattern<linalg::GenericOp> {
-public:
-  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
-                                PatternRewriter &rewriter) const final {
-    // return failure();
-    // return linalgOpToAffineLoops(rewriter, op);
-
-    auto loopRanges = cast<linalg::LinalgOp>(op.getOperation())
-                          .createLoopRanges(rewriter, op.getLoc());
-    auto iteratorTypes = op.getIteratorTypesArray();
-    for (auto const& r : loopRanges) {
-      r.offset.dump();
-      r.size.dump();
-      r.stride.dump();
-    }
+    assert(op.getShift() == 0);
+    op.dump();
     return failure();
   }
 };
@@ -346,8 +320,8 @@ public:
   using impl::TTLowerBase<TTLower>::TTLowerBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTLowerDispatchRewriter, TTLowerBuffersRewriter,
-                 TTLowerKernelLoopsRewriter>(&getContext());
+    patterns.add<TTLowerLinalgGenericToDispatchRewriter,
+                 TTLowerTosaElementwiseToDispatchRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();

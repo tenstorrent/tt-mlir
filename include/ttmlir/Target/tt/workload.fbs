@@ -9,5 +9,5 @@ table Workload {
 }
 
 root_type Workload;
-file_identifier "TTBI";
+file_identifier "TTB0";
 file_extension "ttb";
