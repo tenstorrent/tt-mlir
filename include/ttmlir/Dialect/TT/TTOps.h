@@ -14,9 +14,9 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
-#include "ttmlir/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/TTOpsTypes.h"
 
 #define GET_OP_CLASSES
-#include "ttmlir/TTOps.h.inc"
+#include "ttmlir/Dialect/TT/TTOps.h.inc"
 
 #endif

@@ -15,8 +15,8 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "ttmlir/TTOpsTypes.h"
-#include "ttmlir/TTPasses.h"
+#include "ttmlir/Dialect/TT/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/TTPasses.h"
 
 #include "ttmlir/Target/TTTarget.h"
 
@@ -27,7 +27,7 @@ namespace mlir::tt {
 #define GEN_PASS_DEF_TTPARALLELIZE
 #define GEN_PASS_DEF_TTCODEGEN
 #define GEN_PASS_DEF_TTLOWER
-#include "ttmlir/TTPasses.h.inc"
+#include "ttmlir/Dialect/TT/TTPasses.h.inc"
 
 class TTMatmulToGenericRewriter : public OpRewritePattern<linalg::MatmulOp> {
 public:

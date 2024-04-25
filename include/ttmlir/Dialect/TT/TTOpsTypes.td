@@ -7,8 +7,8 @@
 
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
-include "ttmlir/TTDialect.td"
-include "ttmlir/TTOpsEnums.td"
+include "ttmlir/Dialect/TT/TTDialect.td"
+include "ttmlir/Dialect/TT/TTOpsEnums.td"
 
 //===----------------------------------------------------------------------===//
 // TT type definitions

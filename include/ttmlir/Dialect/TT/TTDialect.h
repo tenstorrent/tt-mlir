@@ -7,4 +7,4 @@
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Dialect.h"
 
-#include "ttmlir/TTOpsDialect.h.inc"
+#include "ttmlir/Dialect/TT/TTOpsDialect.h.inc"

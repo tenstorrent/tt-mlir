@@ -8,9 +8,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 
-#include "ttmlir/TTOpsEnums.h.inc"
+#include "ttmlir/Dialect/TT/TTOpsEnums.h.inc"
 
 #define GET_TYPEDEF_CLASSES
-#include "ttmlir/TTOpsTypes.h.inc"
+#include "ttmlir/Dialect/TT/TTOpsTypes.h.inc"
 
 #endif

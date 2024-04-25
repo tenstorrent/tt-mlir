@@ -6,17 +6,17 @@
 #define TTMLIR_TTMLIR_TTPASSES_H
 
 #include "mlir/Pass/Pass.h"
-#include "ttmlir/TTDialect.h"
-#include "ttmlir/TTOps.h"
+#include "ttmlir/Dialect/TT/TTDialect.h"
+#include "ttmlir/Dialect/TT/TTOps.h"
 #include <memory>
 
 namespace mlir {
 namespace tt {
 #define GEN_PASS_DECL
-#include "ttmlir/TTPasses.h.inc"
+#include "ttmlir/Dialect/TT/TTPasses.h.inc"
 
 #define GEN_PASS_REGISTRATION
-#include "ttmlir/TTPasses.h.inc"
+#include "ttmlir/Dialect/TT/TTPasses.h.inc"
 } // namespace tt
 } // namespace mlir
 

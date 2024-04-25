@@ -30,18 +30,32 @@ source env/activate
   - Uncomment `resnet50` to get resnet50 output.
   - Tosa dialect by default embeds all constant tensor data + weights in the IR making it too large to checkin. Hopefully there's a way to disable this.
 
-## Types
+## Dialects
 
-- `ttmlir::TileType`: All of the various TT tile types.
-- `ttmlir::TensorType`: A tensor type with shape and element type.
-
-## Ops
-
-- tt.layout: A layout op. This op implements tensor layout conversions, where layout refers to how the tensor data is physically laid out in memory and sliced accross cores.
-- tt.dispatch: Dispatch a kernel to a device grid. Has only a few flavors:
-  - `tt.builtin`: A builtin kernel. This is a kernel that is written by hand / implemented in the runtime.
-  - `linalg.generic`: A generic linalg op. The compiler generates a kernel for this op.
-- tt.barrier: TBD. A barrier op. This op is used to synchronize the host and device.
+- `tt`: Common types such as, `tt.tile`, `tt.layout`, `tt.grid`, etc. and enums such as, data formats, memory spaces, iterator types etc.
+- `ttnn`: A decoupled dialect, still uses `tt`, but just pattern matches to ttnn operations.
+- `ttir`: A high level dialect that models the tensor compute graph on tenstorrent devices. Accepts `tosa` and `linalg` input.
+  - `ttir.dispatch`: Dispatch a grid of compute work.
+  - `ttir.layout`: Convert between different tensor memory layouts and transfer between different memory spaces.
+  - `tensor.pad`: Pad a tensor with a value (ie. convs)
+  - `ttir.yield`: return result memref of computation in dispatch region body, lowers to `ttkernel.yield`
+  - `ttir.builtin`: lowers to `ttkernel.ffi`.
+  - `ttir.concat`
+- `ttir` lowers to `ttdevice`, `ttkernel`, and `tensix` dialects:
+  - `ttdevice`: Operations that dispatch work from host to device.
+    - `ttdevice.dispatch`: Dispatch a grid of compute work.
+    - `ttdevice.wait`: Wait for device events.
+  - `ttkernel`: Tenstorrent kernel library operations.
+    - `ttkernel.ffi`: Call a function defined outside of this compilation context.  Usually a hand written piece of C++.
+    - `ttkernel.noc_async_read`
+    - `ttkernel.noc_async_write`
+    - `ttkernel.cb_push_back`
+  - `tensix`: Low level tile operations that model tensix coprocessor.
+    - Lowers `arith` dialect, usually from region body of `linalg.generic`.
+    - `tensix.unpack`: Unpack a tile in source register space.
+    - `tensix.pack`: Pack a tile from dest register space to L1.
+    - `tensix.[matmul|add|multiply]`: Computations on tiles in source register space, store the result in dest register space.
+    - `tensix.sfpu_*`: Computations on tiles in dest register space using sfpu coprocessor.
 
 ## Proposed Transforms
 

@@ -1,1 +1,1 @@
-add_subdirectory(ttmlir)
+add_subdirectory(Dialect)

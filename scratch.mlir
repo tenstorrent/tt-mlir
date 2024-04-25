@@ -1,7 +1,5 @@
 // How to express dram queues/streams
 // How to express multi-device grid
-// Core to core communication
-// device to device communication
 #map0 = affine_map<(c0, c1) -> (c0, c1)>
 
 #map1 = affine_map<(d0, d1, c0, c1) -> (c1, c0)>
@@ -31,7 +29,7 @@ iterator_types = ["parallel", "systolic", "broadcast", "explicit"]
 %0 = tensor<64x128xf32, #layout0>
 %1 = tensor<64x128xf32, #layout0>
 %2 = tensor<64x128xf32, #layout0>
-%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"], buffer_accesses = [#b0, #b0, #b0]}> ({
+%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"]}> ({
 ^bb0(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
   %8 = tt.builtin "add"(%arg0, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
   "tt.yield"(%8) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> ()
@@ -47,7 +45,7 @@ iterator_types = ["parallel", "systolic", "broadcast", "explicit"]
 %0 = tensor<64x128xf32, #layout0>
 %1 = tensor<64x128xf32, #layout1>
 %2 = tensor<64x128xf32, #layout0>
-%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"], buffer_accesses = [#b0, #b0, #b0]}> ({
+%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"]}> ({
 ^bb0(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #dram>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
   %7 = memref.load %arg0 : memref<1x2x!tt.tile<32 x 32, f32>, #l1>
   %8 = tt.builtin "add"(%7, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
@@ -84,7 +82,7 @@ iterator_types = ["parallel", "systolic", "broadcast", "explicit"]
 %1 = tensor<128x64xf32, #layoutT>
 %2 = tensor<128x64xf32, #layoutT>
 
-%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"], buffer_accesses = [#b0, #b0, #b0]}> ({
+%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"]}> ({
 ^bb0(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
   %8 = tt.builtin "add"(%arg0, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
   "tt.yield"(%8) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> ()
@@ -127,3 +125,22 @@ iterator_types = ["parallel", "systolic", "broadcast", "explicit"]
   } -> tensor<2x4x!tt.tile<32 x 32, f32>>
   "tt.yield"(%8) : (tensor<2x4x!tt.tile<32 x 32, f32>>) -> ()
 }) : (tensor<1x1x2x4x!tt.tile<32 x 32, f32>>, tensor<1x1x2x4x!tt.tile<32 x 32, f32>>, tensor<1x1x2x4x!tt.tile<32 x 32, f32>>) -> tensor<1x1x2x4x!tt.tile<32 x 32, f32>>
+
+//
+// Eltwise
+//
+#map0 = affine_map<(c0, c1) -> (c0, c1)>
+#grid0 = !tt.grid<2x2, block, core_mapping = affine_map<(c0, c1) -> (c0, c1)>>
+#layout0 = !tt.layout<strides<0x0x0x0>, shape<64x128>, pad_val<undef>, #grid0, memref<1x2x!tt.tile<32 x 32, f32>, #l1>>
+%0 = tensor<64x128xf32, #layout0>
+%1 = tensor<64x128xf32, #layout0>
+%2 = tensor<64x128xf32, #layout0>
+%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"]}> ({
+^reader(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
+  %8 = tt.compute "add"(%arg0, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
+  "tt.yield"(%8) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> ()
+}
+^compute(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
+  %8 = tt.compute "add"(%arg0, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
+  "tt.yield"(%8) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> ()
+}) : tensor<64x128xf32, #layout0>

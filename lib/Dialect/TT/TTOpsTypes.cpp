@@ -2,23 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/TTOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "ttmlir/TTDialect.h"
+#include "ttmlir/Dialect/TT/TTDialect.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir::tt;
 
-#include "ttmlir/TTOpsEnums.cpp.inc"
+#include "ttmlir/Dialect/TT/TTOpsEnums.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
-#include "ttmlir/TTOpsTypes.cpp.inc"
+#include "ttmlir/Dialect/TT/TTOpsTypes.cpp.inc"
 
 void TTDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "ttmlir/TTOpsTypes.cpp.inc"
+#include "ttmlir/Dialect/TT/TTOpsTypes.cpp.inc"
       >();
 }

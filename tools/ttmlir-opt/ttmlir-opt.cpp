@@ -9,8 +9,8 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
-#include "ttmlir/TTDialect.h"
-#include "ttmlir/TTPasses.h"
+#include "ttmlir/Dialect/TT/TTDialect.h"
+#include "ttmlir/Dialect/TT/TTPasses.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
