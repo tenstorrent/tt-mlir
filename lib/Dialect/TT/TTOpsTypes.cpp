@@ -16,6 +16,9 @@ using namespace mlir::tt;
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/TTOpsTypes.cpp.inc"
 
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TT/TTOpsAttrDefs.cpp.inc"
+
 void TTDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST

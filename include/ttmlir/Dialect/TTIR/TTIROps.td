@@ -7,11 +7,13 @@
 
 include "ttmlir/Dialect/TT/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/TTIRDialect.td"
+include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
+include "mlir/IR/CommonAttrConstraints.td"
 
 def TTIR_DispatchOp : TTIR_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
     let summary = "Dispatch op.";
@@ -21,7 +23,9 @@ def TTIR_DispatchOp : TTIR_Op<"dispatch", [DestinationStyleOpInterface, AttrSize
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
-                         AffineMapAttr:$paralellization);
+                         TT_GridAttr:$grid,
+                         AffineMapArrayAttr:$indexing_maps,
+                         TT_IteratorTypeArrayAttr:$iterator_types);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region AnyRegion:$region);
 

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_TTOPSTYPES_H
-#define TTMLIR_TTMLIR_TTOPSTYPES_H
+#ifndef TTMLIR_TTMLIR_DIALECT_TT_TTOPSTYPES_H
+#define TTMLIR_TTMLIR_DIALECT_TT_TTOPSTYPES_H
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -12,5 +12,8 @@
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/TTOpsTypes.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TT/TTOpsAttrDefs.h.inc"
 
 #endif
