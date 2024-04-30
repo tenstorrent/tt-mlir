@@ -19,20 +19,13 @@ def Tensix_Dialect : Dialect {
         illustrate the basic setup required to develop MLIR-based tools without
         working inside of the LLVM source tree.
     }];
-    let cppNamespace = "::mlir::tt";
+    let cppNamespace = "::mlir::tt::tensix";
 
-    let useDefaultTypePrinterParser = 1;
-    let extraClassDeclaration = [{
-        void registerTypes();
-    }];
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
-      "::mlir::func::FuncDialect",
-      "::mlir::ml_program::MLProgramDialect",
-      "::mlir::tensor::TensorDialect",
-      "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
-      "::mlir::cf::ControlFlowDialect"
+      "::mlir::cf::ControlFlowDialect",
+      "::mlir::tt::TTDialect"
     ];
 }
 

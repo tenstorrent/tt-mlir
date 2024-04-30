@@ -85,35 +85,4 @@ def TT_YieldOp : TT_Op<"yield", [Pure, ReturnLike, Terminator]> {
     let arguments = (ins Variadic<AnyType>:$values);
 }
 
-//===----------------------------------------------------------------------===//
-// TODO: Make everything below Tensix dialect
-//===----------------------------------------------------------------------===//
-def TT_PackOp : TT_Op<"pack"> {
-    let summary = "Pack op.";
-    let description = [{
-      Pack operation
-    }];
-
-    let arguments = (ins AnyFloat:$source);
-    let results = (outs TT_Tile:$result);
-
-    let assemblyFormat = [{
-      $source attr-dict `:` type($source) `->` type($result)
-    }];
-}
-
-def TT_UnpackOp : TT_Op<"unpack"> {
-    let summary = "Unpack op.";
-    let description = [{
-      Unpack operation
-    }];
-
-    let arguments = (ins TT_Tile:$source);
-    let results = (outs AnyFloat:$result);
-
-    let assemblyFormat = [{
-      $source attr-dict `:` type($source) `->` type($result)
-    }];
-}
-
 #endif

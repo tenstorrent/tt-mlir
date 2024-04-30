@@ -17,6 +17,7 @@
 
 #include "ttmlir/Dialect/TT/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/TTPasses.h"
+#include "ttmlir/Dialect/Tensix/TensixOps.h"
 
 #include "ttmlir/Target/TTTarget.h"
 
@@ -99,8 +100,8 @@ public:
       // FIXME: Actually derive the type from the linalgOp input
       arg.setType(tileTy);
       rewriter.setInsertionPoint(block, block->begin());
-      auto unpack = rewriter.create<tt::UnpackOp>(block->front().getLoc(),
-                                                  originalTy, arg);
+      auto unpack = rewriter.create<tt::tensix::UnpackOp>(block->front().getLoc(),
+                                                      originalTy, arg);
       rewriter.replaceAllUsesExcept(arg, unpack, unpack);
     }
 
@@ -108,7 +109,8 @@ public:
       if (dyn_cast<linalg::YieldOp>(op)) {
         Value operand = op->getOperand(0);
         rewriter.setInsertionPoint(op);
-        auto pack = rewriter.create<tt::PackOp>(op->getLoc(), tileTy, operand);
+        auto pack =
+            rewriter.create<tt::tensix::PackOp>(op->getLoc(), tileTy, operand);
         op->setOperand(0, pack);
       }
     });

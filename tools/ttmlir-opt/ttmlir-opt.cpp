@@ -11,14 +11,16 @@
 
 #include "ttmlir/Dialect/TT/TTDialect.h"
 #include "ttmlir/Dialect/TT/TTPasses.h"
+#include "ttmlir/Dialect/Tensix/TensixDialect.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
   mlir::tt::registerPasses();
 
   mlir::DialectRegistry registry;
-  registry.insert<mlir::tt::TTDialect, mlir::arith::ArithDialect,
-                  mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
+  registry.insert<mlir::tt::TTDialect, mlir::tt::tensix::TensixDialect,
+                  mlir::arith::ArithDialect, mlir::func::FuncDialect,
+                  mlir::ml_program::MLProgramDialect,
                   mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
                   mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
                   mlir::tosa::TosaDialect, mlir::vector::VectorDialect>();

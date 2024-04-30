@@ -13,8 +13,7 @@
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-
-#include "ttmlir/Dialect/Tensix/TensixOpsTypes.h"
+#include "ttmlir/Dialect/TT/TTOpsTypes.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/Tensix/TensixOps.h.inc"
