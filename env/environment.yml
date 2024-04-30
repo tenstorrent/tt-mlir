@@ -1,4 +1,4 @@
-name: ttmlc
+name: ttmlir
 dependencies:
   - python=3.11
   - pip

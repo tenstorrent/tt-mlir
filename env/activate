@@ -1,5 +1,5 @@
 CONDA_ENV="${CONDA_ENV:-.local/conda}"
 TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-.local/toolchain}"
 source $CONDA_ENV/bin/activate
-conda activate ttmlc
+conda activate ttmlir
 export PATH=$TOOLCHAIN_ENV/bin:$PATH

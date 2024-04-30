@@ -1,15 +1,15 @@
 TOOLCHAIN_ENV=$(ENV)/toolchain
 CONDA_ENV=$(ENV)/conda
 CONDA_ENV_INSTALLER=$(CONDA_ENV)/scripts/Miniconda3-latest-Linux-x86_64.sh
-TTMLC_ENV=$(CONDA_ENV)/envs/ttmlc
+TTMLIR_ENV=$(CONDA_ENV)/envs/ttmlir
 CMAKE=$(TOOLCHAIN_ENV)/bin/cmake
 NINJA=$(TOOLCHAIN_ENV)/bin/ninja
 LLVM_BUILD_DIR=$(TOOLCHAIN_ENV)/llvm_build
 LLVM_INSTALL=$(LLVM_BUILD_DIR)/.installed
 FLATBUFFERS_INSTALL=$(TOOLCHAIN_ENV)/bin/flatc
 
-env: $(TTMLC_ENV) $(LLVM_INSTALL) $(FLATBUFFERS_INSTALL) ;
-conda_env: $(TTMLC_ENV) ;
+env: $(TTMLIR_ENV) $(LLVM_INSTALL) $(FLATBUFFERS_INSTALL) ;
+conda_env: $(TTMLIR_ENV) ;
 toolchain: $(LLVM_INSTALL) ;
 
 $(CONDA_ENV_INSTALLER):
@@ -18,9 +18,9 @@ $(CONDA_ENV_INSTALLER):
 $(CONDA_ENV)/bin/activate: $(CONDA_ENV_INSTALLER)
 	bash $(CONDA_ENV_INSTALLER) -u -b -s -p $(CONDA_ENV)
 
-$(TTMLC_ENV): $(TTMLC_ENV)/.dep ;
+$(TTMLIR_ENV): $(TTMLIR_ENV)/.dep ;
 
-$(TTMLC_ENV)/.dep: $(CONDA_ENV)/bin/activate env/environment.yml python/requirements.txt
+$(TTMLIR_ENV)/.dep: $(CONDA_ENV)/bin/activate env/environment.yml python/requirements.txt
 	bash -c "source $(CONDA_ENV)/bin/activate && conda env create -f env/environment.yml || true"
 	bash -c "source env/activate && pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r python/requirements.txt"
 	touch $@
