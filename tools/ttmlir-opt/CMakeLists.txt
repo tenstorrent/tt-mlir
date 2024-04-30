@@ -6,6 +6,8 @@ set(LIBS
         MLIRArithDialect
         MLIROptLib
         MLIRTT
+        MLIRTensix
+        MLIRTTIR
         )
 add_llvm_executable(ttmlir-opt ttmlir-opt.cpp)
 
