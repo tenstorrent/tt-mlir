@@ -49,6 +49,24 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
     }];
 }
 
+def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
+
+def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+    let summary = "Kernel call.";
+    let description = [{
+      Kernel operation
+    }];
+
+    let arguments = (ins FlatSymbolRefAttr:$opName,
+                         Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
+    let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+    }];
+}
+
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
     let summary = "Yield op.";
     let description = [{

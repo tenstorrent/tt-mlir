@@ -19,27 +19,66 @@
 
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h"
 
-template <typename T> T div_up(T n, T d) { return (n + d - 1) / d; }
-
 namespace mlir::tt::ttir {
+#define GEN_PASS_DEF_CONVERTTOSATOTTIR
 #define GEN_PASS_DEF_TTIRDISPATCH
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSHARD
 #define GEN_PASS_DEF_TTIRLOWER
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h.inc"
 
+template <typename TosaOp>
+class TosaToTTIRKernelRewriter
+    : public OpRewritePattern<TosaOp> {
+public:
+  using OpRewritePattern<TosaOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(TosaOp op,
+                                PatternRewriter &rewriter) const final {
+    StringRef kernelName;
+    if constexpr (std::is_same<TosaOp, tosa::MulOp>::value) {
+      assert(op.getShift() == 0);
+      kernelName = "mulitply";
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "Unsupported Tosa operation for TTIR");
+    }
+    assert(kernelName.size() > 0);
+
+    // Create empty output tensor for destination passing style (DPS)
+    auto outputType = op.getOutput().getType();
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    auto kernel = rewriter.create<ttir::KernelOp>(
+        op.getLoc(), TypeRange(output.getType()), kernelName, op.getOperands(),
+        ValueRange(output));
+
+    rewriter.replaceOp(op, kernel);
+
+    return success();
+  }
+};
+
+class ConvertTosaToTTIR : public impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR> {
+public:
+  using impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR>::ConvertTosaToTTIRBase;
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TosaToTTIRKernelRewriter<tosa::MulOp>>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+      signalPassFailure();
+  }
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+  }
+};
+
 class TTIRLinalgGenericToDispatchRewriter
     : public OpRewritePattern<linalg::GenericOp> {
 public:
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
-
-  template <typename TensorTyT>
-  static TensorTyT unparallelize(TensorTyT tensorTy) {
-    SmallVector<int64_t> shape(tensorTy.getShape());
-    assert(shape.size() > 2);
-    SmallVector<int64_t> newShape(shape.begin() + 2, shape.end());
-    return tensorTy.clone(newShape);
-  }
 
   LogicalResult matchAndRewrite(linalg::GenericOp op,
                                 PatternRewriter &rewriter) const final {
@@ -47,43 +86,33 @@ public:
   }
 };
 
-template <typename TosaEltwiseOp>
-class TTIRTosaElementwiseToDispatchRewriter
-    : public OpRewritePattern<TosaEltwiseOp> {
+class TTIRKernelDispatchRewriter : public OpRewritePattern<KernelOp> {
 public:
-  using OpRewritePattern<TosaEltwiseOp>::OpRewritePattern;
+  using OpRewritePattern<KernelOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TosaEltwiseOp op,
+  LogicalResult matchAndRewrite(KernelOp op,
                                 PatternRewriter &rewriter) const final {
-    if constexpr (std::is_same<TosaEltwiseOp, tosa::MulOp>::value) {
-      assert(op.getShift() == 0);
-    }
-
     // Test if this generic op has already been lowered, todo find a better way
     if (op.getOperation()->getParentOp()->getName() ==
         OperationName("ttir.dispatch", rewriter.getContext()))
       return failure();
 
-    // Create empty output tensor for destination passing style (DPS)
-    auto outputType = op.getOutput().getType();
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), outputType.getShape(), outputType.getElementType());
-
     // Create a dispatch op
     auto dispatch = rewriter.create<ttir::DispatchOp>(
-        op.getLoc(), TypeRange(output.getType()), op.getOperands(),
-        ValueRange(output),
+        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
+        op.getOutputs(),
         GridAttr::get(rewriter.getContext(),
                       GridType::unit(rewriter.getContext())));
 
-    // Create a new basic block for the dispatch op, and plumb the operands
+    // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());
     SmallVector<Location> blockArgumentLocs(dispatch.getOperands().size(),
                                             dispatch.getLoc());
     block->addArguments(TypeRange(dispatch.getOperandTypes()),
                         blockArgumentLocs);
-    auto blockArgs = block->getArguments();
-    op.getOperation()->setOperands(blockArgs.slice(0, op.getNumOperands()));
+
+    // Update the operands of the original op to use the block arguments
+    op.getOperation()->setOperands(block->getArguments());
 
     // Move the original op into the dispatch block
     Operation *operation = op.getOperation()->clone();
@@ -101,9 +130,9 @@ public:
   using impl::TTIRDispatchBase<TTIRDispatch>::TTIRDispatchBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRLinalgGenericToDispatchRewriter,
-                 TTIRTosaElementwiseToDispatchRewriter<tosa::MulOp>>(
-        &getContext());
+    patterns
+        .add<TTIRLinalgGenericToDispatchRewriter, TTIRKernelDispatchRewriter>(
+            &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();

@@ -7,6 +7,13 @@
 
 include "mlir/Pass/PassBase.td"
 
+def ConvertTosaToTTIR: Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    todo
+  }];
+}
+
 def TTIRDispatch: Pass<"ttir-dispatch", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
