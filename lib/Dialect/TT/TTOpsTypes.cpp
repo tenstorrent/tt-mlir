@@ -11,13 +11,21 @@
 
 using namespace mlir::tt;
 
+void printGridDimension(::mlir::AsmPrinter &printer,
+                        ::llvm::ArrayRef<int64_t> shape) {
+  printer.printDimensionList(shape);
+}
+
+::mlir::ParseResult
+parseGridDimension(::mlir::AsmParser &odsParser,
+                   ::llvm::SmallVector<int64_t> &dimensions) {
+  return odsParser.parseDimensionList(dimensions, false, false);
+}
+
 #include "ttmlir/Dialect/TT/TTOpsEnums.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/TTOpsTypes.cpp.inc"
-
-#define GET_ATTRDEF_CLASSES
-#include "ttmlir/Dialect/TT/TTOpsAttrDefs.cpp.inc"
 
 void TTDialect::registerTypes() {
   addTypes<

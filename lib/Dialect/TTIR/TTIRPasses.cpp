@@ -14,6 +14,7 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Dialect/TT/TTDialect.h"
 #include "ttmlir/Dialect/TT/TTOpsTypes.h"
 
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h"
@@ -54,9 +55,44 @@ public:
 
   LogicalResult matchAndRewrite(TosaEltwiseOp op,
                                 PatternRewriter &rewriter) const final {
-    assert(op.getShift() == 0);
-    op.dump();
-    return failure();
+    if constexpr (std::is_same<TosaEltwiseOp, tosa::MulOp>::value) {
+      assert(op.getShift() == 0);
+    }
+
+    // Test if this generic op has already been lowered, todo find a better way
+    if (op.getOperation()->getParentOp()->getName() ==
+        OperationName("ttir.dispatch", rewriter.getContext()))
+      return failure();
+
+    // Create empty output tensor for destination passing style (DPS)
+    auto outputType = op.getOutput().getType();
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    // Create a dispatch op
+    auto dispatch = rewriter.create<ttir::DispatchOp>(
+        op.getLoc(), TypeRange(output.getType()), op.getOperands(),
+        ValueRange(output),
+        GridAttr::get(rewriter.getContext(),
+                      GridType::unit(rewriter.getContext())));
+
+    // Create a new basic block for the dispatch op, and plumb the operands
+    Block *block = rewriter.createBlock(&dispatch.getRegion());
+    SmallVector<Location> blockArgumentLocs(dispatch.getOperands().size(),
+                                            dispatch.getLoc());
+    block->addArguments(TypeRange(dispatch.getOperandTypes()),
+                        blockArgumentLocs);
+    auto blockArgs = block->getArguments();
+    op.getOperation()->setOperands(blockArgs.slice(0, op.getNumOperands()));
+
+    // Move the original op into the dispatch block
+    Operation *operation = op.getOperation()->clone();
+    block->push_back(operation);
+    rewriter.setInsertionPoint(block, block->end());
+    rewriter.create<ttir::YieldOp>(dispatch.getLoc(),
+                                   ValueRange({operation->getResult(0)}));
+    rewriter.replaceOp(op, dispatch);
+    return success();
   }
 };
 
@@ -74,6 +110,7 @@ public:
   }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
   }
 };
 

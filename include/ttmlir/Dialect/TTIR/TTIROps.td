@@ -23,9 +23,9 @@ def TTIR_DispatchOp : TTIR_Op<"dispatch", [DestinationStyleOpInterface, AttrSize
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
-                         TT_GridAttr:$grid,
-                         AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types);
+                         TT_GridAttr:$grid);
+                         //AffineMapArrayAttr:$indexing_maps,
+                         //TT_IteratorTypeArrayAttr:$iterator_types);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region AnyRegion:$region);
 

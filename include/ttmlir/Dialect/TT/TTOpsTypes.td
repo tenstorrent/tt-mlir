@@ -31,7 +31,13 @@ def TT_Grid : TT_Type<"Grid", "grid"> {
     let summary = "TT grid";
     let description = "Grid type in TT dialect";
     let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "AffineMap":$physical_grid_mapping);
-    let assemblyFormat = "`<` $shape`,` $physical_grid_mapping `>`";
+    let assemblyFormat = "`<` custom<GridDimension>($shape)`,` $physical_grid_mapping `>`";
+
+    let extraClassDeclaration = [{
+        static GridType unit(::mlir::MLIRContext *context) {
+            return GridType::get(context, {1, 1}, AffineMap::getMultiDimIdentityMap(2, context));
+        }
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -42,7 +48,7 @@ def TT_Grid : TT_Type<"Grid", "grid"> {
 class TT_Attr<string name, string attrMnemonic, list<Trait> traits = [],
                    string baseCppClass = "::mlir::Attribute">
     : AttrDef<TT_Dialect, name, traits, baseCppClass> {
-  let mnemonic = ?;
+  let mnemonic = attrMnemonic;
   let attrName = "tt." # attrMnemonic;
 }
 
@@ -53,6 +59,7 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
   }];
 
   let parameters = (ins "GridType":$value);
+  let assemblyFormat = "`<` $value `>`";
 }
 
 def TT_IteratorTypeArrayAttr : TypedArrayAttrBase<TT_IteratorType, "">;
