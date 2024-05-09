@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# -DMLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS=ON set if debug
+
 if [[ ! -z $CONDA_DEFAULT_ENV ]]; then
   echo "Error: cannot build llvm inside of active conda environment ($CONDA_DEFAULT_ENV), please run:"
   echo "  conda deactivate"

@@ -40,6 +40,21 @@ def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
   let symbolToStringFnName = "DataTypeEnumToString";
 }
 
+def TT_System : I32EnumAttrCase<"System", 0, "system">;
+def TT_DRAM : I32EnumAttrCase<"DRAM", 1, "dram">;
+def TT_L1 : I32EnumAttrCase<"L1", 2, "l1">;
+
+def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
+                           [
+                            TT_System,
+                            TT_DRAM,
+                            TT_L1,
+                           ]> {
+  let cppNamespace = "::mlir::tt";
+  let stringToSymbolFnName = "MemorySpaceStringToEnum";
+  let symbolToStringFnName = "MemorySpaceEnumToString";
+}
+
 def TT_Parallel : I32EnumAttrCase<"Parallel", 0, "parallel">;
 def TT_Systolic : I32EnumAttrCase<"Systolic", 1, "systolic">;
 def TT_Broadcast : I32EnumAttrCase<"Broadcast", 2, "Broadcast">;
@@ -53,6 +68,25 @@ def TT_IteratorType : I32EnumAttr<"IteratorType", "TT IteratorType",
   let cppNamespace = "::mlir::tt";
   let stringToSymbolFnName = "IteratorTypeStringToEnum";
   let symbolToStringFnName = "IteratorTypeEnumToString";
+}
+
+def TT_Undef : I32EnumAttrCase<"Undef", 0, "undef">;
+def TT_Zero : I32EnumAttrCase<"Zero", 1, "zero">;
+def TT_One : I32EnumAttrCase<"One", 2, "one">;
+def TT_Inf : I32EnumAttrCase<"Inf", 3, "inf">;
+def TT_NegInf : I32EnumAttrCase<"NegInf", 4, "neginf">;
+
+def TT_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
+                           [
+                            TT_Undef,
+                            TT_Zero,
+                            TT_One,
+                            TT_Inf,
+                            TT_NegInf,
+                           ]> {
+  let cppNamespace = "::mlir::tt";
+  let stringToSymbolFnName = "OOBValStringToEnum";
+  let symbolToStringFnName = "OOBValEnumToString";
 }
 
 #endif

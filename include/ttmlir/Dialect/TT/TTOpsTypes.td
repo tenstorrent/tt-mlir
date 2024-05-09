@@ -8,6 +8,7 @@
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/IR/CommonTypeConstraints.td"
 include "ttmlir/Dialect/TT/TTDialect.td"
 include "ttmlir/Dialect/TT/TTOpsEnums.td"
 
@@ -25,19 +26,6 @@ def TT_Tile : TT_Type<"Tile", "tile"> {
     let description = "Tile type in TT dialect";
     let parameters = (ins "unsigned":$height, "unsigned":$width, "DataType":$dataType);
     let assemblyFormat = "`<` $height `x` $width`,` $dataType `>`";
-}
-
-def TT_Grid : TT_Type<"Grid", "grid"> {
-    let summary = "TT grid";
-    let description = "Grid type in TT dialect";
-    let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "AffineMap":$physical_grid_mapping);
-    let assemblyFormat = "`<` custom<GridDimension>($shape)`,` $physical_grid_mapping `>`";
-
-    let extraClassDeclaration = [{
-        static GridType unit(::mlir::MLIRContext *context) {
-            return GridType::get(context, {1, 1}, AffineMap::getMultiDimIdentityMap(2, context));
-        }
-    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -58,8 +46,27 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
     TT grid attribute
   }];
 
-  let parameters = (ins "GridType":$value);
-  let assemblyFormat = "`<` $value `>`";
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "AffineMap":$physical_grid_mapping);
+  let assemblyFormat = "`<` custom<DimensionList>($shape)`,` $physical_grid_mapping `>`";
+
+  let extraClassDeclaration = [{
+      static GridAttr unit(::mlir::MLIRContext *context) {
+          return GridAttr::get(context, {1, 1}, AffineMap::getMultiDimIdentityMap(2, context));
+      }
+  }];
+}
+
+def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
+  let summary = "TT layout attribute";
+  let description = [{
+    TT layout attribute
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$strides,
+                        "OOBVal":$oob_val,
+                        "GridAttr":$grid,
+                        "MemRefType":$memref);
+  let assemblyFormat = "`<` custom<DimensionList>($strides)`,` $oob_val`,` $grid`,` $memref `>`";
 }
 
 def TT_IteratorTypeArrayAttr : TypedArrayAttrBase<TT_IteratorType, "">;

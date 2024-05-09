@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/MLProgram/IR/MLProgram.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -27,6 +28,11 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWER
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h.inc"
 
+static GridAttr unitGridAttr(mlir::PatternRewriter &rewriter) {
+  return rewriter.getAttr<GridAttr>(SmallVector<int64_t>{1, 1},
+                                    rewriter.getMultiDimIdentityMap(2));
+}
+
 template <typename TosaOp>
 class TosaToTTIRKernelRewriter
     : public OpRewritePattern<TosaOp> {
@@ -36,9 +42,11 @@ public:
   LogicalResult matchAndRewrite(TosaOp op,
                                 PatternRewriter &rewriter) const final {
     StringRef kernelName;
+    StringRef kernelKind;
     if constexpr (std::is_same<TosaOp, tosa::MulOp>::value) {
       assert(op.getShift() == 0);
       kernelName = "mulitply";
+      kernelKind = "eltwise";
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported Tosa operation for TTIR");
@@ -51,8 +59,8 @@ public:
         op.getLoc(), outputType.getShape(), outputType.getElementType());
 
     auto kernel = rewriter.create<ttir::KernelOp>(
-        op.getLoc(), TypeRange(output.getType()), kernelName, op.getOperands(),
-        ValueRange(output));
+        op.getLoc(), TypeRange(output.getType()), kernelName, kernelKind,
+        op.getOperands(), ValueRange(output));
 
     rewriter.replaceOp(op, kernel);
 
@@ -100,9 +108,7 @@ public:
     // Create a dispatch op
     auto dispatch = rewriter.create<ttir::DispatchOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(),
-        GridAttr::get(rewriter.getContext(),
-                      GridType::unit(rewriter.getContext())));
+        op.getOutputs(), unitGridAttr(rewriter));
 
     // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());
@@ -143,11 +149,143 @@ public:
   }
 };
 
+class TTIRLayoutRewriter : public OpRewritePattern<DispatchOp> {
+public:
+  using OpRewritePattern<DispatchOp>::OpRewritePattern;
+
+  SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) const {
+    SmallVector<int64_t> stride;
+    stride.push_back(1);
+    for (auto iter = shape.rbegin(); iter != shape.rend(); ++iter) {
+      stride.insert(stride.begin(),
+                    stride.front() * *iter); // TODO: alignup 16B
+    }
+    return stride;
+  }
+
+  std::optional<ttir::LayoutOp> createLayout(PatternRewriter &rewriter,
+                                             Location loc, Value input) const {
+    auto ty = input.getType().cast<RankedTensorType>();
+    if (ty.getEncoding()) {
+      assert(ty.getEncoding().isa<LayoutAttr>());
+      return std::nullopt;
+    }
+    auto map = rewriter.getMultiDimIdentityMap(2);
+    auto memref =
+        MemRefType::get(ty.getShape(), ty.getElementType(), map,
+                        rewriter.getAttr<MemorySpaceAttr>(MemorySpace::System));
+    LayoutAttr layoutEncoding = rewriter.getAttr<LayoutAttr>(
+        canonicalStride(ty.getShape()), OOBVal::Undef, unitGridAttr(rewriter),
+        memref);
+    auto output = rewriter.create<tensor::EmptyOp>(
+        loc, ty.getShape(), ty.getElementType(), layoutEncoding);
+
+    tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
+    if (exising_empty) {
+      rewriter.replaceOp(exising_empty, output);
+      return std::nullopt;
+    } else {
+      return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input,
+                                             output, true);
+    }
+  }
+
+  LogicalResult matchAndRewrite(DispatchOp op,
+                                PatternRewriter &rewriter) const final {
+    int operandIndex = 0;
+    bool modified = false;
+    for (auto operand : op.getOperands()) {
+      if (auto layout = createLayout(rewriter, op.getLoc(), operand); layout) {
+        rewriter.modifyOpInPlace(op, [&]() {
+          op.setOperand(operandIndex, *layout);
+          // This is kind of hacky, the last operand is the output so it'll be
+          // last in setting the result type
+          op.getResult(0).setType(layout->getType());
+        });
+        modified = true;
+      }
+      ++operandIndex;
+    }
+
+    // Update the region arguments to use the memref type
+    if (modified) {
+      operandIndex = 0;
+      for (auto operand : op.getOperands()) {
+        rewriter.modifyOpInPlace(op, [&]() {
+          auto memref = operand.getType()
+                            .cast<RankedTensorType>()
+                            .getEncoding()
+                            .cast<LayoutAttr>()
+                            .getMemref();
+          auto blockArg = op.getRegion().getArgument(operandIndex);
+          blockArg.setType(memref);
+          for (auto user : blockArg.getUsers()) {
+            // This is kind of hacky, the last operand is the output so it'll be
+            // last in setting the result type
+            dyn_cast<KernelOp>(user).getResult(0).setType(memref);
+          }
+        });
+        ++operandIndex;
+      }
+    }
+
+    return modified ? success() : failure();
+  }
+};
+
+class TTIRUnlayoutFuncReturnRewriter
+    : public OpRewritePattern<mlir::func::ReturnOp> {
+public:
+  using OpRewritePattern<mlir::func::ReturnOp>::OpRewritePattern;
+
+  std::optional<Value> createUnlayout(PatternRewriter &rewriter, Location loc,
+                                      Value input) const {
+    auto ty = input.getType().cast<RankedTensorType>();
+    if (not ty.getEncoding()) {
+      return std::nullopt;
+    }
+    assert(ty.getEncoding().isa<LayoutAttr>());
+    auto output = rewriter.create<tensor::EmptyOp>(loc, ty.getShape(),
+                                                   ty.getElementType());
+    return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output,
+                                           true);
+  }
+
+  LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
+                                PatternRewriter &rewriter) const final {
+    int operandIndex = 0;
+    bool modified = false;
+    for (auto operand : op.getOperands()) {
+      if (auto layout = createUnlayout(rewriter, op.getLoc(), operand);
+          layout) {
+        rewriter.modifyOpInPlace(op, [&]() {
+          op.setOperand(operandIndex, *layout);
+        });
+        modified = true;
+      }
+      ++operandIndex;
+    }
+    return modified ? success() : failure();
+  }
+};
+
 class TTIRLayout : public impl::TTIRLayoutBase<TTIRLayout> {
 public:
   using impl::TTIRLayoutBase<TTIRLayout>::TTIRLayoutBase;
 
-  void runOnOperation() final { assert(false); }
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRLayoutRewriter, TTIRUnlayoutFuncReturnRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+      signalPassFailure();
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
+    registry.insert<mlir::func::FuncDialect>();
+  }
 };
 
 class TTIRShard : public impl::TTIRShardBase<TTIRShard> {

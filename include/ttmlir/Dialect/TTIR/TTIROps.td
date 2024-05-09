@@ -41,7 +41,8 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         BoolAttr:$is_cast);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
@@ -57,7 +58,8 @@ def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOpe
       Kernel operation
     }];
 
-    let arguments = (ins FlatSymbolRefAttr:$opName,
+    let arguments = (ins FlatSymbolRefAttr:$op,
+                         FlatSymbolRefAttr:$kind,
                          Variadic<AnyRankedTensorOrMemRef>:$inputs,
                          Variadic<AnyRankedTensorOrMemRef>:$outputs);
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
