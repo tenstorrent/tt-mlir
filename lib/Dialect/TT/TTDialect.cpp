@@ -13,6 +13,28 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+// This is needed to hoist tt.layout attributes as named attributes declared at
+// the module level.
+struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
+  using OpAsmDialectInterface::OpAsmDialectInterface;
+
+  AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
+    if (llvm::isa<LayoutAttr>(attr)) {
+      os << "layout";
+      return AliasResult::OverridableAlias;
+    }
+    if (llvm::isa<MemorySpaceAttr>(attr)) {
+      os << attr.template cast<MemorySpaceAttr>().getValue();
+      return AliasResult::OverridableAlias;
+    }
+    if (llvm::isa<IteratorTypeAttr>(attr)) {
+      os << attr.template cast<IteratorTypeAttr>().getValue();
+      return AliasResult::OverridableAlias;
+    }
+    return AliasResult::NoAlias;
+  }
+};
+
 namespace mlir::tt {
 static void printDimensionList(::mlir::AsmPrinter &printer,
                                ::llvm::ArrayRef<int64_t> shape) {
@@ -45,4 +67,5 @@ void TTDialect::initialize() {
 #include "ttmlir/Dialect/TT/TTOpsAttrDefs.cpp.inc"
       >();
   registerTypes();
+  addInterfaces<TTOpAsmDialectInterface>();
 }

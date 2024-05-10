@@ -46,12 +46,16 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
     TT grid attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "AffineMap":$physical_grid_mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape)`,` $physical_grid_mapping `>`";
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape, 
+                        DefaultValuedParameter<
+                          "AffineMap",
+                          "$_builder.getEmptyAffineMap()">:$physical_grid_mapping);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $physical_grid_mapping^)? `>`";
 
   let extraClassDeclaration = [{
-      static GridAttr unit(::mlir::MLIRContext *context) {
-          return GridAttr::get(context, {1, 1}, AffineMap::getMultiDimIdentityMap(2, context));
+      static GridAttr get(::mlir::MLIRContext *context)
+      {
+        return GridAttr::get(context, {1, 1}, AffineMap::get(context));
       }
   }];
 }
@@ -69,6 +73,18 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   let assemblyFormat = "`<` custom<DimensionList>($strides)`,` $oob_val`,` $grid`,` $memref `>`";
 }
 
-def TT_IteratorTypeArrayAttr : TypedArrayAttrBase<TT_IteratorType, "">;
+def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_OOBValAttr : EnumAttr<TT_Dialect, TT_OOBVal, "oob_val"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_IteratorTypeAttr : EnumAttr<TT_Dialect, TT_IteratorType, "iterator_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_IteratorTypeArrayAttr : TypedArrayAttrBase<TT_IteratorTypeAttr, "">;
 
 #endif

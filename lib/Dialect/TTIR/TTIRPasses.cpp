@@ -28,14 +28,8 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLOWER
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h.inc"
 
-static GridAttr unitGridAttr(mlir::PatternRewriter &rewriter) {
-  return rewriter.getAttr<GridAttr>(SmallVector<int64_t>{1, 1},
-                                    rewriter.getMultiDimIdentityMap(2));
-}
-
 template <typename TosaOp>
-class TosaToTTIRKernelRewriter
-    : public OpRewritePattern<TosaOp> {
+class TosaToTTIRKernelRewriter : public OpRewritePattern<TosaOp> {
 public:
   using OpRewritePattern<TosaOp>::OpRewritePattern;
 
@@ -47,6 +41,9 @@ public:
       assert(op.getShift() == 0);
       kernelName = "mulitply";
       kernelKind = "eltwise";
+    } else if constexpr (std::is_same<TosaOp, tosa::MatMulOp>::value) {
+      kernelName = "matmul";
+      kernelKind = "matmul";
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported Tosa operation for TTIR");
@@ -54,7 +51,8 @@ public:
     assert(kernelName.size() > 0);
 
     // Create empty output tensor for destination passing style (DPS)
-    auto outputType = op.getOutput().getType();
+    auto outputType =
+        op.getResult().getType().template cast<RankedTensorType>();
     auto output = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputType.getShape(), outputType.getElementType());
 
@@ -73,7 +71,8 @@ public:
   using impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR>::ConvertTosaToTTIRBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TosaToTTIRKernelRewriter<tosa::MulOp>>(&getContext());
+    patterns.add<TosaToTTIRKernelRewriter<tosa::MulOp>,
+                 TosaToTTIRKernelRewriter<tosa::MatMulOp>>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();
@@ -98,6 +97,73 @@ class TTIRKernelDispatchRewriter : public OpRewritePattern<KernelOp> {
 public:
   using OpRewritePattern<KernelOp>::OpRewritePattern;
 
+  static bool sameRank(mlir::OperandRange operands) {
+    if (operands.empty())
+      return false;
+    auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
+    for (auto operand : operands) {
+      if (operand.getType().cast<RankedTensorType>().getRank() != rank)
+        return false;
+    }
+    return true;
+  }
+
+  static std::pair<ArrayAttr, ArrayAttr>
+  createEltwiseIndexingMaps(PatternRewriter &rewriter,
+                         mlir::OperandRange operands) {
+    assert(sameRank(operands) &&
+           "For now all operands must have the same rank");
+    auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
+    SmallVector<AffineMap> indexingMaps(operands.size(),
+                                        rewriter.getMultiDimIdentityMap(rank));
+    SmallVector<Attribute> iteratorTypes(
+        rank, rewriter.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+    return {rewriter.getAffineMapArrayAttr(indexingMaps),
+            rewriter.getArrayAttr(iteratorTypes)};
+  }
+
+  static std::pair<ArrayAttr, ArrayAttr>
+  createMatmulIndexingMaps(PatternRewriter &rewriter,
+                        mlir::OperandRange operands) {
+    assert(sameRank(operands) &&
+           "For now all operands must have the same rank");
+    auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
+    assert(rank >= 2 && "Matmul requires rank >= 2");
+    auto rank_plus_inner_dim = rank + 1;
+
+    // (d0, d1, d2, d3) -> (d0, d1, d2, d3)
+    // lhs (d0, d1, d2, d3) -> (d0, d1, d3) drop d2
+    // rhs (d0, d1, d2, d3) -> (d0, d3, d2) drop d1 and swap d2 and d3
+    // out (d0, d1, d2, d3) -> (d0, d1, d2) drop d3
+    auto id = rewriter.getMultiDimIdentityMap(rank_plus_inner_dim);
+    auto lhs = id.dropResult(rank_plus_inner_dim - 2);
+    auto rhs = id.dropResult(rank_plus_inner_dim - 3);
+    auto rhs_outer = rhs.getResult(rank - 2);
+    rhs = rhs.insertResult(rhs_outer, rank);
+    rhs = rhs.dropResult(rank - 2);
+    auto out = id.dropResult(rank_plus_inner_dim - 1);
+
+    SmallVector<AffineMap> indexingMaps = {lhs, rhs, out};
+    SmallVector<Attribute> iteratorTypes(
+        rank, rewriter.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+    iteratorTypes.push_back(
+        rewriter.getAttr<IteratorTypeAttr>(IteratorType::Systolic));
+    return {rewriter.getAffineMapArrayAttr(indexingMaps),
+            rewriter.getArrayAttr(iteratorTypes)};
+  }
+
+  static std::pair<ArrayAttr, ArrayAttr>
+  createIndexingMaps(PatternRewriter &rewriter, StringRef kind,
+                  mlir::OperandRange operands) {
+    if (kind == "eltwise") {
+      return createEltwiseIndexingMaps(rewriter, operands);
+    } else if (kind == "matmul") {
+      return createMatmulIndexingMaps(rewriter, operands);
+    } else {
+      llvm_unreachable("Unsupported kernel kind");
+    }
+  }
+
   LogicalResult matchAndRewrite(KernelOp op,
                                 PatternRewriter &rewriter) const final {
     // Test if this generic op has already been lowered, todo find a better way
@@ -106,9 +172,12 @@ public:
       return failure();
 
     // Create a dispatch op
+    auto [indexingMaps, iteratorTypes] =
+        createIndexingMaps(rewriter, op.getKind(), op.getOperands());
     auto dispatch = rewriter.create<ttir::DispatchOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(), unitGridAttr(rewriter));
+        op.getOutputs(), rewriter.getAttr<GridAttr>(), indexingMaps,
+        iteratorTypes);
 
     // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());
@@ -170,13 +239,13 @@ public:
       assert(ty.getEncoding().isa<LayoutAttr>());
       return std::nullopt;
     }
-    auto map = rewriter.getMultiDimIdentityMap(2);
+    auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
     auto memref =
         MemRefType::get(ty.getShape(), ty.getElementType(), map,
                         rewriter.getAttr<MemorySpaceAttr>(MemorySpace::System));
     LayoutAttr layoutEncoding = rewriter.getAttr<LayoutAttr>(
-        canonicalStride(ty.getShape()), OOBVal::Undef, unitGridAttr(rewriter),
-        memref);
+        canonicalStride(ty.getShape()), OOBVal::Undef,
+        rewriter.getAttr<GridAttr>(), memref);
     auto output = rewriter.create<tensor::EmptyOp>(
         loc, ty.getShape(), ty.getElementType(), layoutEncoding);
 
@@ -196,12 +265,8 @@ public:
     bool modified = false;
     for (auto operand : op.getOperands()) {
       if (auto layout = createLayout(rewriter, op.getLoc(), operand); layout) {
-        rewriter.modifyOpInPlace(op, [&]() {
-          op.setOperand(operandIndex, *layout);
-          // This is kind of hacky, the last operand is the output so it'll be
-          // last in setting the result type
-          op.getResult(0).setType(layout->getType());
-        });
+        rewriter.modifyOpInPlace(
+            op, [&]() { op.setOperand(operandIndex, *layout); });
         modified = true;
       }
       ++operandIndex;
@@ -224,6 +289,10 @@ public:
             // last in setting the result type
             dyn_cast<KernelOp>(user).getResult(0).setType(memref);
           }
+
+          // This is kind of hacky, the last operand is the output so it'll be
+          // last in setting the result type
+          op.getResult(0).setType(operand.getType());
         });
         ++operandIndex;
       }

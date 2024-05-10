@@ -135,12 +135,12 @@ iterator_types = ["parallel", "systolic", "broadcast", "explicit"]
 %0 = tensor<64x128xf32, #layout0>
 %1 = tensor<64x128xf32, #layout0>
 %2 = tensor<64x128xf32, #layout0>
-%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, indexing_maps = [#map0, #map0, #map0], iterator_types = ["parallel", "parallel"]}> ({
-^reader(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
+%6 = "tt.dispatch"(%0, %1, %2) <{#grid0, region_mapping = ["noc0", "compute"], operand_cb_mapping = [0, 1, 2]}> ({
+^bb0(%arg0: !tt.cb<0x1000, 0, 1, memref<1x2x!tt.tile<32 x 32, f32>>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
   %8 = tt.compute "add"(%arg0, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
   "tt.yield"(%8) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> ()
 }
-^compute(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
+^bb1(%arg0: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg1: memref<1x2x!tt.tile<32 x 32, f32>, #l1>, %arg2: memref<1x2x!tt.tile<32 x 32, f32>, #l1>):
   %8 = tt.compute "add"(%arg0, %arg1) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>, memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> memref<1x2x!tt.tile<32 x 32, f32>, #l1>
   "tt.yield"(%8) : (memref<1x2x!tt.tile<32 x 32, f32>, #l1>) -> ()
 }) : tensor<64x128xf32, #layout0>
