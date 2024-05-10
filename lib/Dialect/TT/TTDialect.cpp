@@ -35,8 +35,10 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
       auto value = attr.template cast<OperandConstraintAttr>().getValue();
       if (value == OperandConstraint::Any) {
         os << "any";
-      } else if (value == OperandConstraint::AnyTile) {
-        os << "any_tile";
+      } else if (value == OperandConstraint::AnyDevice) {
+        os << "any_device";
+      } else if (value == OperandConstraint::AnyDeviceTile) {
+        os << "any_device_tile";
       } else {
         os << "operand_constraint";
       }

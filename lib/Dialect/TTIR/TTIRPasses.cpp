@@ -170,12 +170,12 @@ public:
     auto numOperands = operands.size();
     if (kind == "eltwise") {
       return rewriter.getArrayAttr(SmallVector<Attribute>(
-          numOperands,
-          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::Any)));
+          numOperands, rewriter.getAttr<OperandConstraintAttr>(
+                           OperandConstraint::AnyDevice)));
     } else if (kind == "matmul") {
       return rewriter.getArrayAttr(SmallVector<Attribute>(
-          numOperands,
-          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::AnyTile)));
+          numOperands, rewriter.getAttr<OperandConstraintAttr>(
+                           OperandConstraint::AnyDeviceTile)));
     } else {
       llvm_unreachable("Unsupported kernel kind");
     }

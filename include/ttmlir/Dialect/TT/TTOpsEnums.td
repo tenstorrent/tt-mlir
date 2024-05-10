@@ -86,21 +86,25 @@ def TT_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 0, "dram">;
-def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 1, "l1">;
-def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 2, "scalar">;
-def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 3, "tile">;
-def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile], "any">;
-def TT_OperandConstraintAnyTile : I32BitEnumAttrCaseGroup<"AnyTile", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintTile], "any_tile">;
+def TT_OperandConstraintSystem : I32BitEnumAttrCaseBit<"System", 0, "system">;
+def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 1, "dram">;
+def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 2, "l1">;
+def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 3, "scalar">;
+def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 4, "tile">;
+def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintSystem, TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile], "any">;
+def TT_OperandConstraintAnyDevice : I32BitEnumAttrCaseGroup<"AnyDevice", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile], "any_device">;
+def TT_OperandConstraintAnyDeviceTile : I32BitEnumAttrCaseGroup<"AnyDeviceTile", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintTile], "any_device_tile">;
 
 def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Constraints",
                            [
+                            TT_OperandConstraintSystem,
                             TT_OperandConstraintDRAM,
                             TT_OperandConstraintL1,
                             TT_OperandConstraintScalar,
                             TT_OperandConstraintTile,
                             TT_OperandConstraintAny,
-                            TT_OperandConstraintAnyTile,
+                            TT_OperandConstraintAnyDevice,
+                            TT_OperandConstraintAnyDeviceTile,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
