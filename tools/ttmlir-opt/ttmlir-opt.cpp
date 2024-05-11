@@ -10,14 +10,12 @@
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 #include "ttmlir/Dialect/TT/TTDialect.h"
-#include "ttmlir/Dialect/TT/TTPasses.h"
 #include "ttmlir/Dialect/TTIR/TTIRDialect.h"
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h"
 #include "ttmlir/Dialect/Tensix/TensixDialect.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
-  mlir::tt::registerPasses();
   mlir::tt::ttir::registerPasses();
 
   mlir::DialectRegistry registry;

@@ -2,10 +2,6 @@ add_mlir_dialect(TTOps tt)
 add_mlir_doc(TTDialect TTDialect ttmlir/ -gen-dialect-doc)
 add_mlir_doc(TTOps TTOps ttmlir/ -gen-op-doc)
 
-set(LLVM_TARGET_DEFINITIONS TTPasses.td)
-mlir_tablegen(TTPasses.h.inc --gen-pass-decls)
-add_public_tablegen_target(MLIRTTPassesIncGen)
-
 set(LLVM_TARGET_DEFINITIONS TTOps.td)
 mlir_tablegen(TTOpsAttrDefs.h.inc -gen-attrdef-decls)
 mlir_tablegen(TTOpsAttrDefs.cpp.inc -gen-attrdef-defs)

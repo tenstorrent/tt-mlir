@@ -51,11 +51,4 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRLower: Pass<"ttir-lower", "::mlir::ModuleOp"> {
-  let summary = "Lower to device/kernel dialects.";
-  let description = [{
-    todo
-  }];
-}
-
 #endif

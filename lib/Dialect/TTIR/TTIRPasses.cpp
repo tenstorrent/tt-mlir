@@ -27,7 +27,6 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSHARD
 #define GEN_PASS_DEF_TTIRALLOCATE
-#define GEN_PASS_DEF_TTIRLOWER
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h.inc"
 
 template <typename TosaOp>
@@ -555,13 +554,6 @@ public:
       });
     });
   }
-};
-
-class TTIRLower : public impl::TTIRLowerBase<TTIRLower> {
-public:
-  using impl::TTIRLowerBase<TTIRLower>::TTIRLowerBase;
-
-  void runOnOperation() final { assert(false); }
 };
 
 } // namespace mlir::tt::ttir
