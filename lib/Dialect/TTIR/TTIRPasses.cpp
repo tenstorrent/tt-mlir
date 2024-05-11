@@ -4,6 +4,7 @@
 
 #include <iostream>
 
+#include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -25,6 +26,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRDISPATCH
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSHARD
+#define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRLOWER
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h.inc"
 
@@ -237,7 +239,21 @@ public:
   }
 };
 
-static MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
+inline MemorySpace getMemorySpace(MemRefType memref) {
+  return memref.getMemorySpace().template cast<MemorySpaceAttr>().getValue();
+}
+
+inline MemorySpace getMemorySpace(LayoutAttr layout) {
+  return getMemorySpace(layout.getMemref());
+}
+
+inline MemorySpace getMemorySpace(RankedTensorType ty) {
+  assert(ty.getEncoding());
+  auto layout = ty.getEncoding().template cast<LayoutAttr>();
+  return getMemorySpace(layout);
+}
+
+inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
   if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1))
     return MemorySpace::L1;
   else if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM))
@@ -245,7 +261,7 @@ static MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
   return MemorySpace::System;
 }
 
-static SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
+inline SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
   SmallVector<int64_t> stride;
   stride.push_back(1);
   for (auto iter = shape.rbegin(); iter != shape.rend(); ++iter) {
@@ -255,7 +271,7 @@ static SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
   return stride;
 }
 
-static LayoutAttr
+inline LayoutAttr
 canonicalLayoutAttr(PatternRewriter &rewriter, RankedTensorType ty,
                     MemorySpace memorySpace = MemorySpace::System) {
   auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
@@ -422,6 +438,123 @@ public:
   using impl::TTIRShardBase<TTIRShard>::TTIRShardBase;
 
   void runOnOperation() final { assert(false); }
+};
+
+inline uint64_t getElementSizeBytes(Type ty) {
+  assert(ty.isF32() && "Only support f32 for now");
+  return 4;
+}
+
+inline uint64_t getMemrefSizeBytes(MemRefType ty) {
+  auto shape = ty.getShape();
+  uint64_t size = getElementSizeBytes(ty.getElementType());
+  return std::accumulate(shape.begin(), shape.end(), size,
+                         std::multiplies<uint64_t>());
+  return size;
+}
+
+inline uint64_t getLayoutSizeBytes(LayoutAttr layout) {
+  auto gridShape = layout.getGrid().getShape();
+  auto gridVolume = std::accumulate(gridShape.begin(), gridShape.end(), 1,
+                                    std::multiplies<uint64_t>());
+  assert(gridVolume == 1 && "Only support grid shape of 1 for now");
+  return getMemrefSizeBytes(layout.getMemref());
+}
+
+inline uint64_t getTensorSizeBytes(RankedTensorType ty) {
+  assert(ty.getEncoding());
+  auto layout = ty.getEncoding().template cast<LayoutAttr>();
+  return getLayoutSizeBytes(layout);
+}
+
+class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
+  struct SimpleAllocator {
+    static constexpr uint64_t kBaseAddress = 1llu << 18llu;
+
+    SmallVector<uint64_t> currPtr = SmallVector<uint64_t>(
+        getMaxEnumValForMemorySpace() + 1llu, kBaseAddress);
+
+    uint64_t alignUp(uint64_t ptr, uint64_t alignment) {
+      return (ptr + alignment - 1) & ~(alignment - 1);
+    }
+
+    uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
+      if (memorySpace == MemorySpace::System)
+        return 0;
+
+      uint32_t index = static_cast<uint32_t>(memorySpace);
+      assert(index < currPtr.size());
+      uint64_t &ptr = currPtr[index];
+      ptr = alignUp(ptr, 16);
+      auto result = ptr;
+      ptr += size;
+      return result;
+    }
+  };
+
+public:
+  using impl::TTIRAllocateBase<TTIRAllocate>::TTIRAllocateBase;
+
+  std::pair<Operation *, Operation *>
+  getStartEndOperationThroughDPSOps(const LivenessBlockInfo *livenessInfo,
+                                    Value value) {
+    auto *startOp = livenessInfo->getStartOperation(value);
+    auto *endOp = livenessInfo->getEndOperation(value, startOp);
+    auto opOperandIter =
+        llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
+          return opOperand.is(value);
+        });
+    assert(opOperandIter != endOp->getOpOperands().end());
+    while (
+        isa<DestinationStyleOpInterface>(endOp) and
+        cast<DestinationStyleOpInterface>(endOp).isDpsInit(&(*opOperandIter))) {
+      assert(endOp->getResults().size() == 1);
+      auto result = endOp->getResult(0);
+      endOp = livenessInfo->getEndOperation(result, endOp);
+      opOperandIter =
+          llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
+            return opOperand.is(result);
+          });
+      assert(opOperandIter != endOp->getOpOperands().end());
+    }
+    return std::make_pair(startOp, endOp);
+  }
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    module->walk([&](func::FuncOp func) {
+      assert(func.getBody().hasOneBlock());
+      SimpleAllocator allocator;
+      Liveness liveness(func.getOperation());
+      const LivenessBlockInfo *livenessInfo =
+          liveness.getLiveness(&func.getBody().front());
+      func->walk([&](tensor::EmptyOp empty) {
+        auto resultTy =
+            empty.getResult().getType().template cast<RankedTensorType>();
+        // Skip for tensors without layout
+        if (not resultTy.getEncoding())
+          return;
+
+        auto [startOp, endOp] =
+            getStartEndOperationThroughDPSOps(livenessInfo, empty.getResult());
+
+        // Replace empty with allocate
+        auto sizeBytes = getTensorSizeBytes(resultTy);
+        auto address = allocator.allocate(sizeBytes, getMemorySpace(resultTy));
+        rewriter.setInsertionPoint(startOp);
+        auto alloc =
+            rewriter.create<AllocOp>(startOp->getLoc(), resultTy, address,
+                                     sizeBytes, getMemorySpace(resultTy));
+        rewriter.replaceOp(empty, alloc);
+
+        // Insert deallocate
+        rewriter.setInsertionPointAfter(endOp);
+        rewriter.create<DeallocOp>(endOp->getLoc(), alloc.getResult());
+      });
+    });
+  }
 };
 
 class TTIRLower : public impl::TTIRLowerBase<TTIRLower> {

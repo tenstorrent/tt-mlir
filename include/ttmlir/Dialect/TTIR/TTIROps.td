@@ -53,6 +53,27 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
     let hasVerifier = 1;
 }
 
+def TTIR_AllocOp : TTIR_Op<"alloc"> {
+    let summary = "Alloc op.";
+    let description = [{
+      Tensor Alloc operation
+    }];
+
+    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
+    let summary = "Dealloc op.";
+    let description = [{
+      Tensor Dealloc operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$result);
+}
+
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
 def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
@@ -78,7 +99,7 @@ def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
       Yield operation
     }];
 
-    let arguments = (ins Variadic<AnyType>:$values);
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 }
 
 #endif

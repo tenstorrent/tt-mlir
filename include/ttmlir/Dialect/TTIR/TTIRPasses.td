@@ -44,6 +44,13 @@ def TTIRShard: Pass<"ttir-shard", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
+  let summary = "Allocate tensors.";
+  let description = [{
+    todo
+  }];
+}
+
 def TTIRLower: Pass<"ttir-lower", "::mlir::ModuleOp"> {
   let summary = "Lower to device/kernel dialects.";
   let description = [{
