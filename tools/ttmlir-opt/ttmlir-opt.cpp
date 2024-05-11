@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TT/TTDialect.h"
 #include "ttmlir/Dialect/TTIR/TTIRDialect.h"
 #include "ttmlir/Dialect/TTIR/TTIRPasses.h"
+#include "ttmlir/Dialect/TTMetal/TTMetalPasses.h"
 #include "ttmlir/Dialect/Tensix/TensixDialect.h"
 
 int main(int argc, char **argv) {
@@ -20,6 +21,7 @@ int main(int argc, char **argv) {
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+                  mlir::tt::ttmetal::TTMetalDialect,
                   mlir::tt::tensix::TensixDialect, mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
                   mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
