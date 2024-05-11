@@ -164,6 +164,23 @@ public:
     }
   }
 
+  static ArrayAttr createOperandConstraints(PatternRewriter &rewriter,
+                                            StringRef kind,
+                                            mlir::OperandRange operands) {
+    auto numOperands = operands.size();
+    if (kind == "eltwise") {
+      return rewriter.getArrayAttr(SmallVector<Attribute>(
+          numOperands,
+          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::Any)));
+    } else if (kind == "matmul") {
+      return rewriter.getArrayAttr(SmallVector<Attribute>(
+          numOperands,
+          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::AnyTile)));
+    } else {
+      llvm_unreachable("Unsupported kernel kind");
+    }
+  }
+
   LogicalResult matchAndRewrite(KernelOp op,
                                 PatternRewriter &rewriter) const final {
     // Test if this generic op has already been lowered, todo find a better way
@@ -174,10 +191,12 @@ public:
     // Create a dispatch op
     auto [indexingMaps, iteratorTypes] =
         createIndexingMaps(rewriter, op.getKind(), op.getOperands());
+    auto constraints =
+        createOperandConstraints(rewriter, op.getKind(), op.getOperands());
     auto dispatch = rewriter.create<ttir::DispatchOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), rewriter.getAttr<GridAttr>(), indexingMaps,
-        iteratorTypes);
+        iteratorTypes, constraints);
 
     // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());

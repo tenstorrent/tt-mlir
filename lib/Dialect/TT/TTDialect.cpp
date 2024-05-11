@@ -31,6 +31,17 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
       os << attr.template cast<IteratorTypeAttr>().getValue();
       return AliasResult::OverridableAlias;
     }
+    if (llvm::isa<OperandConstraintAttr>(attr)) {
+      auto value = attr.template cast<OperandConstraintAttr>().getValue();
+      if (value == OperandConstraint::Any) {
+        os << "any";
+      } else if (value == OperandConstraint::AnyTile) {
+        os << "any_tile";
+      } else {
+        os << "operand_constraint";
+      }
+      return AliasResult::OverridableAlias;
+    }
     return AliasResult::NoAlias;
   }
 };
