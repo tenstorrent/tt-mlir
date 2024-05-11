@@ -237,34 +237,51 @@ public:
   }
 };
 
+static MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
+  if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1))
+    return MemorySpace::L1;
+  else if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM))
+    return MemorySpace::DRAM;
+  return MemorySpace::System;
+}
+
+static SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> stride;
+  stride.push_back(1);
+  for (auto iter = shape.rbegin(); iter != shape.rend(); ++iter) {
+    stride.insert(stride.begin(),
+                  stride.front() * *iter); // TODO: alignup 16B
+  }
+  return stride;
+}
+
+static LayoutAttr
+canonicalLayoutAttr(PatternRewriter &rewriter, RankedTensorType ty,
+                    MemorySpace memorySpace = MemorySpace::System) {
+  auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
+  auto memref =
+      MemRefType::get(ty.getShape(), ty.getElementType(), map,
+                      rewriter.getAttr<MemorySpaceAttr>(memorySpace));
+  return rewriter.getAttr<LayoutAttr>(canonicalStride(ty.getShape()),
+                                      OOBVal::Undef,
+                                      rewriter.getAttr<GridAttr>(), memref);
+}
+
 class TTIRLayoutRewriter : public OpRewritePattern<DispatchOp> {
 public:
   using OpRewritePattern<DispatchOp>::OpRewritePattern;
 
-  SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) const {
-    SmallVector<int64_t> stride;
-    stride.push_back(1);
-    for (auto iter = shape.rbegin(); iter != shape.rend(); ++iter) {
-      stride.insert(stride.begin(),
-                    stride.front() * *iter); // TODO: alignup 16B
-    }
-    return stride;
-  }
-
-  std::optional<ttir::LayoutOp> createLayout(PatternRewriter &rewriter,
-                                             Location loc, Value input) const {
+  std::optional<ttir::LayoutOp>
+  createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                 OperandConstraint operandConstraint) const {
     auto ty = input.getType().cast<RankedTensorType>();
     if (ty.getEncoding()) {
       assert(ty.getEncoding().isa<LayoutAttr>());
       return std::nullopt;
     }
-    auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
-    auto memref =
-        MemRefType::get(ty.getShape(), ty.getElementType(), map,
-                        rewriter.getAttr<MemorySpaceAttr>(MemorySpace::System));
-    LayoutAttr layoutEncoding = rewriter.getAttr<LayoutAttr>(
-        canonicalStride(ty.getShape()), OOBVal::Undef,
-        rewriter.getAttr<GridAttr>(), memref);
+
+    auto layoutEncoding = canonicalLayoutAttr(
+        rewriter, ty, uppermostMemorySpace(operandConstraint));
     auto output = rewriter.create<tensor::EmptyOp>(
         loc, ty.getShape(), ty.getElementType(), layoutEncoding);
 
@@ -273,8 +290,14 @@ public:
       rewriter.replaceOp(exising_empty, output);
       return std::nullopt;
     } else {
-      return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input,
-                                             output, true);
+      // Bounce it through casted system layout
+      auto systemLayoutEncoding = canonicalLayoutAttr(rewriter, ty);
+      auto systemOutput = rewriter.create<tensor::EmptyOp>(
+          loc, ty.getShape(), ty.getElementType(), systemLayoutEncoding);
+      auto bounce = rewriter.create<ttir::LayoutOp>(
+          loc, systemOutput.getType(), input, systemOutput, true /*isCast*/);
+      return rewriter.create<ttir::LayoutOp>(loc, output.getType(), bounce,
+                                             output, false /*isCast*/);
     }
   }
 
@@ -283,7 +306,12 @@ public:
     int operandIndex = 0;
     bool modified = false;
     for (auto operand : op.getOperands()) {
-      if (auto layout = createLayout(rewriter, op.getLoc(), operand); layout) {
+      auto operandConstraint = op.getOperandConstraints()[operandIndex]
+                                   .template cast<OperandConstraintAttr>()
+                                   .getValue();
+      if (auto layout =
+              createLayoutOp(rewriter, op.getLoc(), operand, operandConstraint);
+          layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operandIndex, *layout); });
         modified = true;
@@ -333,8 +361,21 @@ public:
       return std::nullopt;
     }
     assert(ty.getEncoding().isa<LayoutAttr>());
+    auto layout = ty.getEncoding().template cast<LayoutAttr>();
     auto output = rewriter.create<tensor::EmptyOp>(loc, ty.getShape(),
                                                    ty.getElementType());
+
+    // Bounce it though system layout if coming from device
+    if (layout.getMemref()
+            .getMemorySpace()
+            .template cast<MemorySpaceAttr>()
+            .getValue() != MemorySpace::System) {
+      auto systemLayout = canonicalLayoutAttr(rewriter, ty);
+      auto systemOutput = rewriter.create<tensor::EmptyOp>(
+          loc, ty.getShape(), ty.getElementType(), systemLayout);
+      input = rewriter.create<ttir::LayoutOp>(loc, systemOutput.getType(),
+                                              input, systemOutput, false);
+    }
     return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output,
                                            true);
   }

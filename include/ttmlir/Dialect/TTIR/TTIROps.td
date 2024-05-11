@@ -49,6 +49,8 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
