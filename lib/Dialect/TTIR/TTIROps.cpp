@@ -15,23 +15,11 @@
       inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
   auto outputLayout =
       outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
-  if (getIsCast() and inputLayout and outputLayout) {
-    auto inputMemref = inputLayout.getMemref();
-    auto outputMemref = outputLayout.getMemref();
-    // If IsCast is true, the input and output memspace must match
-    if (inputMemref.getMemorySpace() != outputMemref.getMemorySpace()) {
-      return emitOpError(
-          "If {is_cast = true}, the input and output memspace must match");
-    }
-  } else if (bool(inputLayout) != bool(outputLayout)) {
-    auto memref =
-        inputLayout ? inputLayout.getMemref() : outputLayout.getMemref();
-    if (memref.getMemorySpace()
-            .template cast<mlir::tt::MemorySpaceAttr>()
-            .getValue() != mlir::tt::MemorySpace::System) {
-      return emitOpError("If transitioning to/from a layout to a non-layout, "
-                         "the memspace must be MemorySpace::System");
-    }
+  if (not inputLayout) {
+    return emitOpError("Input tensor type missing layout attribute");
+  }
+  if (not outputLayout) {
+    return emitOpError("Output tensor type missing layout attribute");
   }
   return success();
 }

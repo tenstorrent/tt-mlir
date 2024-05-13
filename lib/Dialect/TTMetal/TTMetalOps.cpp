@@ -8,6 +8,56 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTMetal/TTMetalOps.cpp.inc"
 
+::mlir::LogicalResult mlir::tt::ttmetal::HostWriteOp::verify() {
+  ::mlir::RankedTensorType inputTy = getInput().getType();
+  ::mlir::RankedTensorType outputTy = getOutput().getType();
+  auto inputLayout =
+      inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+  if (not inputLayout) {
+    return emitOpError("Input tensor missing layout attribute");
+  }
+  auto outputLayout =
+      outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+  if (not outputLayout) {
+    return emitOpError("Input tensor missing layout attribute");
+  }
+  auto inputMemorySpace = inputLayout.getMemorySpace();
+  auto outputMemorySpace = outputLayout.getMemorySpace();
+  if (inputMemorySpace != mlir::tt::MemorySpace::System) {
+    return emitOpError("Input tensor must be in system memory space");
+  }
+  if (outputMemorySpace != mlir::tt::MemorySpace::DRAM and
+      outputMemorySpace != mlir::tt::MemorySpace::L1) {
+    return emitOpError("Output tensor must be in device memory space");
+  }
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttmetal::HostReadOp::verify() {
+  ::mlir::RankedTensorType inputTy = getInput().getType();
+  ::mlir::RankedTensorType outputTy = getOutput().getType();
+  auto inputLayout =
+      inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+  if (not inputLayout) {
+    return emitOpError("Input tensor missing layout attribute");
+  }
+  auto outputLayout =
+      outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+  if (not outputLayout) {
+    return emitOpError("Input tensor missing layout attribute");
+  }
+  auto inputMemorySpace = inputLayout.getMemorySpace();
+  auto outputMemorySpace = outputLayout.getMemorySpace();
+  if (outputMemorySpace != mlir::tt::MemorySpace::System) {
+    return emitOpError("Output tensor must be in system memory space");
+  }
+  if (inputMemorySpace != mlir::tt::MemorySpace::DRAM and
+      inputMemorySpace != mlir::tt::MemorySpace::L1) {
+    return emitOpError("Input tensor must be in device memory space");
+  }
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttmetal::AllocOp::verify() {
   auto layout = getResult()
                     .getType()

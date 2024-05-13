@@ -17,6 +17,10 @@ using namespace mlir::tt;
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/TTOpsTypes.cpp.inc"
 
+MemorySpace LayoutAttr::getMemorySpace() {
+  return getMemref().getMemorySpace().template cast<mlir::tt::MemorySpaceAttr>().getValue();
+}
+
 void TTDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST

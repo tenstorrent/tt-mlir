@@ -42,8 +42,7 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         BoolAttr:$is_cast);
+                         AnyRankedTensor:$output);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{

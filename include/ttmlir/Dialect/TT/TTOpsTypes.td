@@ -71,6 +71,10 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                         "GridAttr":$grid,
                         "MemRefType":$memref);
   let assemblyFormat = "`<` custom<DimensionList>($strides)`,` $oob_val`,` $grid`,` $memref `>`";
+
+  let extraClassDeclaration = [{
+      MemorySpace getMemorySpace();
+  }];
 }
 
 def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {

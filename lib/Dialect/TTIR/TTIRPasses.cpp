@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <iostream>
-
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -271,6 +269,16 @@ inline SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
 }
 
 inline LayoutAttr
+canonicalLayoutAttr(MLIRContext *ctx, RankedTensorType ty,
+                    MemorySpace memorySpace = MemorySpace::System) {
+  auto map = AffineMap::getMultiDimIdentityMap(ty.getRank(), ctx);
+  auto memref = MemRefType::get(ty.getShape(), ty.getElementType(), map,
+                                MemorySpaceAttr::get(ctx, memorySpace));
+  return LayoutAttr::get(ctx, canonicalStride(ty.getShape()), OOBVal::Undef,
+                         GridAttr::get(ctx), memref);
+}
+
+inline LayoutAttr
 canonicalLayoutAttr(PatternRewriter &rewriter, RankedTensorType ty,
                     MemorySpace memorySpace = MemorySpace::System) {
   auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
@@ -282,132 +290,175 @@ canonicalLayoutAttr(PatternRewriter &rewriter, RankedTensorType ty,
                                       rewriter.getAttr<GridAttr>(), memref);
 }
 
-class TTIRLayoutRewriter : public OpRewritePattern<DispatchOp> {
+class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
-  using OpRewritePattern<DispatchOp>::OpRewritePattern;
-
-  std::optional<ttir::LayoutOp>
-  createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint) const {
-    auto ty = input.getType().cast<RankedTensorType>();
-    if (ty.getEncoding()) {
-      assert(ty.getEncoding().isa<LayoutAttr>());
-      return std::nullopt;
-    }
-
-    auto layoutEncoding = canonicalLayoutAttr(
-        rewriter, ty, uppermostMemorySpace(operandConstraint));
-    auto output = rewriter.create<tensor::EmptyOp>(
-        loc, ty.getShape(), ty.getElementType(), layoutEncoding);
-
-    tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
-    if (exising_empty) {
-      rewriter.replaceOp(exising_empty, output);
-      return std::nullopt;
-    } else {
-      // Bounce it through casted system layout
-      auto systemLayoutEncoding = canonicalLayoutAttr(rewriter, ty);
-      auto systemOutput = rewriter.create<tensor::EmptyOp>(
-          loc, ty.getShape(), ty.getElementType(), systemLayoutEncoding);
-      auto bounce = rewriter.create<ttir::LayoutOp>(
-          loc, systemOutput.getType(), input, systemOutput, true /*isCast*/);
-      return rewriter.create<ttir::LayoutOp>(loc, output.getType(), bounce,
-                                             output, false /*isCast*/);
-    }
-  }
-
-  LogicalResult matchAndRewrite(DispatchOp op,
-                                PatternRewriter &rewriter) const final {
-    int operandIndex = 0;
-    bool modified = false;
-    for (auto operand : op.getOperands()) {
-      auto operandConstraint = op.getOperandConstraints()[operandIndex]
-                                   .template cast<OperandConstraintAttr>()
-                                   .getValue();
-      if (auto layout =
-              createLayoutOp(rewriter, op.getLoc(), operand, operandConstraint);
-          layout) {
-        rewriter.modifyOpInPlace(
-            op, [&]() { op.setOperand(operandIndex, *layout); });
-        modified = true;
-      }
-      ++operandIndex;
-    }
-
-    // Update the region arguments to use the memref type
-    if (modified) {
-      operandIndex = 0;
-      for (auto operand : op.getOperands()) {
-        rewriter.modifyOpInPlace(op, [&]() {
-          auto memref = operand.getType()
-                            .cast<RankedTensorType>()
-                            .getEncoding()
-                            .cast<LayoutAttr>()
-                            .getMemref();
-          auto blockArg = op.getRegion().getArgument(operandIndex);
-          blockArg.setType(memref);
-          for (auto user : blockArg.getUsers()) {
-            // This is kind of hacky, the last operand is the output so it'll be
-            // last in setting the result type
-            dyn_cast<KernelOp>(user).getResult(0).setType(memref);
-          }
-
-          // This is kind of hacky, the last operand is the output so it'll be
-          // last in setting the result type
-          op.getResult(0).setType(operand.getType());
-        });
-        ++operandIndex;
-      }
-    }
-
-    return modified ? success() : failure();
+  TTIRLayoutTensorTypeConverter(MLIRContext *ctx) {
+    addConversion([](Type type) { return type; });
+    addConversion([ctx](RankedTensorType type) -> Type {
+      auto layout = type.getEncoding();
+      if (layout)
+        return type;
+      auto newLayout = canonicalLayoutAttr(ctx, type);
+      return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                   newLayout);
+    });
   }
 };
 
-class TTIRUnlayoutFuncReturnRewriter
+class TTIRLayoutTensorTypeRewriter : public RewritePattern {
+public:
+  TTIRLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
+        converter(converter) {}
+
+  template <typename ValueRange>
+  bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
+    bool updated = false;
+    auto result = converter.convertTypes(valueRange.getTypes(), newTypes);
+    if (result.failed())
+      return false;
+    for (auto [operand, newType] : llvm::zip(valueRange, newTypes)) {
+      if (operand.getType() == newType)
+        continue;
+      operand.setType(newType);
+      updated = true;
+    }
+    return updated;
+  }
+
+  bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
+    auto funcOp = dyn_cast<func::FuncOp>(op);
+    if (not funcOp)
+      return false;
+    SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
+    SmallVector<Type> outputTypes(funcOp.getResultTypes());
+    for (Type &ty : inputTypes)
+      ty = converter.convertType(ty);
+    for (Type &ty : outputTypes)
+      ty = converter.convertType(ty);
+    auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
+    if (funcOp.getFunctionType() == newType)
+      return false;
+    funcOp.setFunctionType(newType);
+    return true;
+  }
+
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    bool updated = false;
+    SmallVector<Type> operands;
+    SmallVector<Type> results;
+    updated |= convertTypes(op->getOperands(), operands);
+    updated |= convertTypes(op->getResults(), results);
+    updated |= convertFuncType(op, rewriter);
+    return updated ? success() : failure();
+  }
+
+  const TypeConverter &converter;
+};
+
+static std::optional<Value>
+createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+               OperandConstraint operandConstraint) {
+  auto ty = input.getType().cast<RankedTensorType>();
+  auto currLayout = ty.getEncoding().cast<LayoutAttr>();
+  auto currMemorySpace = currLayout.getMemorySpace();
+  auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
+  if (currMemorySpace == desiredMemorySpace)
+    return std::nullopt;
+
+  auto desiredLayout = canonicalLayoutAttr(rewriter, ty, desiredMemorySpace);
+  auto output = rewriter.create<tensor::EmptyOp>(
+      loc, ty.getShape(), ty.getElementType(), desiredLayout);
+
+  tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
+  if (exising_empty) {
+    rewriter.replaceOp(exising_empty, output);
+    return std::nullopt;
+  } else {
+    return rewriter
+        .create<ttir::LayoutOp>(loc, output.getType(), input, output)
+        ->getResult(0);
+  }
+}
+
+class TTIRLayoutDispatchOperandsRewriter : public OpRewritePattern<DispatchOp> {
+public:
+  using OpRewritePattern<DispatchOp>::OpRewritePattern;
+
+
+  LogicalResult matchAndRewrite(DispatchOp op,
+                                PatternRewriter &rewriter) const final {
+    auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
+    for (auto &operand : op->getOpOperands()) {
+      auto encoding = operand.get()
+                        .getType()
+                        .cast<RankedTensorType>()
+                        .getEncoding();
+      if (not encoding)
+        return failure(); // Hasn't been type converted yet
+
+      auto blockArg = op.getRegion().getArgument(operand.getOperandNumber());
+      if (blockArg.getType().isa<MemRefType>())
+        return failure(); // Already lowered
+
+      auto operandConstraint =
+          op.getOperandConstraints()[operand.getOperandNumber()]
+              .template cast<OperandConstraintAttr>()
+              .getValue();
+      auto desiredLayout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
+                                          operandConstraint);
+
+      if (desiredLayout) {
+        rewriter.modifyOpInPlace(op, [&]() {
+          op.setOperand(operand.getOperandNumber(), *desiredLayout);
+        });
+      }
+
+      // Rewire the operand to the layout op
+      rewriter.modifyOpInPlace(op, [&]() {
+        auto layout = operand.get()
+                          .getType()
+                          .cast<RankedTensorType>()
+                          .getEncoding()
+                          .cast<LayoutAttr>();
+
+        // Update the block arguments to use the underlying memref type
+        blockArg.setType(layout.getMemref());
+
+        bool isResult = dpsInterface.isDpsInit(&operand);
+        if (isResult) {
+          // If this is the output operand, update the result type for both
+          // the kernel return type and the dispatch return type
+          op.getResult(0).setType(operand.get().getType());
+          for (auto user : blockArg.getUsers()) {
+            dyn_cast<KernelOp>(user).getResult(0).setType(layout.getMemref());
+          }
+        }
+      });
+    }
+
+    return success();
+  }
+};
+
+class TTIRLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
   using OpRewritePattern<mlir::func::ReturnOp>::OpRewritePattern;
 
-  std::optional<Value> createUnlayout(PatternRewriter &rewriter, Location loc,
-                                      Value input) const {
-    auto ty = input.getType().cast<RankedTensorType>();
-    if (not ty.getEncoding()) {
-      return std::nullopt;
-    }
-    assert(ty.getEncoding().isa<LayoutAttr>());
-    auto layout = ty.getEncoding().template cast<LayoutAttr>();
-    auto output = rewriter.create<tensor::EmptyOp>(loc, ty.getShape(),
-                                                   ty.getElementType());
-
-    // Bounce it though system layout if coming from device
-    if (layout.getMemref()
-            .getMemorySpace()
-            .template cast<MemorySpaceAttr>()
-            .getValue() != MemorySpace::System) {
-      auto systemLayout = canonicalLayoutAttr(rewriter, ty);
-      auto systemOutput = rewriter.create<tensor::EmptyOp>(
-          loc, ty.getShape(), ty.getElementType(), systemLayout);
-      input = rewriter.create<ttir::LayoutOp>(loc, systemOutput.getType(),
-                                              input, systemOutput, false);
-    }
-    return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output,
-                                           true);
-  }
-
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
-    int operandIndex = 0;
     bool modified = false;
-    for (auto operand : op.getOperands()) {
-      if (auto layout = createUnlayout(rewriter, op.getLoc(), operand);
+    for (auto &operand : op->getOpOperands()) {
+      if (auto layout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
+                                       OperandConstraint::System);
           layout) {
         rewriter.modifyOpInPlace(op, [&]() {
-          op.setOperand(operandIndex, *layout);
+          op.setOperand(operand.getOperandNumber(), *layout);
         });
         modified = true;
       }
-      ++operandIndex;
     }
     return modified ? success() : failure();
   }
@@ -418,11 +469,26 @@ public:
   using impl::TTIRLayoutBase<TTIRLayout>::TTIRLayoutBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRLayoutRewriter, TTIRUnlayoutFuncReturnRewriter>(&getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
-      signalPassFailure();
+    {
+      TTIRLayoutTensorTypeConverter typeConverter(&getContext());
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTIRLayoutDispatchOperandsRewriter,
+                   TTIRLayoutFuncReturnRewriter>(&getContext());
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+        signalPassFailure();
+        return;
+      }
+    }
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
@@ -532,23 +598,24 @@ public:
       func->walk([&](tensor::EmptyOp empty) {
         auto resultTy =
             empty.getResult().getType().template cast<RankedTensorType>();
-        // Skip for tensors without layout
-        if (not resultTy.getEncoding())
-          return;
+        assert(resultTy.getEncoding());
 
         auto [startOp, endOp] =
             getStartEndOperationThroughDPSOps(livenessInfo, empty.getResult());
 
         // Replace empty with allocate
+        auto memorySpace = getMemorySpace(resultTy);
         auto sizeBytes = getTensorSizeBytes(resultTy);
-        auto address = allocator.allocate(sizeBytes, getMemorySpace(resultTy));
+        auto address = allocator.allocate(sizeBytes, memorySpace);
         rewriter.setInsertionPoint(startOp);
-        auto alloc =
-            rewriter.create<AllocOp>(startOp->getLoc(), resultTy, address,
-                                     sizeBytes, getMemorySpace(resultTy));
+        auto alloc = rewriter.create<AllocOp>(startOp->getLoc(), resultTy,
+                                              address, sizeBytes, memorySpace);
         rewriter.replaceOp(empty, alloc);
 
-        // Insert deallocate
+        // Insert deallocate unless this value is being returned
+        if (isa<func::ReturnOp>(endOp)) {
+          return;
+        }
         rewriter.setInsertionPointAfter(endOp);
         rewriter.create<DeallocOp>(endOp->getLoc(), alloc.getResult());
       });

@@ -18,6 +18,7 @@
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
   mlir::tt::ttir::registerPasses();
+  mlir::tt::ttmetal::registerPasses();
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
