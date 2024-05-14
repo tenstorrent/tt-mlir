@@ -21,11 +21,11 @@ class TTMetal_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def TTMetal_Tmp : TTMetal_Type<"Tmp", "tmp"> {
-    let summary = "TTMetal tmp";
-    let description = "Tmp type in TTMetal dialect";
-    let parameters = (ins "unsigned":$tmp);
-    let assemblyFormat = "`<` $tmp `>`";
+def TTMetal_CB : TTMetal_Type<"CB", "cb"> {
+    let summary = "TTMetal cb";
+    let description = "Circular buffer type in TTMetal dialect";
+    let parameters = (ins "uint64_t":$address, "uint64_t":$port, "MemRefType":$memref);
+    let assemblyFormat = "`<` $address`,` $port`,` $memref `>`";
 }
 
 //===----------------------------------------------------------------------===//
@@ -40,7 +40,7 @@ class TTMetal_Attr<string name, string attrMnemonic, list<Trait> traits = [],
   let attrName = "ttmetal." # attrMnemonic;
 }
 
-def TTMetal_ThreadAttr : EnumAttr<TTMetal_Dialect, TTMetal_Thread, "operand_constraint"> {
+def TTMetal_ThreadAttr : EnumAttr<TTMetal_Dialect, TTMetal_Thread, "thread"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

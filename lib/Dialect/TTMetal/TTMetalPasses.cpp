@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTIR/TTIRDialect.h"
 #include "ttmlir/Dialect/TTIR/TTIROps.h"
 
+#include "ttmlir/Dialect/TTMetal/TTMetalOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/TTMetalPasses.h"
 
 namespace mlir::tt::ttmetal {
@@ -60,7 +61,37 @@ public:
 
   LogicalResult matchAndRewrite(ttir::DispatchOp op,
                                 PatternRewriter &rewriter) const final {
-    return failure();
+    SmallVector<Attribute> threads = {
+        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc0),
+        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc1),
+        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Tensix),
+    };
+    SmallVector<Attribute> operand_cb_port_mapping;
+    for (auto &operand : op->getOpOperands()) {
+      operand_cb_port_mapping.push_back(
+          rewriter.getI64IntegerAttr(operand.getOperandNumber()));
+    }
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
+        op.getOutputs(), op.getGrid(), rewriter.getArrayAttr(threads),
+        rewriter.getArrayAttr(operand_cb_port_mapping), 3);
+
+    metalDispatch.getRegion(2).takeBody(op->getRegion(0));
+    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(0));
+    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(1));
+
+    rewriter.setInsertionPointToStart(noc0Block);
+    auto yield0 = rewriter.create<ttmetal::YieldOp>(op.getLoc());
+    yield0->remove();
+    noc0Block->push_back(yield0);
+    rewriter.setInsertionPointToStart(noc1Block);
+    auto yield1 = rewriter.create<ttmetal::YieldOp>(op.getLoc());
+    yield1->remove();
+    noc1Block->push_back(yield1);
+
+    rewriter.replaceOp(op, metalDispatch);
+
+    return success();
   }
 };
 

@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTMetal/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/TTMetalDialect.h"
+#include "ttmlir/Dialect/TTMetal/TTMetalOpsTypes.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTMetal/TTMetalOps.cpp.inc"
@@ -93,5 +94,11 @@
         "set to a non-zero value, device addresses are statically allocated");
   }
 
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttmetal::DispatchOp::verify() {
+  // Assert inputs/outputs device memspace
+  // Assert block inputs are CBs
   return success();
 }

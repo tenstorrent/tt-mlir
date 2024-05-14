@@ -29,15 +29,16 @@ def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, At
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TT_GridAttr:$grid,
-                         AffineMapArrayAttr:$indexing_maps,
-                         TT_IteratorTypeArrayAttr:$iterator_types,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         TTMetal_ThreadArrayAttr:$threads,
+                         ArrayAttr:$operand_cb_port_mapping);
     let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region AtLeastRegion<1>:$region);
+    let regions = (region VariadicRegion<AnyRegion>:$regions);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]> {
@@ -120,7 +121,7 @@ def TTMetal_YieldOp : TTMetal_Op<"yield", [Pure, ReturnLike, Terminator]> {
       Yield operation
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+    //let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 }
 
 #endif
