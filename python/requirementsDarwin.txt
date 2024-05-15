@@ -1,0 +1,3 @@
+# torch-mlir # mac must build from source
+torchvision
+mpmath==1.3.0
