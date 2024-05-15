@@ -9,11 +9,11 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
-#include "ttmlir/Dialect/TT/TTDialect.h"
-#include "ttmlir/Dialect/TTIR/TTIRDialect.h"
-#include "ttmlir/Dialect/TTIR/TTIRPasses.h"
-#include "ttmlir/Dialect/TTMetal/TTMetalPasses.h"
-#include "ttmlir/Dialect/Tensix/TensixDialect.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Passes.h"
+#include "ttmlir/Dialect/Tensix/IR/Tensix.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();

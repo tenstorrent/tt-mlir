@@ -1,0 +1,15 @@
+add_mlir_dialect(TTOps tt)
+add_mlir_doc(TTDialect TTDialect ttmlir/ -gen-dialect-doc)
+add_mlir_doc(TTOps TTOps ttmlir/ -gen-op-doc)
+
+set(LLVM_TARGET_DEFINITIONS TTOps.td)
+mlir_tablegen(TTOpsAttrDefs.h.inc -gen-attrdef-decls)
+mlir_tablegen(TTOpsAttrDefs.cpp.inc -gen-attrdef-defs)
+add_public_tablegen_target(MLIRTTOpsAttributesIncGen)
+add_dependencies(mlir-headers MLIRTTOpsAttributesIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TTOpsEnums.td)
+mlir_tablegen(TTOpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(TTOpsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRTTOpsEnumsIncGen)
+add_dependencies(mlir-headers MLIRTTOpsEnumsIncGen)

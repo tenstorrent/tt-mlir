@@ -5,9 +5,10 @@ set(LIBS
         ${conversion_libs}
         MLIRArithDialect
         MLIROptLib
-        MLIRTT
-        MLIRTensix
-        MLIRTTIR
+        MLIRTTDialect
+        MLIRTensixDialect
+        MLIRTTIRDialect
+        MLIRTTMetalDialect
         )
 add_llvm_executable(ttmlir-opt ttmlir-opt.cpp)
 
