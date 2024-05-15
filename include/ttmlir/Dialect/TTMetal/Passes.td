@@ -14,4 +14,11 @@ def ConvertTTIRToTTMetal: Pass<"convert-ttir-to-ttmetal", "::mlir::ModuleOp"> {
   }];
 }
 
+def ConvertTTMetalKernelsToEmitC: Pass<"convert-ttmetal-kernels-to-cpp", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    todo
+  }];
+}
+
 #endif

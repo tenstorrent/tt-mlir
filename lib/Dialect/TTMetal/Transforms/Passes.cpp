@@ -203,7 +203,7 @@ public:
   LogicalResult matchAndRewrite(ttir::DeallocOp op,
                                 PatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<ttmetal::DeallocOp>(op, op.getResult());
-    return failure();
+    return success();
   }
 };
 

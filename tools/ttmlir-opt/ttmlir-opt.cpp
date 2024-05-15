@@ -27,7 +27,8 @@ int main(int argc, char **argv) {
                   mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
                   mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
                   mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-                  mlir::tosa::TosaDialect, mlir::vector::VectorDialect>();
+                  mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+                  mlir::emitc::EmitCDialect>();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "ttmlir optimizer driver\n", registry));
