@@ -9,7 +9,9 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.cpp.inc"
 
-::mlir::LogicalResult mlir::tt::ttmetal::HostWriteOp::verify() {
+namespace mlir::tt::ttmetal {
+
+::mlir::LogicalResult HostWriteOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
@@ -31,7 +33,7 @@
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttmetal::HostReadOp::verify() {
+::mlir::LogicalResult HostReadOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
@@ -53,7 +55,7 @@
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttmetal::AllocOp::verify() {
+::mlir::LogicalResult AllocOp::verify() {
   auto layout = getResult()
                     .getType()
                     .getEncoding()
@@ -89,7 +91,7 @@
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttmetal::DispatchOp::verify() {
+::mlir::LogicalResult DispatchOp::verify() {
   // Assert inputs/outputs device memspace
   for (auto operand : getOperands()) {
     auto layout = operand.getType()
@@ -107,10 +109,78 @@
   // Assert block inputs are CBs
   for (auto &region : getRegions()) {
     for (auto arg : region.getArguments()) {
-      if (not arg.getType().isa<mlir::tt::ttmetal::CBType>()) {
+      if (not arg.getType().isa<CBType>()) {
         return emitOpError("Block inputs must be CBType");
       }
     }
   }
   return success();
 }
+
+static bool insideDispatchOpRegion(mlir::Operation *op) {
+  mlir::Operation *parentOp = op->getParentOp();
+  return dyn_cast_or_null<DispatchOp>(parentOp) != nullptr;
+}
+
+static ThreadType getRegionThreadType(mlir::Region *region) {
+  assert(region);
+  mlir::Operation *parentOp = region->getParentOp();
+  auto regionNumber = region->getRegionNumber();
+  DispatchOp dispatchOp = dyn_cast<DispatchOp>(parentOp);
+  assert(dispatchOp && "Assumes insideDispatchOpRegion was already checked");
+  auto threadTypes = dispatchOp.getThreadTypes();
+  assert(regionNumber < threadTypes.size());
+  auto threadType = threadTypes[regionNumber];
+  return threadType.cast<ThreadTypeAttr>().getValue();
+}
+
+static bool insideThread(mlir::Operation *op, ThreadType threadType) {
+  return getRegionThreadType(op->getParentRegion()) == threadType;
+}
+
+::mlir::LogicalResult KernelOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("KernelOp must be inside of a DispatchOp region");
+  }
+  if (not insideThread(getOperation(), ThreadType::Tensix)) {
+    return emitOpError("KernelOp must be inside of a Tensix thread");
+  }
+  return success();
+}
+
+::mlir::LogicalResult CBPushBackOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("CBPushBackOp must be inside of a DispatchOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult CBPopFrontOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("CBPopFrontOp must be inside of a DispatchOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult CBReserveBackOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("CBReserveBackOp must be inside of a DispatchOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult CBWaitFrontOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("CBWaitFrontOp must be inside of a DispatchOp region");
+  }
+  return success();
+}
+
+::mlir::LogicalResult YieldOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("YieldOp must be inside of a DispatchOp region");
+  }
+  return success();
+}
+
+} // namespace mlir::tt::ttmetal

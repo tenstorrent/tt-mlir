@@ -122,10 +122,10 @@ public:
     if (hasUnloweredTTIRKernel(op))
       return failure();
 
-    SmallVector<Attribute> threads = {
-        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc0),
-        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc1),
-        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Tensix),
+    SmallVector<Attribute> threadTypes = {
+        rewriter.getAttr<ttmetal::ThreadTypeAttr>(ttmetal::ThreadType::Noc0),
+        rewriter.getAttr<ttmetal::ThreadTypeAttr>(ttmetal::ThreadType::Noc1),
+        rewriter.getAttr<ttmetal::ThreadTypeAttr>(ttmetal::ThreadType::Tensix),
     };
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
@@ -140,8 +140,8 @@ public:
     auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threads),
-        rewriter.getArrayAttr(operand_cb_port_mapping), threads.size());
+        rewriter.getArrayAttr(threadTypes),
+        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
 
     auto rewrittenBlockArgumentTypes =
         getBlockArgumentTypesAsCBs(op->getRegion(0).getArguments(),
@@ -149,8 +149,8 @@ public:
 
     metalDispatch.getRegion(2).takeBody(op->getRegion(0));
     Block *tensixBlock = &metalDispatch.getRegion(2).front();
-    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(0));
-    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(1));
+    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(0));
+    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(1));
 
     int i = 0;
     for (auto ty : rewrittenBlockArgumentTypes) {
@@ -161,11 +161,19 @@ public:
     }
 
     rewriter.setInsertionPointToStart(noc0Block);
+    auto push0 = rewriter.create<ttmetal::CBPushBackOp>(
+        op.getLoc(), noc0Block->getArgument(0));
+    push0->remove();
+    noc0Block->push_back(push0);
     auto yield0 = rewriter.create<ttmetal::YieldOp>(op.getLoc(), ValueRange());
     yield0->remove();
     noc0Block->push_back(yield0);
 
     rewriter.setInsertionPointToStart(noc1Block);
+    auto push1 = rewriter.create<ttmetal::CBPushBackOp>(
+        op.getLoc(), noc1Block->getArgument(1));
+    push1->remove();
+    noc1Block->push_back(push1);
     auto yield1 = rewriter.create<ttmetal::YieldOp>(op.getLoc(), ValueRange());
     yield1->remove();
     noc1Block->push_back(yield1);

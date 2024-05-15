@@ -61,10 +61,10 @@ def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
 
 def TTMetal_CoreRangeArrayAttr : TypedArrayAttrBase<TTMetal_CoreRangeAttr, "">;
 
-def TTMetal_ThreadAttr : EnumAttr<TTMetal_Dialect, TTMetal_Thread, "thread"> {
+def TTMetal_ThreadTypeAttr : EnumAttr<TTMetal_Dialect, TTMetal_ThreadType, "thread"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTMetal_ThreadArrayAttr : TypedArrayAttrBase<TTMetal_ThreadAttr, "">;
+def TTMetal_ThreadTypeArrayAttr : TypedArrayAttrBase<TTMetal_ThreadTypeAttr, "">;
 
 #endif
