@@ -28,7 +28,7 @@ $(CONDA_ENV)/bin/activate: $(CONDA_ENV_INSTALLER)
 
 $(TTMLIR_ENV): $(TTMLIR_ENV)/.dep ;
 
-$(TTMLIR_ENV)/.dep: $(CONDA_ENV)/bin/activate env/environment.yml python/requirements.txt
+$(TTMLIR_ENV)/.dep: $(CONDA_ENV)/bin/activate env/environment.yml python/requirements$(OS).txt
 	bash -c "source $(CONDA_ENV)/bin/activate && conda env create -f env/environment.yml || true"
 	bash -c "source env/activate && pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r python/requirements$(OS).txt"
 	touch $@

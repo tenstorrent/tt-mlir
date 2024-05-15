@@ -26,8 +26,9 @@ public:
 
   LogicalResult matchAndRewrite(ttmetal::KernelOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(op, TypeRange(),
-                                                     op.getOp(), ValueRange());
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange(), op.getOp(), rewriter.getArrayAttr({}),
+        rewriter.getArrayAttr({}), ValueRange());
     return success();
   }
 };
