@@ -252,9 +252,9 @@ inline MemorySpace getMemorySpace(RankedTensorType ty) {
 
 inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
   if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1))
-    return MemorySpace::L1;
+    return MemorySpace::DeviceL1;
   else if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM))
-    return MemorySpace::DRAM;
+    return MemorySpace::DeviceDRAM;
   return MemorySpace::System;
 }
 
@@ -544,7 +544,7 @@ class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
     }
 
     uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
-      if (memorySpace == MemorySpace::System)
+      if (isSystemMemorySpace(memorySpace))
         return 0;
 
       uint32_t index = static_cast<uint32_t>(memorySpace);

@@ -40,6 +40,27 @@ class TTMetal_Attr<string name, string attrMnemonic, list<Trait> traits = [],
   let attrName = "ttmetal." # attrMnemonic;
 }
 
+def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
+  let summary = "TTMetal grid attribute";
+  let description = [{
+    TTMetal grid attribute
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$offset,
+                        ArrayRefParameter<"int64_t">:$size);
+  let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
+
+  let extraClassDeclaration = [{
+      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
+      {
+        assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
+        return CoreRangeAttr::get(context, {0, 0}, grid.getShape());
+      }
+  }];
+}
+
+def TTMetal_CoreRangeArrayAttr : TypedArrayAttrBase<TTMetal_CoreRangeAttr, "">;
+
 def TTMetal_ThreadAttr : EnumAttr<TTMetal_Dialect, TTMetal_Thread, "thread"> {
   let assemblyFormat = "`<` $value `>`";
 }

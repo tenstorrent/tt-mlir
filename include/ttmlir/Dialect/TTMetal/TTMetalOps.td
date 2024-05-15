@@ -28,7 +28,7 @@ def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, At
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
-                         TT_GridAttr:$grid,
+                         TTMetal_CoreRangeArrayAttr:$core_ranges,
                          TTMetal_ThreadArrayAttr:$threads,
                          ArrayAttr:$operand_cb_port_mapping);
     let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -96,9 +96,9 @@ def TTMetal_DeallocOp : TTMetal_Op<"dealloc"> {
     let arguments = (ins AnyRankedTensor:$result);
 }
 
-def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
+def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTMetal_CB]>;
 
-def TTMetal_KernelOp : TTMetal_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+def TTMetal_KernelOp : TTMetal_Op<"kernel"> {
     let summary = "Kernel call.";
     let description = [{
       Kernel operation
@@ -106,13 +106,8 @@ def TTMetal_KernelOp : TTMetal_Op<"kernel", [DestinationStyleOpInterface, AttrSi
 
     let arguments = (ins FlatSymbolRefAttr:$op,
                          FlatSymbolRefAttr:$kind,
-                         Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
-    let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-    }];
+                         Variadic<AnyMemRefOrCB>:$args);
+    let results = (outs Variadic<AnyMemRefOrCB>:$results);
 }
 
 def TTMetal_YieldOp : TTMetal_Op<"yield", [Pure, ReturnLike, Terminator]> {
@@ -121,7 +116,7 @@ def TTMetal_YieldOp : TTMetal_Op<"yield", [Pure, ReturnLike, Terminator]> {
       Yield operation
     }];
 
-    //let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+    let arguments = (ins Variadic<AnyMemRefOrCB>:$values);
 }
 
 #endif

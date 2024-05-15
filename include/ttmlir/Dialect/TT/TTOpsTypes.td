@@ -73,7 +73,9 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   let assemblyFormat = "`<` custom<DimensionList>($strides)`,` $oob_val`,` $grid`,` $memref `>`";
 
   let extraClassDeclaration = [{
-      MemorySpace getMemorySpace();
+      MemorySpace getMemorySpace() const;
+      bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
+      bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
   }];
 }
 

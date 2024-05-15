@@ -7,6 +7,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "ttmlir/Dialect/TT/TTOpsTypes.h"
 
 #include "ttmlir/Dialect/TTMetal/TTMetalOpsEnums.h.inc"
 

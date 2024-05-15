@@ -22,13 +22,10 @@
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
-  auto inputMemorySpace = inputLayout.getMemorySpace();
-  auto outputMemorySpace = outputLayout.getMemorySpace();
-  if (inputMemorySpace != mlir::tt::MemorySpace::System) {
+  if (not inputLayout.isSystemMemorySpace()) {
     return emitOpError("Input tensor must be in system memory space");
   }
-  if (outputMemorySpace != mlir::tt::MemorySpace::DRAM and
-      outputMemorySpace != mlir::tt::MemorySpace::L1) {
+  if (not outputLayout.isDeviceMemorySpace()) {
     return emitOpError("Output tensor must be in device memory space");
   }
   return success();
@@ -47,13 +44,10 @@
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
-  auto inputMemorySpace = inputLayout.getMemorySpace();
-  auto outputMemorySpace = outputLayout.getMemorySpace();
-  if (outputMemorySpace != mlir::tt::MemorySpace::System) {
+  if (not outputLayout.isSystemMemorySpace()) {
     return emitOpError("Output tensor must be in system memory space");
   }
-  if (inputMemorySpace != mlir::tt::MemorySpace::DRAM and
-      inputMemorySpace != mlir::tt::MemorySpace::L1) {
+  if (not inputLayout.isDeviceMemorySpace()) {
     return emitOpError("Input tensor must be in device memory space");
   }
   return success();
@@ -81,14 +75,12 @@
         "Input tensor layout memory space must match alloc memory space");
   }
 
-  if (getMemorySpace() == mlir::tt::MemorySpace::System and getAddress() != 0) {
+  if (isSystemMemorySpace(getMemorySpace()) and getAddress() != 0) {
     return emitOpError("Allocating from system memory space must have address "
                        "set to 0, implicitly allocated by the runtime");
   }
 
-  bool isDeviceMemorySpace = memspace == mlir::tt::MemorySpace::DRAM or
-                             memspace == mlir::tt::MemorySpace::L1;
-  if (isDeviceMemorySpace and getAddress() == 0) {
+  if (isDeviceMemorySpace(memspace) and getAddress() == 0) {
     return emitOpError(
         "Allocating from a device memory space must have address "
         "set to a non-zero value, device addresses are statically allocated");
@@ -99,6 +91,26 @@
 
 ::mlir::LogicalResult mlir::tt::ttmetal::DispatchOp::verify() {
   // Assert inputs/outputs device memspace
+  for (auto operand : getOperands()) {
+    auto layout = operand.getType()
+                      .cast<mlir::RankedTensorType>()
+                      .getEncoding()
+                      .template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+    if (not layout) {
+      return emitOpError("Input tensor missing layout attribute");
+    }
+    if (not layout.isDeviceMemorySpace()) {
+      return emitOpError("Input tensor must be in device memory space");
+    }
+  }
+
   // Assert block inputs are CBs
+  for (auto &region : getRegions()) {
+    for (auto arg : region.getArguments()) {
+      if (not arg.getType().isa<mlir::tt::ttmetal::CBType>()) {
+        return emitOpError("Block inputs must be CBType");
+      }
+    }
+  }
   return success();
 }

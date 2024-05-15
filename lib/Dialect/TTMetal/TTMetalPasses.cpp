@@ -38,59 +38,17 @@ public:
     assert(outputTy.getEncoding().isa<tt::LayoutAttr>());
     auto inputLayout = inputTy.getEncoding().template cast<tt::LayoutAttr>();
     auto outputLayout = outputTy.getEncoding().template cast<tt::LayoutAttr>();
-    if (inputLayout.getMemorySpace() == MemorySpace::System) {
-      assert(outputLayout.getMemorySpace() == MemorySpace::DRAM ||
-             outputLayout.getMemorySpace() == MemorySpace::L1);
+    if (inputLayout.isSystemMemorySpace()) {
+      assert(outputLayout.isDeviceMemorySpace());
       rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
           op, outputTy, op.getInput(), op.getOutput());
-    } else if (outputLayout.getMemorySpace() == MemorySpace::System) {
-      assert(inputLayout.getMemorySpace() == MemorySpace::DRAM ||
-             inputLayout.getMemorySpace() == MemorySpace::L1);
+    } else if (outputLayout.isSystemMemorySpace()) {
+      assert(inputLayout.isDeviceMemorySpace());
       rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
           op, outputTy, op.getInput(), op.getOutput());
     } else {
       return failure();
     }
-    return success();
-  }
-};
-
-class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::DispatchOp> {
-public:
-  using OpRewritePattern<ttir::DispatchOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::DispatchOp op,
-                                PatternRewriter &rewriter) const final {
-    SmallVector<Attribute> threads = {
-        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc0),
-        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc1),
-        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Tensix),
-    };
-    SmallVector<Attribute> operand_cb_port_mapping;
-    for (auto &operand : op->getOpOperands()) {
-      operand_cb_port_mapping.push_back(
-          rewriter.getI64IntegerAttr(operand.getOperandNumber()));
-    }
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
-        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(), op.getGrid(), rewriter.getArrayAttr(threads),
-        rewriter.getArrayAttr(operand_cb_port_mapping), 3);
-
-    metalDispatch.getRegion(2).takeBody(op->getRegion(0));
-    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(0));
-    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(1));
-
-    rewriter.setInsertionPointToStart(noc0Block);
-    auto yield0 = rewriter.create<ttmetal::YieldOp>(op.getLoc());
-    yield0->remove();
-    noc0Block->push_back(yield0);
-    rewriter.setInsertionPointToStart(noc1Block);
-    auto yield1 = rewriter.create<ttmetal::YieldOp>(op.getLoc());
-    yield1->remove();
-    noc1Block->push_back(yield1);
-
-    rewriter.replaceOp(op, metalDispatch);
-
     return success();
   }
 };
@@ -101,7 +59,120 @@ public:
 
   LogicalResult matchAndRewrite(ttir::KernelOp op,
                                 PatternRewriter &rewriter) const final {
-    return failure();
+    rewriter.replaceOpWithNewOp<ttmetal::KernelOp>(
+        op, op.getResults().getTypes(), op.getOpAttr(), op.getKindAttr(),
+        op.getOperands());
+    return success();
+  }
+};
+
+class TTIRToTTMetalYieldRewriter : public OpRewritePattern<ttir::YieldOp> {
+public:
+  using OpRewritePattern<ttir::YieldOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::YieldOp op,
+                                PatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::YieldOp>(op, op.getOperands());
+    return success();
+  }
+};
+
+class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::DispatchOp> {
+public:
+  using OpRewritePattern<ttir::DispatchOp>::OpRewritePattern;
+
+  bool hasUnloweredTTIRKernel(ttir::DispatchOp op) const {
+    bool exists = false;
+    op->getRegion(0).walk([&exists](Operation *op) {
+      if (isa<ttir::KernelOp>(op))
+        exists = true;
+    });
+    return exists;
+  }
+
+  uint64_t lookupAddress(Value value) const {
+    auto op = value.getDefiningOp();
+    if (!op)
+      return 0;
+    auto allocOp = dyn_cast<ttir::AllocOp>(op);
+    if (!allocOp)
+      return 0;
+    return allocOp.getAddress();
+  }
+
+  SmallVector<Type> getBlockArgumentTypesAsCBs(
+      mlir::Block::BlockArgListType blockArguments,
+      SmallVector<Attribute> const &operand_cb_port_mapping,
+      PatternRewriter &rewriter) const {
+    SmallVector<Type> rewrittenBlockArgumentTypes;
+    for (auto arg : blockArguments) {
+      auto address = lookupAddress(arg);
+      auto port = operand_cb_port_mapping[arg.getArgNumber()]
+                      .cast<IntegerAttr>()
+                      .getInt();
+      auto memref = arg.getType().cast<MemRefType>();
+      rewrittenBlockArgumentTypes.push_back(
+          rewriter.getType<ttmetal::CBType>(address, port, memref));
+    }
+    return rewrittenBlockArgumentTypes;
+  }
+
+  LogicalResult matchAndRewrite(ttir::DispatchOp op,
+                                PatternRewriter &rewriter) const final {
+    if (hasUnloweredTTIRKernel(op))
+      return failure();
+
+    SmallVector<Attribute> threads = {
+        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc0),
+        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Noc1),
+        rewriter.getAttr<ttmetal::ThreadAttr>(ttmetal::Thread::Tensix),
+    };
+    SmallVector<Attribute> coreRanges = {
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
+    };
+    SmallVector<Attribute> operand_cb_port_mapping;
+    for (auto &operand : op->getOpOperands()) {
+      operand_cb_port_mapping.push_back(
+          rewriter.getI64IntegerAttr(operand.getOperandNumber()));
+    }
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
+        op.getOutputs(), rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr(threads),
+        rewriter.getArrayAttr(operand_cb_port_mapping), threads.size());
+
+    auto rewrittenBlockArgumentTypes =
+        getBlockArgumentTypesAsCBs(op->getRegion(0).getArguments(),
+                                   operand_cb_port_mapping, rewriter);
+
+    metalDispatch.getRegion(2).takeBody(op->getRegion(0));
+    Block *tensixBlock = &metalDispatch.getRegion(2).front();
+    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(0));
+    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(1));
+
+    int i = 0;
+    for (auto ty : rewrittenBlockArgumentTypes) {
+      noc0Block->addArgument(ty, op.getLoc());
+      noc1Block->addArgument(ty, op.getLoc());
+      auto arg = tensixBlock->getArgument(i++);
+      arg.setType(ty);
+    }
+
+    rewriter.setInsertionPointToStart(noc0Block);
+    auto yield0 = rewriter.create<ttmetal::YieldOp>(op.getLoc(), ValueRange());
+    yield0->remove();
+    noc0Block->push_back(yield0);
+
+    rewriter.setInsertionPointToStart(noc1Block);
+    auto yield1 = rewriter.create<ttmetal::YieldOp>(op.getLoc(), ValueRange());
+    yield1->remove();
+    noc1Block->push_back(yield1);
+
+    rewriter.replaceOp(op, metalDispatch);
+
+    return success();
   }
 };
 
@@ -135,9 +206,10 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRToTTMetalLayoutRewriter, TTIRToTTMetalDispatchRewriter,
-                 TTIRToTTMetalKernelRewriter, TTIRToTTMetalAllocRewriter,
-                 TTIRToTTMetalDeallocRewriter>(&getContext());
+    patterns.add<TTIRToTTMetalLayoutRewriter, TTIRToTTMetalKernelRewriter,
+                 TTIRToTTMetalYieldRewriter, TTIRToTTMetalDispatchRewriter,
+                 TTIRToTTMetalAllocRewriter, TTIRToTTMetalDeallocRewriter>(
+        &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();

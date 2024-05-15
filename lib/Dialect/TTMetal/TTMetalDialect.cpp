@@ -14,6 +14,19 @@
 using namespace mlir;
 using namespace mlir::tt::ttmetal;
 
+namespace mlir::tt::ttmetal {
+static void printDimensionList(::mlir::AsmPrinter &printer,
+                               ::llvm::ArrayRef<int64_t> shape) {
+  printer.printDimensionList(shape);
+}
+
+static ::mlir::ParseResult
+parseDimensionList(::mlir::AsmParser &odsParser,
+                   ::llvm::SmallVector<int64_t> &dimensions) {
+  return odsParser.parseDimensionList(dimensions, false, false);
+}
+} // namespace mlir::tt::ttmetal
+
 #include "ttmlir/Dialect/TTMetal/TTMetalOpsDialect.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES

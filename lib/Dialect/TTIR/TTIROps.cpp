@@ -46,14 +46,12 @@
         "Input tensor layout memory space must match alloc memory space");
   }
 
-  if (getMemorySpace() == mlir::tt::MemorySpace::System and getAddress() != 0) {
+  if (isSystemMemorySpace(getMemorySpace()) and getAddress() != 0) {
     return emitOpError("Allocating from system memory space must have address "
                        "set to 0, implicitly allocated by the runtime");
   }
 
-  bool isDeviceMemorySpace = memspace == mlir::tt::MemorySpace::DRAM or
-                             memspace == mlir::tt::MemorySpace::L1;
-  if (isDeviceMemorySpace and getAddress() == 0) {
+  if (isDeviceMemorySpace(memspace) and getAddress() == 0) {
     return emitOpError(
         "Allocating from a device memory space must have address "
         "set to a non-zero value, device addresses are statically allocated");
