@@ -42,7 +42,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
 )
 
 set(TTMLIR_PYTHON_SOURCES
-  MLIRPythonSources
+  MLIRPythonSources.Core
   MLIRPythonExtension.Core
   MLIRPythonExtension.RegisterEverything
   TTMLIRPythonSources
