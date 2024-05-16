@@ -1,5 +1,5 @@
-CONDA_ENV="${CONDA_ENV:-.local/conda}"
+TTMLIR_VENV="${TTMLIR_VENV:-.local/ttmlir_venv}"
 TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-.local/toolchain}"
-source $CONDA_ENV/bin/activate
-conda activate ttmlir
+source $TTMLIR_VENV/bin/activate
 export PATH=$TOOLCHAIN_ENV/bin:$PATH
+export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core"

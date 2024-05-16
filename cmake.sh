@@ -8,5 +8,4 @@ cmake \
   -DCMAKE_BUILD_TYPE=$CONFIG \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
-  -DCMAKE_C_FLAGS="--system-header-prefix=$ENV" \
-  -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+  -DCMAKE_C_FLAGS="--system-header-prefix=$ENV"

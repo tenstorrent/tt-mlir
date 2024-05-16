@@ -1,40 +1,34 @@
 TOOLCHAIN_ENV=$(ENV)/toolchain
-CONDA_ENV=$(ENV)/conda
-CONDA_ENV_INSTALLER=$(CONDA_ENV)/scripts/Miniconda3-latest-Linux-x86_64.sh
-TTMLIR_ENV=$(CONDA_ENV)/envs/ttmlir
+TTMLIR_VENV=$(ENV)/ttmlir_venv
+MLIR_PYTHON_REQUIREMENTS=third_party/llvm-project/mlir/python/requirements.txt
+TTMLIR_PYTHON_EXAMPLES_REQUIREMENTS=python_torch_examples/requirements$(OS).txt
 CMAKE=$(TOOLCHAIN_ENV)/bin/cmake
 NINJA=$(TOOLCHAIN_ENV)/bin/ninja
 LLVM_BUILD_DIR=$(TOOLCHAIN_ENV)/llvm_build
 LLVM_INSTALL=$(LLVM_BUILD_DIR)/.installed
 FLATBUFFERS_INSTALL=$(TOOLCHAIN_ENV)/bin/flatc
-ifeq ($(OS),Linux)
-MINICONDA_OS=Linux
-else ifeq ($(OS),Darwin)
-MINICONDA_OS=MacOSX
-else
-error "Unsupported miniconda OS $(OS)"
-endif
 
-env: $(TTMLIR_ENV) $(LLVM_INSTALL) $(FLATBUFFERS_INSTALL) ;
-conda_env: $(TTMLIR_ENV) ;
+env: $(TTMLIR_VENV) $(LLVM_INSTALL) $(FLATBUFFERS_INSTALL) ;
 toolchain: $(LLVM_INSTALL) ;
 
-$(CONDA_ENV_INSTALLER):
-	mkdir -p $(@D)
-	curl -L --create-dirs --output $@ https://repo.anaconda.com/miniconda/Miniconda3-latest-$(MINICONDA_OS)-x86_64.sh
+$(TTMLIR_VENV): $(TTMLIR_VENV)/.dep ;
 
-$(CONDA_ENV)/bin/activate: $(CONDA_ENV_INSTALLER)
-	bash $(CONDA_ENV_INSTALLER) -u -b -s -p $(CONDA_ENV)
+git_submodule_update:
+	git submodule update --init --recursive
 
-$(TTMLIR_ENV): $(TTMLIR_ENV)/.dep ;
+$(MLIR_PYTHON_REQUIREMENTS): git_submodule_update ;
+third_party/llvm-project/mlir/CMakeLists.txt: git_submodule_update ;
 
-$(TTMLIR_ENV)/.dep: $(CONDA_ENV)/bin/activate env/environment.yml python_torch_examples/requirements$(OS).txt
-	bash -c "source $(CONDA_ENV)/bin/activate && conda env create -f env/environment.yml || true"
+$(TTMLIR_VENV)/bin/activate:
+	bash -c "python3 -m venv $(TTMLIR_VENV)"
+	bash -c "source env/activate && python -m pip install --upgrade pip"
+
+$(TTMLIR_VENV)/.dep: $(TTMLIR_VENV)/bin/activate $(MLIR_PYTHON_REQUIREMENTS) $(TTMLIR_PYTHON_EXAMPLES_REQUIREMENTS)
+	bash -c "source env/activate && pip install -r third_party/llvm-project/mlir/python/requirements.txt"
 	bash -c "source env/activate && pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r python_torch_examples/requirements$(OS).txt"
 	touch $@
 
-$(LLVM_INSTALL): $(CMAKE) $(NINJA) ./env/build_llvm.sh
-	git submodule update --init --recursive
+$(LLVM_INSTALL): $(TTMLIR_VENV) $(CMAKE) $(NINJA) third_party/llvm-project/mlir/CMakeLists.txt ./env/build_llvm.sh
 	PATH=$(TOOLCHAIN_ENV)/bin:$(PATH) INSTALL_PREFIX=$(TOOLCHAIN_ENV) ./env/build_llvm.sh
 	touch $@
 
