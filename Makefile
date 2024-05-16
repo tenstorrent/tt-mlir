@@ -13,10 +13,11 @@ $(OUT)/bin/ttmlir-opt: $(OUT)/build.ninja
 	bash -c "source env/activate && cmake --build $(OUT)"
 
 clean:
-	bash -c "source env/activate && cmake --build $(OUT) clean"
+	rm -rf $(OUT)
 
 spotless:
 	rm -rf $(OUT)
+	rm -rf $(ENV)
 
 .PRECIOUS: $(OUT)/build.ninja
 $(OUT)/build.ninja: env CMakeLists.txt cmake.sh
