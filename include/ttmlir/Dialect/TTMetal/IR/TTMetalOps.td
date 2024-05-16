@@ -111,7 +111,6 @@ def TTMetal_KernelOp : TTMetal_Op<"kernel"> {
     let arguments = (ins FlatSymbolRefAttr:$op,
                          FlatSymbolRefAttr:$kind,
                          Variadic<AnyMemRefOrCB>:$args);
-    let results = (outs Variadic<AnyMemRefOrCB>:$results);
 
     let hasVerifier = 1;
 }
@@ -160,15 +159,20 @@ def TTMetal_CBWaitFrontOp : TTMetal_Op<"cb_wait_front"> {
     let hasVerifier = 1;
 }
 
-def TTMetal_YieldOp : TTMetal_Op<"yield", [Pure, ReturnLike, Terminator]> {
-    let summary = "Yield op.";
+def TTMetal_ReturnOp : TTMetal_Op<"return", [Pure, ReturnLike, Terminator]> {
+    let summary = "Return op.";
     let description = [{
-      Yield operation
+      Return operation
     }];
 
-    let arguments = (ins Variadic<AnyMemRefOrCB>:$values);
-
     let hasVerifier = 1;
+}
+
+def TTMetal_UnreachableOp : TTMetal_Op<"unreachable", [Pure, ReturnLike, Terminator]> {
+    let summary = "Unreachable op.";
+    let description = [{
+      Unreachable operation
+    }];
 }
 
 #endif

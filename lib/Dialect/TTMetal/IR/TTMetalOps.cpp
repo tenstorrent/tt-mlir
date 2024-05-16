@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+
+#include "mlir/IR/BuiltinOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
@@ -119,7 +121,11 @@ namespace mlir::tt::ttmetal {
 
 static bool insideDispatchOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
-  return dyn_cast_or_null<DispatchOp>(parentOp) != nullptr;
+  if (dyn_cast_or_null<DispatchOp>(parentOp))
+    return true;
+  if (dyn_cast_or_null<mlir::ModuleOp>(parentOp))
+    return insideDispatchOpRegion(parentOp);
+  return false;
 }
 
 static ThreadType getRegionThreadType(mlir::Region *region) {
@@ -176,9 +182,9 @@ static bool insideThread(mlir::Operation *op, ThreadType threadType) {
   return success();
 }
 
-::mlir::LogicalResult YieldOp::verify() {
+::mlir::LogicalResult ReturnOp::verify() {
   if (not insideDispatchOpRegion(getOperation())) {
-    return emitOpError("YieldOp must be inside of a DispatchOp region");
+    return emitOpError("ReturnOp must be inside of a DispatchOp region");
   }
   return success();
 }

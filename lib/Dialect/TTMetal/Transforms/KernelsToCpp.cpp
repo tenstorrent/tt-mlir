@@ -7,6 +7,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -19,29 +20,93 @@ namespace mlir::tt::ttmetal {
 #define GEN_PASS_DEF_CONVERTTTMETALKERNELSTOEMITC
 #include "ttmlir/Dialect/TTMetal/Passes.h.inc"
 
-class TTMetalToEmitCKernelRewriter
-    : public OpRewritePattern<ttmetal::KernelOp> {
+class TTMetalToEmitCDispatchRegionRewriter
+    : public OpRewritePattern<ttmetal::DispatchOp> {
 public:
-  using OpRewritePattern<ttmetal::KernelOp>::OpRewritePattern;
+  using OpRewritePattern<ttmetal::DispatchOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttmetal::KernelOp op,
+  LogicalResult matchAndRewrite(ttmetal::DispatchOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, TypeRange(), op.getOp(), rewriter.getArrayAttr({}),
-        rewriter.getArrayAttr({}), ValueRange());
+    for (auto &region : op.getRegions()) {
+      auto op_begin = region.op_begin();
+      if (isa<mlir::ModuleOp>(*op_begin))
+        return rewriter.notifyMatchFailure(op, "Already converted");
+
+      // Create a new func op and move the existing block into it.
+      auto func = rewriter.create<func::FuncOp>(
+          op.getLoc(), "kernel_main",
+          rewriter.getType<FunctionType>(TypeRange(), TypeRange()));
+      func.getCallableRegion()->takeBody(region);
+      func->remove();
+
+      // Rewrite the block arguments to be variables.
+      rewriter.setInsertionPointToStart(&func.getCallableRegion()->front());
+      auto blockArgs = func.getCallableRegion()->getArguments();
+      for (auto arg : blockArgs) {
+        auto cb = cast<ttmetal::CBType>(arg.getType());
+        auto var = rewriter.create<emitc::VariableOp>(
+            op.getLoc(), rewriter.getI32Type(),
+            rewriter.getI32IntegerAttr(cb.getPort()));
+        rewriter.replaceAllUsesWith(arg, var);
+      }
+      func.getCallableRegion()->front().eraseArguments(0, blockArgs.size());
+
+      // Replace the original block with a the new block containing a module op
+      ThreadType threadType = op.getThreadTypes()[region.getRegionNumber()]
+                                  .cast<ttmetal::ThreadTypeAttr>()
+                                  .getValue();
+      Block *newBlock = rewriter.createBlock(&region);
+      auto module = rewriter.create<mlir::ModuleOp>(
+          op.getLoc(), stringifyThreadType(threadType));
+      module->remove();
+      newBlock->push_back(module);
+
+      // Push the function inside the module.
+      Block *moduleBlock = &module.getBodyRegion().front();
+      moduleBlock->push_front(func);
+      rewriter.create<emitc::IncludeOp>(func.getLoc(), "ttmetal.h", "ttmetal")
+          ->moveBefore(func);
+
+      // Blocks require a terminator operation, so add an unreachable op.
+      rewriter.create<ttmetal::UnreachableOp>(func.getLoc());
+    }
     return success();
   }
 };
 
-class TTMetalToEmitCYieldRewriter : public OpRewritePattern<ttmetal::YieldOp> {
+class TTMetalToEmitCReturnRewriter : public OpRewritePattern<ttmetal::ReturnOp> {
 public:
-  using OpRewritePattern<ttmetal::YieldOp>::OpRewritePattern;
+  using OpRewritePattern<ttmetal::ReturnOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttmetal::YieldOp op,
+  LogicalResult matchAndRewrite(ttmetal::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
     if (not isa<func::FuncOp>(op.getOperation()->getParentOp()))
       return rewriter.notifyMatchFailure(op, "Not inside of func op");
     rewriter.replaceOpWithNewOp<func::ReturnOp>(op, ValueRange());
+    return success();
+  }
+};
+
+template<typename OpTy>
+class TTMetalToEmitCOpaqueRewriter
+    : public OpRewritePattern<OpTy> {
+public:
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+
+  StringRef getOpName(OpTy op) const {
+    if constexpr (std::is_same_v<OpTy, ttmetal::KernelOp>) {
+      return op.getOp();
+    }
+    auto name = op.getOperation()->getName().getStringRef();
+    if (name.starts_with("ttmetal."))
+      return name.drop_front(8);
+    return name;
+  }
+
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange(), getOpName(op), nullptr, nullptr, op->getOperands());
     return success();
   }
 };
@@ -55,10 +120,31 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTMetalToEmitCYieldRewriter>(&getContext());
+    patterns.add<TTMetalToEmitCDispatchRegionRewriter,
+                 TTMetalToEmitCOpaqueRewriter<KernelOp>,
+                 TTMetalToEmitCOpaqueRewriter<CBPushBackOp>,
+                 TTMetalToEmitCOpaqueRewriter<CBPopFrontOp>,
+                 TTMetalToEmitCOpaqueRewriter<CBReserveBackOp>,
+                 TTMetalToEmitCOpaqueRewriter<CBWaitFrontOp>,
+                 TTMetalToEmitCReturnRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();
+
+      // Dump kernels to stdout
+#if 0
+    ModuleOp module = getOperation();
+    module->walk([&](ttmetal::DispatchOp dispatchOp) {
+      for (auto &region : dispatchOp.getRegions()) {
+        for (auto &op : region.getOps()) {
+          if (isa<ModuleOp>(op)) {
+            auto res = emitc::translateToCpp(&op, llvm::outs());
+            (void)res;
+          }
+        }
+      }
+    });
+#endif
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {

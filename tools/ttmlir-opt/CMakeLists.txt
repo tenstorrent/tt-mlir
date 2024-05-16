@@ -9,6 +9,7 @@ set(LIBS
         MLIRTensixDialect
         MLIRTTIRDialect
         MLIRTTMetalDialect
+        MLIRTargetCpp
         )
 add_llvm_executable(ttmlir-opt ttmlir-opt.cpp)
 

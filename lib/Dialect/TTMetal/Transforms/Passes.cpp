@@ -59,20 +59,23 @@ public:
 
   LogicalResult matchAndRewrite(ttir::KernelOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::KernelOp>(
-        op, op.getResults().getTypes(), op.getOpAttr(), op.getKindAttr(),
-        op.getOperands());
+    if (not op->use_empty())
+      return failure();
+    rewriter.create<ttmetal::KernelOp>(op.getLoc(), op.getOpAttr(),
+                                       op.getKindAttr(), op.getOperands());
+    op->dropAllUses();
+    rewriter.eraseOp(op);
     return success();
   }
 };
 
-class TTIRToTTMetalYieldRewriter : public OpRewritePattern<ttir::YieldOp> {
+class TTIRToTTMetalReturnRewriter : public OpRewritePattern<ttir::YieldOp> {
 public:
   using OpRewritePattern<ttir::YieldOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ttir::YieldOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::YieldOp>(op, op.getOperands());
+    rewriter.replaceOpWithNewOp<ttmetal::ReturnOp>(op);
     return success();
   }
 };
@@ -165,18 +168,18 @@ public:
         op.getLoc(), noc0Block->getArgument(0));
     push0->remove();
     noc0Block->push_back(push0);
-    auto yield0 = rewriter.create<ttmetal::YieldOp>(op.getLoc(), ValueRange());
-    yield0->remove();
-    noc0Block->push_back(yield0);
+    auto return0 = rewriter.create<ttmetal::ReturnOp>(op.getLoc(), ValueRange());
+    return0->remove();
+    noc0Block->push_back(return0);
 
     rewriter.setInsertionPointToStart(noc1Block);
     auto push1 = rewriter.create<ttmetal::CBPushBackOp>(
         op.getLoc(), noc1Block->getArgument(1));
     push1->remove();
     noc1Block->push_back(push1);
-    auto yield1 = rewriter.create<ttmetal::YieldOp>(op.getLoc(), ValueRange());
-    yield1->remove();
-    noc1Block->push_back(yield1);
+    auto return1 = rewriter.create<ttmetal::ReturnOp>(op.getLoc(), ValueRange());
+    return1->remove();
+    noc1Block->push_back(return1);
 
     rewriter.replaceOp(op, metalDispatch);
 
@@ -215,7 +218,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRToTTMetalLayoutRewriter, TTIRToTTMetalKernelRewriter,
-                 TTIRToTTMetalYieldRewriter, TTIRToTTMetalDispatchRewriter,
+                 TTIRToTTMetalReturnRewriter, TTIRToTTMetalDispatchRewriter,
                  TTIRToTTMetalAllocRewriter, TTIRToTTMetalDeallocRewriter>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
