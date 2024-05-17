@@ -6,7 +6,7 @@ set(LIBS
         MLIRArithDialect
         MLIROptLib
         MLIRTTDialect
-        MLIRTensixDialect
+        MLIRTTKernelDialect
         MLIRTTIRDialect
         MLIRTTMetalDialect
         MLIRTargetCpp

@@ -2,24 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/Tensix/IR/Tensix.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/Tensix/IR/TensixOps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
 using namespace mlir;
-using namespace mlir::tt::tensix;
+using namespace mlir::tt::ttkernel;
 
-#include "ttmlir/Dialect/Tensix/IR/TensixOpsDialect.cpp.inc"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsDialect.cpp.inc"
 
 //===----------------------------------------------------------------------===//
-// Tensix dialect.
+// TTKernel dialect.
 //===----------------------------------------------------------------------===//
 
-void TensixDialect::initialize() {
+void TTKernelDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "ttmlir/Dialect/Tensix/IR/TensixOps.cpp.inc"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
       >();
 }

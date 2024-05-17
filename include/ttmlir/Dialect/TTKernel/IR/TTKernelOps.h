@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TENSIX_TENSIXOPS_H
-#define TTMLIR_TTMLIR_DIALECT_TENSIX_TENSIXOPS_H
+#ifndef TTMLIR_TTMLIR_DIALECT_TTKERNEL_TTKERNELOPS_H
+#define TTMLIR_TTMLIR_DIALECT_TTKERNEL_TTKERNELOPS_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -16,6 +16,6 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #define GET_OP_CLASSES
-#include "ttmlir/Dialect/Tensix/IR/TensixOps.h.inc"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h.inc"
 
 #endif

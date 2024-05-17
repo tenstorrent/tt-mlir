@@ -13,7 +13,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Passes.h"
 #include "ttmlir/Dialect/TTMetal/Passes.h"
-#include "ttmlir/Dialect/Tensix/IR/Tensix.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
@@ -21,14 +21,14 @@ int main(int argc, char **argv) {
   mlir::tt::ttmetal::registerPasses();
 
   mlir::DialectRegistry registry;
-  registry.insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
-                  mlir::tt::ttmetal::TTMetalDialect,
-                  mlir::tt::tensix::TensixDialect, mlir::arith::ArithDialect,
-                  mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
-                  mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-                  mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-                  mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-                  mlir::emitc::EmitCDialect>();
+  registry.insert<
+      mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+      mlir::tt::ttmetal::TTMetalDialect, mlir::tt::ttkernel::TTKernelDialect,
+      mlir::arith::ArithDialect, mlir::func::FuncDialect,
+      mlir::ml_program::MLProgramDialect, mlir::tensor::TensorDialect,
+      mlir::linalg::LinalgDialect, mlir::scf::SCFDialect,
+      mlir::cf::ControlFlowDialect, mlir::tosa::TosaDialect,
+      mlir::vector::VectorDialect, mlir::emitc::EmitCDialect>();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "ttmlir optimizer driver\n", registry));

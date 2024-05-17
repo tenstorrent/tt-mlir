@@ -1,12 +1,12 @@
-add_mlir_dialect_library(MLIRTensixDialect
-        TensixDialect.cpp
-        TensixOps.cpp
+add_mlir_dialect_library(MLIRTTKernelDialect
+        TTKernelDialect.cpp
+        TTKernelOps.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
 
         DEPENDS
-        MLIRTensixOpsIncGen
+        MLIRTTKernelOpsIncGen
         MLIRTTOpsIncGen
 
         LINK_LIBS PUBLIC

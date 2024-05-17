@@ -20,14 +20,14 @@ PYBIND11_MODULE(_ttmlir, m) {
       [](MlirContext context, bool load) {
         MlirDialectHandle tt_handle = mlirGetDialectHandle__tt__();
         MlirDialectHandle ttir_handle = mlirGetDialectHandle__ttir__();
-        MlirDialectHandle tensix_handle = mlirGetDialectHandle__tensix__();
+        MlirDialectHandle ttkernel_handle = mlirGetDialectHandle__ttkernel__();
         mlirDialectHandleRegisterDialect(tt_handle, context);
         mlirDialectHandleRegisterDialect(ttir_handle, context);
-        mlirDialectHandleRegisterDialect(tensix_handle, context);
+        mlirDialectHandleRegisterDialect(ttkernel_handle, context);
         if (load) {
           mlirDialectHandleLoadDialect(tt_handle, context);
           mlirDialectHandleLoadDialect(ttir_handle, context);
-          mlirDialectHandleLoadDialect(tensix_handle, context);
+          mlirDialectHandleLoadDialect(ttkernel_handle, context);
         }
       },
       py::arg("context"), py::arg("load") = true);

@@ -25,9 +25,9 @@ declare_mlir_dialect_python_bindings(
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
-  TD_FILE dialects/TensixBinding.td
-  SOURCES dialects/tensix.py
-  DIALECT_NAME tensix
+  TD_FILE dialects/TTKernelBinding.td
+  SOURCES dialects/ttkernel.py
+  DIALECT_NAME ttkernel
 )
 
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main

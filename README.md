@@ -41,21 +41,17 @@ source env/activate
   - `ttir.yield`: return result memref of computation in dispatch region body, lowers to `ttkernel.yield`
   - `ttir.builtin`: lowers to `ttkernel.ffi`.
   - `ttir.concat`
-- `ttir` lowers to `ttdevice`, `ttkernel`, and `tensix` dialects:
-  - `ttdevice`: Operations that dispatch work from host to device.
-    - `ttdevice.dispatch`: Dispatch a grid of compute work.
-    - `ttdevice.wait`: Wait for device events.
+- `ttir` lowers to `ttmetal` and `ttkernel` dialects:
+  - `ttmetal`: Operations that dispatch work from host to device.
+    - `ttmetal.dispatch`: Dispatch a grid of compute work.
+    - `ttmetal.wait`: Wait for device events.
   - `ttkernel`: Tenstorrent kernel library operations.
     - `ttkernel.ffi`: Call a function defined outside of this compilation context.  Usually a hand written piece of C++.
     - `ttkernel.noc_async_read`
     - `ttkernel.noc_async_write`
     - `ttkernel.cb_push_back`
-  - `tensix`: Low level tile operations that model tensix coprocessor.
-    - Lowers `arith` dialect, usually from region body of `linalg.generic`.
-    - `tensix.unpack`: Unpack a tile in source register space.
-    - `tensix.pack`: Pack a tile from dest register space to L1.
-    - `tensix.[matmul|add|multiply]`: Computations on tiles in source register space, store the result in dest register space.
-    - `tensix.sfpu_*`: Computations on tiles in dest register space using sfpu coprocessor.
+    - `ttkernel.[matmul|add|multiply]`: Computations on tiles in source register space, store the result in dest register space.
+    - `ttkernel.sfpu_*`: Computations on tiles in dest register space using sfpu coprocessor.
 
 ## Proposed Transforms
 

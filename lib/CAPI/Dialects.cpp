@@ -7,9 +7,9 @@
 #include "mlir/CAPI/Registration.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/Tensix/IR/Tensix.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TT, tt, mlir::tt::TTDialect)
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TTIR, ttir, mlir::tt::ttir::TTIRDialect)
-MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Tensix, tensix,
-                                      mlir::tt::tensix::TensixDialect)
+MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(TTKernel, ttkernel,
+                                      mlir::tt::ttkernel::TTKernelDialect)

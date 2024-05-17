@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TENSIX_TENSIXOPS_TD
-#define TTMLIR_TTMLIR_DIALECT_TENSIX_TENSIXOPS_TD
+#ifndef TTMLIR_TTMLIR_DIALECT_TTKERNEL_TTKERNELOPS_TD
+#define TTMLIR_TTMLIR_DIALECT_TTKERNEL_TTKERNELOPS_TD
 
-include "ttmlir/Dialect/Tensix/IR/TensixBase.td"
+include "ttmlir/Dialect/TTKernel/IR/TTKernelBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
@@ -13,7 +13,7 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 
-def Tensix_PackOp : Tensix_Op<"pack"> {
+def TTKernel_PackOp : TTKernel_Op<"pack"> {
     let summary = "Pack op.";
     let description = [{
       Pack operation
@@ -27,7 +27,7 @@ def Tensix_PackOp : Tensix_Op<"pack"> {
     }];
 }
 
-def Tensix_UnpackOp : Tensix_Op<"unpack"> {
+def TTKernel_UnpackOp : TTKernel_Op<"unpack"> {
     let summary = "Unpack op.";
     let description = [{
       Unpack operation
