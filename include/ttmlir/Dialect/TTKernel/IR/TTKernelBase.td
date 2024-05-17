@@ -21,6 +21,11 @@ def TTKernel_Dialect : Dialect {
     }];
     let cppNamespace = "::mlir::tt::ttkernel";
 
+    let useDefaultTypePrinterParser = 1;
+    let useDefaultAttributePrinterParser = 1;
+    let extraClassDeclaration = [{
+        void registerTypes();
+    }];
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
       "::mlir::scf::SCFDialect",

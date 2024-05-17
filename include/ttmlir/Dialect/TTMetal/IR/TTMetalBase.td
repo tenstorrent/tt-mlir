@@ -21,7 +21,7 @@ def TTMetal_Dialect : Dialect {
     }];
     let cppNamespace = "::mlir::tt::ttmetal";
 
-    let useDefaultTypePrinterParser = 1;
+    // let useDefaultTypePrinterParser = 1;
     let useDefaultAttributePrinterParser = 1;
     let extraClassDeclaration = [{
         void registerTypes();

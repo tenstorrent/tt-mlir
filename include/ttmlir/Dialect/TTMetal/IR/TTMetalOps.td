@@ -8,6 +8,7 @@
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalBase.td"
 include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.td"
+include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
@@ -29,7 +30,7 @@ def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, At
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TTMetal_CoreRangeArrayAttr:$core_ranges,
-                         TTMetal_ThreadTypeArrayAttr:$threadTypes,
+                         TTKernel_ThreadTypeArrayAttr:$threadTypes,
                          ArrayAttr:$operand_cb_port_mapping);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
@@ -94,85 +95,6 @@ def TTMetal_DeallocOp : TTMetal_Op<"dealloc"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$result);
-}
-
-//===----------------------------------------------------------------------===//
-// TTMetal ops below are only legal inside a DispatchOp region
-//===----------------------------------------------------------------------===//
-
-def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTMetal_CB]>;
-
-def TTMetal_KernelOp : TTMetal_Op<"kernel"> {
-    let summary = "Kernel call.";
-    let description = [{
-      Kernel operation
-    }];
-
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyMemRefOrCB>:$args);
-
-    let hasVerifier = 1;
-}
-
-def TTMetal_CBPushBackOp : TTMetal_Op<"cb_push_back"> {
-    let summary = "CBPushBack call.";
-    let description = [{
-      CBPushBack operation
-    }];
-
-    let arguments = (ins TTMetal_CB:$cb);
-
-    let hasVerifier = 1;
-}
-
-def TTMetal_CBPopFrontOp : TTMetal_Op<"cb_pop_front"> {
-    let summary = "CBPopFront call.";
-    let description = [{
-      CBPopFront operation
-    }];
-
-    let arguments = (ins TTMetal_CB:$cb);
-
-    let hasVerifier = 1;
-}
-
-def TTMetal_CBReserveBackOp : TTMetal_Op<"cb_reserve_back"> {
-    let summary = "CBReserveBack call.";
-    let description = [{
-      CBReserveBack operation
-    }];
-
-    let arguments = (ins TTMetal_CB:$cb);
-
-    let hasVerifier = 1;
-}
-
-def TTMetal_CBWaitFrontOp : TTMetal_Op<"cb_wait_front"> {
-    let summary = "CBWaitFront call.";
-    let description = [{
-      CBWaitFront operation
-    }];
-
-    let arguments = (ins TTMetal_CB:$cb);
-
-    let hasVerifier = 1;
-}
-
-def TTMetal_ReturnOp : TTMetal_Op<"return", [Pure, ReturnLike, Terminator]> {
-    let summary = "Return op.";
-    let description = [{
-      Return operation
-    }];
-
-    let hasVerifier = 1;
-}
-
-def TTMetal_UnreachableOp : TTMetal_Op<"unreachable", [Pure, ReturnLike, Terminator]> {
-    let summary = "Unreachable op.";
-    let description = [{
-      Unreachable operation
-    }];
 }
 
 #endif

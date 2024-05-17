@@ -12,6 +12,9 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/Passes.h"
 
@@ -43,7 +46,7 @@ public:
       rewriter.setInsertionPointToStart(&func.getCallableRegion()->front());
       auto blockArgs = func.getCallableRegion()->getArguments();
       for (auto arg : blockArgs) {
-        auto cb = cast<ttmetal::CBType>(arg.getType());
+        auto cb = cast<ttkernel::CBType>(arg.getType());
         auto var = rewriter.create<emitc::VariableOp>(
             op.getLoc(), rewriter.getI32Type(),
             rewriter.getI32IntegerAttr(cb.getPort()));
@@ -52,12 +55,13 @@ public:
       func.getCallableRegion()->front().eraseArguments(0, blockArgs.size());
 
       // Replace the original block with a the new block containing a module op
-      ThreadType threadType = op.getThreadTypes()[region.getRegionNumber()]
-                                  .cast<ttmetal::ThreadTypeAttr>()
-                                  .getValue();
+      ttkernel::ThreadType threadType =
+          op.getThreadTypes()[region.getRegionNumber()]
+              .cast<ttkernel::ThreadTypeAttr>()
+              .getValue();
       Block *newBlock = rewriter.createBlock(&region);
       auto module = rewriter.create<mlir::ModuleOp>(
-          op.getLoc(), stringifyThreadType(threadType));
+          op.getLoc(), ttkernel::stringifyThreadType(threadType));
       module->remove();
       newBlock->push_back(module);
 
@@ -68,17 +72,17 @@ public:
           ->moveBefore(func);
 
       // Blocks require a terminator operation, so add an unreachable op.
-      rewriter.create<ttmetal::UnreachableOp>(func.getLoc());
+      rewriter.create<ttkernel::UnreachableOp>(func.getLoc());
     }
     return success();
   }
 };
 
-class TTMetalToEmitCReturnRewriter : public OpRewritePattern<ttmetal::ReturnOp> {
+class TTMetalToEmitCReturnRewriter : public OpRewritePattern<ttkernel::ReturnOp> {
 public:
-  using OpRewritePattern<ttmetal::ReturnOp>::OpRewritePattern;
+  using OpRewritePattern<ttkernel::ReturnOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttmetal::ReturnOp op,
+  LogicalResult matchAndRewrite(ttkernel::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
     if (not isa<func::FuncOp>(op.getOperation()->getParentOp()))
       return rewriter.notifyMatchFailure(op, "Not inside of func op");
@@ -94,7 +98,7 @@ public:
   using OpRewritePattern<OpTy>::OpRewritePattern;
 
   StringRef getOpName(OpTy op) const {
-    if constexpr (std::is_same_v<OpTy, ttmetal::KernelOp>) {
+    if constexpr (std::is_same_v<OpTy, ttkernel::BuiltinOp>) {
       return op.getOp();
     }
     auto name = op.getOperation()->getName().getStringRef();
@@ -121,11 +125,11 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTMetalToEmitCDispatchRegionRewriter,
-                 TTMetalToEmitCOpaqueRewriter<KernelOp>,
-                 TTMetalToEmitCOpaqueRewriter<CBPushBackOp>,
-                 TTMetalToEmitCOpaqueRewriter<CBPopFrontOp>,
-                 TTMetalToEmitCOpaqueRewriter<CBReserveBackOp>,
-                 TTMetalToEmitCOpaqueRewriter<CBWaitFrontOp>,
+                 TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
+                 TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
+                 TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
+                 TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
+                 TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
                  TTMetalToEmitCReturnRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
@@ -149,6 +153,7 @@ public:
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttmetal::TTMetalDialect>();
+    registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
     registry.insert<mlir::emitc::EmitCDialect>();
     registry.insert<mlir::func::FuncDialect>();
   }

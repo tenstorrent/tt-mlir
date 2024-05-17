@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRTTKernelDialect
         TTKernelDialect.cpp
         TTKernelOps.cpp
+        TTKernelOpsTypes.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -13,4 +14,5 @@ add_mlir_dialect_library(MLIRTTKernelDialect
         MLIRIR
         MLIRInferTypeOpInterface
         MLIRFuncDialect
+        MLIRTTMetalDialect
         )

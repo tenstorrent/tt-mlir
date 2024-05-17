@@ -16,6 +16,9 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/Passes.h"
 
@@ -61,8 +64,8 @@ public:
                                 PatternRewriter &rewriter) const final {
     if (not op->use_empty())
       return failure();
-    rewriter.create<ttmetal::KernelOp>(op.getLoc(), op.getOpAttr(),
-                                       op.getKindAttr(), op.getOperands());
+    rewriter.create<ttkernel::BuiltinOp>(op.getLoc(), op.getOpAttr(),
+                                         op.getKindAttr(), op.getOperands());
     op->dropAllUses();
     rewriter.eraseOp(op);
     return success();
@@ -75,7 +78,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::YieldOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::ReturnOp>(op);
+    rewriter.replaceOpWithNewOp<ttkernel::ReturnOp>(op);
     return success();
   }
 };
@@ -115,7 +118,7 @@ public:
                       .getInt();
       auto memref = arg.getType().cast<MemRefType>();
       rewrittenBlockArgumentTypes.push_back(
-          rewriter.getType<ttmetal::CBType>(address, port, memref));
+          rewriter.getType<ttkernel::CBType>(address, port, memref));
     }
     return rewrittenBlockArgumentTypes;
   }
@@ -126,9 +129,10 @@ public:
       return failure();
 
     SmallVector<Attribute> threadTypes = {
-        rewriter.getAttr<ttmetal::ThreadTypeAttr>(ttmetal::ThreadType::Noc0),
-        rewriter.getAttr<ttmetal::ThreadTypeAttr>(ttmetal::ThreadType::Noc1),
-        rewriter.getAttr<ttmetal::ThreadTypeAttr>(ttmetal::ThreadType::Tensix),
+        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0),
+        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc1),
+        rewriter.getAttr<ttkernel::ThreadTypeAttr>(
+            ttkernel::ThreadType::Tensix),
     };
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
@@ -164,20 +168,20 @@ public:
     }
 
     rewriter.setInsertionPointToStart(noc0Block);
-    auto push0 = rewriter.create<ttmetal::CBPushBackOp>(
+    auto push0 = rewriter.create<ttkernel::CBPushBackOp>(
         op.getLoc(), noc0Block->getArgument(0));
     push0->remove();
     noc0Block->push_back(push0);
-    auto return0 = rewriter.create<ttmetal::ReturnOp>(op.getLoc(), ValueRange());
+    auto return0 = rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
     return0->remove();
     noc0Block->push_back(return0);
 
     rewriter.setInsertionPointToStart(noc1Block);
-    auto push1 = rewriter.create<ttmetal::CBPushBackOp>(
+    auto push1 = rewriter.create<ttkernel::CBPushBackOp>(
         op.getLoc(), noc1Block->getArgument(1));
     push1->remove();
     noc1Block->push_back(push1);
-    auto return1 = rewriter.create<ttmetal::ReturnOp>(op.getLoc(), ValueRange());
+    auto return1 = rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
     return1->remove();
     noc1Block->push_back(return1);
 
@@ -229,6 +233,7 @@ public:
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::ttmetal::TTMetalDialect>();
+    registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
   }
 };
 

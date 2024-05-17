@@ -21,13 +21,6 @@ class TTMetal_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def TTMetal_CB : TTMetal_Type<"CB", "cb"> {
-    let summary = "TTMetal cb";
-    let description = "Circular buffer type in TTMetal dialect";
-    let parameters = (ins "uint64_t":$address, "uint64_t":$port, "MemRefType":$memref);
-    let assemblyFormat = "`<` $address`,` $port`,` $memref `>`";
-}
-
 //===----------------------------------------------------------------------===//
 // TTMetal attr definitions
 //===----------------------------------------------------------------------===//
@@ -60,11 +53,5 @@ def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {
 }
 
 def TTMetal_CoreRangeArrayAttr : TypedArrayAttrBase<TTMetal_CoreRangeAttr, "">;
-
-def TTMetal_ThreadTypeAttr : EnumAttr<TTMetal_Dialect, TTMetal_ThreadType, "thread"> {
-  let assemblyFormat = "`<` $value `>`";
-}
-
-def TTMetal_ThreadTypeArrayAttr : TypedArrayAttrBase<TTMetal_ThreadTypeAttr, "">;
 
 #endif
