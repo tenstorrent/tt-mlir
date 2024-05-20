@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef TTMLIR_C_DIALECTS_H
 #define TTMLIR_C_DIALECTS_H
 

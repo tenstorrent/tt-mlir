@@ -1,0 +1,13 @@
+#include "ttmlir-c/TTKernelTypes.h"
+#include "mlir/CAPI/IR.h"
+#include "mlir/CAPI/Support.h"
+
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
+
+using namespace mlir::tt::ttkernel;
+
+MlirType ttmlirTTKernelCBTypeGet(MlirContext ctx, uint64_t address,
+                                 uint64_t port, MlirType memrefType) {
+  return wrap(CBType::get(unwrap(ctx), address, port,
+                          unwrap(memrefType).cast<mlir::MemRefType>()));
+}

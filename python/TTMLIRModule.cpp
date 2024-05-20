@@ -2,15 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Bindings/Python/PybindAdaptors.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
-#include "ttmlir-c/Dialects.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/Passes.h"
-
-namespace py = pybind11;
+#include "TTMLIRModule.h"
 
 PYBIND11_MODULE(_ttmlir, m) {
   m.doc() = "ttmlir main python extension";
@@ -31,4 +23,7 @@ PYBIND11_MODULE(_ttmlir, m) {
         }
       },
       py::arg("context"), py::arg("load") = true);
+
+  auto ir = m.def_submodule("ttkernel_ir", "TTKernel IR Bindings");
+  mlir::ttmlir::python::populateTTKernelModule(ir);
 }

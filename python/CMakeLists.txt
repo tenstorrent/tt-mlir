@@ -35,6 +35,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   ADD_TO_PARENT TTMLIRPythonExtensions
   SOURCES
     TTMLIRModule.cpp
+    TTKernelModule.cpp
   EMBED_CAPI_LINK_LIBS
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
@@ -43,6 +44,9 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
 
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
+  MLIRPythonSources.Dialects.func
+  MLIRPythonSources.Dialects.scf
+  MLIRPythonSources.Dialects.arith
   MLIRPythonExtension.Core
   MLIRPythonExtension.RegisterEverything
   TTMLIRPythonSources

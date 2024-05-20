@@ -16,17 +16,26 @@ include "mlir/IR/CommonTypeConstraints.td"
 
 def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 
-def TTKernel_BuiltinOp : TTKernel_Op<"builtin"> {
-    let summary = "Builtin call.";
+//===----------------------------------------------------------------------===//
+// TTKernel Register operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_PackSetDataTypeOp : TTKernel_Op<"pack_set_data_type"> {
+    let summary = "Pack set DataType op.";
     let description = [{
-      Kernel operation
+      Pack set DataType operation
     }];
 
-    let arguments = (ins FlatSymbolRefAttr:$op,
-                         FlatSymbolRefAttr:$kind,
-                         Variadic<AnyMemRefOrCB>:$args);
+    let arguments = (ins TT_DataType:$data_type);
+}
 
-    let hasVerifier = 1;
+def TTKernel_UnpackSetDataTypeOp : TTKernel_Op<"unpack_set_data_type"> {
+    let summary = "Unpack set DataType op.";
+    let description = [{
+      Unpack set DataType operation
+    }];
+
+    let arguments = (ins TT_DataType:$data_type_a, TT_DataType:$data_type_b);
 }
 
 def TTKernel_PackOp : TTKernel_Op<"pack"> {
@@ -35,27 +44,88 @@ def TTKernel_PackOp : TTKernel_Op<"pack"> {
       Pack operation
     }];
 
-    let arguments = (ins AnyFloat:$source);
-    let results = (outs TT_Tile:$result);
-
-    let assemblyFormat = [{
-      $source attr-dict `:` type($source) `->` type($result)
-    }];
+    let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
 }
 
-def TTKernel_UnpackOp : TTKernel_Op<"unpack"> {
-    let summary = "Unpack op.";
+def TTKernel_UnpackAOp : TTKernel_Op<"unpack_a"> {
+    let summary = "UnpackA op.";
     let description = [{
-      Unpack operation
+      UnpackA operation
     }];
 
-    let arguments = (ins TT_Tile:$source);
-    let results = (outs AnyFloat:$result);
+    let arguments = (ins TTKernel_CB:$cb, I32:$src_index);
+}
 
-    let assemblyFormat = [{
-      $source attr-dict `:` type($source) `->` type($result)
+def TTKernel_UnpackABOp : TTKernel_Op<"unpack_ab"> {
+    let summary = "UnpackAB op.";
+    let description = [{
+      UnpackAB operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb_a, I32:$src_a_index, TTKernel_CB:$cb_b, I32:$src_b_index);
+}
+
+def TTKernel_AcquireDstOp : TTKernel_Op<"acquire_dst"> {
+    let summary = "Aquire dest call.";
+    let description = [{
+      Aquire dest operation
+    }];
+
+    //TODO: Add MemRefAttr
+    //let arguments = (ins MemRefAttr:$view);
+    //let hasVerifier = 1;
+}
+
+def TTKernel_ReleaseDstOp : TTKernel_Op<"release_dst"> {
+    let summary = "Release dest call.";
+    let description = [{
+      Release dest operation
     }];
 }
+
+//===----------------------------------------------------------------------===//
+// TTKernel FPU operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_AddOp : TTKernel_Op<"add"> {
+    let summary = "Add operation";
+    let description = [{
+      Add operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
+def TTKernel_SubOp : TTKernel_Op<"sub"> {
+    let summary = "Sub operation";
+    let description = [{
+      Sub operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
+def TTKernel_MulOp : TTKernel_Op<"mul"> {
+    let summary = "Mul operation";
+    let description = [{
+      Mul operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
+def TTKernel_MatmulOp : TTKernel_Op<"matmul"> {
+    let summary = "Matmul operation";
+    let description = [{
+      Matmul operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel CB operations
+//===----------------------------------------------------------------------===//
 
 def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
     let summary = "CBPushBack call.";
@@ -97,6 +167,23 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
     }];
 
     let arguments = (ins TTKernel_CB:$cb);
+
+    let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Misc operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_BuiltinOp : TTKernel_Op<"builtin"> {
+    let summary = "Builtin call.";
+    let description = [{
+      Kernel operation
+    }];
+
+    let arguments = (ins FlatSymbolRefAttr:$op,
+                         FlatSymbolRefAttr:$kind,
+                         Variadic<AnyMemRefOrCB>:$args);
 
     let hasVerifier = 1;
 }
