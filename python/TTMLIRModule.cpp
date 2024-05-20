@@ -24,6 +24,8 @@ PYBIND11_MODULE(_ttmlir, m) {
       },
       py::arg("context"), py::arg("load") = true);
 
-  auto ir = m.def_submodule("ttkernel_ir", "TTKernel IR Bindings");
-  mlir::ttmlir::python::populateTTKernelModule(ir);
+  auto tt_ir = m.def_submodule("tt_ir", "TT IR Bindings");
+  mlir::ttmlir::python::populateTTModule(tt_ir);
+  auto ttkernel_ir = m.def_submodule("ttkernel_ir", "TTKernel IR Bindings");
+  mlir::ttmlir::python::populateTTKernelModule(ttkernel_ir);
 }

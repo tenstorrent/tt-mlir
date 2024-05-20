@@ -21,7 +21,7 @@ class TT_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
-def TT_Tile : TT_Type<"Tile", "tile"> {
+def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
     let parameters = (ins "unsigned":$height, "unsigned":$width, "DataType":$dataType);

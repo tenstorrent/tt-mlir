@@ -1,5 +1,5 @@
 from ttmlir.ir import *
-from ttmlir.dialects import ttkernel, func, scf, arith
+from ttmlir.dialects import tt, ttkernel, func, scf, arith
 import ast
 import inspect
 import functools
@@ -30,7 +30,10 @@ class TTKernelBuilder(ast.NodeVisitor):
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
         self.name = name
+        assert len(arg_shapes) == len(arg_dtypes)
         self.arg_shapes = arg_shapes
+        self.arg_dtypes = arg_dtypes
+        self.arg_tile_shapes = [(32, 32) for i in range(len(arg_shapes))]
         self.symbol_table = {}
         self.int_constant_map = {}
         ttkernel.register_dialect(self.ctx)
@@ -47,6 +50,18 @@ class TTKernelBuilder(ast.NodeVisitor):
         else:
             raise NotImplementedError(f"get_constant {value} not implemented")
 
+    def get_tilized_memref_for_arg(self, idx):
+        arg_shape = list(self.arg_shapes[idx])
+        arg_dtype = self.arg_dtypes[idx]
+        arg_tile_shape = list(self.arg_tile_shapes[idx])
+        assert len(arg_shape) >= 2
+        arg_shape[-2] = (arg_shape[-2] + arg_tile_shape[-2] - 1) // arg_tile_shape[-2]
+        arg_shape[-1] = (arg_shape[-1] + arg_tile_shape[-1] - 1) // arg_tile_shape[-1]
+        element_type = tt.ir.TileType.get(
+            self.ctx, arg_tile_shape[-2], arg_tile_shape[-1], arg_dtype
+        )
+        return MemRefType.get(arg_shape, element_type)
+
     def emit_entry_func(self, node):
         assert isinstance(node, ast.FunctionDef)
         num_defaults = len(node.args.defaults)
@@ -56,7 +71,7 @@ class TTKernelBuilder(ast.NodeVisitor):
                 self.ctx,
                 0,
                 idx,
-                MemRefType.get(self.arg_shapes[idx], F32Type.get(self.ctx)),
+                self.get_tilized_memref_for_arg(idx),
             )
             for idx in range(num_args)
         ]
@@ -172,8 +187,8 @@ class TTKernelBuilder(ast.NodeVisitor):
                 for stmt in node.body:
                     self.visit(stmt)
         elif isinstance(node, ast.For):
-            entry_block = self.emit_for(node)
-            with InsertionPoint(entry_block), Location.unknown():
+            for_block = self.emit_for(node)
+            with InsertionPoint(for_block), Location.unknown():
                 for stmt in node.body:
                     self.visit(stmt)
         elif isinstance(node, ast.Expr):
@@ -196,14 +211,21 @@ class Tensix:
         pass
 
 
+def to_data_type(dtype):
+    if dtype == torch.float32:
+        return tt.ir.DataType.Float32
+    else:
+        raise NotImplementedError(f"to_data_type {dtype} not implemented")
+
+
 def ttkernel_compile(f):
     @functools.wraps(f)
     def _wrapper(*args, **kwargs):
         arg_shapes = [tuple(arg.shape) for arg in args]
-        arg_dtypes = [arg.dtype for arg in args]
+        arg_dtypes = [to_data_type(arg.dtype) for arg in args]
         m = ast.parse(inspect.getsource(f))
         b = TTKernelBuilder(f.__name__, arg_shapes, arg_dtypes)
-        print(ast.dump(m, indent=4))
+        # print(ast.dump(m, indent=4))
         b.visit(m)
         b.module.dump()
         # return f(*args, **kwargs)
@@ -222,11 +244,12 @@ def eltwise(
         lambda *dn, m, n: (*dn, m, n),
     ],
     iterator_types=["parallel", "parallel", "parallel"],
+    dynamic_shapes=False,
 ):
     t6 = Tensix(in0, in1, out)
     for dn in range(in0.shape[-3]):
         for m in range(in0.shape[-2]):
-            for n in range(in0.shape[1]):
+            for n in range(in0.shape[-1]):
                 in0.wait()
                 in1.wait()
                 out.reserve()
@@ -254,9 +277,9 @@ def eltwise(
 #     return in0 + in1
 
 
-a = torch.randn(32, 32)
-b = torch.randn(32, 32)
-out = torch.empty(32, 32)
+a = torch.randn(8, 128, 128)
+b = torch.randn(8, 128, 128)
+out = torch.empty(8, 128, 128)
 eltwise(a, b, out)
 
 
