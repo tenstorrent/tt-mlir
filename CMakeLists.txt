@@ -35,6 +35,17 @@ if(MLIR_ENABLE_BINDINGS_PYTHON)
   mlir_configure_python_dev_packages()
 endif()
 
+execute_process(
+  COMMAND git rev-parse HEAD
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  OUTPUT_VARIABLE TTMLIR_GIT_HASH
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+add_definitions("-DTTMLIR_GIT_HASH=${TTMLIR_GIT_HASH}")
+add_definitions("-DTTMLIR_VERSION_MAJOR=0")
+add_definitions("-DTTMLIR_VERSION_MINOR=0")
+add_definitions("-DTTMLIR_VERSION_RELEASE=0")
+
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 set(TTMLIR_BINARY_DIR ${PROJECT_BINARY_DIR})
 include_directories(${LLVM_INCLUDE_DIRS})

@@ -44,7 +44,6 @@ def TT_System : I32EnumAttrCase<"System", 0, "system">;
 def TT_SystemMMIO : I32EnumAttrCase<"SystemMMIO", 1, "mmio">;
 def TT_DeviceDRAM : I32EnumAttrCase<"DeviceDRAM", 2, "dram">;
 def TT_DeviceL1 : I32EnumAttrCase<"DeviceL1", 3, "l1">;
-def TT_TensixDst : I32EnumAttrCase<"TensixDst", 4, "tensix_dst">;
 
 def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                            [
@@ -52,7 +51,6 @@ def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                             TT_SystemMMIO,
                             TT_DeviceDRAM,
                             TT_DeviceL1,
-                            TT_TensixDst,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";

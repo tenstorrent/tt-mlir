@@ -3,11 +3,19 @@ include "command.fbs";
 
 namespace tt;
 
-table Workload {
+struct Version {
+  major: uint16;
+  minor: uint16;
+  release: uint32;
+}
+
+table Binary {
+  version: Version;
+  ttmlir_git_hash: string;
   device_desc: DeviceDesc;
   command_queues: [CommandQueue];
 }
 
-root_type Workload;
+root_type Binary;
 file_identifier "TTB0";
 file_extension "ttb";

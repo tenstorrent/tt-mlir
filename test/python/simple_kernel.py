@@ -281,13 +281,3 @@ a = torch.randn(8, 128, 128)
 b = torch.randn(8, 128, 128)
 out = torch.empty(8, 128, 128)
 eltwise(a, b, out)
-
-
-def matmul(lhs, rhs, out):
-    in0.wait(lhs.m * lhs.k)
-    in1.wait(rhs.k * rhs.n)
-    out.reserve(out.m * out.n)
-    for d0 in range(lhs.m):
-        for d1 in range(rhs.n):
-            for k in range(lhs.k):
-                out[d0, d1] += lhs[d0, k] * rhs[k, d1]

@@ -1,6 +1,6 @@
-OUT ?= build
 ENV ?= $(shell realpath .)/.local
 CONFIG ?= Release
+OUT ?= build$(CONFIG)
 BUILDER ?= Ninja
 OS ?= $(shell uname)
 

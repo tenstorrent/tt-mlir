@@ -4,19 +4,47 @@ namespace tt;
 
 
 table DispatchCommand {
-  programs: [Program];
+  programs: [DispatchProgram];
+}
+
+table HostWriteCommand {
+  src: TensorRef;
+  dst: TensorRef;
+}
+
+table HostReadCommand {
+  src: TensorRef;
+  dst: TensorRef;
+}
+
+table HostAllocCommand {
+  src: TensorRef;
+}
+
+table HostDeallocCommand {
+  src: TensorRef;
+}
+
+table FinishCommand {
 }
 
 union CommandType {
   dispatch: DispatchCommand,
+  host_write: HostWriteCommand,
+  host_read: HostReadCommand,
+  host_alloc: HostAllocCommand,
+  host_dealloc: HostDeallocCommand,
+  finish: FinishCommand,
 }
 
 table Command {
-  name: string;
   type: CommandType;
+  debug: string;
 }
 
 table CommandQueue {
   name: string;
+  inputs: [TensorRef];
+  outputs: [TensorRef];
   commands: [Command];
 }

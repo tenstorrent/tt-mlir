@@ -94,7 +94,7 @@ def TTMetal_DeallocOp : TTMetal_Op<"dealloc"> {
       Tensor Dealloc operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$result);
+    let arguments = (ins AnyRankedTensor:$input);
 }
 
 #endif

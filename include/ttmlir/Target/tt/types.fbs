@@ -11,18 +11,72 @@ struct Dim2dRange {
 }
 
 enum DataType: ushort {
-    Float32 = 0,
-    Float16 = 1,
-    Bfp8 = 2,
-    Bfp4 = 3,
-    Bfp2 = 11,
-    Float16_b = 5,
-    Bfp8_b = 6,
-    Bfp4_b = 7,
-    Bfp2_b = 15,
-    Lf8 = 10,
-    UInt16 = 12,
-    Int8 = 14,
-    Tf32 = 4,
-    UInt32 = 8,
+  Float32 = 0,
+  Float16 = 1,
+  BFloat16 = 2,
+  BC_Float8 = 3,
+  BC_BFloat8 = 4,
+  BC_Float4 = 5,
+  BC_BFloat4 = 6,
+  BC_Float2 = 7,
+  BC_BFloat2 = 8,
+  UInt32 = 9,
+  UInt16 = 10,
+  UInt8 = 11,
+}
+
+enum OOBVal: ushort {
+  Undef = 0,
+  Zero = 1,
+  One = 2,
+  Inf = 3,
+  NegInf = 4,
+}
+
+enum MemorySpace: ushort {
+  System = 0,
+  SystemMMIO = 1,
+  DeviceDRAM = 2,
+  DeviceL1 = 3,
+}
+
+table MemoryDesc {
+  shape: [int];
+  tile_shape: Dim2d;
+  data_type: DataType;
+  memory_space: MemorySpace;
+  size: uint64;
+}
+
+table LayoutDesc {
+  strides: [int];
+  oob_val: OOBVal;
+  grid: Dim2dRange;
+  memory_desc: MemoryDesc;
+}
+
+table TensorDesc {
+  shape: [int];
+  layout: LayoutDesc;
+  constant_data: [ubyte];
+}
+
+table CBDesc {
+  port: uint32;
+  memory_desc: MemoryDesc;
+  num_buffers: uint64;
+}
+
+table TensorRef {
+  global_id: uint32;
+  address: uint64;
+  size: uint64;
+  desc: TensorDesc;
+}
+
+table CBRef {
+  global_id: uint32;
+  address: uint64;
+  size: uint64;
+  desc: CBDesc;
 }

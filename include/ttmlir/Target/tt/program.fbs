@@ -2,7 +2,14 @@ include "types.fbs";
 
 namespace tt;
 
-enum CoreType : ushort {
+enum SourceType : ushort {
+  Noc0 = 0,
+  Noc1 = 1,
+  Tensix = 2,
+  Ethernet = 3,
+}
+
+enum BinaryType : ushort {
   BRISC = 0,
   NCRISC = 1,
   TRISC0 = 2,
@@ -11,27 +18,30 @@ enum CoreType : ushort {
   ERISC = 5,
 }
 
-table Source {
+table KernelSource {
+  source_type: SourceType;
   source: string;
 }
 
-table Binary {
+table KernelBinary {
+  core_type: BinaryType;
   data: [ubyte];
+  debug_source: string;
 }
 
-union KernelBinary {
-  Source,
-  Binary,
+union Kernel {
+  KernelSource,
+  KernelBinary,
 }
 
-table Kernel {
+table KernelDesc {
   name: string;
-  core_type: CoreType;
-  binary: KernelBinary;
+  kernel: Kernel;
+  core_range: Dim2dRange;
+  cbs: [CBRef];
 }
 
-table Program {
+table DispatchProgram {
   name: string;
-  kernels: [Kernel];
-  core_ranges: [Dim2dRange];
+  kernels: [KernelDesc];
 }
