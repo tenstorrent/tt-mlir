@@ -4,6 +4,7 @@ namespace tt;
 
 
 table DispatchCommand {
+  operands: [TensorRef];
   programs: [DispatchProgram];
 }
 
@@ -39,7 +40,7 @@ union CommandType {
 
 table Command {
   type: CommandType;
-  debug: string;
+  debug_info: string;
 }
 
 table CommandQueue {

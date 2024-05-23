@@ -3,3 +3,7 @@ TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-.local/toolchain}"
 source $TTMLIR_VENV/bin/activate
 export PATH=$TOOLCHAIN_ENV/bin:$PATH
 export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core"
+
+flat2json () {
+flatc -I include/ttmlir/Target/tt --json include/ttmlir/Target/tt/binary.fbs --size-prefixed -- $@
+}

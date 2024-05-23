@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -18,8 +19,9 @@ static bool insideDispatchOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
   if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp))
     return true;
-  if (dyn_cast_or_null<mlir::ModuleOp>(parentOp))
-    return insideDispatchOpRegion(parentOp);
+  if (dyn_cast_or_null<func::FuncOp>(parentOp) and
+      dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp()))
+    return true;
   return false;
 }
 
@@ -27,11 +29,21 @@ static ttkernel::ThreadType getRegionThreadType(mlir::Region *region) {
   assert(region);
   mlir::Operation *parentOp = region->getParentOp();
   auto regionNumber = region->getRegionNumber();
-  ttmetal::DispatchOp dispatchOp = dyn_cast<ttmetal::DispatchOp>(parentOp);
-  assert(dispatchOp && "Assumes insideDispatchOpRegion was already checked");
-  auto threadTypes = dispatchOp.getThreadTypes();
-  assert(regionNumber < threadTypes.size());
-  auto threadType = threadTypes[regionNumber];
+  Attribute threadType;
+  if (ttmetal::DispatchOp dispatchOp = dyn_cast<ttmetal::DispatchOp>(parentOp);
+      dispatchOp) {
+    auto threadTypes = dispatchOp.getThreadTypes();
+    assert(regionNumber < threadTypes.size());
+    threadType = threadTypes[regionNumber];
+  } else if (func::FuncOp funcOp = dyn_cast<func::FuncOp>(parentOp); funcOp) {
+    ModuleOp moduleOp = dyn_cast<ModuleOp>(funcOp->getParentOp());
+    assert(moduleOp);
+    threadType = moduleOp->getDiscardableAttr("ttkernel.thread_type");
+  } else if (ModuleOp moduleOp = dyn_cast<ModuleOp>(parentOp); moduleOp) {
+    threadType = moduleOp->getDiscardableAttr("ttkernel.thread_type");
+  } else {
+    assert(false && "Unexpected parent op in getRegionThreadType");
+  }
   return threadType.cast<ttkernel::ThreadTypeAttr>().getValue();
 }
 

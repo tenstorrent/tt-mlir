@@ -27,6 +27,16 @@ struct Version {
 
   constexpr Version(unsigned major, unsigned minor, unsigned release)
       : major(major), minor(minor), release(release) {}
+
+  constexpr bool operator<=(const Version &other) const {
+    return major < other.major ||
+           (major == other.major && (minor <= other.minor));
+  }
+
+  constexpr bool operator>=(const Version &other) const {
+    return major > other.major ||
+           (major == other.major && (minor >= other.minor));
+  }
 };
 
 inline constexpr Version getVersion() {
@@ -34,9 +44,11 @@ inline constexpr Version getVersion() {
                  TTMLIR_VERSION_RELEASE);
 }
 
-#define STRINGIFY(x) #x
-inline constexpr const char *getGitHash() { return STRINGIFY(TTMLIR_GIT_HASH); }
-#undef STRINGIFY
+#define XSTR(s) STR(s)
+#define STR(s) #s
+inline constexpr const char *getGitHash() { return XSTR(TTMLIR_GIT_HASH); }
+#undef STR
+#undef XSTR
 
 } // namespace ttmlir
 #endif

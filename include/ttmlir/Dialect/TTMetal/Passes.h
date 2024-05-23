@@ -5,6 +5,7 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTMetal_TTMetalPASSES_H
 #define TTMLIR_TTMLIR_DIALECT_TTMetal_TTMetalPASSES_H
 
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"

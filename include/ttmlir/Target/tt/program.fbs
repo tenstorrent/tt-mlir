@@ -35,13 +35,12 @@ union Kernel {
 }
 
 table KernelDesc {
-  name: string;
   kernel: Kernel;
   core_range: Dim2dRange;
   cbs: [CBRef];
+  debug_info: string;
 }
 
 table DispatchProgram {
-  name: string;
   kernels: [KernelDesc];
 }

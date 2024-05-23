@@ -5,6 +5,8 @@ set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
 
+#add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   find_package(MLIR REQUIRED CONFIG)
 
@@ -48,8 +50,8 @@ add_definitions("-DTTMLIR_VERSION_RELEASE=0")
 
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 set(TTMLIR_BINARY_DIR ${PROJECT_BINARY_DIR})
-include_directories(${LLVM_INCLUDE_DIRS})
-include_directories(${MLIR_INCLUDE_DIRS})
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 include_directories(${TTMLIR_BINARY_DIR}/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
