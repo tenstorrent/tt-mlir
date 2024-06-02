@@ -16,9 +16,19 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
 def TTIR_DispatchOp : TTIR_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch op.";
+    let summary = "Dispatch work to a grid of cores.";
     let description = [{
-      Dispatch operation
+      Dispatch operation:
+
+      %5 = "ttir.dispatch"(%1, %3, %4) <{
+        grid = #tt.grid<1x1>,                     // The grid range of cores to dispatch work to.
+        indexing_maps = [#map, #map, #map],       // Affine maps for indexing into the input/output tensors. See linalg.generic
+        iterator_types = [#parallel, #parallel],  // Iterator types for the input/output tensors. See linalg.generic
+        operandSegmentSizes = array<i32: 2, 1>,   // Sizes of the operand segments, i.e. 2 inputs and 1 output.
+      ({
+      ^bb0(%arg2: memref<64x128xf32, #l1_>, %arg3: memref<64x128xf32, #l1_>, %arg4: memref<64x128xf32, #l1_>):
+          // Region body, would contain some computation that represents the work each core does.
+      }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
@@ -38,7 +48,16 @@ def TTIR_DispatchOp : TTIR_Op<"dispatch", [DestinationStyleOpInterface, AttrSize
 def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
     let summary = "Layout op.";
     let description = [{
-      Layout operation
+      Layout operation, transition tensors from one layout to another.  Some examples include:
+        - Transitioning between different memory spaces, e.g. DRAM to L1.
+        - Transitioning between different data types, e.g. f32 to f16.
+        - Transitioning between different tile sizes, e.g. 1x16 to 32x32
+        - Transitioning between different tensor sharding
+        - Some combination of the above
+
+      #layout = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "ttir.layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -78,7 +97,7 @@ def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
     let summary = "Kernel call.";
     let description = [{
-      Kernel operation
+      A generic kernel call operation. This operation is used to pattern match by some consuming backend.
     }];
 
     let arguments = (ins FlatSymbolRefAttr:$op,
@@ -95,7 +114,7 @@ def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOpe
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
     let summary = "Yield op.";
     let description = [{
-      Yield operation
+      Yield operation, this is required by MLIR to mark the end of a dispatch region.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);

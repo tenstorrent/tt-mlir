@@ -10,30 +10,21 @@ include "mlir/Pass/PassBase.td"
 def ConvertTosaToTTIR: Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    todo
+    Convert TOSA ops to TTIR dialect.
   }];
 }
 
 def TTIRDispatch: Pass<"ttir-dispatch", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    todo
+    Wrap top level ops in a dispatch op.
   }];
 }
 
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
-    ```
-    %1 = linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%arg0, %arg1 : tensor<64x128xf32>, tensor<64x128xf32>) outs(%0 : tensor<64x128xf32>) {
-    ^bb0(%in: f32, %in_0: f32, %out: f32):
-      %2 = arith.mulf %in, %in_0 : f32
-      linalg.yield %2 : f32
-    } -> tensor<64x128xf32>
-
-    // Gets transformed to:
-    todo
-    ```
+    Transition between different tensor layouts.
   }];
 }
 

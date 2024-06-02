@@ -13,11 +13,12 @@ include "mlir/IR/OpBase.td"
 
 def TTIR_Dialect : Dialect {
     let name = "ttir";
-    let summary = "A TTIR out-of-tree MLIR dialect.";
+    let summary = "TTIR dialect provides high level semantics for dispatching work to TT HW.";
     let description = [{
-        This dialect is an example of an out-of-tree MLIR dialect designed to
-        illustrate the basic setup required to develop MLIR-based tools without
-        working inside of the LLVM source tree.
+        This dialect provides high level semantics for dispatching work to TT HW.
+        It defines a set of declarative/high level operations that are used to
+        describe the dispatch, but is largely agnostic to the set of operations
+        or dialects that are actually supported by a consuming backend.
     }];
     let cppNamespace = "::mlir::tt::ttir";
 

@@ -13,11 +13,9 @@ include "mlir/IR/OpBase.td"
 
 def TT_Dialect : Dialect {
     let name = "tt";
-    let summary = "A TT out-of-tree MLIR dialect.";
+    let summary = "TT types and operations common to all TT dialects.";
     let description = [{
-        This dialect is an example of an out-of-tree MLIR dialect designed to
-        illustrate the basic setup required to develop MLIR-based tools without
-        working inside of the LLVM source tree.
+        This dialect defines types and operations common to all TT dialects.
     }];
     let cppNamespace = "::mlir::tt";
 
