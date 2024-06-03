@@ -1,0 +1,15 @@
+add_mlir_dialect(TTNNOps ttnn)
+add_mlir_doc(TTNNDialect TTNNDialect ttmlir/ -gen-dialect-doc)
+add_mlir_doc(TTNNOps TTNNOps ttmlir/ -gen-op-doc)
+
+set(LLVM_TARGET_DEFINITIONS TTNNOpsTypes.td)
+mlir_tablegen(TTNNOpsAttrDefs.h.inc -gen-attrdef-decls)
+mlir_tablegen(TTNNOpsAttrDefs.cpp.inc -gen-attrdef-defs)
+add_public_tablegen_target(MLIRTTNNOpsAttributesIncGen)
+add_dependencies(mlir-headers MLIRTTNNOpsAttributesIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TTNNOpsEnums.td)
+mlir_tablegen(TTNNOpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(TTNNOpsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRTTNNOpsEnumsIncGen)
+add_dependencies(mlir-headers MLIRTTNNOpsEnumsIncGen)
