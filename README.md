@@ -1,4 +1,4 @@
-# ttmlir
+# tt-mlir
 
 ## Build
 
