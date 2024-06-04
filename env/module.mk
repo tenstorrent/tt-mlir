@@ -1,7 +1,7 @@
 TOOLCHAIN_ENV=$(ENV)/toolchain
 TTMLIR_VENV=$(ENV)/ttmlir_venv
 MLIR_PYTHON_REQUIREMENTS=third_party/llvm-project/mlir/python/requirements.txt
-TTMLIR_PYTHON_EXAMPLES_REQUIREMENTS=python_torch_examples/requirements$(OS).txt
+TTMLIR_PYTHON_EXAMPLES_REQUIREMENTS=test/python_torch_examples/requirements$(OS).txt
 CMAKE=$(TOOLCHAIN_ENV)/bin/cmake
 NINJA=$(TOOLCHAIN_ENV)/bin/ninja
 LLVM_BUILD_DIR=$(TOOLCHAIN_ENV)/llvm_build
@@ -22,10 +22,11 @@ third_party/llvm-project/mlir/CMakeLists.txt: git_submodule_update ;
 $(TTMLIR_VENV)/bin/activate:
 	bash -c "python3 -m venv $(TTMLIR_VENV)"
 	bash -c "source env/activate && python -m pip install --upgrade pip"
+	bash -c "source env/activate && mkdir -p $(TTMLIR_VENV)/bin2 && ln -s ../bin/python3 $(TTMLIR_VENV)/bin2/Python3"
 
 $(TTMLIR_VENV)/.dep: $(TTMLIR_VENV)/bin/activate $(MLIR_PYTHON_REQUIREMENTS) $(TTMLIR_PYTHON_EXAMPLES_REQUIREMENTS)
-	bash -c "source env/activate && pip install -r third_party/llvm-project/mlir/python/requirements.txt"
-	bash -c "source env/activate && pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r python_torch_examples/requirements$(OS).txt"
+	bash -c "source env/activate && pip install -r $(MLIR_PYTHON_REQUIREMENTS)"
+	bash -c "source env/activate && pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r $(TTMLIR_PYTHON_EXAMPLES_REQUIREMENTS)"
 	touch $@
 
 $(LLVM_INSTALL): $(TTMLIR_VENV) $(CMAKE) $(NINJA) third_party/llvm-project/mlir/CMakeLists.txt ./env/build_llvm.sh
@@ -40,7 +41,7 @@ else ifeq ($(OS),Darwin)
 	brew install cmake
 	ln -s $(shell command -v cmake) $@
 else
-error "Unsupported cmake OS $(OS)"
+$(error "Unsupported cmake OS $(OS)")
 endif
 
 $(NINJA):
@@ -51,7 +52,7 @@ else ifeq ($(OS),Darwin)
 	brew install ninja
 	ln -s $(shell command -v ninja) $@
 else
-error "Unsupported ninja OS $(OS)"
+$(error "Unsupported ninja OS $(OS)")
 endif
 
 $(FLATBUFFERS_INSTALL): $(CMAKE) $(NINJA)
