@@ -22,8 +22,7 @@
 
 namespace mlir::tt::ttnn {
 
-class TTNNToEmitCFuncArgsRewriter
-    : public OpRewritePattern<func::FuncOp> {
+class TTNNToEmitCFuncArgsRewriter : public OpRewritePattern<func::FuncOp> {
 public:
   using OpRewritePattern<func::FuncOp>::OpRewritePattern;
 
@@ -49,8 +48,7 @@ public:
   }
 };
 
-class TTNNToEmitCReturnRewriter
-    : public OpRewritePattern<ttkernel::ReturnOp> {
+class TTNNToEmitCReturnRewriter : public OpRewritePattern<ttkernel::ReturnOp> {
 public:
   using OpRewritePattern<ttkernel::ReturnOp>::OpRewritePattern;
 
@@ -63,9 +61,8 @@ public:
   }
 };
 
-template<typename OpTy>
-class TTNNToEmitCOpaqueRewriter
-    : public OpRewritePattern<OpTy> {
+template <typename OpTy>
+class TTNNToEmitCOpaqueRewriter : public OpRewritePattern<OpTy> {
 public:
   using OpRewritePattern<OpTy>::OpRewritePattern;
 

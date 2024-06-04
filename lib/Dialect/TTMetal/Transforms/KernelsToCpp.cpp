@@ -22,8 +22,7 @@
 
 namespace mlir::tt::ttmetal {
 
-class TTMetalToEmitCFuncArgsRewriter
-    : public OpRewritePattern<func::FuncOp> {
+class TTMetalToEmitCFuncArgsRewriter : public OpRewritePattern<func::FuncOp> {
 public:
   using OpRewritePattern<func::FuncOp>::OpRewritePattern;
 
@@ -63,9 +62,8 @@ public:
   }
 };
 
-template<typename OpTy>
-class TTMetalToEmitCOpaqueRewriter
-    : public OpRewritePattern<OpTy> {
+template <typename OpTy>
+class TTMetalToEmitCOpaqueRewriter : public OpRewritePattern<OpTy> {
 public:
   using OpRewritePattern<OpTy>::OpRewritePattern;
 

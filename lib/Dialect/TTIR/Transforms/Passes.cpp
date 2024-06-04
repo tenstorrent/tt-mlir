@@ -65,7 +65,8 @@ public:
   }
 };
 
-class ConvertTosaToTTIR : public impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR> {
+class ConvertTosaToTTIR
+    : public impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR> {
 public:
   using impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR>::ConvertTosaToTTIRBase;
   void runOnOperation() final {
@@ -109,7 +110,7 @@ public:
 
   static std::pair<ArrayAttr, ArrayAttr>
   createEltwiseIndexingMaps(PatternRewriter &rewriter,
-                         mlir::OperandRange operands) {
+                            mlir::OperandRange operands) {
     assert(sameRank(operands) &&
            "For now all operands must have the same rank");
     auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
@@ -123,7 +124,7 @@ public:
 
   static std::pair<ArrayAttr, ArrayAttr>
   createMatmulIndexingMaps(PatternRewriter &rewriter,
-                        mlir::OperandRange operands) {
+                           mlir::OperandRange operands) {
     assert(sameRank(operands) &&
            "For now all operands must have the same rank");
     auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
@@ -153,7 +154,7 @@ public:
 
   static std::pair<ArrayAttr, ArrayAttr>
   createIndexingMaps(PatternRewriter &rewriter, StringRef kind,
-                  mlir::OperandRange operands) {
+                     mlir::OperandRange operands) {
     if (kind == "eltwise") {
       return createEltwiseIndexingMaps(rewriter, operands);
     } else if (kind == "matmul") {
@@ -282,9 +283,8 @@ inline LayoutAttr
 canonicalLayoutAttr(PatternRewriter &rewriter, RankedTensorType ty,
                     MemorySpace memorySpace = MemorySpace::System) {
   auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
-  auto memref =
-      MemRefType::get(ty.getShape(), ty.getElementType(), map,
-                      rewriter.getAttr<MemorySpaceAttr>(memorySpace));
+  auto memref = MemRefType::get(ty.getShape(), ty.getElementType(), map,
+                                rewriter.getAttr<MemorySpaceAttr>(memorySpace));
   return rewriter.getAttr<LayoutAttr>(canonicalStride(ty.getShape()),
                                       OOBVal::Undef,
                                       rewriter.getAttr<GridAttr>(), memref);
@@ -386,15 +386,12 @@ class TTIRLayoutDispatchOperandsRewriter : public OpRewritePattern<DispatchOp> {
 public:
   using OpRewritePattern<DispatchOp>::OpRewritePattern;
 
-
   LogicalResult matchAndRewrite(DispatchOp op,
                                 PatternRewriter &rewriter) const final {
     auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
     for (auto &operand : op->getOpOperands()) {
-      auto encoding = operand.get()
-                        .getType()
-                        .cast<RankedTensorType>()
-                        .getEncoding();
+      auto encoding =
+          operand.get().getType().cast<RankedTensorType>().getEncoding();
       if (not encoding)
         return failure(); // Hasn't been type converted yet
 
@@ -454,9 +451,8 @@ public:
       if (auto layout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
                                        OperandConstraint::System);
           layout) {
-        rewriter.modifyOpInPlace(op, [&]() {
-          op.setOperand(operand.getOperandNumber(), *layout);
-        });
+        rewriter.modifyOpInPlace(
+            op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
         modified = true;
       }
     }

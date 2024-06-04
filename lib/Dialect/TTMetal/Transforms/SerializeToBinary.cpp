@@ -43,8 +43,8 @@ struct FlatbufferObjectCache {
   }
 
   template <typename MLIRTypeOrAttr, typename SchemaType>
-  flatbuffers::Offset<SchemaType> insert(MLIRTypeOrAttr obj,
-                                        flatbuffers::Offset<SchemaType> offset) {
+  flatbuffers::Offset<SchemaType>
+  insert(MLIRTypeOrAttr obj, flatbuffers::Offset<SchemaType> offset) {
     assert(!exists(obj) && "object already exists");
     objectMap.insert(std::make_pair(obj.getAsOpaquePointer(), offset.o));
     return offset;
@@ -58,7 +58,8 @@ struct FlatbufferObjectCache {
   }
 
   template <typename MLIRTypeOrAttr, typename CreateFn, typename... Args>
-  std::invoke_result_t<CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr, Args...>
+  std::invoke_result_t<CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr,
+                       Args...>
   getOrCreate(MLIRTypeOrAttr obj, CreateFn createFn, Args... args) {
     using SchemaType = typename offset_extract_t<std::invoke_result_t<
         CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr, Args...>>::type;
@@ -261,8 +262,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
 }
 
 class TTMetalSerializeToBinary
-    : public impl::TTMetalSerializeToBinaryBase<
-          TTMetalSerializeToBinary> {
+    : public impl::TTMetalSerializeToBinaryBase<TTMetalSerializeToBinary> {
 public:
   using impl::TTMetalSerializeToBinaryBase<
       TTMetalSerializeToBinary>::TTMetalSerializeToBinaryBase;
@@ -377,8 +377,7 @@ public:
                 cache.at<::tt::TensorRef>(
                     getOperandThroughDPSOps(hostWriteOp.getOutput()))),
             op);
-      } else if (auto returnOp = 
-                     dyn_cast_or_null<func::ReturnOp>(op);
+      } else if (auto returnOp = dyn_cast_or_null<func::ReturnOp>(op);
                  returnOp) {
         for (auto output : returnOp.getOperands()) {
           cqBuilder.outputs.push_back(
@@ -392,21 +391,19 @@ public:
                                 ttmlirVersion.release);
 
     ::tt::Dim2d deviceGrid(8, 8);
-    auto deviceDesc = ::tt::CreateDeviceDesc(
-        fbb, ::tt::DeviceArch::Wormhole_b0, &deviceGrid);
+    auto deviceDesc =
+        ::tt::CreateDeviceDesc(fbb, ::tt::DeviceArch::Wormhole_b0, &deviceGrid);
 
     std::vector<::flatbuffers::Offset<::tt::CommandQueue>> commandQueues = {
-        ::tt::CreateCommandQueueDirect(fbb, cqBuilder.name,
-                                       &cqBuilder.inputs, &cqBuilder.outputs,
-                                       &cqBuilder.commands),
+        ::tt::CreateCommandQueueDirect(fbb, cqBuilder.name, &cqBuilder.inputs,
+                                       &cqBuilder.outputs, &cqBuilder.commands),
     };
-    auto binary = ::tt::CreateBinaryDirect(fbb, &binaryVersion,
-                                           ::ttmlir::getGitHash(), deviceDesc,
-                                           &commandQueues);
+    auto binary =
+        ::tt::CreateBinaryDirect(fbb, &binaryVersion, ::ttmlir::getGitHash(),
+                                 deviceDesc, &commandQueues);
 
     FinishSizePrefixedBinaryBuffer(fbb, binary);
-    ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(),
-                                     fbb.GetSize());
+    ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
     ::tt::VerifySizePrefixedBinaryBuffer(verifier);
 
     uint8_t *buf = fbb.GetBufferPointer();

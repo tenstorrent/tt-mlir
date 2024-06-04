@@ -12,8 +12,8 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Passes.h"
-#include "ttmlir/Dialect/TTMetal/Passes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTMetal/Passes.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();

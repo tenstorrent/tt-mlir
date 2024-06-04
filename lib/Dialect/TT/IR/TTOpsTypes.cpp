@@ -18,7 +18,10 @@ using namespace mlir::tt;
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
 
 MemorySpace LayoutAttr::getMemorySpace() const {
-  return getMemref().getMemorySpace().template cast<mlir::tt::MemorySpaceAttr>().getValue();
+  return getMemref()
+      .getMemorySpace()
+      .template cast<mlir::tt::MemorySpaceAttr>()
+      .getValue();
 }
 
 void TTDialect::registerTypes() {

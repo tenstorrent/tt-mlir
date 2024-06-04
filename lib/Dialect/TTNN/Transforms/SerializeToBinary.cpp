@@ -43,8 +43,8 @@ struct FlatbufferObjectCache {
   }
 
   template <typename MLIRTypeOrAttr, typename SchemaType>
-  flatbuffers::Offset<SchemaType> insert(MLIRTypeOrAttr obj,
-                                        flatbuffers::Offset<SchemaType> offset) {
+  flatbuffers::Offset<SchemaType>
+  insert(MLIRTypeOrAttr obj, flatbuffers::Offset<SchemaType> offset) {
     assert(!exists(obj) && "object already exists");
     objectMap.insert(std::make_pair(obj.getAsOpaquePointer(), offset.o));
     return offset;
@@ -58,7 +58,8 @@ struct FlatbufferObjectCache {
   }
 
   template <typename MLIRTypeOrAttr, typename CreateFn, typename... Args>
-  std::invoke_result_t<CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr, Args...>
+  std::invoke_result_t<CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr,
+                       Args...>
   getOrCreate(MLIRTypeOrAttr obj, CreateFn createFn, Args... args) {
     using SchemaType = typename offset_extract_t<std::invoke_result_t<
         CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr, Args...>>::type;
@@ -261,8 +262,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
 }
 
 class TTNNSerializeToBinary
-    : public impl::TTNNSerializeToBinaryBase<
-          TTNNSerializeToBinary> {
+    : public impl::TTNNSerializeToBinaryBase<TTNNSerializeToBinary> {
 public:
   using impl::TTNNSerializeToBinaryBase<
       TTNNSerializeToBinary>::TTNNSerializeToBinaryBase;

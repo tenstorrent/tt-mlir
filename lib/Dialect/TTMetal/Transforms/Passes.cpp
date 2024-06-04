@@ -83,7 +83,8 @@ public:
   }
 };
 
-class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::DispatchOp> {
+class TTIRToTTMetalDispatchRewriter
+    : public OpRewritePattern<ttir::DispatchOp> {
 public:
   using OpRewritePattern<ttir::DispatchOp>::OpRewritePattern;
 
@@ -150,9 +151,8 @@ public:
         rewriter.getArrayAttr(threadTypes),
         rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
 
-    auto rewrittenBlockArgumentTypes =
-        getBlockArgumentTypesAsCBs(op->getRegion(0).getArguments(),
-                                   operand_cb_port_mapping, rewriter);
+    auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
+        op->getRegion(0).getArguments(), operand_cb_port_mapping, rewriter);
 
     metalDispatch.getRegion(2).takeBody(op->getRegion(0));
     Block *tensixBlock = &metalDispatch.getRegion(2).front();
@@ -172,7 +172,8 @@ public:
         op.getLoc(), noc0Block->getArgument(0));
     push0->remove();
     noc0Block->push_back(push0);
-    auto return0 = rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    auto return0 =
+        rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
     return0->remove();
     noc0Block->push_back(return0);
 
@@ -181,7 +182,8 @@ public:
         op.getLoc(), noc1Block->getArgument(1));
     push1->remove();
     noc1Block->push_back(push1);
-    auto return1 = rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    auto return1 =
+        rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
     return1->remove();
     noc1Block->push_back(return1);
 
@@ -217,7 +219,8 @@ public:
 class ConvertTTIRToTTMetal
     : public impl::ConvertTTIRToTTMetalBase<ConvertTTIRToTTMetal> {
 public:
-  using impl::ConvertTTIRToTTMetalBase<ConvertTTIRToTTMetal>::ConvertTTIRToTTMetalBase;
+  using impl::ConvertTTIRToTTMetalBase<
+      ConvertTTIRToTTMetal>::ConvertTTIRToTTMetalBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());

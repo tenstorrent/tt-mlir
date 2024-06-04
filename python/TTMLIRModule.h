@@ -18,6 +18,6 @@ namespace py = pybind11;
 namespace mlir::ttmlir::python {
 void populateTTModule(py::module &m);
 void populateTTKernelModule(py::module &m);
-}
+} // namespace mlir::ttmlir::python
 
 #endif // TTMLIR_PYTHON_TTMLIRMODULE_H
