@@ -1,7 +1,7 @@
-TTMLIR_VENV="${TTMLIR_VENV:-.local/ttmlir_venv}"
-TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-.local/toolchain}"
+TTMLIR_VENV="${TTMLIR_VENV:-/opt/ttmlir-toolchain/venv}"
+TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-/opt/ttmlir-toolchain}"
 source $TTMLIR_VENV/bin/activate
-export PATH=$TOOLCHAIN_ENV/bin:$TOOLCHAIN_ENV/bin2:$PATH
+export PATH=$TOOLCHAIN_ENV/bin:$PATH
 export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core"
 
 flat2json () {

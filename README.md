@@ -2,9 +2,30 @@
 
 ## Build
 
+### Dependencies
+
 ```bash
-make
+# Ubuntu
+sudo apt-get install cmake ninja-build
+# macOS
+brew install cmake ninja
+```
+
+### Environment setup
+
+You only need to build this once, it builds a python virtual environment with the necessary dependencies, flatbuffers, and llvm.
+
+```bash
+cmake -B env/build env
+cmake --build env/build
+```
+
+### tt-mlir build
+
+```bash
 source env/activate
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build
 ```
 
 ## This repo is very much a work in progress
