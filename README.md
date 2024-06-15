@@ -28,6 +28,9 @@ cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCM
 cmake --build build
 ```
 
+Note:
+- Accelerate builds with ccache: `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
+
 ## This repo is very much a work in progress
 
 - mlir input tosa/linalg examples `test/ttmlir`.

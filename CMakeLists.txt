@@ -1,36 +1,30 @@
 cmake_minimum_required(VERSION 3.20.0)
-project(ttmlir-dialect LANGUAGES CXX C)
+project(tt-mlir LANGUAGES CXX C)
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-#add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
 
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  find_package(MLIR REQUIRED CONFIG)
-
-  message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
-  message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-
-  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
-  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
-  set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
-
-  list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
-  list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
-
-  include(TableGen)
-  include(AddLLVM)
-  include(AddMLIR)
-  include(HandleLLVMOptions)
-else()
-  # Build via external projects mechanism
-  set(MLIR_MAIN_SRC_DIR ${LLVM_MAIN_SRC_DIR}/../mlir)
-  set(MLIR_INCLUDE_DIR ${MLIR_MAIN_SRC_DIR}/include)
-  set(MLIR_GENERATED_INCLUDE_DIR ${LLVM_BINARY_DIR}/tools/mlir/include)
-  set(MLIR_INCLUDE_DIRS "${MLIR_INCLUDE_DIR};${MLIR_GENERATED_INCLUDE_DIR}")
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  message(FATAL_ERROR "In-source builds are not allowed. Please make a new directory (called a build directory) and run CMake from there.")
 endif()
+
+# Find MLIR and LLVM
+find_package(MLIR REQUIRED CONFIG)
+message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
+set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
+set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
+list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
+list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+include(TableGen)
+include(AddLLVM)
+include(AddMLIR)
+include(HandleLLVMOptions)
 
 if(MLIR_ENABLE_BINDINGS_PYTHON)
   include(MLIRDetectPythonEnv)
@@ -48,6 +42,7 @@ add_definitions("-DTTMLIR_VERSION_MAJOR=0")
 add_definitions("-DTTMLIR_VERSION_MINOR=0")
 add_definitions("-DTTMLIR_VERSION_RELEASE=0")
 
+set(TTMLIR_TOOLCHAIN "/opt/ttmlir-toolchain" CACHE STRING "Path to the toolchain")
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 set(TTMLIR_BINARY_DIR ${PROJECT_BINARY_DIR})
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
@@ -66,3 +61,5 @@ if(MLIR_ENABLE_BINDINGS_PYTHON)
 endif()
 add_subdirectory(test)
 add_subdirectory(tools)
+
+add_custom_target(tidy COMMAND run-clang-tidy -p ${PROJECT_BINARY_DIR})
