@@ -18,6 +18,7 @@ using namespace mlir::tt::ttkernel;
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.cpp.inc"
 
 void TTKernelDialect::registerTypes() {
+  // NOLINTNEXTLINE
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.cpp.inc"

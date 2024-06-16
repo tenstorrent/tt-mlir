@@ -64,8 +64,9 @@ struct FlatbufferObjectCache {
     using SchemaType = typename offset_extract_t<std::invoke_result_t<
         CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr, Args...>>::type;
 
-    if (exists(obj))
+    if (exists(obj)) {
       return at<SchemaType, MLIRTypeOrAttr>(obj);
+    }
     return insert(obj, createFn(*this, obj, args...));
   }
 };

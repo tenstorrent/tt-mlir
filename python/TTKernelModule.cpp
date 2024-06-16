@@ -4,7 +4,7 @@
 
 #include <vector>
 
-#include "TTMLIRModule.h"
+#include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 #include "mlir/CAPI/IR.h"
 #include "ttmlir-c/TTKernelTypes.h"

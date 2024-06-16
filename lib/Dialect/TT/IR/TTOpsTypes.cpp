@@ -25,6 +25,7 @@ MemorySpace LayoutAttr::getMemorySpace() const {
 }
 
 void TTDialect::registerTypes() {
+  // NOLINTNEXTLINE
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"

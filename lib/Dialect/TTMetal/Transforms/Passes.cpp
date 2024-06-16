@@ -35,8 +35,9 @@ public:
                                 PatternRewriter &rewriter) const final {
     auto inputTy = op.getInput().getType().template cast<RankedTensorType>();
     auto outputTy = op.getType().template cast<RankedTensorType>();
-    if (not inputTy.getEncoding() || not outputTy.getEncoding())
+    if (not inputTy.getEncoding() || not outputTy.getEncoding()) {
       return failure();
+    }
     assert(inputTy.getEncoding().isa<tt::LayoutAttr>());
     assert(outputTy.getEncoding().isa<tt::LayoutAttr>());
     auto inputLayout = inputTy.getEncoding().template cast<tt::LayoutAttr>();
@@ -62,8 +63,9 @@ public:
 
   LogicalResult matchAndRewrite(ttir::KernelOp op,
                                 PatternRewriter &rewriter) const final {
-    if (not op->use_empty())
+    if (not op->use_empty()) {
       return failure();
+    }
     rewriter.create<ttkernel::BuiltinOp>(op.getLoc(), op.getOpAttr(),
                                          op.getKindAttr(), op.getOperands());
     op->dropAllUses();
@@ -91,19 +93,22 @@ public:
   bool hasUnloweredTTIRKernel(ttir::DispatchOp op) const {
     bool exists = false;
     op->getRegion(0).walk([&exists](Operation *op) {
-      if (isa<ttir::KernelOp>(op))
+      if (isa<ttir::KernelOp>(op)) {
         exists = true;
+      }
     });
     return exists;
   }
 
   uint64_t lookupAddress(Value value) const {
-    auto op = value.getDefiningOp();
-    if (!op)
+    auto *op = value.getDefiningOp();
+    if (!op) {
       return 0;
+    }
     auto allocOp = dyn_cast<ttir::AllocOp>(op);
-    if (!allocOp)
+    if (!allocOp) {
       return 0;
+    }
     return allocOp.getAddress();
   }
 
@@ -126,8 +131,9 @@ public:
 
   LogicalResult matchAndRewrite(ttir::DispatchOp op,
                                 PatternRewriter &rewriter) const final {
-    if (hasUnloweredTTIRKernel(op))
+    if (hasUnloweredTTIRKernel(op)) {
       return failure();
+    }
 
     SmallVector<Attribute> threadTypes = {
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0),
@@ -229,8 +235,9 @@ public:
                  TTIRToTTMetalAllocRewriter, TTIRToTTMetalDeallocRewriter>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
+    }
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {

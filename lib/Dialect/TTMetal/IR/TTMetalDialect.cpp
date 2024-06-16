@@ -41,6 +41,7 @@ void TTMetalDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.cpp.inc"
       >();
+  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsAttrDefs.cpp.inc"

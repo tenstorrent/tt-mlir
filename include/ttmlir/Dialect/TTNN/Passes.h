@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTNN_TTNNPASSES_H
-#define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNPASSES_H
+#ifndef TTMLIR_DIALECT_TTNN_PASSES_H
+#define TTMLIR_DIALECT_TTNN_PASSES_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"

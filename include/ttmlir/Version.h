@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_VERSION_H
-#define TTMLIR_TTMLIR_VERSION_H
+#ifndef TTMLIR_VERSION_H
+#define TTMLIR_VERSION_H
 
 namespace ttmlir {
 

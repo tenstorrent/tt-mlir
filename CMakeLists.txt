@@ -8,6 +8,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
 
+# Asan build type
+set(CMAKE_C_FLAGS_ASAN
+    "${CMAKE_C_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer" CACHE STRING
+    "Flags used by the C compiler for Asan build type or configuration." FORCE)
+set(CMAKE_CXX_FLAGS_ASAN
+    "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address -fno-omit-frame-pointer" CACHE STRING
+    "Flags used by the C++ compiler for Asan build type or configuration." FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_ASAN
+    "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -fsanitize=address" CACHE STRING
+    "Linker flags to be used to create executables for Asan build type." FORCE)
+set(CMAKE_SHARED_LINKER_FLAGS_ASAN
+    "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} -fsanitize=address" CACHE STRING
+    "Linker lags to be used to create shared libraries for Asan build type." FORCE)
+
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Please make a new directory (called a build directory) and run CMake from there.")
 endif()
@@ -62,4 +76,7 @@ endif()
 add_subdirectory(test)
 add_subdirectory(tools)
 
-add_custom_target(tidy COMMAND run-clang-tidy -p ${PROJECT_BINARY_DIR})
+# clang-tidy setup
+add_custom_target(clang-tidy-filter-out-external-srcs COMMAND python3 ${TTMLIR_SOURCE_DIR}/tools/scripts/filter-compile-commands.py ${TTMLIR_BINARY_DIR}/compile_commands.json ${TTMLIR_SOURCE_DIR})
+add_custom_target(clang-tidy COMMAND run-clang-tidy -p ${PROJECT_BINARY_DIR} -warnings-as-errors '*' DEPENDS clang-tidy-filter-out-external-srcs)
+add_custom_target(clang-format COMMAND git-clang-format)

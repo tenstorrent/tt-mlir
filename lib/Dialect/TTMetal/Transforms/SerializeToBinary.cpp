@@ -64,8 +64,9 @@ struct FlatbufferObjectCache {
     using SchemaType = typename offset_extract_t<std::invoke_result_t<
         CreateFn, FlatbufferObjectCache &, MLIRTypeOrAttr, Args...>>::type;
 
-    if (exists(obj))
+    if (exists(obj)) {
       return at<SchemaType, MLIRTypeOrAttr>(obj);
+    }
     return insert(obj, createFn(*this, obj, args...));
   }
 };
@@ -269,13 +270,14 @@ public:
 
   Value getOperandThroughDPSOps(Value value) {
     auto *op = value.getDefiningOp();
-    if (!op)
+    if (!op) {
       return value;
+    }
     while (isa<DestinationStyleOpInterface>(op)) {
       assert(op->getResults().size() == 1);
       auto dps = cast<DestinationStyleOpInterface>(op);
       assert(dps.getNumDpsInits() == 1);
-      auto opOperand = dps.getDpsInitOperand(0);
+      auto *opOperand = dps.getDpsInitOperand(0);
       value = opOperand->get();
       op = value.getDefiningOp();
     }
@@ -411,7 +413,7 @@ public:
 
 #if 1
     std::ofstream ttb("out.ttb", std::ios::out | std::ios::binary);
-    ttb.write((char const *)buf, size);
+    ttb.write(reinterpret_cast<char const *>(buf), size);
     ttb.close();
 #endif
   }

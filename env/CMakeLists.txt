@@ -34,7 +34,7 @@ ExternalProject_Add(
     CMAKE_ARGS
       -DPython3_FIND_VIRTUALENV=ONLY
       -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN}
-      -DLLVM_ENABLE_PROJECTS=mlir,clang,clang-tools-extra,lld
+      -DLLVM_ENABLE_PROJECTS=mlir,clang,clang-tools-extra,lld,compiler-rt
       -DLLVM_INSTALL_UTILS=ON
       -DLLVM_TARGETS_TO_BUILD=X86,AArch64
       -DCMAKE_BUILD_TYPE=Release
@@ -43,8 +43,7 @@ ExternalProject_Add(
       -DCMAKE_C_FLAGS=-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
     SOURCE_SUBDIR llvm
     LIST_SEPARATOR ","
-    #GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-    GIT_REPOSITORY /Users/nsmith/src/tt-mlir/env/third_party/llvm-project
+    GIT_REPOSITORY https://github.com/llvm/llvm-project.git
     GIT_TAG llvmorg-18.1.0
     GIT_PROGRESS ON
     DEPENDS python-venv

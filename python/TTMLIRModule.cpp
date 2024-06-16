@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "TTMLIRModule.h"
+#include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 PYBIND11_MODULE(_ttmlir, m) {
   m.doc() = "ttmlir main python extension";

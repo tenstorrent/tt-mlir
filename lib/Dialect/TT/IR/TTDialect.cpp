@@ -75,6 +75,7 @@ void TTDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TT/IR/TTOps.cpp.inc"
       >();
+  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.cpp.inc"

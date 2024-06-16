@@ -1,5 +1,5 @@
-#ifndef TTMLIR_TTMLIR_TARGET_TTTARGET_H
-#define TTMLIR_TTMLIR_TARGET_TTTARGET_H
+#ifndef TTMLIR_TARGET_TTTARGET_H
+#define TTMLIR_TARGET_TTTARGET_H
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"

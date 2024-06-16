@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_PYTHON_TTMLIRMODULE_H
-#define TTMLIR_PYTHON_TTMLIRMODULE_H
+#ifndef TTMLIR_BINDINGS_PYTHON_TTMLIRMODULE_H
+#define TTMLIR_BINDINGS_PYTHON_TTMLIRMODULE_H
 
 #include "mlir/Bindings/Python/PybindAdaptors.h"
 #include "mlir/InitAllDialects.h"
@@ -20,4 +20,4 @@ void populateTTModule(py::module &m);
 void populateTTKernelModule(py::module &m);
 } // namespace mlir::ttmlir::python
 
-#endif // TTMLIR_PYTHON_TTMLIRMODULE_H
+#endif // TTMLIR_BINDINGS_PYTHON_TTMLIRMODULE_H

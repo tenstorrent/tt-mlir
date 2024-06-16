@@ -18,6 +18,7 @@ using namespace mlir::tt::ttnn;
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.cpp.inc"
 
 void TTNNDialect::registerTypes() {
+  // NOLINTNEXTLINE
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.cpp.inc"

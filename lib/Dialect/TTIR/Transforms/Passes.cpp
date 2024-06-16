@@ -74,8 +74,9 @@ public:
     patterns.add<TosaToTTIRKernelRewriter<tosa::MulOp>,
                  TosaToTTIRKernelRewriter<tosa::MatMulOp>>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
+    }
   }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
@@ -98,12 +99,14 @@ public:
   using OpRewritePattern<KernelOp>::OpRewritePattern;
 
   static bool sameRank(mlir::OperandRange operands) {
-    if (operands.empty())
+    if (operands.empty()) {
       return false;
+    }
     auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
     for (auto operand : operands) {
-      if (operand.getType().cast<RankedTensorType>().getRank() != rank)
+      if (operand.getType().cast<RankedTensorType>().getRank() != rank) {
         return false;
+      }
     }
     return true;
   }
@@ -157,11 +160,11 @@ public:
                      mlir::OperandRange operands) {
     if (kind == "eltwise") {
       return createEltwiseIndexingMaps(rewriter, operands);
-    } else if (kind == "matmul") {
-      return createMatmulIndexingMaps(rewriter, operands);
-    } else {
-      llvm_unreachable("Unsupported kernel kind");
     }
+    if (kind == "matmul") {
+      return createMatmulIndexingMaps(rewriter, operands);
+    }
+    llvm_unreachable("Unsupported kernel kind");
   }
 
   static ArrayAttr createOperandConstraints(PatternRewriter &rewriter,
@@ -172,21 +175,22 @@ public:
       return rewriter.getArrayAttr(SmallVector<Attribute>(
           numOperands, rewriter.getAttr<OperandConstraintAttr>(
                            OperandConstraint::AnyDevice)));
-    } else if (kind == "matmul") {
+    }
+    if (kind == "matmul") {
       return rewriter.getArrayAttr(SmallVector<Attribute>(
           numOperands, rewriter.getAttr<OperandConstraintAttr>(
                            OperandConstraint::AnyDeviceTile)));
-    } else {
-      llvm_unreachable("Unsupported kernel kind");
     }
+    llvm_unreachable("Unsupported kernel kind");
   }
 
   LogicalResult matchAndRewrite(KernelOp op,
                                 PatternRewriter &rewriter) const final {
     // Test if this generic op has already been lowered, todo find a better way
     if (op.getOperation()->getParentOp()->getName() ==
-        OperationName("ttir.dispatch", rewriter.getContext()))
+        OperationName("ttir.dispatch", rewriter.getContext())) {
       return failure();
+    }
 
     // Create a dispatch op
     auto [indexingMaps, iteratorTypes] =
@@ -228,8 +232,9 @@ public:
         .add<TTIRLinalgGenericToDispatchRewriter, TTIRKernelDispatchRewriter>(
             &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
+    }
   }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
@@ -252,10 +257,12 @@ inline MemorySpace getMemorySpace(RankedTensorType ty) {
 }
 
 inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
-  if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1))
+  if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1)) {
     return MemorySpace::DeviceL1;
-  else if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM))
+  }
+  if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM)) {
     return MemorySpace::DeviceDRAM;
+  }
   return MemorySpace::System;
 }
 
@@ -264,7 +271,7 @@ inline SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
   stride.push_back(1);
   for (auto iter = shape.rbegin(); iter != shape.rend(); ++iter) {
     stride.insert(stride.begin(),
-                  stride.front() * *iter); // TODO: alignup 16B
+                  stride.front() * *iter); // TODO(nsmith): alignup 16B
   }
   return stride;
 }
@@ -296,8 +303,9 @@ public:
     addConversion([](Type type) { return type; });
     addConversion([ctx](RankedTensorType type) -> Type {
       auto layout = type.getEncoding();
-      if (layout)
+      if (layout) {
         return type;
+      }
       auto newLayout = canonicalLayoutAttr(ctx, type);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
@@ -315,11 +323,13 @@ public:
   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
     bool updated = false;
     auto result = converter.convertTypes(valueRange.getTypes(), newTypes);
-    if (result.failed())
+    if (result.failed()) {
       return false;
+    }
     for (auto [operand, newType] : llvm::zip(valueRange, newTypes)) {
-      if (operand.getType() == newType)
+      if (operand.getType() == newType) {
         continue;
+      }
       operand.setType(newType);
       updated = true;
     }
@@ -328,17 +338,21 @@ public:
 
   bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
     auto funcOp = dyn_cast<func::FuncOp>(op);
-    if (not funcOp)
+    if (not funcOp) {
       return false;
+    }
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
-    for (Type &ty : inputTypes)
+    for (Type &ty : inputTypes) {
       ty = converter.convertType(ty);
-    for (Type &ty : outputTypes)
+    }
+    for (Type &ty : outputTypes) {
       ty = converter.convertType(ty);
+    }
     auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
-    if (funcOp.getFunctionType() == newType)
+    if (funcOp.getFunctionType() == newType) {
       return false;
+    }
     funcOp.setFunctionType(newType);
     return true;
   }
@@ -364,8 +378,9 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   auto currLayout = ty.getEncoding().cast<LayoutAttr>();
   auto currMemorySpace = currLayout.getMemorySpace();
   auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
-  if (currMemorySpace == desiredMemorySpace)
+  if (currMemorySpace == desiredMemorySpace) {
     return std::nullopt;
+  }
 
   auto desiredLayout = canonicalLayoutAttr(rewriter, ty, desiredMemorySpace);
   auto output = rewriter.create<tensor::EmptyOp>(
@@ -375,11 +390,9 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   if (exising_empty) {
     rewriter.replaceOp(exising_empty, output);
     return std::nullopt;
-  } else {
-    return rewriter
-        .create<ttir::LayoutOp>(loc, output.getType(), input, output)
-        ->getResult(0);
   }
+  return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output)
+      ->getResult(0);
 }
 
 class TTIRLayoutDispatchOperandsRewriter : public OpRewritePattern<DispatchOp> {
@@ -392,12 +405,14 @@ public:
     for (auto &operand : op->getOpOperands()) {
       auto encoding =
           operand.get().getType().cast<RankedTensorType>().getEncoding();
-      if (not encoding)
+      if (not encoding) {
         return failure(); // Hasn't been type converted yet
+      }
 
       auto blockArg = op.getRegion().getArgument(operand.getOperandNumber());
-      if (blockArg.getType().isa<MemRefType>())
+      if (blockArg.getType().isa<MemRefType>()) {
         return failure(); // Already lowered
+      }
 
       auto operandConstraint =
           op.getOperandConstraints()[operand.getOperandNumber()]
@@ -428,7 +443,7 @@ public:
           // If this is the output operand, update the result type for both
           // the kernel return type and the dispatch return type
           op.getResult(0).setType(operand.get().getType());
-          for (auto user : blockArg.getUsers()) {
+          for (auto *user : blockArg.getUsers()) {
             dyn_cast<KernelOp>(user).getResult(0).setType(layout.getMemref());
           }
         }
@@ -540,8 +555,9 @@ class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
     }
 
     uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
-      if (isSystemMemorySpace(memorySpace))
+      if (isSystemMemorySpace(memorySpace)) {
         return 0;
+      }
 
       uint32_t index = static_cast<uint32_t>(memorySpace);
       assert(index < currPtr.size());
@@ -561,7 +577,7 @@ public:
                                     Value value) {
     auto *startOp = livenessInfo->getStartOperation(value);
     auto *endOp = livenessInfo->getEndOperation(value, startOp);
-    auto opOperandIter =
+    auto *opOperandIter =
         llvm::find_if(endOp->getOpOperands(), [&](OpOperand &opOperand) {
           return opOperand.is(value);
         });

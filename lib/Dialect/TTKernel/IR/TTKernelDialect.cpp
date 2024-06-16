@@ -28,6 +28,7 @@ void TTKernelDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
       >();
+  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsAttrDefs.cpp.inc"

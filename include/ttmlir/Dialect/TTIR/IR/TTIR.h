@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIRDIALECT_H
-#define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRDIALECT_H
+#ifndef TTMLIR_DIALECT_TTIR_IR_TTIR_H
+#define TTMLIR_DIALECT_TTIR_IR_TTIR_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Dialect.h"

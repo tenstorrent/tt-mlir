@@ -29,8 +29,9 @@ public:
   LogicalResult matchAndRewrite(func::FuncOp op,
                                 PatternRewriter &rewriter) const final {
     auto blockArgs = op.getCallableRegion()->getArguments();
-    if (blockArgs.empty())
+    if (blockArgs.empty()) {
       return rewriter.notifyMatchFailure(op, "No block arguments");
+    }
 
     // Rewrite the block arguments to be variables.
     rewriter.setInsertionPointToStart(&op.getCallableRegion()->front());
@@ -54,8 +55,9 @@ public:
 
   LogicalResult matchAndRewrite(ttkernel::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
-    if (not isa<func::FuncOp>(op.getOperation()->getParentOp()))
+    if (not isa<func::FuncOp>(op.getOperation()->getParentOp())) {
       return rewriter.notifyMatchFailure(op, "Not inside of func op");
+    }
     rewriter.replaceOpWithNewOp<func::ReturnOp>(op, ValueRange());
     return success();
   }
@@ -71,8 +73,9 @@ public:
       return op.getOp();
     }
     auto name = op.getOperation()->getName().getStringRef();
-    if (name.starts_with("ttnn."))
+    if (name.starts_with("ttnn.")) {
       return name.drop_front(8);
+    }
     return name;
   }
 

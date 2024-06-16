@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIRPASSES_H
-#define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRPASSES_H
+#ifndef TTMLIR_DIALECT_TTIR_PASSES_H
+#define TTMLIR_DIALECT_TTIR_PASSES_H
 
 #include "mlir/Pass/Pass.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"

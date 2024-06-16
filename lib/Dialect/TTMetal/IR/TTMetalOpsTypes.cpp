@@ -18,6 +18,7 @@ using namespace mlir::tt::ttmetal;
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.cpp.inc"
 
 void TTMetalDialect::registerTypes() {
+  // NOLINTNEXTLINE
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.cpp.inc"
