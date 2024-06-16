@@ -22,10 +22,10 @@ inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
 }
 } // namespace mlir::tt
 
-#define GET_TYPEDEF_CLASSES
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
-
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"
+
+#define GET_TYPEDEF_CLASSES
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
 #endif

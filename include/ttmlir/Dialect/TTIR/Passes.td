@@ -10,14 +10,14 @@ include "mlir/Pass/PassBase.td"
 def ConvertTosaToTTIR: Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    Convert TOSA ops to TTIR dialect.
+    Convert TOSA ops to TTIR ops.
   }];
 }
 
-def TTIRDispatch: Pass<"ttir-dispatch", "::mlir::ModuleOp"> {
+def TTIRGeneric: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    Wrap top level ops in a dispatch op.
+    Wrap top level ops in a generic op.
   }];
 }
 
@@ -25,13 +25,6 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{
     Transition between different tensor layouts.
-  }];
-}
-
-def TTIRShard: Pass<"ttir-shard", "::mlir::ModuleOp"> {
-  let summary = "Shard tensors.";
-  let description = [{
-    todo
   }];
 }
 

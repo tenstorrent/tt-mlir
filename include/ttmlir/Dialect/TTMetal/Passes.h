@@ -17,6 +17,8 @@ namespace mlir::tt::ttmetal {
 
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTMetal/Passes.h.inc"
+
+void createTTIRToTTMetalBackendPipeline(OpPassManager &pm);
 } // namespace mlir::tt::ttmetal
 
 #endif

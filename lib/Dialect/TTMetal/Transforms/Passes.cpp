@@ -2,12 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTMetal/Passes.h"
+
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MLProgram/IR/MLProgram.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -15,12 +18,12 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Passes.h"
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/Passes.h"
 
 namespace mlir::tt::ttmetal {
 
@@ -85,12 +88,11 @@ public:
   }
 };
 
-class TTIRToTTMetalDispatchRewriter
-    : public OpRewritePattern<ttir::DispatchOp> {
+class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
-  using OpRewritePattern<ttir::DispatchOp>::OpRewritePattern;
+  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
-  bool hasUnloweredTTIRKernel(ttir::DispatchOp op) const {
+  bool hasUnloweredTTIRKernel(ttir::GenericOp op) const {
     bool exists = false;
     op->getRegion(0).walk([&exists](Operation *op) {
       if (isa<ttir::KernelOp>(op)) {
@@ -129,7 +131,7 @@ public:
     return rewrittenBlockArgumentTypes;
   }
 
-  LogicalResult matchAndRewrite(ttir::DispatchOp op,
+  LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     if (hasUnloweredTTIRKernel(op)) {
       return failure();
@@ -246,5 +248,13 @@ public:
     registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
   }
 };
+
+void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
+  pm.addPass(mlir::tt::ttir::createTTIRGeneric());
+  pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  pm.addPass(mlir::tt::ttir::createTTIRAllocate());
+  pm.addPass(createConvertTTIRToTTMetal());
+  pm.addPass(createTTMetalSerializeToBinary());
+}
 
 } // namespace mlir::tt::ttmetal

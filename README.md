@@ -59,7 +59,7 @@ Note:
 
 - `tt`: Common types such as, `tt.tile`, `tt.layout`, `tt.grid`, etc. and enums such as, data formats, memory spaces, iterator types etc.
 - `ttir`: A high level dialect that models the tensor compute graph on tenstorrent devices. Accepts `tosa` and `linalg` input.
-  - `ttir.dispatch`: Dispatch a grid of compute work.
+  - `ttir.generic`: Generically describe compute work.
   - `ttir.layout`: Convert between different tensor memory layouts and transfer between different memory spaces.
   - `tensor.pad`: Pad a tensor with a value (ie. convs)
   - `ttir.yield`: return result memref of computation in dispatch region body, lowers to `ttkernel.yield`

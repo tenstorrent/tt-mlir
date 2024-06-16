@@ -5,7 +5,7 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPS_TD
 
-  include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -14,13 +14,22 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
+include "mlir/IR/OpBase.td"
 
-def TTIR_DispatchOp : TTIR_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch work to a grid of cores.";
+//===----------------------------------------------------------------------===//
+// TTIR top level ops
+//===----------------------------------------------------------------------===//
+
+def TTIR_GenericOp : TTIR_Op<"generic", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+    let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
-      Dispatch operation:
+      This generic op carries a region that represents the work each core does. The region is
+      expected to have the same signature as the op itself. The op is expected to be lowered
+      to a backend specific form by a consuming backend. This op is heavily inspired by the
+      linalg.generic op so it can be useful to refer to linalg.generic documentation for more
+      details.
 
-      %5 = "ttir.dispatch"(%1, %3, %4) <{
+      %5 = "ttir.generic"(%1, %3, %4) <{
         grid = #tt.grid<1x1>,                     // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],       // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],  // Iterator types for the input/output tensors. See linalg.generic
@@ -91,6 +100,53 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 
     let arguments = (ins AnyRankedTensor:$result);
 }
+
+//===----------------------------------------------------------------------===//
+// TTIR top level named ops
+//  A named op is one that is not generic and has a specific name. For example
+//  "add", "multiply", "matmul", "concat", etc. They do not carry a region.
+//===----------------------------------------------------------------------===//
+
+class TTIR_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface, AttrSizedOperandSegments])> {
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+    }];
+}
+
+class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_NamedDPSOp<mnemonic, !listconcat(traits, [Elementwise])> {
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+}
+
+class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise binary op.";
+    let description = [{
+      Eltwise binary op.
+    }];
+}
+
+def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
+    let summary = "Eltwise add.";
+    let description = [{
+      Eltwise add operation.
+    }];
+}
+
+def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR region ops (ops that may appear inside of ttir.generic region)
+//===----------------------------------------------------------------------===//
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 

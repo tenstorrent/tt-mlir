@@ -85,11 +85,11 @@ public:
   }
 };
 
-class TTIRToTTNNDispatchRewriter : public OpRewritePattern<ttir::DispatchOp> {
+class TTIRToTTNNDispatchRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
-  using OpRewritePattern<ttir::DispatchOp>::OpRewritePattern;
+  using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
-  bool hasUnloweredTTIRKernel(ttir::DispatchOp op) const {
+  bool hasUnloweredTTIRKernel(ttir::GenericOp op) const {
     bool exists = false;
     op->getRegion(0).walk([&exists](Operation *op) {
       if (isa<ttir::KernelOp>(op)) {
@@ -128,7 +128,7 @@ public:
     return rewrittenBlockArgumentTypes;
   }
 
-  LogicalResult matchAndRewrite(ttir::DispatchOp op,
+  LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     if (hasUnloweredTTIRKernel(op)) {
       return failure();

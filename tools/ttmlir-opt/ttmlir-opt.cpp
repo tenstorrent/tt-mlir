@@ -14,11 +14,19 @@
 #include "ttmlir/Dialect/TTIR/Passes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/Passes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/Passes.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
   mlir::tt::ttir::registerPasses();
+  mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
+
+  mlir::PassPipelineRegistration<>(
+      "ttir-to-ttmetal-backend-pipeline",
+      "Pipeline lowering ttir to ttmetal backend.",
+      mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
 
   mlir::DialectRegistry registry;
   registry.insert<

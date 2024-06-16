@@ -13,22 +13,6 @@ include "ttmlir/Dialect/TT/IR/TTBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
 
 //===----------------------------------------------------------------------===//
-// TT type definitions
-//===----------------------------------------------------------------------===//
-
-class TT_Type<string name, string typeMnemonic, list<Trait> traits = []>
-    : TypeDef<TT_Dialect, name, traits> {
-  let mnemonic = typeMnemonic;
-}
-
-def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
-    let summary = "TT tile";
-    let description = "Tile type in TT dialect";
-    let parameters = (ins "unsigned":$height, "unsigned":$width, "DataType":$dataType);
-    let assemblyFormat = "`<` $height `x` $width`,` $dataType `>`";
-}
-
-//===----------------------------------------------------------------------===//
 // TT attr definitions
 //===----------------------------------------------------------------------===//
 // Should Attr be a separate file?
@@ -58,6 +42,30 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
         return GridAttr::get(context, {1, 1}, AffineMap::get(context));
       }
   }];
+}
+
+def TT_DeviceArchAttr : EnumAttr<TT_Dialect, TT_DeviceArch, "device_arch"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_DeviceDescAttr : TT_Attr<"DeviceDesc", "device_desc"> {
+  let summary = "TT device_desc attribute";
+  let description = [{
+    TT device_desc attribute
+  }];
+
+  let parameters = (ins "DeviceArchAttr":$arch, TT_GridAttr:$grid);
+  let assemblyFormat = "`<` $arch `,` $grid `>`";
+}
+
+def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
+  let summary = "TT system_desc attribute";
+  let description = [{
+    TT system_desc attribute
+  }];
+
+  let parameters = (ins TT_DeviceDescAttr:$deviceDesc);
+  let assemblyFormat = "`<` $deviceDesc`>`";
 }
 
 def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
@@ -98,5 +106,28 @@ def TT_OperandConstraintAttr : EnumAttr<TT_Dialect, TT_OperandConstraint, "opera
 }
 
 def TT_OperandConstraintArrayAttr : TypedArrayAttrBase<TT_OperandConstraintAttr, "">;
+
+//===----------------------------------------------------------------------===//
+// TT type definitions
+//===----------------------------------------------------------------------===//
+
+class TT_Type<string name, string typeMnemonic, list<Trait> traits = []>
+    : TypeDef<TT_Dialect, name, traits> {
+  let mnemonic = typeMnemonic;
+}
+
+def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
+    let summary = "TT tile";
+    let description = "Tile type in TT dialect";
+    let parameters = (ins "unsigned":$height, "unsigned":$width, "DataType":$dataType);
+    let assemblyFormat = "`<` $height `x` $width`,` $dataType `>`";
+}
+
+def TT_Device : TT_Type<"Device", "device", []> {
+    let summary = "TT device";
+    let description = "Device type in TT dialect";
+    let parameters = (ins TT_DeviceDescAttr:$deviceDesc);
+    let assemblyFormat = "`<` $deviceDesc `>`";
+}
 
 #endif

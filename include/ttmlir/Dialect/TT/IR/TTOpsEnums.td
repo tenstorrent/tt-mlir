@@ -40,6 +40,21 @@ def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
   let symbolToStringFnName = "DataTypeEnumToString";
 }
 
+def TT_Grayskull : I32EnumAttrCase<"Grayskull", 0, "grayskull">;
+def TT_WormholeB0 : I32EnumAttrCase<"WormholeB0", 1, "wormhole_b0">;
+def TT_Blackhole : I32EnumAttrCase<"Blackhole", 2, "blackhole">;
+
+def TT_DeviceArch : I32EnumAttr<"DeviceArch", "TT DeviceArch",
+                           [
+                            TT_Grayskull,
+                            TT_WormholeB0,
+                            TT_Blackhole,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
+
 def TT_System : I32EnumAttrCase<"System", 0, "system">;
 def TT_SystemMMIO : I32EnumAttrCase<"SystemMMIO", 1, "mmio">;
 def TT_DeviceDRAM : I32EnumAttrCase<"DeviceDRAM", 2, "dram">;
