@@ -16,3 +16,5 @@ add_mlir_dialect_library(MLIRTTMetalTransforms
         MLIRInferTypeOpInterface
         MLIRFuncDialect
         )
+
+target_include_directories(MLIRTTMetalTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

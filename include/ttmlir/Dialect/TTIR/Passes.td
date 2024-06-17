@@ -21,6 +21,13 @@ def TTIRGeneric: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRGenericRegionOperandsToMemref: Pass<"ttir-generic-region-operands-to-memref", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Convert generic region operands to memref.
+  }];
+}
+
 def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let summary = "Tensor tilize all generic ops.";
   let description = [{

@@ -28,6 +28,11 @@ int main(int argc, char **argv) {
       "Pipeline lowering ttir to ttmetal backend.",
       mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
 
+  mlir::PassPipelineRegistration<>(
+      "ttir-to-ttnn-backend-pipeline",
+      "Pipeline lowering ttir to ttmetal backend.",
+      mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
+
   mlir::DialectRegistry registry;
   registry.insert<
       mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,

@@ -22,11 +22,13 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_CONVERTTOSATOTTIR
 #define GEN_PASS_DEF_TTIRGENERIC
+#define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
 #include "ttmlir/Dialect/TTIR/Passes.h.inc"
 
-template <typename TosaOp, typename TTIROp>
+template <typename TosaOp, typename TTIROp,
+          OperandConstraint operandConstraints>
 class TosaToTTIREltwiseBinaryRewriter : public OpRewritePattern<TosaOp> {
 public:
   using OpRewritePattern<TosaOp>::OpRewritePattern;
@@ -42,8 +44,11 @@ public:
         op.getResult().getType().template cast<RankedTensorType>();
     auto output = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<TTIROp>(op, TypeRange(output.getType()),
-                                        op.getOperands(), ValueRange(output));
+    rewriter.replaceOpWithNewOp<TTIROp>(
+        op, TypeRange(output.getType()), op.getOperands(), ValueRange(output),
+        rewriter.getArrayAttr(SmallVector<Attribute>(
+            op.getNumOperands() + 1, // +1 for output operand
+            rewriter.getAttr<OperandConstraintAttr>(operandConstraints))));
 
     return success();
   }
@@ -66,10 +71,11 @@ public:
                             tt::GridAttr::get(&getContext()))));
 
     RewritePatternSet patterns(&getContext());
-    patterns
-        .add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp>,
-             TosaToTTIREltwiseBinaryRewriter<tosa::MulOp, ttir::MultiplyOp>>(
-            &getContext());
+    patterns.add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp,
+                                                 OperandConstraint::AnyDevice>,
+                 TosaToTTIREltwiseBinaryRewriter<tosa::MulOp, ttir::MultiplyOp,
+                                                 OperandConstraint::AnyDevice>>(
+        &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
@@ -113,7 +119,7 @@ public:
 
     auto kernel = rewriter.create<ttir::KernelOp>(
         op.getLoc(), op.getResultTypes(), kernelName, kernelKind,
-        op.getOperands(), op.getOutputs());
+        op.getInputs(), op.getOutputs());
 
     rewriter.replaceOp(op, kernel);
 
@@ -258,6 +264,70 @@ public:
     patterns.add<TTIRLinalgGenericRewriter, TTIRKernelGenericRewriter,
                  TTIRNamedToKernelRewriter<AddOp>,
                  TTIRNamedToKernelRewriter<MultiplyOp>>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
+  }
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
+  }
+};
+
+class TTIRGenericOperandsToMemrefRewriter : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp op,
+                                PatternRewriter &rewriter) const final {
+    auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
+    for (auto &operand : op->getOpOperands()) {
+      auto encoding = operand.get()
+                          .getType()
+                          .template cast<RankedTensorType>()
+                          .getEncoding();
+      if (not encoding) {
+        return failure(); // Hasn't been type converted yet
+      }
+
+      auto blockArg = op.getRegion().getArgument(operand.getOperandNumber());
+      if (blockArg.getType().isa<MemRefType>()) {
+        return failure(); // Already lowered
+      }
+
+      // Rewire the operand to the layout op
+      rewriter.modifyOpInPlace(op, [&]() {
+        auto layout = operand.get()
+                          .getType()
+                          .template cast<RankedTensorType>()
+                          .getEncoding()
+                          .template cast<LayoutAttr>();
+
+        blockArg.setType(layout.getMemref());
+
+        bool isResult = dpsInterface.isDpsInit(&operand);
+        if (isResult) {
+          for (auto *user : blockArg.getUsers()) {
+            dyn_cast<KernelOp>(user).getResult(0).setType(layout.getMemref());
+          }
+        }
+      });
+    }
+
+    return success();
+  }
+};
+
+class TTIRGenericRegionOperandsToMemref
+    : public impl::TTIRGenericRegionOperandsToMemrefBase<
+          TTIRGenericRegionOperandsToMemref> {
+public:
+  using impl::TTIRGenericRegionOperandsToMemrefBase<
+      TTIRGenericRegionOperandsToMemref>::TTIRGenericRegionOperandsToMemrefBase;
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericOperandsToMemrefRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
@@ -416,29 +486,30 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
   if (exising_empty) {
     rewriter.replaceOp(exising_empty, output);
-    return std::nullopt;
+    return output.getResult();
   }
   return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output)
       ->getResult(0);
 }
 
-class TTIRLayoutDispatchOperandsRewriter : public OpRewritePattern<GenericOp> {
+template <typename TTIROp>
+class TTIRLayoutOperandsRewriter : public OpRewritePattern<TTIROp> {
 public:
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
+  using OpRewritePattern<TTIROp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(GenericOp op,
+  LogicalResult matchAndRewrite(TTIROp op,
                                 PatternRewriter &rewriter) const final {
+    assert(op->template hasTrait<TTIROpInterface::Trait>());
     auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
+    bool modified = false;
     for (auto &operand : op->getOpOperands()) {
-      auto encoding =
-          operand.get().getType().cast<RankedTensorType>().getEncoding();
+      bool isResult = dpsInterface.isDpsInit(&operand);
+      auto encoding = operand.get()
+                          .getType()
+                          .template cast<RankedTensorType>()
+                          .getEncoding();
       if (not encoding) {
         return failure(); // Hasn't been type converted yet
-      }
-
-      auto blockArg = op.getRegion().getArgument(operand.getOperandNumber());
-      if (blockArg.getType().isa<MemRefType>()) {
-        return failure(); // Already lowered
       }
 
       auto operandConstraint =
@@ -450,34 +521,28 @@ public:
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
-          op.setOperand(operand.getOperandNumber(), *desiredLayout);
+          modified = true;
+          op->setOperand(operand.getOperandNumber(), *desiredLayout);
+          std::optional<BlockArgument> blockArg;
+          if (op->getNumRegions() == 1) {
+            blockArg = op->getRegion(0).getArgument(operand.getOperandNumber());
+            blockArg->setType(desiredLayout->getType());
+          }
+          if (isResult) {
+            // If this is the output operand, update the result type
+            op->getResult(0).setType(desiredLayout->getType());
+            if (blockArg) {
+              for (auto *user : blockArg->getUsers()) {
+                dyn_cast<KernelOp>(user).getResult(0).setType(
+                    desiredLayout->getType());
+              }
+            }
+          }
         });
       }
-
-      // Rewire the operand to the layout op
-      rewriter.modifyOpInPlace(op, [&]() {
-        auto layout = operand.get()
-                          .getType()
-                          .cast<RankedTensorType>()
-                          .getEncoding()
-                          .cast<LayoutAttr>();
-
-        // Update the block arguments to use the underlying memref type
-        blockArg.setType(layout.getMemref());
-
-        bool isResult = dpsInterface.isDpsInit(&operand);
-        if (isResult) {
-          // If this is the output operand, update the result type for both
-          // the kernel return type and the dispatch return type
-          op.getResult(0).setType(operand.get().getType());
-          for (auto *user : blockArg.getUsers()) {
-            dyn_cast<KernelOp>(user).getResult(0).setType(layout.getMemref());
-          }
-        }
-      });
     }
 
-    return success();
+    return modified ? success() : failure();
   }
 };
 
@@ -519,7 +584,9 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutDispatchOperandsRewriter,
+      patterns.add<TTIRLayoutOperandsRewriter<GenericOp>,
+                   TTIRLayoutOperandsRewriter<AddOp>,
+                   TTIRLayoutOperandsRewriter<MultiplyOp>,
                    TTIRLayoutFuncReturnRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {

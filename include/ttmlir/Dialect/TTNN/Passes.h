@@ -7,9 +7,9 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include <memory>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DECL
@@ -17,6 +17,8 @@ namespace mlir::tt::ttnn {
 
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTNN/Passes.h.inc"
+
+void createTTIRToTTNNBackendPipeline(OpPassManager &pm);
 } // namespace mlir::tt::ttnn
 
 #endif

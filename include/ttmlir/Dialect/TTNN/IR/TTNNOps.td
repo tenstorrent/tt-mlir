@@ -17,63 +17,67 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-class AtLeastRegion<int numBlocks> : Region<
-  CPred<"$_self.getBlocks().size() >= " # numBlocks>,
-  "region with " # numBlocks # " blocks">;
-
-def TTNN_DispatchOp : TTNN_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch op.";
+def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [DestinationStyleOpInterface]> {
+    let summary = "ToMemoryConfig op.";
     let description = [{
-      Dispatch operation
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
-                         TTNN_CoreRangeArrayAttr:$core_ranges,
-                         TTKernel_ThreadTypeArrayAttr:$threadTypes,
-                         ArrayAttr:$operand_cb_port_mapping);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region VariadicRegion<AnyRegion>:$regions);
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output);
+    let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface, AttrSizedOperandSegments])> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
-
-    let hasVerifier = 1;
 }
 
-def TTNN_HostWriteOp : TTNN_Op<"host_write", [DestinationStyleOpInterface]> {
-    let summary = "Host write op.";
-    let description = [{
-      Host write operation
-    }];
+class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [Elementwise])> {
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
-    let hasVerifier = 1;
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
-def TTNN_HostReadOp : TTNN_Op<"host_read", [DestinationStyleOpInterface]> {
-    let summary = "Host read op.";
+class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise binary op.";
     let description = [{
-      Host read operation
+      Eltwise binary op.
+    }];
+}
+
+def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
+    let summary = "Eltwise add.";
+    let description = [{
+      Eltwise add operation.
+    }];
+}
+
+def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+def TTNN_FullOp : TTNN_Op<"full"> {
+    let summary = "Full op.";
+    let description = [{
+      Tensor full operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
+    let arguments = (ins F32Attr:$fullValue);
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
-    let hasVerifier = 1;
 }
 
 def TTNN_AllocOp : TTNN_Op<"alloc"> {

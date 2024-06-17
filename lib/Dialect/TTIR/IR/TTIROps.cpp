@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 

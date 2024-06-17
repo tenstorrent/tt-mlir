@@ -14,46 +14,18 @@
 
 namespace mlir::tt::ttnn {
 
-::mlir::LogicalResult HostWriteOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::ToMemoryConfigOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
       inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
-  if (not inputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
   auto outputLayout =
       outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
-  if (not outputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
-  if (not inputLayout.isSystemMemorySpace()) {
-    return emitOpError("Input tensor must be in system memory space");
-  }
-  if (not outputLayout.isDeviceMemorySpace()) {
-    return emitOpError("Output tensor must be in device memory space");
-  }
-  return success();
-}
-
-::mlir::LogicalResult HostReadOp::verify() {
-  ::mlir::RankedTensorType inputTy = getInput().getType();
-  ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto inputLayout =
-      inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
   if (not inputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
+    return emitOpError("Input tensor type missing layout attribute");
   }
-  auto outputLayout =
-      outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
   if (not outputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
-  if (not outputLayout.isSystemMemorySpace()) {
-    return emitOpError("Output tensor must be in system memory space");
-  }
-  if (not inputLayout.isDeviceMemorySpace()) {
-    return emitOpError("Input tensor must be in device memory space");
+    return emitOpError("Output tensor type missing layout attribute");
   }
   return success();
 }
@@ -91,32 +63,6 @@ namespace mlir::tt::ttnn {
         "set to a non-zero value, device addresses are statically allocated");
   }
 
-  return success();
-}
-
-::mlir::LogicalResult DispatchOp::verify() {
-  // Assert inputs/outputs device memspace
-  for (auto operand : getOperands()) {
-    auto layout = operand.getType()
-                      .cast<mlir::RankedTensorType>()
-                      .getEncoding()
-                      .template dyn_cast_or_null<mlir::tt::LayoutAttr>();
-    if (not layout) {
-      return emitOpError("Input tensor missing layout attribute");
-    }
-    if (not layout.isDeviceMemorySpace()) {
-      return emitOpError("Input tensor must be in device memory space");
-    }
-  }
-
-  // Assert block inputs are CBs
-  for (auto &region : getRegions()) {
-    for (auto arg : region.getArguments()) {
-      if (not arg.getType().isa<ttkernel::CBType>()) {
-        return emitOpError("Block inputs must be CBType");
-      }
-    }
-  }
   return success();
 }
 

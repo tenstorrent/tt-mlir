@@ -1,0 +1,20 @@
+include "device_desc.fbs";
+
+namespace tt.fbs.ttnn;
+
+struct Version {
+  major: uint16;
+  minor: uint16;
+  release: uint32;
+}
+
+table TTNNBinary {
+  version: Version;
+  ttmlir_git_hash: string;
+  device_desc: tt.DeviceDesc;
+  //command_queues: [CommandQueue];
+}
+
+root_type TTNNBinary;
+file_identifier "TTNN";
+file_extension "ttnn";

@@ -36,7 +36,9 @@ Note:
 - mlir input tosa/linalg examples `test/ttmlir`.
 - Simple test (each flag is a pass that runs in order):
 ```bash
-./build/bin/ttmlir-opt --convert-tosa-to-ttir --ttir-dispatch --ttir-layout --ttir-allocate --convert-ttir-to-ttmetal --ttmetal-serialize-to-binary -mlir-print-stacktrace-on-diagnostic test/ttmlir/simple_eltwise_tosa.mlir
+./build/bin/ttmlir-opt --convert-tosa-to-ttir --ttir-to-ttnn-backend-pipeline test/ttmlir/simple_eltwise_tosa.mlir
+# Or
+./build/bin/ttmlir-opt --convert-tosa-to-ttir --ttir-to-ttmetal-backend-pipeline test/ttmlir/simple_eltwise_tosa.mlir
 ```
 
 ## Useful links / reading
