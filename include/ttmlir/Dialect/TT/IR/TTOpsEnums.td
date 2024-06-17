@@ -44,7 +44,7 @@ def TT_Grayskull : I32EnumAttrCase<"Grayskull", 0, "grayskull">;
 def TT_WormholeB0 : I32EnumAttrCase<"WormholeB0", 1, "wormhole_b0">;
 def TT_Blackhole : I32EnumAttrCase<"Blackhole", 2, "blackhole">;
 
-def TT_DeviceArch : I32EnumAttr<"DeviceArch", "TT DeviceArch",
+def TT_Arch : I32EnumAttr<"Arch", "TT Arch",
                            [
                             TT_Grayskull,
                             TT_WormholeB0,
@@ -122,6 +122,18 @@ def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Const
                             TT_OperandConstraintAny,
                             TT_OperandConstraintAnyDevice,
                             TT_OperandConstraintAnyDeviceTile,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
+def TT_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;
+def TT_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 1, "host_mmio">;
+
+def TT_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
+                           [
+                            TT_ChipCapabilityPCIE,
+                            TT_ChipCapabilityHostMMIO,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";

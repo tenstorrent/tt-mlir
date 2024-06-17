@@ -39,23 +39,52 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context)
       {
-        return GridAttr::get(context, {1, 1}, AffineMap::get(context));
+        return GridAttr::get(context, {1, 1});
+      }
+
+      static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape)
+      {
+        return GridAttr::get(context, shape, AffineMap::get(context));
       }
   }];
 }
 
-def TT_DeviceArchAttr : EnumAttr<TT_Dialect, TT_DeviceArch, "device_arch"> {
+def TT_ChipCapabilityAttr : EnumAttr<TT_Dialect, TT_ChipCapability, "Chip_capability"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TT_DeviceDescAttr : TT_Attr<"DeviceDesc", "device_desc"> {
-  let summary = "TT device_desc attribute";
+def TT_ArchAttr : EnumAttr<TT_Dialect, TT_Arch, "arch"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
+  let summary = "TT chip_desc attribute";
   let description = [{
-    TT device_desc attribute
+    TT chip_desc attribute
   }];
 
-  let parameters = (ins "DeviceArchAttr":$arch, TT_GridAttr:$grid);
-  let assemblyFormat = "`<` $arch `,` $grid `>`";
+  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid);
+  let assemblyFormat = "`<` qualified($arch) `,` qualified($grid) `>`";
+}
+
+def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
+  let summary = "TT chip_coord attribute";
+  let description = [{
+    TT chip_coord attribute
+  }];
+
+  let parameters = (ins "unsigned":$rack, "unsigned":$shelf, "unsigned":$y, "unsigned":$x);
+  let assemblyFormat = "`<` $rack `,` $shelf `,` $y `,` $x `>`";
+}
+
+def TT_ChipChannelAttr : TT_Attr<"ChipChannel", "chip_channel"> {
+  let summary = "TT chip_channel attribute";
+  let description = [{
+    TT chip_channel attribute
+  }];
+
+  let parameters = (ins "unsigned":$endpoint0, "unsigned":$endpoint1);
+  let assemblyFormat = "`<` $endpoint0 `,` $endpoint1 `>`";
 }
 
 def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
@@ -64,8 +93,12 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
     TT system_desc attribute
   }];
 
-  let parameters = (ins TT_DeviceDescAttr:$deviceDesc);
-  let assemblyFormat = "`<` $deviceDesc`>`";
+  let parameters = (ins ArrayRefParameter<"ChipDescAttr">:$chipDescs,
+                        ArrayRefParameter<"unsigned">:$chipDescIndices,
+                        ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
+                        ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
+                        ArrayRefParameter<"ChipChannelAttr">:$chipChannels);
+  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` `,` `[` $chipChannels `]` `>`";
 }
 
 def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
@@ -126,8 +159,8 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
 def TT_Device : TT_Type<"Device", "device", []> {
     let summary = "TT device";
     let description = "Device type in TT dialect";
-    let parameters = (ins TT_DeviceDescAttr:$deviceDesc);
-    let assemblyFormat = "`<` $deviceDesc `>`";
+    let parameters = (ins TT_GridAttr:$mesh, ArrayRefParameter<"unsigned">:$chipIds);
+    let assemblyFormat = "`<` qualified($mesh) `,` `[` $chipIds `]` `>`";
 }
 
 #endif

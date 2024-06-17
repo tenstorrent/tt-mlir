@@ -8,14 +8,29 @@
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
-include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.td"
-include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
+
+def TTNN_OpenDeviceOp : TTNN_Op<"open_device"> {
+    let summary = "Open Device op.";
+    let description = [{
+    }];
+
+    let arguments = (ins);
+    let results = (outs TT_Device:$device);
+}
+
+def TTNN_CloseDeviceOp : TTNN_Op<"close_device"> {
+    let summary = "Close Device op.";
+    let description = [{
+    }];
+
+    let arguments = (ins TT_Device:$device);
+}
 
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [DestinationStyleOpInterface]> {
     let summary = "ToMemoryConfig op.";
@@ -76,7 +91,7 @@ def TTNN_FullOp : TTNN_Op<"full"> {
       Tensor full operation
     }];
 
-    let arguments = (ins F32Attr:$fullValue);
+    let arguments = (ins TT_Device:$device, F32Attr:$fillValue);
     let results = (outs AnyRankedTensor:$result);
 }
 

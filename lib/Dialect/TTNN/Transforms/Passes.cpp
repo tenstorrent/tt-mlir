@@ -20,9 +20,54 @@
 
 namespace mlir::tt::ttnn {
 
+#define GEN_PASS_DEF_TTNNOPENDEVICE
 #define GEN_PASS_DEF_CONVERTTTIRTOTTNN
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Passes.h.inc"
+
+static Value findDevice(Operation *op) {
+  Block *block = op->getBlock();
+  for (auto &op : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<OpenDeviceOp>(op)) {
+      return deviceOp.getResult();
+    }
+  }
+  assert(false && "No device found");
+  return nullptr;
+}
+
+class TTNNOpenDevice : public impl::TTNNOpenDeviceBase<TTNNOpenDevice> {
+public:
+  using impl::TTNNOpenDeviceBase<TTNNOpenDevice>::TTNNOpenDeviceBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    OpBuilder builder(module);
+    auto systemDesc = module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>();
+    auto chipDescIndices = systemDesc.getChipDescIndices();
+    assert(chipDescIndices.size() == 1 && "Multiple chips not supported yet");
+
+    module->walk([&](func::FuncOp func) {
+      // For now just push the open and close device ops to the beginning and
+      // end of the function
+      assert(func.getBody().hasOneBlock());
+      auto *block = &func.getBody().front();
+      auto opRange = block->without_terminator();
+
+      builder.setInsertionPoint(block, opRange.begin());
+      auto openDevice = builder.create<OpenDeviceOp>(
+          func.getLoc(), builder.getType<tt::DeviceType>(
+                             builder.getAttr<tt::GridAttr>(), chipDescIndices));
+
+      builder.setInsertionPoint(block, opRange.end());
+      builder.create<CloseDeviceOp>(func.getLoc(), openDevice.getResult());
+    });
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttnn::TTNNDialect>();
+  }
+};
 
 class TTIRToTTNNLayoutRewriter : public OpRewritePattern<ttir::LayoutOp> {
 public:
@@ -55,7 +100,8 @@ public:
 
   LogicalResult matchAndRewrite(tensor::EmptyOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<FullOp>(op, op.getType(),
+    auto device = findDevice(op);
+    rewriter.replaceOpWithNewOp<FullOp>(op, op.getType(), device,
                                         rewriter.getF32FloatAttr(0.0));
     return success();
   }
@@ -99,6 +145,7 @@ public:
 
 void createTTIRToTTNNBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  pm.addPass(createTTNNOpenDevice());
   pm.addPass(createConvertTTIRToTTNN());
   // pm.addPass(createTTNNSerializeToBinary());
 }
