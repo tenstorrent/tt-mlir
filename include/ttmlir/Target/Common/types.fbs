@@ -1,4 +1,4 @@
-namespace tt;
+namespace tt.target;
 
 struct Dim2d {
   y: int;
@@ -8,6 +8,12 @@ struct Dim2d {
 struct Dim2dRange {
   loc: Dim2d;
   size: Dim2d;
+}
+
+enum Arch: uint {
+  Grayskull = 0,
+  Wormhole_b0 = 1,
+  Blackhole = 2,
 }
 
 enum DataType: ushort {
@@ -38,6 +44,11 @@ enum MemorySpace: ushort {
   SystemMMIO = 1,
   DeviceDRAM = 2,
   DeviceL1 = 3,
+}
+
+enum ChipCapability: uint32 (bit_flags) {
+  PCIE = 0,
+  HostMMIO = 1,
 }
 
 table MemoryDesc {
@@ -79,4 +90,29 @@ table CBRef {
   address: uint64;
   size: uint64;
   desc: CBDesc;
+}
+
+table ChipDesc {
+  arch: Arch;
+  grid_size: Dim2d;
+}
+
+struct ChipCoord {
+  rack: uint32;
+  shelf: uint32;
+  y: uint32;
+  x: uint32;
+}
+
+struct ChipChannel {
+  endpoint0: uint32;
+  endpoint1: uint32;
+}
+
+table SystemDesc {
+  chip_descs: [ChipDesc];
+  chip_desc_indices: [uint32];
+  chip_capabilities: [ChipCapability];
+  chip_coords: [ChipCoord];
+  chip_channels: [ChipChannel];
 }

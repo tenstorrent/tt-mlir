@@ -1,18 +1,14 @@
-include "device_desc.fbs";
+include "Common/types.fbs";
+include "Common/version.fbs";
+include "program.fbs";
 
-namespace tt.fbs.ttnn;
-
-struct Version {
-  major: uint16;
-  minor: uint16;
-  release: uint32;
-}
+namespace tt.target.ttnn;
 
 table TTNNBinary {
-  version: Version;
+  version: tt.target.Version;
   ttmlir_git_hash: string;
-  device_desc: tt.DeviceDesc;
-  //command_queues: [CommandQueue];
+  system_desc: tt.target.SystemDesc;
+  program: Program;
 }
 
 root_type TTNNBinary;

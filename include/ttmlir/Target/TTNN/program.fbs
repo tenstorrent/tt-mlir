@@ -1,0 +1,33 @@
+include "Common/types.fbs";
+
+namespace tt.target.ttnn;
+
+table FullOp {
+  out: tt.target.TensorRef;
+  fill_value: float;
+}
+
+table AddOp {
+  out: tt.target.TensorRef;
+  in0: tt.target.TensorRef;
+  in1: tt.target.TensorRef;
+}
+
+table MultiplyOp {
+  out: tt.target.TensorRef;
+  in0: tt.target.TensorRef;
+  in1: tt.target.TensorRef;
+}
+
+union OpType {
+  AddOp,
+}
+
+table Operation {
+  type: OpType;
+  debug_info: string;
+}
+
+table Program {
+  operations: [Operation];
+}

@@ -1,0 +1,7 @@
+include "types.fbs";
+
+namespace tt.target;
+
+root_type SystemDesc;
+file_identifier "TTSY";
+file_extension "ttsys";

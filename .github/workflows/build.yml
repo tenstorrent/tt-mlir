@@ -1,6 +1,6 @@
 # This starter workflow is for a CMake project running on multiple platforms. There is a different starter workflow if you just want a single platform.
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
-name: CMake on multiple platforms
+name: Build
 
 on:
   push:
@@ -17,14 +17,14 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        build_type: [Release]
+        os: [ubuntu-20.04, macos-latest]
+        build_type: [Asan]
         c_compiler: [clang]
         include:
           #- os: ubuntu-latest
           #  c_compiler: gcc
           #  cpp_compiler: g++
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             c_compiler: clang
             cpp_compiler: clang++
           - os: macos-latest
@@ -33,6 +33,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: mkdir /opt/ttmlir-toolchain
+      shell: bash
+      run: |
+        df
+        df /opt
+        df ${{ github.workspace }}
+        sudo mkdir -p /opt/ttmlir-toolchain
+        sudo chown -R ${USER} /opt/ttmlir-toolchain
 
     - name: Cache ttmlir-toolchain
       uses: actions/cache@v3
@@ -45,8 +54,6 @@ jobs:
     - name: Build ttmlir-toolchain
       shell: bash
       run: |
-        sudo mkdir -p /opt/ttmlir-toolchain
-        sudo chown -R ${USER} /opt/ttmlir-toolchain
         source env/activate
         cmake -B env/build env
         cmake --build env/build

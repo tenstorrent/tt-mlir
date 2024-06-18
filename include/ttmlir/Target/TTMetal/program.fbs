@@ -1,6 +1,6 @@
-include "types.fbs";
+include "Common/types.fbs";
 
-namespace tt;
+namespace tt.target.metal;
 
 enum SourceType : ushort {
   Noc0 = 0,

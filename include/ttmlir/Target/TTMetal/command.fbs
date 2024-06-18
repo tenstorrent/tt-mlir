@@ -1,6 +1,6 @@
 include "program.fbs";
 
-namespace tt;
+namespace tt.target.metal;
 
 
 table DispatchCommand {

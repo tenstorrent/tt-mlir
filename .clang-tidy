@@ -12,7 +12,7 @@ ImplementationFileExtensions:
   - cc
   - cpp
   - cxx
-HeaderFilterRegex: '.*'
+HeaderFilterRegex: ''
 FormatStyle:     LLVM
 User:            nsmith
 CheckOptions:

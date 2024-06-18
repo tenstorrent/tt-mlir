@@ -27,11 +27,11 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Passes.h.inc"
 
-::tt::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
+::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   auto offset = coreRange.getOffset();
   auto size = coreRange.getSize();
-  return ::tt::Dim2dRange(::tt::Dim2d(offset[0], offset[1]),
-                          ::tt::Dim2d(size[0], size[1]));
+  return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
+                                  ::tt::target::Dim2d(size[0], size[1]));
 }
 
 class TTNNSerializeToBinary

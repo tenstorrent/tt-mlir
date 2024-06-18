@@ -1,8 +1,9 @@
 include(BuildFlatbuffers)
 
 set(COMMON_FBS_GEN_SOURCES
-  device_desc.fbs
+  system_desc.fbs
   types.fbs
+  version.fbs
 )
 
 build_flatbuffers("${COMMON_FBS_GEN_SOURCES}" COMMON_FBS)

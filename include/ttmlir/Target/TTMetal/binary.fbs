@@ -1,21 +1,16 @@
-include "device_desc.fbs";
+include "Common/types.fbs";
+include "Common/version.fbs";
 include "command.fbs";
 
-namespace tt;
+namespace tt.target.metal;
 
-struct Version {
-  major: uint16;
-  minor: uint16;
-  release: uint32;
-}
-
-table Binary {
+table TTMetalBinary {
   version: Version;
   ttmlir_git_hash: string;
-  device_desc: DeviceDesc;
+  system_desc: SystemDesc;
   command_queues: [CommandQueue];
 }
 
-root_type Binary;
+root_type TTMetalBinary;
 file_identifier "TTB0";
 file_extension "ttb";
