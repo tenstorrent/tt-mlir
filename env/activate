@@ -1,6 +1,6 @@
 TTMLIR_VENV="${TTMLIR_VENV:-/opt/ttmlir-toolchain/venv}"
 TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-/opt/ttmlir-toolchain}"
-source $TTMLIR_VENV/bin/activate
+[ -f $TTMLIR_VENV/bin/activate ] && source $TTMLIR_VENV/bin/activate
 export PATH=$TOOLCHAIN_ENV/bin:$PATH
 export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core"
 

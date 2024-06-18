@@ -12,6 +12,16 @@ add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN=${TTMLIR_TOOLCHAIN} C
 set(ENV{VIRTUAL_ENV} "${TTMLIR_TOOLCHAIN}/venv")
 
 ExternalProject_Add(
+    ninja-build
+    PREFIX ${TTMLIR_TOOLCHAIN}
+    CMAKE_ARGS
+      -DCMAKE_BUILD_TYPE=Release
+      -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN}
+    GIT_REPOSITORY https://github.com/ninja-build/ninja.git
+    GIT_TAG v1.12.1
+)
+
+ExternalProject_Add(
     flatbuffers
     PREFIX ${TTMLIR_TOOLCHAIN}
     CMAKE_GENERATOR Ninja
@@ -21,6 +31,7 @@ ExternalProject_Add(
       -DFLATBUFFERS_BUILD_TESTS=OFF
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
     GIT_TAG v24.3.7
+    DEPENDS ninja-build
 )
 
 # -DMLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS=ON set if debug
@@ -33,6 +44,7 @@ ExternalProject_Add(
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
       -DPython3_FIND_VIRTUALENV=ONLY
+      -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN}/venv/bin/python
       -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN}
       -DLLVM_ENABLE_PROJECTS=mlir,clang,clang-tools-extra,lld,compiler-rt
       -DLLVM_INSTALL_UTILS=ON
@@ -46,7 +58,7 @@ ExternalProject_Add(
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git
     GIT_TAG llvmorg-18.1.0
     GIT_PROGRESS ON
-    DEPENDS python-venv
+    DEPENDS ninja-build python-venv
 )
 
 add_custom_target(llvm-lit ALL COMMAND cp ${TTMLIR_TOOLCHAIN}/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN}/bin/llvm-lit DEPENDS llvm-project)
