@@ -1,7 +1,15 @@
 include "types.fbs";
+include "version.fbs";
 
 namespace tt.target;
 
-root_type SystemDesc;
+table SystemDescRoot {
+  version: tt.target.Version;
+  ttmlir_git_hash: string;
+  product_identifier: string;
+  system_desc: tt.target.SystemDesc;
+}
+
+root_type SystemDescRoot;
 file_identifier "TTSY";
 file_extension "ttsys";

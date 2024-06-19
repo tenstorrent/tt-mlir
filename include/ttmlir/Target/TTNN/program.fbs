@@ -37,6 +37,7 @@ table EltwiseOp {
 union OpType {
   OpenDeviceOp,
   CloseDeviceOp,
+  ToMemoryConfigOp,
   FullOp,
   EltwiseOp,
 }

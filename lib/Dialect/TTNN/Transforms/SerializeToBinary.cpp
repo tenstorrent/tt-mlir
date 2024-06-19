@@ -116,18 +116,24 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString) {
   if (auto openDeviceOp = dyn_cast<OpenDeviceOp>(op); openDeviceOp) {
     return createOperation(cache, createOp(cache, openDeviceOp), debugString);
-  } else if (auto closeDeviceOp = dyn_cast<CloseDeviceOp>(op); closeDeviceOp) {
+  }
+  if (auto closeDeviceOp = dyn_cast<CloseDeviceOp>(op); closeDeviceOp) {
     return createOperation(cache, createOp(cache, closeDeviceOp), debugString);
-  } else if (auto toMemoryConfigOp = dyn_cast<ToMemoryConfigOp>(op);
-             toMemoryConfigOp) {
+  }
+  if (auto toMemoryConfigOp = dyn_cast<ToMemoryConfigOp>(op);
+      toMemoryConfigOp) {
     return createOperation(cache, createOp(cache, toMemoryConfigOp),
                            debugString);
-  } else if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
+  }
+  if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString);
-  } else if (auto addOp = dyn_cast<AddOp>(op); addOp) {
+  }
+  if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseOp(cache, addOp), debugString);
-  } else if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
-    return createOperation(cache, createEltwiseOp(cache, multiplyOp), debugString);
+  }
+  if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
+    return createOperation(cache, createEltwiseOp(cache, multiplyOp),
+                           debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
@@ -158,15 +164,15 @@ public:
         funcOpToProgram<::tt::target::ttnn::Operation>(cache, entry,
                                                        emitTTNNOperation);
 
-    auto programOffset = CreateProgramDirect(fbb, program.name, &program.inputs,
-                                             &program.outputs, &program.ops);
+    auto programOffset = ::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops);
     std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs = {
         programOffset,
     };
-    auto binary = CreateTTNNBinaryDirect(
+    auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
         fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
 
-    FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
+    ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
     ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
     ::tt::target::ttnn::VerifySizePrefixedTTNNBinaryBuffer(verifier);
 

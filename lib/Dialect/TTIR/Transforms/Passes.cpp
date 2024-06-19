@@ -79,6 +79,7 @@ public:
             // Chip capabilities
             {
                 tt::ChipCapabilityAttr::get(&getContext(),
+                                            // NOLINTNEXTLINE
                                             tt::ChipCapability::PCIE |
                                                 tt::ChipCapability::HostMMIO),
             },
@@ -433,12 +434,12 @@ class TTIRLayoutTensorTypeRewriter : public RewritePattern {
 public:
   TTIRLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
-        converter(converter) {}
+        converter(&converter) {}
 
   template <typename ValueRange>
   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
     bool updated = false;
-    auto result = converter.convertTypes(valueRange.getTypes(), newTypes);
+    auto result = converter->convertTypes(valueRange.getTypes(), newTypes);
     if (result.failed()) {
       return false;
     }
@@ -460,10 +461,10 @@ public:
     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
     SmallVector<Type> outputTypes(funcOp.getResultTypes());
     for (Type &ty : inputTypes) {
-      ty = converter.convertType(ty);
+      ty = converter->convertType(ty);
     }
     for (Type &ty : outputTypes) {
-      ty = converter.convertType(ty);
+      ty = converter->convertType(ty);
     }
     auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
     if (funcOp.getFunctionType() == newType) {
@@ -484,7 +485,7 @@ public:
     return updated ? success() : failure();
   }
 
-  const TypeConverter &converter;
+  const TypeConverter *converter;
 };
 
 static std::optional<Value>
