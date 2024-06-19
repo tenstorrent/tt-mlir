@@ -8,7 +8,7 @@ table TTNNBinary {
   version: tt.target.Version;
   ttmlir_git_hash: string;
   system_desc: tt.target.SystemDesc;
-  program: Program;
+  programs: [Program];
 }
 
 root_type TTNNBinary;

@@ -17,14 +17,14 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [ubuntu-20.04, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         build_type: [Asan]
         c_compiler: [clang]
         include:
           #- os: ubuntu-latest
           #  c_compiler: gcc
           #  cpp_compiler: g++
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             c_compiler: clang
             cpp_compiler: clang++
           - os: macos-latest
@@ -37,9 +37,6 @@ jobs:
     - name: mkdir /opt/ttmlir-toolchain
       shell: bash
       run: |
-        df
-        df /opt
-        df ${{ github.workspace }}
         sudo mkdir -p /opt/ttmlir-toolchain
         sudo chown -R ${USER} /opt/ttmlir-toolchain
 

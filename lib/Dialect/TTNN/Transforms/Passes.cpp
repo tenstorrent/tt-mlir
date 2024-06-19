@@ -22,7 +22,6 @@ namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNOPENDEVICE
 #define GEN_PASS_DEF_CONVERTTTIRTOTTNN
-#define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Passes.h.inc"
 
 static Value findDevice(Operation *op) {
@@ -130,24 +129,11 @@ public:
   }
 };
 
-class TTNNSerializeToBinary
-    : public impl::TTNNSerializeToBinaryBase<TTNNSerializeToBinary> {
-public:
-  using impl::TTNNSerializeToBinaryBase<
-      TTNNSerializeToBinary>::TTNNSerializeToBinaryBase;
-
-  void runOnOperation() final { assert(false); }
-
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttnn::TTNNDialect>();
-  }
-};
-
 void createTTIRToTTNNBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
   pm.addPass(createTTNNOpenDevice());
   pm.addPass(createConvertTTIRToTTNN());
-  // pm.addPass(createTTNNSerializeToBinary());
+  pm.addPass(createTTNNSerializeToBinary());
 }
 
 } // namespace mlir::tt::ttnn

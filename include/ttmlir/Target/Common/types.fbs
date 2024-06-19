@@ -116,3 +116,7 @@ table SystemDesc {
   chip_coords: [ChipCoord];
   chip_channels: [ChipChannel];
 }
+
+table DeviceRef {
+  global_id: uint32;
+}

@@ -2,25 +2,43 @@ include "Common/types.fbs";
 
 namespace tt.target.ttnn;
 
+table OpenDeviceOp {
+  mesh: Dim2d;
+  chip_ids: [uint32];
+  out: tt.target.DeviceRef;
+}
+
+table CloseDeviceOp {
+  in0: tt.target.DeviceRef;
+}
+
+table ToMemoryConfigOp {
+  in0: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+}
+
 table FullOp {
-  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
   fill_value: float;
+  out: tt.target.TensorRef;
 }
 
-table AddOp {
-  out: tt.target.TensorRef;
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
+enum EltwiseOpType: uint32 {
+  Add = 0,
+  Multiply = 1,
 }
 
-table MultiplyOp {
+table EltwiseOp {
+  type: EltwiseOpType;
+  ins: [tt.target.TensorRef];
   out: tt.target.TensorRef;
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
 }
 
 union OpType {
-  AddOp,
+  OpenDeviceOp,
+  CloseDeviceOp,
+  FullOp,
+  EltwiseOp,
 }
 
 table Operation {
@@ -29,5 +47,8 @@ table Operation {
 }
 
 table Program {
+  name: string;
+  inputs: [TensorRef];
+  outputs: [TensorRef];
   operations: [Operation];
 }

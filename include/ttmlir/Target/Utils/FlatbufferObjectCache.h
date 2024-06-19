@@ -19,6 +19,8 @@ struct FlatbufferObjectCache {
     using type = T;
   };
 
+  uint32_t nextGlobalId() { return global_id++; }
+
   template <typename MLIRTypeOrAttr> bool exists(MLIRTypeOrAttr obj) const {
     return objectMap.contains(obj.getAsOpaquePointer());
   }

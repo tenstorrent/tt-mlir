@@ -7,7 +7,8 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 
 namespace mlir::tt {
-::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &, OOBVal oobVal) {
+inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
+                                         OOBVal oobVal) {
   switch (oobVal) {
   case OOBVal::Undef:
     return ::tt::target::OOBVal::Undef;
@@ -22,7 +23,8 @@ namespace mlir::tt {
   }
 }
 
-::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &, DataType dtype) {
+inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
+                                           DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
     return ::tt::target::DataType::Float32;
@@ -51,8 +53,8 @@ namespace mlir::tt {
   }
 }
 
-::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
-                                       MemorySpace memspace) {
+inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
+                                              MemorySpace memspace) {
   switch (memspace) {
   case MemorySpace::System:
     return ::tt::target::MemorySpace::System;
@@ -65,7 +67,7 @@ namespace mlir::tt {
   }
 }
 
-::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &, ArchAttr arch) {
+inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &, ArchAttr arch) {
   switch (arch.getValue()) {
   case Arch::Grayskull:
     return ::tt::target::Arch::Grayskull;
@@ -76,8 +78,8 @@ namespace mlir::tt {
   }
 }
 
-::tt::target::ChipCapability toFlatbuffer(FlatbufferObjectCache &,
-                                          ChipCapabilityAttr capabilityAttr) {
+inline ::tt::target::ChipCapability
+toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
   auto capabilities = capabilityAttr.getValue();
   static_assert(
       static_cast<std::underlying_type_t<ChipCapability>>(
@@ -95,19 +97,20 @@ namespace mlir::tt {
   return static_cast<::tt::target::ChipCapability>(capabilities);
 }
 
-::tt::target::ChipCoord toFlatbuffer(FlatbufferObjectCache &cache,
-                                     ChipCoordAttr chipCoord) {
+inline ::tt::target::ChipCoord toFlatbuffer(FlatbufferObjectCache &cache,
+                                            ChipCoordAttr chipCoord) {
   return ::tt::target::ChipCoord(chipCoord.getRack(), chipCoord.getShelf(),
                                  chipCoord.getY(), chipCoord.getX());
 }
 
-::tt::target::ChipChannel toFlatbuffer(FlatbufferObjectCache &cache,
-                                       ChipChannelAttr chipChannel) {
+inline ::tt::target::ChipChannel toFlatbuffer(FlatbufferObjectCache &cache,
+                                              ChipChannelAttr chipChannel) {
   return ::tt::target::ChipChannel(chipChannel.getEndpoint0(),
                                    chipChannel.getEndpoint1());
 }
 
-::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache, GridAttr arch) {
+inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
+                                        GridAttr arch) {
   assert(arch.getShape().size() == 2 && "expected a 2D grid");
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
@@ -117,7 +120,7 @@ T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
 }
 
-flatbuffers::Offset<::tt::target::ChipDesc>
+inline flatbuffers::Offset<::tt::target::ChipDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   auto grid = toFlatbuffer(cache, chipDesc.getGrid());
   return ::tt::target::CreateChipDesc(
@@ -161,7 +164,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
       [&cache, arr](size_t i) { return toFlatbuffer(cache, arr[i]); });
 }
 
-flatbuffers::Offset<::tt::target::SystemDesc>
+inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
