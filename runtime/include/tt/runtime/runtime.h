@@ -7,39 +7,18 @@
 
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <vector>
 
+#include "tt/runtime/types.h"
+
 namespace tt::runtime {
-
-struct SystemDesc {
-  std::vector<std::uint8_t> fbb;
-  void saveToFile(const char *filepath) const;
-};
-
-struct Executable {
-  std::shared_ptr<void> handle;
-  void saveToFile(const char *filepath) const;
-};
-
-struct Device {
-  void *handle;
-};
-
-struct Event {
-  void *handle;
-};
-
-struct Tensor {
-  void *handle;
-};
 
 SystemDesc getCurrentSystemDesc();
 
 Device openDevice(SystemDesc const &sysDesc,
                   std::vector<std::uint32_t> deviceIds = {0});
 
-Event submit(Device device, Executable executable,
+Event submit(Device device, Binary executable,
              std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs,
              std::function<void()> completedCallback = nullptr);

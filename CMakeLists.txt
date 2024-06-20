@@ -29,6 +29,7 @@ include_directories(${TTMLIR_SOURCE_DIR}/include)
 include_directories(${TTMLIR_BINARY_DIR}/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
+include(TTMLIRPythonSitePackages)
 
 add_subdirectory(include)
 add_subdirectory(lib)

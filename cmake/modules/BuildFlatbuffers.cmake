@@ -7,6 +7,7 @@ foreach(FILE ${sources})
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${BASE_NAME}_generated.h"
     COMMAND ${FLATBUFFERS_COMPILER}
     ARGS -I ${PROJECT_SOURCE_DIR}/include/ttmlir/Target
+    ARGS --bfbs-gen-embed
     ARGS --cpp --cpp-std c++17
     ARGS --scoped-enums --warnings-as-errors
     ARGS -o "${CMAKE_CURRENT_BINARY_DIR}/" "${FILE}"

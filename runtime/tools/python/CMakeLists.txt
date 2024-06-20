@@ -1,0 +1,7 @@
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+add_custom_target(ttrt
+  COMMAND SOURCE_ROOT=${TTMLIR_SOURCE_DIR} python -m pip install .
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  COMMENT "python ttrt package"
+)

@@ -22,6 +22,19 @@ cmake --build build
 Note:
 - Accelerate builds with ccache: `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
 
+### Misc
+
+- `ttrt`: A runtime tool for parsing and executing flatbuffer binaries
+```bash
+source env/activate
+cmake --build build -- ttrt
+```
+- `clang-tidy`: Run clang-tidy on the project
+```bash
+source env/activate
+cmake --build build -- clang-tidy
+```
+
 ## This repo is very much a work in progress
 
 - mlir input tosa/linalg examples `test/ttmlir`.

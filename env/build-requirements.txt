@@ -2,3 +2,5 @@ cmake
 ninja
 clang-format
 clang-tidy
+wheel
+setuptools
