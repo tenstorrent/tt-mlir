@@ -164,8 +164,17 @@ public:
         funcOpToProgram<::tt::target::ttnn::Operation>(cache, entry,
                                                        emitTTNNOperation);
 
+    auto mlir = toDebugInfo(fbb, "ttnn", module);
+    std::string cpp;
+    llvm::raw_string_ostream os(cpp);
+    auto result = emitTTNNAsCpp(module, os);
+    (void)result;
+
+    auto debugInfo =
+        ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
     auto programOffset = ::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops);
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        debugInfo);
     std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs = {
         programOffset,
     };

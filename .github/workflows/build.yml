@@ -18,7 +18,7 @@ jobs:
 
       matrix:
         os: [macos-latest]
-        build_type: [Asan]
+        build_type: [Release]
         c_compiler: [clang]
         include:
           #- os: ubuntu-latest

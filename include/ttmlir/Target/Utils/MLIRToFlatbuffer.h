@@ -4,6 +4,8 @@
 #include <type_traits>
 
 #include "flatbuffers/flatbuffers.h"
+#include "ttmlir/Target/Common/debug_info_generated.h"
+#include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 
 namespace mlir::tt {
@@ -257,6 +259,15 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto tensorDesc = cache.getOrCreate(tensorType, tensorTypeToFlatbuffer);
   return ::tt::target::CreateTensorRef(*cache.fbb, cache.global_id++, address,
                                        size, tensorDesc);
+}
+
+inline flatbuffers::Offset<::tt::target::MLIR>
+toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, std::string const &name,
+            ModuleOp module) {
+  std::string source;
+  llvm::raw_string_ostream os(source);
+  module->print(os);
+  return ::tt::target::CreateMLIRDirect(fbb, name.c_str(), source.c_str());
 }
 } // namespace mlir::tt
 

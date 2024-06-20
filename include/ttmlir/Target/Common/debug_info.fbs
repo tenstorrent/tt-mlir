@@ -1,0 +1,11 @@
+namespace tt.target;
+
+table MLIR {
+  name: string;
+  source: string;
+}
+
+table DebugInfo {
+  mlir: MLIR;
+  cpp: string;
+}
