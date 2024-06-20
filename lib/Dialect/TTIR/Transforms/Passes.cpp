@@ -61,10 +61,13 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
+    char* name;
     if (not module->hasAttr(tt::SystemDescAttr::name)) {
       module->setAttr(tt::SystemDescAttr::name,
                       tt::SystemDescAttr::getDefault(&getContext()));
+      name = "bug";
     }
+    __builtin_printf("name: %s\n", name);
 
     RewritePatternSet patterns(&getContext());
     patterns.add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp,
