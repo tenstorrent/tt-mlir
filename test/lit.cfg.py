@@ -54,9 +54,7 @@ llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 tool_dirs = [config.ttmlir_tools_dir, config.llvm_tools_dir]
 tools = [
     "mlir-opt",
-    #"ttmlir-capi-test",
     "ttmlir-opt",
-    #"ttmlir-translate",
 ]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
@@ -64,7 +62,7 @@ llvm_config.add_tool_substitutions(tools, tool_dirs)
 llvm_config.with_environment(
     "PYTHONPATH",
     [
-        os.path.join(config.mlir_obj_dir, "python_packages", "ttmlir"),
+        os.path.join(config.mlir_obj_dir, "python_packages"),
     ],
     append_path=True,
 )
