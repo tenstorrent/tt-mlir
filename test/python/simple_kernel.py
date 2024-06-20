@@ -6,8 +6,6 @@ import ast
 import inspect
 import functools
 
-import torch
-
 
 class TTKernelBuilder(ast.NodeVisitor):
     builtin_fns = {"Tensix"}
@@ -213,8 +211,14 @@ class Tensix:
         pass
 
 
+class Tensor:
+    def __init__(self, shape, dtype):
+        self.shape = shape
+        self.dtype = dtype
+
+
 def to_data_type(dtype):
-    if dtype == torch.float32:
+    if dtype == "float32":
         return tt.ir.DataType.Float32
     else:
         raise NotImplementedError(f"to_data_type {dtype} not implemented")
@@ -291,7 +295,7 @@ def eltwise(
 #     return in0 + in1
 
 
-a = torch.randn(8, 128, 128)
-b = torch.randn(8, 128, 128)
-out = torch.empty(8, 128, 128)
+a = Tensor((8, 128, 128), "float32")
+b = Tensor((8, 128, 128), "float32")
+out = Tensor((8, 128, 128), "float32")
 eltwise(a, b, out)

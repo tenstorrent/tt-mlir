@@ -17,19 +17,17 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [macos-latest]
-        build_type: [Release]
+        os: [ubuntu-latest, macos-latest]
         c_compiler: [clang]
         include:
-          #- os: ubuntu-latest
-          #  c_compiler: gcc
-          #  cpp_compiler: g++
-          #- os: ubuntu-latest
-          #  c_compiler: clang
-          #  cpp_compiler: clang++
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+            build_type: Asan
           - os: macos-latest
             c_compiler: clang
             cpp_compiler: clang++
+            build_type: Release
 
     steps:
     - uses: actions/checkout@v4
@@ -45,8 +43,6 @@ jobs:
       with:
         path: /opt/ttmlir-toolchain
         key: ${{ runner.OS }}-ttmlir-toolchain-cache-${{ hashFiles('env/**') }}
-        restore-keys: |
-          ${{ runner.OS }}-ttmlir-toolchain-cache-
 
     - name: Build ttmlir-toolchain
       shell: bash
@@ -91,5 +87,4 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pip install lit
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} -- check-ttmlir

@@ -2,15 +2,6 @@
 
 ## Build
 
-### Dependencies
-
-```bash
-# Ubuntu
-sudo apt-get install cmake ninja-build
-# macOS
-brew install cmake ninja
-```
-
 ### Environment setup
 
 You only need to build this once, it builds a python virtual environment with the necessary dependencies, flatbuffers, and llvm.

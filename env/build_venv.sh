@@ -3,10 +3,8 @@
 OS=$(uname)
 TTMLIR_VENV=$TTMLIR_TOOLCHAIN/venv
 
-echo $(pwd)
 python3 -m venv $TTMLIR_VENV
 source $CURRENT_SOURCE_DIR/activate 
 python -m pip install --upgrade pip
-
-#pip install -r $(MLIR_PYTHON_REQUIREMENTS)
-#pip install --pre -f https://llvm.github.io/torch-mlir/package-index/ --extra-index-url https://download.pytorch.org/whl/nightly/cpu -r $CURRENT_SOURCE_DIR/../test/python_torch_examples/requirements$OS.txt
+pip install -r $CURRENT_SOURCE_DIR/build-requirements.txt
+pip install -r $CURRENT_SOURCE_DIR/../test/python/requirements.txt
