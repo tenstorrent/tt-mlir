@@ -17,6 +17,35 @@ using namespace mlir::tt;
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
 
+mlir::tt::SystemDescAttr
+mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
+  return tt::SystemDescAttr::get(
+      context,
+      // Chip Descriptors
+      {
+          tt::ChipDescAttr::get(
+              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
+              tt::GridAttr::get(context, {8, 8})),
+      },
+      // Chip Descriptor Indices
+      {
+          0,
+      },
+      // Chip capabilities
+      {
+          tt::ChipCapabilityAttr::get(context,
+                                      // NOLINTNEXTLINE
+                                      tt::ChipCapability::PCIE |
+                                          tt::ChipCapability::HostMMIO),
+      },
+      // Chip Mesh Coordinates
+      {
+          tt::ChipCoordAttr::get(context, 0, 0, 0, 0),
+      },
+      // Chip Channel Connections
+      {});
+}
+
 MemorySpace LayoutAttr::getMemorySpace() const {
   return getMemref()
       .getMemorySpace()

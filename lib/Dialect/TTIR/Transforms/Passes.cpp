@@ -61,34 +61,10 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    module->setAttr(
-        tt::SystemDescAttr::name,
-        tt::SystemDescAttr::get(
-            &getContext(),
-            // Chip Descriptors
-            {
-                tt::ChipDescAttr::get(
-                    &getContext(),
-                    tt::ArchAttr::get(&getContext(), tt::Arch::WormholeB0),
-                    tt::GridAttr::get(&getContext(), {8, 8})),
-            },
-            // Chip Descriptor Indices
-            {
-                0,
-            },
-            // Chip capabilities
-            {
-                tt::ChipCapabilityAttr::get(&getContext(),
-                                            // NOLINTNEXTLINE
-                                            tt::ChipCapability::PCIE |
-                                                tt::ChipCapability::HostMMIO),
-            },
-            // Chip Mesh Coordinates
-            {
-                tt::ChipCoordAttr::get(&getContext(), 0, 0, 0, 0),
-            },
-            // Chip Channel Connections
-            {}));
+    if (not module->hasAttr(tt::SystemDescAttr::name)) {
+      module->setAttr(tt::SystemDescAttr::name,
+                      tt::SystemDescAttr::getDefault(&getContext()));
+    }
 
     RewritePatternSet patterns(&getContext());
     patterns.add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp,

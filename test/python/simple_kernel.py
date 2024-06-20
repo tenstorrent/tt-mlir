@@ -1,3 +1,5 @@
+# RUN: %python %s | FileCheck %s
+
 from ttmlir.ir import *
 from ttmlir.dialects import tt, ttkernel, func, scf, arith
 import ast
@@ -227,7 +229,19 @@ def ttkernel_compile(f):
         b = TTKernelBuilder(f.__name__, arg_shapes, arg_dtypes)
         # print(ast.dump(m, indent=4))
         b.visit(m)
-        b.module.dump()
+        # CHECK: "func.func"[[C:.*]]
+        # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
+        # CHECK: "scf.for"[[C:.*]]
+        # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
+        # CHECK: "ttkernel.cb_reserve_back"[[C:.*]]
+        # CHECK: "ttkernel.acquire_dst"[[C:.*]]
+        # CHECK: "ttkernel.unpack_ab"[[C:.*]]
+        # CHECK: "ttkernel.add"[[C:.*]]
+        # CHECK: "ttkernel.pack"[[C:.*]]
+        # CHECK: "ttkernel.release_dst"[[C:.*]]
+        # CHECK: "ttkernel.cb_pop_front"[[C:.*]]
+        # CHECK: "ttkernel.cb_push_back"[[C:.*]]
+        print(b.module)
         # return f(*args, **kwargs)
 
     return _wrapper
