@@ -13,8 +13,9 @@ inline std::shared_ptr<void> malloc_shared(size_t size) {
   return std::shared_ptr<void>(std::malloc(size), std::free);
 }
 
-inline std::shared_ptr<void> unsafe_wrap_shared(void *ptr) {
-  return std::shared_ptr<void>(ptr, [](void *) {});
+template <typename T>
+inline std::shared_ptr<void> unsafe_borrow_shared(T *ptr) {
+  return std::shared_ptr<void>(static_cast<void *>(ptr), [](void *) {});
 }
 
 } // namespace tt::runtime::utils

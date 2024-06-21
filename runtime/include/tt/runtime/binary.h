@@ -7,12 +7,15 @@
 
 #include "tt/runtime/types.h"
 
+#include <string_view>
+
 namespace tt::runtime::binary {
 
 Binary loadFromData(void *data);
 Binary loadFromPath(char const *path);
+std::string_view getFileIdentifier(Binary const &binary);
 std::string getVersion(Binary const &binary);
-std::string getTTMLIRGitHash(Binary const &binary);
+std::string_view getTTMLIRGitHash(Binary const &binary);
 std::string asJson(Binary const &binary);
 
 } // namespace tt::runtime::binary

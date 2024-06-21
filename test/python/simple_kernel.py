@@ -126,6 +126,8 @@ class TTKernelBuilder(ast.NodeVisitor):
             idx = -slice.operand.value
         elif isinstance(slice, ast.Constant):
             idx = slice.value
+        elif isinstance(slice, ast.Index):
+            return self.emit_cb_shape(value, slice.value)
         else:
             raise NotImplementedError(f"emit_cb_shape {slice} not implemented")
         idx += len(shape)

@@ -10,6 +10,7 @@ set(LIBS
         MLIRTTIRDialect
         MLIRTTMetalDialect
         MLIRTargetCpp
+        MLIRTTNNDialect
         )
 add_llvm_executable(ttmlir-opt ttmlir-opt.cpp)
 

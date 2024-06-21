@@ -23,7 +23,7 @@ namespace tt::runtime::binary {
 }
 
 Binary loadFromData(void *data) {
-  return Binary{utils::unsafe_wrap_shared(data)};
+  return Binary{utils::unsafe_borrow_shared(data)};
 }
 
 Binary loadFromPath(char const *path) {
@@ -40,6 +40,14 @@ Binary loadFromPath(char const *path) {
   return Binary{buffer};
 }
 
+std::string_view getFileIdentifier(Binary const &binary) {
+  if (::tt::target::ttnn::TTNNBinaryBufferHasIdentifier(binary.handle.get())) {
+    return ::tt::target::ttnn::TTNNBinaryIdentifier();
+  }
+
+  throw std::runtime_error("Unsupported binary format");
+}
+
 std::string getVersion(Binary const &binary) {
   auto const *version = getTTNNBinary(binary)->version();
   return std::to_string(version->major()) + "." +
@@ -47,8 +55,8 @@ std::string getVersion(Binary const &binary) {
          std::to_string(version->release());
 }
 
-std::string getTTMLIRGitHash(Binary const &binary) {
-  return getTTNNBinary(binary)->ttmlir_git_hash()->str();
+std::string_view getTTMLIRGitHash(Binary const &binary) {
+  return getTTNNBinary(binary)->ttmlir_git_hash()->c_str();
 }
 
 std::string asJson(Binary const &binary) {

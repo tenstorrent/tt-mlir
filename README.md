@@ -35,6 +35,10 @@ cmake --build build -- check-ttmlir
 ```bash
 source env/activate
 cmake --build build -- ttrt
+
+./build/bin/ttmlir-opt --convert-tosa-to-ttir --ttir-to-ttnn-backend-pipeline test/ttmlir/simple_eltwise_tosa.mlir
+ttrt read --version out.ttnn
+ttrt read --system-desc out.ttnn
 ```
 - `clang-tidy`: Run clang-tidy on the project
 ```bash

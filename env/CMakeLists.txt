@@ -5,7 +5,7 @@ include(ExternalProject)
 set(TTMLIR_TOOLCHAIN "/opt/ttmlir-toolchain" CACHE STRING "Path to the toolchain")
 
 if (NOT EXISTS "${TTMLIR_TOOLCHAIN}")
-  message( FATAL_ERROR "The directory ${TTMLIR_TOOLCHAIN} does not exist. Please create it before running this script.\n  sudo mkdir -p ${TTMLIR_TOOLCHAIN}\n  sudo chown -R $ENV{USER}:wheel ${TTMLIR_TOOLCHAIN}")
+  message( FATAL_ERROR "The directory ${TTMLIR_TOOLCHAIN} does not exist. Please create it before running this script.\n  sudo mkdir -p ${TTMLIR_TOOLCHAIN}\n  sudo chown -R $ENV{USER} ${TTMLIR_TOOLCHAIN}")
 endif()
 
 add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN=${TTMLIR_TOOLCHAIN} CURRENT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} bash ${CMAKE_CURRENT_SOURCE_DIR}/build_venv.sh)
