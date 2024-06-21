@@ -43,6 +43,8 @@ jobs:
       with:
         path: /opt/ttmlir-toolchain
         key: ${{ runner.OS }}-ttmlir-toolchain-cache-${{ hashFiles('env/**') }}
+        restore-keys: |
+          ${{ runner.OS }}-ttmlir-toolchain-cache-
 
     - name: Build ttmlir-toolchain
       shell: bash

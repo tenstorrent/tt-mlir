@@ -11,7 +11,7 @@ cmake -B env/build env
 cmake --build env/build
 ```
 
-### tt-mlir build
+### Build
 
 ```bash
 source env/activate
@@ -21,6 +21,13 @@ cmake --build build
 
 Note:
 - Accelerate builds with ccache: `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
+
+### Test
+
+```bash
+source env/activate
+cmake --build build -- check-ttmlir
+```
 
 ### Misc
 
