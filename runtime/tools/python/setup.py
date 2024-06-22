@@ -12,6 +12,7 @@ toolchain = os.environ.get("TOOLCHAIN_ENV", "/opt/ttmlir-toolchain")
 metallibdir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build/lib"
 
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
+enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 
 ext_modules = [
     Pybind11Extension(
@@ -29,23 +30,27 @@ ext_modules = [
         ],
         define_macros=[("VERSION_INFO", __version__)],
     ),
-    Pybind11Extension(
-        "ttrt.runtime._C",
-        ["ttrt/runtime/module.cpp"],
-        include_dirs=[
-            f"{src_dir}/runtime/include",
-            f"{src_dir}/build/include",
-            f"{src_dir}/build/include/ttmlir/Target/Common",
-        ],
-        libraries=["TTRuntimeBinary", "TTRuntimeTTNN", ":_ttnn.so", "flatbuffers"],
-        library_dirs=[
-            f"{src_dir}/build/runtime/lib",
-            f"{toolchain}/lib",
-            f"{metallibdir}",
-        ],
-        define_macros=[("VERSION_INFO", __version__)],
-    ),
 ]
+
+if enable_runtime:
+    ext_modules.append(
+        Pybind11Extension(
+            "ttrt.runtime._C",
+            ["ttrt/runtime/module.cpp"],
+            include_dirs=[
+                f"{src_dir}/runtime/include",
+                f"{src_dir}/build/include",
+                f"{src_dir}/build/include/ttmlir/Target/Common",
+            ],
+            libraries=["TTRuntimeBinary", "TTRuntimeTTNN", ":_ttnn.so", "flatbuffers"],
+            library_dirs=[
+                f"{src_dir}/build/runtime/lib",
+                f"{toolchain}/lib",
+                f"{metallibdir}",
+            ],
+            define_macros=[("VERSION_INFO", __version__)],
+        )
+    )
 
 setup(
     name="ttrt",

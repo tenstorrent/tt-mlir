@@ -1,5 +1,4 @@
 import ttrt.binary
-import ttrt.runtime
 import os
 import json
 
@@ -49,10 +48,14 @@ def read(args):
 
 
 def run(args):
+    import ttrt.runtime
+
     raise NotImplementedError("run not implemented")
 
 
 def query(args):
+    import ttrt.runtime
+
     if args.system_desc or args.system_desc_as_json:
         print(ttrt.runtime.get_current_system_desc().as_json())
     if args.system_desc_as_dict:
