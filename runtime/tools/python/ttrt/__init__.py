@@ -1,4 +1,17 @@
 import ttrt.binary
+import ttrt.runtime
+import os
+import json
+
+
+def system_desc_as_dict(desc):
+    return json.loads(desc.as_json())
+
+
+if "LOGGER_LEVEL" not in os.environ:
+    os.environ["LOGGER_LEVEL"] = "FATAL"
+if "TT_METAL_LOGGER_LEVEL" not in os.environ:
+    os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
 def read(args):
@@ -40,7 +53,19 @@ def run(args):
 
 
 def query(args):
-    raise NotImplementedError("query not implemented")
+    if args.system_desc or args.system_desc_as_json:
+        print(ttrt.runtime.get_current_system_desc().as_json())
+    if args.system_desc_as_dict:
+        print(system_desc_as_dict(ttrt.runtime.get_current_system_desc()))
+    if args.save_system_desc:
+        desc = ttrt.runtime.get_current_system_desc()
+        if args.save_system_desc:
+            file_name = args.save_system_desc
+        else:
+            d = system_desc_as_dict(desc)
+            file_name = d["product_identifier"] + ".ttsys"
+        ttrt.binary.store(desc, file_name)
+        print("system desc saved to:", file_name)
 
 
 def main():
@@ -82,10 +107,30 @@ def main():
     )
     query_parser.add_argument(
         "--system-desc",
-        default=None,
+        action="store_true",
+        help="serialize a system desc for the current system to a file",
+    )
+    query_parser.add_argument(
+        "--system-desc-as-json",
+        action="store_true",
+        help="print the system desc as json",
+    )
+    query_parser.add_argument(
+        "--system-desc-as-dict",
+        action="store_true",
+        help="print the system desc as python dict",
+    )
+    query_parser.add_argument(
+        "--save-system-desc",
+        nargs="?",
+        default="",
         help="serialize a system desc for the current system to a file",
     )
     query_parser.set_defaults(func=query)
 
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
+    except:
+        parser.print_help()
+        return
     args.func(args)

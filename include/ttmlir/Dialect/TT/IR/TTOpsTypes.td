@@ -63,8 +63,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
     TT chip_desc attribute
   }];
 
-  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid);
-  let assemblyFormat = "`<` qualified($arch) `,` qualified($grid) `>`";
+  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize);
+  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` $grid `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `}`";
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
@@ -95,10 +95,11 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
 
   let parameters = (ins ArrayRefParameter<"ChipDescAttr">:$chipDescs,
                         ArrayRefParameter<"unsigned">:$chipDescIndices,
+                        ArrayRefParameter<"int">:$chipIds,
                         ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
                         ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
                         OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
-  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
+  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipIds `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);

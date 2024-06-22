@@ -5,7 +5,9 @@
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 
 #include "ttmlir/Target/Common/debug_info_generated.h"
+#include "ttmlir/Target/Common/system_desc_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Target/Common/version_generated.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 
 #pragma clang diagnostic pop

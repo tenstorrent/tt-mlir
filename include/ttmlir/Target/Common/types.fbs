@@ -95,6 +95,9 @@ table CBRef {
 table ChipDesc {
   arch: Arch;
   grid_size: Dim2d;
+  l1_size: uint64;
+  num_dram_channels: uint32;
+  dram_channel_size: uint64;
 }
 
 struct ChipCoord {
@@ -112,6 +115,7 @@ struct ChipChannel {
 table SystemDesc {
   chip_descs: [ChipDesc];
   chip_desc_indices: [uint32];
+  chip_ids: [int32];
   chip_capabilities: [ChipCapability];
   chip_coords: [ChipCoord];
   chip_channels: [ChipChannel];

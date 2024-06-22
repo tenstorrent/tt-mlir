@@ -12,10 +12,11 @@ PYBIND11_MODULE(_C, m) {
   m.doc() =
       "ttrt.binary python extension for loading / inspecting tt binary files";
 
-  py::class_<tt::runtime::Binary>(m, "Binary")
+  py::class_<tt::runtime::Flatbuffer>(m, "Flatbuffer")
       .def_property_readonly("version", &tt::runtime::binary::getVersion)
       .def_property_readonly("ttmlir_git_hash",
                              &tt::runtime::binary::getTTMLIRGitHash)
       .def("as_json", &tt::runtime::binary::asJson);
   m.def("load_from_path", &tt::runtime::binary::loadFromPath);
+  m.def("store", &tt::runtime::binary::store);
 }

@@ -18,6 +18,7 @@ ExternalProject_Add(
       -DCMAKE_BUILD_TYPE=Release
       -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN}
       -DFLATBUFFERS_BUILD_TESTS=OFF
+      -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
     GIT_TAG v24.3.7
     DEPENDS python-venv

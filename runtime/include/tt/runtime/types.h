@@ -11,13 +11,12 @@ namespace tt::runtime {
 
 using Handle = std::shared_ptr<void>;
 
-struct SystemDesc {
+struct Flatbuffer {
   Handle handle;
 };
 
-struct Binary {
-  Handle handle;
-};
+using SystemDesc = Flatbuffer;
+using Binary = Flatbuffer;
 
 struct Device {
   Handle handle;

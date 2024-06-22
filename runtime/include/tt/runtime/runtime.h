@@ -15,8 +15,9 @@ namespace tt::runtime {
 
 SystemDesc getCurrentSystemDesc();
 
-Device openDevice(SystemDesc const &sysDesc,
-                  std::vector<std::uint32_t> deviceIds = {0});
+Device openDevice(std::vector<int> deviceIds = {0});
+
+void closeDevice(Device device);
 
 Event submit(Device device, Binary executable,
              std::vector<Tensor> const &inputs,
@@ -24,8 +25,6 @@ Event submit(Device device, Binary executable,
              std::function<void()> completedCallback = nullptr);
 
 void wait(Event event);
-
-void closeDevice(Device device);
 
 } // namespace tt::runtime
 

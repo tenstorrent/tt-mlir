@@ -9,6 +9,9 @@ src_dir = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."),
 )
 toolchain = os.environ.get("TOOLCHAIN_ENV", "/opt/ttmlir-toolchain")
+metallibdir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build/lib"
+
+os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 
 ext_modules = [
     Pybind11Extension(
@@ -26,6 +29,22 @@ ext_modules = [
         ],
         define_macros=[("VERSION_INFO", __version__)],
     ),
+    Pybind11Extension(
+        "ttrt.runtime._C",
+        ["ttrt/runtime/module.cpp"],
+        include_dirs=[
+            f"{src_dir}/runtime/include",
+            f"{src_dir}/build/include",
+            f"{src_dir}/build/include/ttmlir/Target/Common",
+        ],
+        libraries=["TTRuntimeBinary", "TTRuntimeTTNN", ":_ttnn.so", "flatbuffers"],
+        library_dirs=[
+            f"{src_dir}/build/runtime/lib",
+            f"{toolchain}/lib",
+            f"{metallibdir}",
+        ],
+        define_macros=[("VERSION_INFO", __version__)],
+    ),
 ]
 
 setup(
@@ -38,11 +57,12 @@ setup(
     long_description="",
     ext_modules=ext_modules,
     cmdclass={"build_ext": build_ext},
-    packages=["ttrt", "ttrt.binary"],
+    packages=["ttrt", "ttrt.binary", "ttrt.runtime"],
     install_requires=["pybind11"],
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
     },
+    package_data={"ttrt.runtime": [f"_ttnn.so"]},
     zip_safe=False,
     python_requires=">=3.7",
 )

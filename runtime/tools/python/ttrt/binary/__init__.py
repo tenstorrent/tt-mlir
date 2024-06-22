@@ -1,4 +1,4 @@
-from ._C import load_from_path
+from ._C import load_from_path, store
 
 import json
 

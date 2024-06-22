@@ -28,6 +28,7 @@ set(TTMETAL_INCLUDE_DIRS
 )
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib PARENT_SCOPE)
 set(TTNN_LIBRARY ${TTMETAL_LIBRARY_DIR}/_ttnn.so PARENT_SCOPE)
+set(TTMETAL_LIBRARY -ltt_metal PARENT_SCOPE)
 
 if(EXISTS ${TTNN_LIBRARY})
 message(STATUS "Found TTNN library at ${TTNN_LIBRARY}")

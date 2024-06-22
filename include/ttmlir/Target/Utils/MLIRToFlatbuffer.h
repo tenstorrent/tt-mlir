@@ -126,7 +126,9 @@ inline flatbuffers::Offset<::tt::target::ChipDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   auto grid = toFlatbuffer(cache, chipDesc.getGrid());
   return ::tt::target::CreateChipDesc(
-      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid);
+      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
+      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
+      chipDesc.getDramChannelSize());
 }
 
 template <typename T>
@@ -170,11 +172,12 @@ inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
+  auto chipIds = toFlatbuffer(cache, systemDesc.getChipIds());
   auto chipCapabilities = toFlatbuffer(cache, systemDesc.getChipCapabilities());
   auto chipCoords = toFlatbuffer(cache, systemDesc.getChipCoords());
   auto chipChannels = toFlatbuffer(cache, systemDesc.getChipChannels());
   return ::tt::target::CreateSystemDesc(*cache.fbb, chipDescs, chipDescIndices,
-                                        chipCapabilities, chipCoords,
+                                        chipIds, chipCapabilities, chipCoords,
                                         chipChannels);
 }
 

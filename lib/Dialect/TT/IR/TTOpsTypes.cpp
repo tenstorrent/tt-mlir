@@ -25,9 +25,13 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {
           tt::ChipDescAttr::get(
               context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
-              tt::GridAttr::get(context, {8, 8})),
+              tt::GridAttr::get(context, {8, 8}), (1 << 20), 12, (1 << 20)),
       },
       // Chip Descriptor Indices
+      {
+          0,
+      },
+      // Chip IDs
       {
           0,
       },
