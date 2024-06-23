@@ -1,6 +1,7 @@
 import os
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
+import shutil
 
 __version__ = "0.0.1"
 
@@ -19,6 +20,7 @@ ext_modules = [
         "ttrt.binary._C",
         ["ttrt/binary/module.cpp"],
         include_dirs=[
+            f"{toolchain}/include",
             f"{src_dir}/runtime/include",
             f"{src_dir}/build/include",
             f"{src_dir}/build/include/ttmlir/Target/Common",
@@ -33,11 +35,15 @@ ext_modules = [
 ]
 
 if enable_runtime:
+    shutil.copy(
+        f"{metallibdir}/_ttnn.so", f"{src_dir}/build/runtime/tools/python/ttrt/runtime"
+    )
     ext_modules.append(
         Pybind11Extension(
             "ttrt.runtime._C",
             ["ttrt/runtime/module.cpp"],
             include_dirs=[
+                f"{toolchain}/include",
                 f"{src_dir}/runtime/include",
                 f"{src_dir}/build/include",
                 f"{src_dir}/build/include/ttmlir/Target/Common",

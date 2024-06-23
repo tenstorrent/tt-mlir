@@ -9,7 +9,7 @@ namespace mlir::tt {
 struct FlatbufferObjectCache {
   ::flatbuffers::FlatBufferBuilder *fbb;
   DenseMap<void const *, ::flatbuffers::uoffset_t> objectMap;
-  uint32_t global_id = 0;
+  uint32_t global_id = 1; // 0 is reserved for null
 
   FlatbufferObjectCache(::flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {}
 

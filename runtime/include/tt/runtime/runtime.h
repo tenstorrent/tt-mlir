@@ -10,19 +10,23 @@
 #include <vector>
 
 #include "tt/runtime/types.h"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace tt::runtime {
 
 SystemDesc getCurrentSystemDesc();
 
+Tensor createTensor(void *ptr, std::vector<std::uint32_t> const &shape,
+                    std::vector<std::uint32_t> const &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+
 Device openDevice(std::vector<int> deviceIds = {0});
 
 void closeDevice(Device device);
 
-Event submit(Device device, Binary executable,
+Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs,
-             std::function<void()> completedCallback = nullptr);
+             std::vector<Tensor> const &outputs);
 
 void wait(Event event);
 

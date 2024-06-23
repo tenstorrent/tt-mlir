@@ -13,44 +13,133 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
+def mlir_sections(fbb):
+    d = ttrt.binary.as_dict(fbb)
+    for i, program in enumerate(d["programs"]):
+        if "debug_info" not in program:
+            print("// no debug info found for program:", program["name"])
+            continue
+        print(
+            f"// program[{i}]:",
+            program["name"],
+            "-",
+            program["debug_info"]["mlir"]["name"],
+        )
+        print(program["debug_info"]["mlir"]["source"], end="")
+
+
+def cpp_sections(fbb):
+    d = ttrt.binary.as_dict(fbb)
+    for i, program in enumerate(d["programs"]):
+        if "debug_info" not in program:
+            print("// no debug info found for program:", program["name"])
+            continue
+        print(f"// program[{i}]:", program["name"])
+        print(program["debug_info"]["cpp"], end="")
+
+
+def program_inputs(fbb):
+    d = ttrt.binary.as_dict(fbb)
+    for program in d["programs"]:
+        print("program:", program["name"])
+        print(json.dumps(program["inputs"], indent=2))
+
+
+def program_outputs(fbb):
+    d = ttrt.binary.as_dict(fbb)
+    for program in d["programs"]:
+        print("program:", program["name"])
+        print(json.dumps(program["outputs"], indent=2))
+
+
+read_actions = {
+    "all": lambda fbb: print(fbb.as_json()),
+    "version": lambda fbb: print(
+        f"Version: {fbb.version}\ntt-mlir git hash: {fbb.ttmlir_git_hash}"
+    ),
+    "system-desc": lambda fbb: print(
+        json.dumps(ttrt.binary.as_dict(fbb)["system_desc"], indent=2)
+    ),
+    "mlir": mlir_sections,
+    "cpp": cpp_sections,
+    "inputs": program_inputs,
+    "outputs": program_outputs,
+}
+
+
 def read(args):
     fbb = ttrt.binary.load_from_path(args.binary)
-    if args.version:
-        print("Version:", fbb.version)
-        print("tt-mlir git hash:", fbb.ttmlir_git_hash)
-    if args.json:
-        print(fbb.as_json())
-    if args.dict:
-        print(ttrt.binary.as_dict(fbb))
-    if args.system_desc:
-        print(ttrt.binary.as_dict(fbb)["system_desc"])
-    if args.mlir:
-        d = ttrt.binary.as_dict(fbb)
-        for program in d["programs"]:
-            if "debug_info" not in program:
-                print("// no debug info found for program:", program["name"])
-                continue
-            print(
-                "// program:",
-                program["name"],
-                "-",
-                program["debug_info"]["mlir"]["name"],
-            )
-            print(program["debug_info"]["mlir"]["source"], end="")
-    if args.cpp:
-        d = ttrt.binary.as_dict(fbb)
-        for program in d["programs"]:
-            if "debug_info" not in program:
-                print("// no debug info found for program:", program["name"])
-                continue
-            print("// program:", program["name"])
-            print(program["debug_info"]["cpp"], end="")
+    read_actions[args.section](fbb)
 
 
 def run(args):
     import ttrt.runtime
 
-    raise NotImplementedError("run not implemented")
+    try:
+        import torch
+    except ModuleNotFoundError:
+        raise ImportError(
+            "Error: torch required for offline run, please `pip install torch`"
+        )
+
+    def toDataType(dtype):
+        if dtype == torch.float32:
+            return ttrt.runtime.DataType.Float32
+        if dtype == torch.float16:
+            return ttrt.runtime.DataType.Float16
+        if dtype == torch.bfloat16:
+            return ttrt.runtime.DataType.BFloat16
+        if dtype == torch.uint32:
+            return ttrt.runtime.DataType.UInt32
+        if dtype == torch.uint16:
+            return ttrt.runtime.DataType.UInt16
+        if dtype == torch.uint8:
+            return ttrt.runtime.DataType.UInt8
+        raise ValueError(f"unsupported dtype: {dtype}")
+
+    fbb = ttrt.binary.load_from_path(args.binary)
+    assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
+    d = ttrt.binary.as_dict(fbb)
+    assert args.program_index < len(d["programs"]), "args.program_index out of range"
+    program = d["programs"][args.program_index]
+    print(f"running program[{args.program_index}]:", program["name"])
+    torch_inputs = []
+    torch_outputs = []
+    for i in program["inputs"]:
+        torch_inputs.append(torch.randn(i["desc"]["shape"]))
+    for i in program["outputs"]:
+        torch_outputs.append(torch.zeros(i["desc"]["shape"]))
+
+    print("inputs:\n", torch_inputs)
+
+    inputs = []
+    outputs = []
+    for i in torch_inputs:
+        inputs.append(
+            ttrt.runtime.create_tensor(
+                i.data_ptr(),
+                list(i.shape),
+                list(i.stride()),
+                i.element_size(),
+                toDataType(i.dtype),
+            )
+        )
+
+    for i in torch_outputs:
+        outputs.append(
+            ttrt.runtime.create_tensor(
+                i.data_ptr(),
+                list(i.shape),
+                list(i.stride()),
+                i.element_size(),
+                toDataType(i.dtype),
+            )
+        )
+
+    device = ttrt.runtime.open_device()
+    ttrt.runtime.submit(device, fbb, 0, inputs, outputs)
+    print("oututs:\n", torch_outputs)
+    ttrt.runtime.close_device(device)
 
 
 def query(args):
@@ -82,26 +171,23 @@ def main():
     read_parser = subparsers.add_parser(
         "read", help="read information from flatbuffer binary"
     )
-    read_parser.add_argument("--json", action="store_true", help="output as json")
     read_parser.add_argument(
-        "--dict", action="store_true", help="output as python dict"
-    )
-    read_parser.add_argument(
-        "--version", action="store_true", help="output version information"
-    )
-    read_parser.add_argument(
-        "--system-desc", action="store_true", help="output embedded system desc"
-    )
-    read_parser.add_argument(
-        "--mlir", action="store_true", help="extract mlir from binary (if available)"
-    )
-    read_parser.add_argument(
-        "--cpp", action="store_true", help="extract cpp from binary (if available)"
+        "-s",
+        "--section",
+        default="all",
+        choices=sorted(list(read_actions.keys())),
+        help="output sections of the fb",
     )
     read_parser.add_argument("binary", help="flatbuffer binary file")
     read_parser.set_defaults(func=read)
 
     run_parser = subparsers.add_parser("run", help="run a flatbuffer binary")
+    run_parser.add_argument(
+        "-p",
+        "--program-index",
+        default=0,
+        help="the program inside the fbb to run",
+    )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
 

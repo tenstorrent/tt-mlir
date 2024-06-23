@@ -30,10 +30,20 @@
 #pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #pragma clang diagnostic ignored "-Wunused-function"
+#define FMT_HEADER_ONLY
 #include "ttnn/device.hpp"
 #include "ttnn/operations/binary.hpp"
 #include "ttnn/operations/core.hpp"
 #include "ttnn/operations/creation.hpp"
 #pragma clang diagnostic pop
+
+#include "ttmlir/Target/TTNN/Target.h"
+
+namespace tt::runtime::ttnn {
+void runProgram(::ttnn::Device &device,
+                ::tt::target::ttnn::Program const *program,
+                std::vector<::ttnn::Tensor *> const &inputs,
+                std::vector<::ttnn::Tensor *> const &outputs);
+}
 
 #endif

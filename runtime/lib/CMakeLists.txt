@@ -4,7 +4,11 @@ add_dependencies(TTRuntimeBinary FBS_GENERATION)
 
 if(TTMLIR_ENABLE_RUNTIME)
   if (NOT TTMLIR_DISABLE_RUNTIME_TTNN)
-    add_library(TTRuntimeTTNN STATIC ttnn/runtime.cpp)
+    add_library(TTRuntimeTTNN
+      STATIC
+      ttnn/runtime.cpp
+      ttnn/program.cpp
+    )
     target_include_directories(TTRuntimeTTNN PUBLIC
       ${PROJECT_SOURCE_DIR}/runtime/include
       ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common

@@ -29,16 +29,16 @@ static ::tt::target::Dim2d toFlatbuffer(CoreCoord coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
 }
 
-Device wrap(ttnn::Device &device) {
+Device wrap(::ttnn::Device &device) {
   return Device{utils::unsafe_borrow_shared(&device)};
 }
 
-ttnn::Device& unwrap(Device device) {
-  return *static_cast<ttnn::Device *>(device.handle.get());
+::ttnn::Device &unwrap(Device device) {
+  return *static_cast<::ttnn::Device *>(device.handle.get());
 }
 
 SystemDesc getCurrentSystemDesc() {
-  auto &device = ttnn::open_device(0);
+  auto &device = ::ttnn::open_device(0);
   ::flatbuffers::FlatBufferBuilder fbb;
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
@@ -80,24 +80,106 @@ SystemDesc getCurrentSystemDesc() {
   auto size = fbb.GetSize();
   auto handle = utils::malloc_shared(size);
   std::memcpy(handle.get(), buf, size);
-  ttnn::close_device(device);
+  ::ttnn::close_device(device);
   return SystemDesc{handle};
+}
+
+template <typename T>
+static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements) {
+  return BorrowedStorage(
+      borrowed_buffer::Buffer<T>(static_cast<T *>(ptr), numElements), [] {},
+      [] {});
+}
+
+static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements,
+                                     ::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::Float32:
+    return createStorage<float>(ptr, numElements);
+  // case ::tt::target::DataType::Float16:
+  //   return createStorage<float16>(ptr, numElements);
+  case ::tt::target::DataType::BFloat16:
+    return createStorage<bfloat16>(ptr, numElements);
+  case ::tt::target::DataType::UInt32:
+    return createStorage<std::uint32_t>(ptr, numElements);
+  case ::tt::target::DataType::UInt16:
+    return createStorage<std::uint16_t>(ptr, numElements);
+  // case ::tt::target::DataType::UInt8:
+  //   return createStorage<std::uint8_t>(ptr, numElements);
+  default:
+    throw std::runtime_error("Unsupported data type");
+  }
+}
+
+static ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::Float32:
+    return ::ttnn::DataType::FLOAT32;
+  // case ::tt::target::DataType::Float16:
+  //   return ::ttnn::DataType::FLOAT16;
+  case ::tt::target::DataType::BFloat16:
+    return ::ttnn::DataType::BFLOAT16;
+  case ::tt::target::DataType::UInt32:
+    return ::ttnn::DataType::UINT32;
+  case ::tt::target::DataType::UInt16:
+    return ::ttnn::DataType::UINT16;
+  // case ::tt::target::DataType::UInt8:
+  //   return ::ttnn::DataType::UINT8;
+  default:
+    throw std::runtime_error("Unsupported data type");
+  }
+}
+
+Tensor createTensor(void *ptr, std::vector<std::uint32_t> const &shape,
+                    std::vector<std::uint32_t> const &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+  std::uint32_t numElements = shape[0] * stride[0];
+  auto tensor = std::make_shared<::ttnn::Tensor>(
+      createStorage(ptr, numElements, dataType), shape,
+      toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
+  return Tensor{tensor};
 }
 
 Device openDevice(std::vector<int> deviceIds) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
-  auto &device = ttnn::open_device(deviceIds.front());
+  auto &device = ::ttnn::open_device(deviceIds.front());
   return wrap(device);
 }
 
 void closeDevice(Device device) {
   auto &ttnn_device = unwrap(device);
-  ttnn::close_device(ttnn_device);
+  ::ttnn::close_device(ttnn_device);
 }
 
-Event submit(Device, Binary, std::vector<Tensor> const &,
-             std::vector<Tensor> const &, std::function<void()>) {
-  throw std::runtime_error("Not implemented");
+::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+      binary.handle.get());
+  if (not isTTNN) {
+    throw std::runtime_error("Unsupported binary format");
+  }
+  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
+}
+
+Event submit(Device deviceHandle, Binary executableHandle,
+             std::uint32_t programIndex,
+             std::vector<Tensor> const &inputHandles,
+             std::vector<Tensor> const &outputHandles) {
+  ::ttnn::Device &device = unwrap(deviceHandle);
+  ::tt::target::ttnn::TTNNBinary const &fbb =
+      *getBinary(executableHandle);
+  std::vector<::ttnn::Tensor *> inputs;
+  inputs.reserve(inputHandles.size());
+  for (auto &input : inputHandles) {
+    inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
+  }
+  std::vector<::ttnn::Tensor *> outputs;
+  outputs.reserve(outputHandles.size());
+  for (auto &output : outputHandles) {
+    outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
+  }
+  tt::runtime::ttnn::runProgram(device, fbb.programs()->Get(programIndex),
+                                inputs, outputs);
+  return Event{nullptr};
 }
 
 void wait(Event) { throw std::runtime_error("Not implemented"); }

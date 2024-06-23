@@ -16,6 +16,8 @@ PYBIND11_MODULE(_C, m) {
       .def_property_readonly("version", &tt::runtime::binary::getVersion)
       .def_property_readonly("ttmlir_git_hash",
                              &tt::runtime::binary::getTTMLIRGitHash)
+      .def_property_readonly("file_identifier",
+                             &tt::runtime::binary::getFileIdentifier)
       .def("as_json", &tt::runtime::binary::asJson);
   m.def("load_from_path", &tt::runtime::binary::loadFromPath);
   m.def("store", &tt::runtime::binary::store);
