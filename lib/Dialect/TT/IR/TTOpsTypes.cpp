@@ -31,10 +31,6 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {
           0,
       },
-      // Chip IDs
-      {
-          0,
-      },
       // Chip capabilities
       {
           tt::ChipCapabilityAttr::get(context,

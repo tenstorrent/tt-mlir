@@ -115,7 +115,6 @@ struct ChipChannel {
 table SystemDesc {
   chip_descs: [ChipDesc];
   chip_desc_indices: [uint32];
-  chip_ids: [int32];
   chip_capabilities: [ChipCapability];
   chip_coords: [ChipCoord];
   chip_channels: [ChipChannel];

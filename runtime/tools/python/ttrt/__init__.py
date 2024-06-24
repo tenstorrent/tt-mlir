@@ -146,11 +146,11 @@ def query(args):
     import ttrt.runtime
 
     if args.system_desc or args.system_desc_as_json:
-        print(ttrt.runtime.get_current_system_desc().as_json())
+        print(ttrt.runtime.get_current_system_desc()[0].as_json())
     if args.system_desc_as_dict:
-        print(system_desc_as_dict(ttrt.runtime.get_current_system_desc()))
+        print(system_desc_as_dict(ttrt.runtime.get_current_system_desc()[0]))
     if args.save_system_desc:
-        desc = ttrt.runtime.get_current_system_desc()
+        desc = ttrt.runtime.get_current_system_desc()[0]
         if args.save_system_desc:
             file_name = args.save_system_desc
         else:

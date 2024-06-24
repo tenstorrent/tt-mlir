@@ -90,3 +90,17 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} -- check-ttmlir
+
+  wiki:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build docs
+      shell: bash
+      run: |
+        cmake -B build -S ${{ github.workspace }}
+        cmake --build build -- mlir-doc

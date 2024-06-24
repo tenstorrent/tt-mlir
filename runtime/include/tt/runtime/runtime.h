@@ -14,7 +14,7 @@
 
 namespace tt::runtime {
 
-SystemDesc getCurrentSystemDesc();
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
 Tensor createTensor(void *ptr, std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,

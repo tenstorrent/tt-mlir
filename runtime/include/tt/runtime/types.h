@@ -6,10 +6,12 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <memory>
+#include <vector>
 
 namespace tt::runtime {
 
 using Handle = std::shared_ptr<void>;
+using DeviceIds = std::vector<int>;
 
 struct Flatbuffer {
   Handle handle;

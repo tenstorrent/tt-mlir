@@ -37,8 +37,11 @@ Device wrap(::ttnn::Device &device) {
   return *static_cast<::ttnn::Device *>(device.handle.get());
 }
 
-SystemDesc getCurrentSystemDesc() {
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   auto &device = ::ttnn::open_device(0);
+  std::vector<int> chipIds = {
+      device.id(),
+  };
   ::flatbuffers::FlatBufferBuilder fbb;
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
@@ -50,9 +53,6 @@ SystemDesc getCurrentSystemDesc() {
   };
   std::vector<uint32_t> chipDescIndices = {
       0,
-  };
-  std::vector<int> chipIds = {
-      device.id(),
   };
   ::tt::target::ChipCapability chipCapability =
       ::tt::target::ChipCapability::PCIE;
@@ -67,8 +67,8 @@ SystemDesc getCurrentSystemDesc() {
   };
   std::vector<::tt::target::ChipChannel> chipChannel;
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipIds, &chipCapabilities,
-      &chipCoord, &chipChannel);
+      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoord,
+      &chipChannel);
   auto root = ::tt::target::CreateSystemDescRootDirect(
       fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
@@ -81,7 +81,7 @@ SystemDesc getCurrentSystemDesc() {
   auto handle = utils::malloc_shared(size);
   std::memcpy(handle.get(), buf, size);
   ::ttnn::close_device(device);
-  return SystemDesc{handle};
+  return std::make_pair(SystemDesc{handle}, chipIds);
 }
 
 template <typename T>

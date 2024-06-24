@@ -1,6 +1,8 @@
 add_mlir_dialect(TTOps tt)
-add_mlir_doc(TTDialect TTDialect ttmlir/ -gen-dialect-doc)
-add_mlir_doc(TTOps TTOps ttmlir/ -gen-op-doc)
+add_mlir_doc(TTBase TTDialect Dialect/ -gen-dialect-doc)
+add_mlir_doc(TTOps TTOp Dialect/ -gen-op-doc)
+add_mlir_doc(TTOpsTypes TTAttr Dialect/ -gen-attrdef-doc)
+add_mlir_doc(TTOpsTypes TTType Dialect/ -gen-typedef-doc)
 
 set(LLVM_TARGET_DEFINITIONS TTOps.td)
 mlir_tablegen(TTOpsAttrDefs.h.inc -gen-attrdef-decls)

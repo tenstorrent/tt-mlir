@@ -172,12 +172,11 @@ inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
-  auto chipIds = toFlatbuffer(cache, systemDesc.getChipIds());
   auto chipCapabilities = toFlatbuffer(cache, systemDesc.getChipCapabilities());
   auto chipCoords = toFlatbuffer(cache, systemDesc.getChipCoords());
   auto chipChannels = toFlatbuffer(cache, systemDesc.getChipChannels());
   return ::tt::target::CreateSystemDesc(*cache.fbb, chipDescs, chipDescIndices,
-                                        chipIds, chipCapabilities, chipCoords,
+                                        chipCapabilities, chipCoords,
                                         chipChannels);
 }
 
