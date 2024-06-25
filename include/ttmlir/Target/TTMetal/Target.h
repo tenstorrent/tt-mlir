@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef TTMLIR_TARGET_TTMETAL_TARGET_H
 #define TTMLIR_TARGET_TTMETAL_TARGET_H
 

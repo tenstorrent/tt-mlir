@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
