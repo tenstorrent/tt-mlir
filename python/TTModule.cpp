@@ -27,12 +27,14 @@ void populateTTModule(py::module &m) {
       .value("UInt8", tt::DataType::UInt8);
 
   py::enum_<tt::MemorySpace>(m, "MemorySpace")
-    .value("System", tt::MemorySpace::System)
-    .value("SystemMMIO", tt::MemorySpace::SystemMMIO)
-    .value("DeviceDRAM", tt::MemorySpace::DeviceDRAM)
-    .value("DeviceL1", tt::MemorySpace::DeviceL1)
-    .value("MIN", tt::MemorySpace::System)
-    .value("MAX", tt::MemorySpace::DeviceL1); // Referenced from Generated MemorySpace
+      .value("System", tt::MemorySpace::System)
+      .value("SystemMMIO", tt::MemorySpace::SystemMMIO)
+      .value("DeviceDRAM", tt::MemorySpace::DeviceDRAM)
+      .value("DeviceL1", tt::MemorySpace::DeviceL1)
+      .value("MIN", tt::MemorySpace::System)
+      .value(
+          "MAX",
+          tt::MemorySpace::DeviceL1); // Referenced from Generated MemorySpace
 
   py::enum_<tt::OOBVal>(m, "OOBVal")
       .value("Zero", tt::OOBVal::Zero)
@@ -41,46 +43,65 @@ void populateTTModule(py::module &m) {
       .value("Inf", tt::OOBVal::Inf)
       .value("NegInf", tt::OOBVal::NegInf)
       .value("MIN", tt::OOBVal::Undef)
-      .value("MAX", tt::OOBVal::NegInf); // Referenced from types_generated.h as well
+      .value("MAX",
+             tt::OOBVal::NegInf); // Referenced from types_generated.h as well
 
   py::class_<llvm::ArrayRef<int64_t>>(m, "ArrayRefInt64")
-    .def(py::init<const int64_t*, size_t>())
-    .def("__getitem__", [](const llvm::ArrayRef<int64_t>& arr, size_t index) {
-      if (index >= arr.size()) {
-        throw py::index_error("Index out of range");
-      }
-      return arr[index];
-    })
-    .def("__len__", &llvm::ArrayRef<int64_t>::size);
-  
+      .def(py::init<const int64_t *, size_t>())
+      .def("__getitem__",
+           [](const llvm::ArrayRef<int64_t> &arr, size_t index) {
+             if (index >= arr.size()) {
+               throw py::index_error("Index out of range");
+             }
+             return arr[index];
+           })
+      .def("__len__", &llvm::ArrayRef<int64_t>::size);
+
   py::class_<tt::GridAttr>(m, "GridAttr")
-    .def_property_readonly("name", [](tt::GridAttr const& ga) { return ga.name; })
-    .def_property_readonly("shape", &tt::GridAttr::getShape)
-    .def_property_readonly("physical_grid_mapping", &tt::GridAttr::getPhysicalGridMapping);
+      .def_property_readonly("name",
+                             [](tt::GridAttr const &ga) { return ga.name; })
+      .def_property_readonly("shape", &tt::GridAttr::getShape)
+      .def_property_readonly("physical_grid_mapping",
+                             &tt::GridAttr::getPhysicalGridMapping);
 
   py::class_<MemRefType>(m, "MemRefType")
-    .def_property_readonly("shape", &MemRefType::getShape)
-    .def_property_readonly("element_type", &MemRefType::getElementType) // mlir::Type not supported
-    .def_property_readonly("name", [](MemRefType const& mt) { return mt.name; }) // llvm::StringLiteral not supported
-    .def_property_readonly("memory_space", &MemRefType::getMemorySpace); // mlir::Attribute not supported
-  // TODO: cast important properties to readable types in Python, for now this is functional enough to generate a graph using an adapter
+      .def_property_readonly("shape", &MemRefType::getShape)
+      .def_property_readonly(
+          "element_type",
+          &MemRefType::getElementType) // mlir::Type not supported
+      .def_property_readonly("name",
+                             [](MemRefType const &mt) {
+                               return mt.name;
+                             }) // llvm::StringLiteral not supported
+      .def_property_readonly(
+          "memory_space",
+          &MemRefType::getMemorySpace); // mlir::Attribute not supported
 
   py::class_<tt::LayoutAttr>(m, "LayoutAttr")
-    .def_static("get", [](MlirContext ctx, ::llvm::ArrayRef<int64_t> strides, tt::OOBVal oobval, tt::GridAttr gridAttr, MemRefType memrefType) {
-      return wrap(tt::LayoutAttr::get(unwrap(ctx), strides, oobval, gridAttr, memrefType));
-    })
-    .def("getLayout", [](MlirType& type) {
-      assert(isa<RankedTensorType>(unwrap(type))); // Make sure that this is operating on a RankedTensorType object
-      RankedTensorType tensor = unwrap(type).cast<RankedTensorType>();
-      assert(tensor.getEncoding()); // Make sure that this Tensor has an encoding value
-      tt::LayoutAttr layout = tensor.getEncoding().template cast<tt::LayoutAttr>();
-      return layout;
-    })
-    .def_property_readonly("strides", &tt::LayoutAttr::getStrides)
-    .def_property_readonly("oobval", &tt::LayoutAttr::getOobVal)
-    .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
-    .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
-    .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace);
+      .def_static(
+          "get",
+          [](MlirContext ctx, ::llvm::ArrayRef<int64_t> strides,
+             tt::OOBVal oobval, tt::GridAttr gridAttr, MemRefType memrefType) {
+            return wrap(tt::LayoutAttr::get(unwrap(ctx), strides, oobval,
+                                            gridAttr, memrefType));
+          })
+      .def("getLayout",
+           [](MlirType &type) {
+             assert(isa<RankedTensorType>(
+                 unwrap(type))); // Make sure that this is operating on a
+                                 // RankedTensorType object
+             RankedTensorType tensor = unwrap(type).cast<RankedTensorType>();
+             assert(tensor.getEncoding()); // Make sure that this Tensor has an
+                                           // encoding value
+             tt::LayoutAttr layout =
+                 tensor.getEncoding().template cast<tt::LayoutAttr>();
+             return layout;
+           })
+      .def_property_readonly("strides", &tt::LayoutAttr::getStrides)
+      .def_property_readonly("oobval", &tt::LayoutAttr::getOobVal)
+      .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
+      .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
+      .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace);
 
   py::class_<tt::TileType>(m, "TileType")
       .def_static("get",
