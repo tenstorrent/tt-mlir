@@ -44,6 +44,6 @@ void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
-}
+} // namespace tt::runtime::ttnn
 
 #endif

@@ -120,4 +120,4 @@ void runProgram(::ttnn::Device &device,
     run(op, device, liveTensors, tensorPool);
   }
 }
-}
+} // namespace tt::runtime::ttnn

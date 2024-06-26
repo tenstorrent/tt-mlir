@@ -18,6 +18,10 @@ std::string_view getFileIdentifier(Flatbuffer binary);
 std::string getVersion(Flatbuffer binary);
 std::string_view getTTMLIRGitHash(Flatbuffer binary);
 std::string asJson(Flatbuffer binary);
+std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
+                                         std::uint32_t programIndex);
+std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
+                                          std::uint32_t programIndex);
 
 } // namespace tt::runtime::binary
 

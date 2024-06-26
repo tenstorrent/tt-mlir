@@ -29,14 +29,6 @@ static ::tt::target::Dim2d toFlatbuffer(CoreCoord coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
 }
 
-Device wrap(::ttnn::Device &device) {
-  return Device{utils::unsafe_borrow_shared(&device)};
-}
-
-::ttnn::Device &unwrap(Device device) {
-  return *static_cast<::ttnn::Device *>(device.handle.get());
-}
-
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   auto &device = ::ttnn::open_device(0);
   std::vector<int> chipIds = {
@@ -130,24 +122,25 @@ static ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
   }
 }
 
-Tensor createTensor(void *ptr, std::vector<std::uint32_t> const &shape,
+Tensor createTensor(std::shared_ptr<void> data,
+                    std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
   auto tensor = std::make_shared<::ttnn::Tensor>(
-      createStorage(ptr, numElements, dataType), shape,
+      createStorage(data.get(), numElements, dataType), shape,
       toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
-  return Tensor{tensor};
+  return Tensor(tensor, data);
 }
 
 Device openDevice(std::vector<int> deviceIds) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front());
-  return wrap(device);
+  return Device(device);
 }
 
 void closeDevice(Device device) {
-  auto &ttnn_device = unwrap(device);
+  auto &ttnn_device = device.as<::ttnn::Device>();
   ::ttnn::close_device(ttnn_device);
 }
 
@@ -164,7 +157,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
              std::vector<Tensor> const &outputHandles) {
-  ::ttnn::Device &device = unwrap(deviceHandle);
+  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>();
   ::tt::target::ttnn::TTNNBinary const &fbb =
       *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
@@ -179,7 +172,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
   }
   tt::runtime::ttnn::runProgram(device, fbb.programs()->Get(programIndex),
                                 inputs, outputs);
-  return Event{nullptr};
+  return Event(nullptr);
 }
 
 void wait(Event) { throw std::runtime_error("Not implemented"); }

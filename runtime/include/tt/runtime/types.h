@@ -8,28 +8,53 @@
 #include <memory>
 #include <vector>
 
+#include "tt/runtime/utils.h"
+#include "ttmlir/Target/Common/types_generated.h"
+
 namespace tt::runtime {
 
-using Handle = std::shared_ptr<void>;
 using DeviceIds = std::vector<int>;
 
-struct Flatbuffer {
-  Handle handle;
+struct ObjectImpl {
+  std::shared_ptr<void> handle;
+
+  ObjectImpl(std::shared_ptr<void> handle) : handle(handle) {}
+  template <typename T>
+  ObjectImpl(T &borrowed_reference)
+      : handle(utils::unsafe_borrow_shared(&borrowed_reference)) {}
+
+  template <typename T> T &as() { return *static_cast<T *>(handle.get()); }
+  template <typename T> T const &as() const {
+    return *static_cast<T const *>(handle.get());
+  }
+};
+
+struct Flatbuffer : public ObjectImpl {
+  using ObjectImpl::ObjectImpl;
 };
 
 using SystemDesc = Flatbuffer;
 using Binary = Flatbuffer;
 
-struct Device {
-  Handle handle;
+struct Device : public ObjectImpl {
+  using ObjectImpl::ObjectImpl;
 };
 
-struct Event {
-  Handle handle;
+struct Event : public ObjectImpl {
+  using ObjectImpl::ObjectImpl;
 };
 
-struct Tensor {
-  Handle handle;
+struct Tensor : public ObjectImpl {
+  std::shared_ptr<void> data;
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data)
+      : ObjectImpl(handle), data(data) {}
+};
+
+struct TensorDesc {
+  std::vector<std::uint32_t> shape;
+  std::vector<std::uint32_t> stride;
+  std::uint32_t itemsize;
+  ::tt::target::DataType dataType;
 };
 
 } // namespace tt::runtime

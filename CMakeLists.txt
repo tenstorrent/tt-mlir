@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20.0)
 project(tt-mlir LANGUAGES CXX C)
 
+if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
+  message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
+endif()
+
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TARGET_UTILS_PROGRAMBUILDER_H
-#define TTMLIR_TARGET_UTILS_PROGRAMBUILDER_H
+#ifndef TTMLIR_TARGET_UTILS_FUNCOPTOPROGRAM_H
+#define TTMLIR_TARGET_UTILS_FUNCOPTOPROGRAM_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/Support/raw_ostream.h"

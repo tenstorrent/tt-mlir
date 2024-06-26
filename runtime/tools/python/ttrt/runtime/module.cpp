@@ -38,8 +38,10 @@ PYBIND11_MODULE(_C, m) {
       [](std::uintptr_t ptr, std::vector<std::uint32_t> const &shape,
          std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
-        return tt::runtime::createTensor(reinterpret_cast<void *>(ptr), shape,
-                                         stride, itemsize, dataType);
+        return tt::runtime::createTensor(
+            ::tt::runtime::utils::unsafe_borrow_shared(
+                reinterpret_cast<void *>(ptr)),
+            shape, stride, itemsize, dataType);
       },
       "Create a tensor with borrowed memory");
   m.def("open_device", &tt::runtime::openDevice,

@@ -2,17 +2,11 @@
 Checks:          'clang-diagnostic-*,clang-analyzer-*,llvm-*,google-global-names-in-headers,google-readability-*,cppcoreguidelines-virtual-class-destructor,cppcoreguidelines-use-default-member-init,cppcoreguidelines-owning-memory,cppcoreguidelines-interfaces-global-init,cppcoreguidelines-explicit-virtual-functions,cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-avoid-goto,cppcoreguidelines-avoid-non-const-global-variables'
 WarningsAsErrors: ''
 HeaderFileExtensions:
-  - ''
   - h
-  - hh
-  - hpp
-  - hxx
 ImplementationFileExtensions:
   - c
-  - cc
   - cpp
-  - cxx
-HeaderFilterRegex: ''
+HeaderFilterRegex: '(tt-mlir/include/ttmlir)|(tt-mlir/runtime/include)'
 FormatStyle:     LLVM
 User:            nsmith
 CheckOptions:

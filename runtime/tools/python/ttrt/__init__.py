@@ -142,7 +142,7 @@ def run(args):
 
     device = ttrt.runtime.open_device()
     ttrt.runtime.submit(device, fbb, 0, inputs, outputs)
-    print("oututs:\n", torch_outputs)
+    print("outputs:\n", torch_outputs)
     ttrt.runtime.close_device(device)
 
 
