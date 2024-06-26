@@ -1,8 +1,8 @@
 add_mlir_dialect(TTMetalOps ttmetal)
-add_mlir_doc(TTMetalBase TTMetalDialect Dialect/ -gen-dialect-doc)
-add_mlir_doc(TTMetalOps TTMetalOp Dialect/ -gen-op-doc)
-add_mlir_doc(TTMetalOpsTypes TTMetalAttr Dialect/ -gen-attrdef-doc)
-add_mlir_doc(TTMetalOpsTypes TTMetalType Dialect/ -gen-typedef-doc)
+add_mlir_doc(TTMetalBase TTMetalDialect src/autogen/md/Dialect/ -gen-dialect-doc)
+add_mlir_doc(TTMetalOps TTMetalOp src/autogen/md/Dialect/ -gen-op-doc)
+add_mlir_doc(TTMetalOpsTypes TTMetalAttr src/autogen/md/Dialect/ -gen-attrdef-doc)
+add_mlir_doc(TTMetalOpsTypes TTMetalType src/autogen/md/Dialect/ -gen-typedef-doc)
 
 set(LLVM_TARGET_DEFINITIONS TTMetalOpsTypes.td)
 mlir_tablegen(TTMetalOpsAttrDefs.h.inc -gen-attrdef-decls)

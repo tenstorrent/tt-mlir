@@ -37,6 +37,7 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic"> {
       linalg.generic op so it can be useful to refer to linalg.generic documentation for more
       details.
 
+      ```llvm
       %5 = "ttir.generic"(%1, %3, %4) <{
         grid = #tt.grid<1x1>,                     // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],       // Affine maps for indexing into the input/output tensors. See linalg.generic
@@ -46,6 +47,7 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic"> {
       ^bb0(%arg2: memref<64x128xf32, #l1_>, %arg3: memref<64x128xf32, #l1_>, %arg4: memref<64x128xf32, #l1_>):
           // Region body, would contain some computation that represents the work each core does.
       }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
@@ -68,9 +70,11 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
         - Transitioning between different tensor sharding
         - Some combination of the above
 
+      ```llvm
       #layout = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
       #layout1 = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
       %1 = "ttir.layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

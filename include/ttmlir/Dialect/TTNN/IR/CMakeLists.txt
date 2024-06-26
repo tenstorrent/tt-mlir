@@ -1,6 +1,6 @@
 add_mlir_dialect(TTNNOps ttnn)
-add_mlir_doc(TTNNBase TTNNDialect Dialect/ -gen-dialect-doc)
-add_mlir_doc(TTNNOps TTNNOp Dialect/ -gen-op-doc)
+add_mlir_doc(TTNNBase TTNNDialect src/autogen/md/Dialect/ -gen-dialect-doc)
+add_mlir_doc(TTNNOps TTNNOp src/autogen/md/Dialect/ -gen-op-doc)
 
 set(LLVM_TARGET_DEFINITIONS TTNNOpsTypes.td)
 mlir_tablegen(TTNNOpsAttrDefs.h.inc -gen-attrdef-decls)
