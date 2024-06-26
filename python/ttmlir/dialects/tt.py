@@ -2,4 +2,5 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from .._mlir_libs._ttmlir import tt_ir as ir
+from ._tt_ops_gen import *
+from .._mlir_libs._ttmlir import tt_ir as ir, register_dialect

@@ -1,3 +1,5 @@
 .local
 build
 third_party/tt-metal
+.DS_STORE
+.vscode/*

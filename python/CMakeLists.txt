@@ -17,6 +17,7 @@ declare_mlir_python_sources(TTMLIRPythonSources.Dialects
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  TD_FILE dialects/TTBinding.td
   SOURCES dialects/tt.py
   DIALECT_NAME tt
 )
@@ -44,6 +45,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTMLIRModule.cpp
     TTModule.cpp
     TTKernelModule.cpp
+    Overrides.cpp
   EMBED_CAPI_LINK_LIBS
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
