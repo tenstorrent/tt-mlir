@@ -1,4 +1,4 @@
-# **Introduction**
+# Introduction
 
 The following document provides an overview of the TT-MLIR
 project, with a focus on the technical specifications of an MLIR-based
@@ -12,56 +12,58 @@ Representation (IR) of what you've fed the compiler.
 
 Disclaimer: This is intended to be a working document, if you find something incorrect or incomplete please feel free to create a PR.
 
-## **Motivations**
+## Motivations
 
 The idea of having a multi-level IR might not seem so far fetched, in
 fact it resembles some of our current software
 stacks. The idea of going from a High Level TVM Graph → Lowered PyBUDA Graph →
 Netlist, with each layer having their own level of optimizations is
 quite a familiar concept. However, there are problems with the
-reusability and integration of optimizations for the current software
+reusability and integration of optimizations for the current software compiler
 stack. Currently, users are almost forced to choose between a top-down
 optimization or bottom-up optimization, with both requiring
 "expert-level" expertise to optimize for desired performance. Developing
 2 entirely different projects is taxing, and it's hard to translate the
-benefits of BUDA over to metal (or the other way around). To help
-mitigate this, we can create a "middle-out" (Disclaimer: No *abstract*
-counting algorithms were derived for the conception of TT-MLIR) approach
-where the user is able to define graph optimizations from a top-down
-approach and have it compute on an optimized backend created using
-Metal. However, this is not the main pitch of TT-MLIR. The benefits grow
-much further when one can understand all the possible entry points that
-multiple IRs present. BUDA can generate a TTIR graph, but a JAX program
+benefits of BUDA over to metal (or the other way around). One of the primary
+goals of tt-mlir is to enable a consistent programming model between software
+stacks, concepts for improving optimizations in the compiler stack should 1-1
+carry over to hand-written TTNN.
+
+The benefits grow even further when one can understand all the possible entry points that
+multiple IRs present. Existing MLIR based projects like [OpenXLA](https://openxla.org) and [torch-mlir](https://github.com/llvm/torch-mlir)
 can natively output MLIR in a dialect that can be transcribed to the
-TTIR layer as well! While the figure below may be very abstract at the
-moment, I hope it provides a visual motivation to the extensible nature
-of this software stack:
+TTIR dialect as well!
 
-A visualization of potential hooks into a TT-MLIR software stack
-(credit: Nick Smith)
+# What is MLIR and why use it?
 
-# **What is MLIR and why use it?**
+MLIR is a compiler infrastructure that is designed to be modular and extensible. The main benefits the tt-mlir project hopes to gain by using MLIR include:
 
-As I described in the previous section, we have already created a Multi
-Level IR system in the BUDA stack, so what's the benefit of using some
-external framework to do the same thing? Beyond that what even is this
-external framework, and how does it serve as a backbone for this
-project? Below I try to explain the core concepts of MLIR, but for more
-information on MLIR please check out:
-[https://ieeexplore.ieee.org/abstract/document/9370308](https://ieeexplore.ieee.org/abstract/document/9370308)
+- Industry Standard Compiler Framework
+  - Lots of boilerplate algorithms, data structures, and useful software that is common to compiler development
+- Ecosystem
+  - Hook into existing front-end MLIR projects
+- Testing framework
+  - A battle-tested test infrastructure that will enable us to write fine grained tests and rely less on end-to-end testing
+  - Common IR Serialization Format that's easy to test, debug, and edit
 
-## **MLIR: Overview**
+Additional documentation to highlight the benefits of MLIR can be found here:
+- [MLIR Whitepaper](https://ieeexplore.ieee.org/abstract/document/9370308)
+- [MLIR Documentation](https://mlir.llvm.org)
+
+## MLIR: Overview
 
 MLIR is at it's root an interpreter that can parse "readable" text in
 some .mlir format. The unique properties lie in the modularity of the
 parsing itself. MLIR is built upon a collection of **Dialects**, each of
 these Dialects define a collection of **Operations**, **Types**, and
-**Values**. These dialects follow their own syntax, and they can encode
+**Attributes**. These dialects follow their own syntax, and they can encode
 any amount of information. The benefit is that MLIR provides bindings
 and hooks such that a user can directly translate these IRs into usable
 artifacts for that layer of complexity. An example of this would be the
-autogeneration of a ttnn python script from the parsed results of a
-TTNNDialect module. It is the dialect system itself which powers the
+relatively high level TOSA Dialect, which is used to represent computation
+over tensors, and then lowering that to a more hardware specific dialect
+that closely models the programming model of the hardware or underlying backend.
+It is the dialect system itself which powers the
 multi-level functionality of MLIR, with different dialects a user can
 essentially "lower" through their software stack by just transforming
 between the different dialects for their layers. Dialects can exist in a
@@ -74,7 +76,7 @@ usecase for the TT Stack, MLIR acts a "mid-level" compiler which makes
 the task of joining together various entry points and backends much
 simpler.
 
-### **MLIR Primitives**
+### MLIR Primitives
 
 So what does MLIR look like, how does it work and get parsed? The
 hierarchy of an MLIR Module is as shown:
@@ -118,10 +120,10 @@ module attributes {torch.debug_module_name = "_lambda", tt.system_desc = #tt.sys
     -   They help to demonstrate the transformation of information and
         it's representation as it's processed across this module.
 
-### **MLIR Workflow**
+### MLIR Workflow
 
-The overall MLIR workflow doesn't involve writing .mlir files, not even
-directly modifying them. The Intermediate Representations are truly just
+The overall MLIR workflow doesn't involve writing .mlir files, not necessarily even
+modifying them. The Intermediate Representations are truly just
 representations, we can parse them to demonstrate what the graph looks
 like at that current stage of optimization, or run a **pass** through
 them to optimize certain functions. The overall framework is designed
@@ -138,7 +140,7 @@ with the following architecture in mind:
 4.  Depending on the usecase more passes are run to lower to whatever
     backend the user would like (ex: TTNN Backend)
 
-### **What are Passes?**
+### What are Passes?
 
 Transformations in MLIR are represented as passes that occur during the
 parsing of some information. These passes can be executed when parsing
@@ -153,7 +155,7 @@ and provide most of the functionality to transform between layers of
 dialects, and they provide a simple platform for modifications of an
 MLIR module.
 
-## **Why not make our own?**
+## Why not make our own?
 
 Now that I've described the functionality of the MLIR framework, it
 seems like making an in house multi level Intermediate Representation
@@ -170,7 +172,7 @@ Furthermore, as a functional benefit of being part of a larger open
 source project, MLIR has a whole library of tests and infrastructure
 that we can leverage for solid code health while starting a new project.
 
-### **Automation**
+### Automation
 
 It's not only about developer support, another key benefit of MLIR is
 that it's built with autogeneration in mind. Through TableGen a lot of
@@ -181,7 +183,7 @@ and support from other large players in the ML scene. By integrating
 with these automation pipelines, we allow for external developers to
 have a much simpler entry-point into our software stack!
 
-# **TT-MLIR: Bringing MLIR to the TT Stack**
+# TT-MLIR: Bringing MLIR to the TT Stack
 
 Now that we have defined this pretty cool project, let's look at the
 implementation details of bringing MLIR (and related optimizations) into
@@ -223,30 +225,30 @@ more detail on each of these dialects, please refer to the GitHub Wiki
 and TableGen descriptors. I think that Nick does a great job of
 documenting the key functionality.
 
-### **TT Dialect**
+### TT Dialect
 The TT Dialect is **only** for common Types and Attributes used throughout the many levels of the mid level compiler.
 
-### **TTIR Dialect**
+### TTIR Dialect
 
 The TTIR Dialect is defined as the common dialect for TT-MLIR, as such it doesn't define anything hardware/backend specific. It lists out general actions that would take place on TT hardware such as dispatch, layout, and kernel operations.
 
-#### **Generic Operation**
+#### Generic Operation
 
 This is one of two operations that's crucial to understand the intended optimization characteristics of the TTIR Dialect. The generic operation dictates the actions that would be taken to dispatch some instruction to TT hardware such that it executes some instruction. Parametrically, the operation consumes inputs, outputs, maps to read the tensors, and access-types to the memory. These parameters highlight the optimizations that can be performed at this level to change the location of the memory, transpose using variant access maps, or even the grid upon which the computation takes place. The operation also contains a block in which the exact behaviour for that operation to occur is stored.
 
-#### **Layout Operation**
+#### Layout Operation
 
 The layout operation is key in describing the storage of memory throughout the execution graph. Layout determines the sharding spec, location of the memory, data types, and tile sizes of some tensor. While generic describes the dispatch for some data-wise transformation to take place, the data itself is laid out across the chip through the layout operation.
 
 Both of these operations describe the key functionality of the TTIR dialect and the optimization space that it provides.
 
-## **Built-in MLIR Dialects**
+## Built-in MLIR Dialects
 
 The functionality of TT-MLIR Dialects also depends / is inspired by the
 functionality of Built-in MLIR Dialects like Affine and LinAlg. Below
 are summaries of some of the key members of these Dialects
 
-### **Affine Dialect**
+### Affine Dialect
 
 \[[Reference](https://mlir.llvm.org/docs/Dialects/Affine/#affine-maps)\]
 Affine maps help to describe transformations on coordinate systems,
@@ -261,7 +263,7 @@ the access method is modified. This extends even further to more complex
 transformations such that stride lengths or unique indexing methods can
 be implemented without complicated manipulation.
 
-### **Tensor Dialect**
+### Tensor Dialect
 
 \[[Reference](https://mlir.llvm.org/docs/Dialects/TensorOps/)\]
 The tensor dialect defines the functionality and Type of the fundamental
@@ -270,7 +272,7 @@ and representation of tensors as multi-dimensional data with shapes and
 datatypes. Not much else is different about this dialect, the reference
 covers key topics if implementation details are needed.
 
-## **TT-Explorer - Performance Optimization Tool**
+## TT-Explorer - Performance Optimization Tool
 
 A unique project related to TT-MLIR is the integration of Performance
 Optimization Tools such that users are easily able to visualize and
