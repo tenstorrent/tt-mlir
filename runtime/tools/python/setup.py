@@ -29,7 +29,7 @@ ext_modules = [
             f"{src_dir}/build/include",
             f"{src_dir}/build/include/ttmlir/Target/Common",
         ],
-        libraries=["TTRuntimeBinary", "flatbuffers"],
+        libraries=["TTRuntime", "flatbuffers"],
         library_dirs=[
             f"{src_dir}/build/runtime/lib",
             f"{toolchain}/lib",
@@ -52,7 +52,7 @@ if enable_runtime:
                 f"{src_dir}/build/include",
                 f"{src_dir}/build/include/ttmlir/Target/Common",
             ],
-            libraries=["TTRuntimeBinary", "TTRuntimeTTNN", ":_ttnn.so", "flatbuffers"],
+            libraries=["TTRuntime", "TTRuntimeTTNN", ":_ttnn.so", "flatbuffers"],
             library_dirs=[
                 f"{src_dir}/build/runtime/lib",
                 f"{toolchain}/lib",

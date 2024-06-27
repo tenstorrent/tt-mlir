@@ -9,7 +9,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-namespace tt::runtime {
+namespace tt::runtime::ttnn {
 static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   switch (arch) {
   case ::tt::ARCH::GRAYSKULL:
@@ -136,7 +136,7 @@ Tensor createTensor(std::shared_ptr<void> data,
 Device openDevice(std::vector<int> deviceIds) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front());
-  return Device(device);
+  return Device::borrow(device);
 }
 
 void closeDevice(Device device) {
@@ -144,7 +144,7 @@ void closeDevice(Device device) {
   ::ttnn::close_device(ttnn_device);
 }
 
-::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
   if (not isTTNN) {
@@ -177,4 +177,4 @@ Event submit(Device deviceHandle, Binary executableHandle,
 
 void wait(Event) { throw std::runtime_error("Not implemented"); }
 
-} // namespace tt::runtime
+} // namespace tt::runtime::ttnn

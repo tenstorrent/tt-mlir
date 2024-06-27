@@ -9,11 +9,4 @@ add_custom_target(ttrt
   COMMENT "python ttrt package"
   DEPENDS ttrt-copy-files
 )
-if (TTMLIR_ENABLE_RUNTIME)
-  if (NOT TTMLIR_DISABLE_RUNTIME_TTNN)
-    add_dependencies(ttrt TTRuntimeTTNN)
-  endif()
-  if (NOT TTMLIR_DISABLE_RUNTIME_TTMETAL)
-    add_dependencies(ttrt TTRuntimeTTMetal)
-  endif()
-endif()
+add_dependencies(ttrt TTRuntime)

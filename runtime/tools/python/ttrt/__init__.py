@@ -101,7 +101,7 @@ def run(args):
             return ttrt.runtime.DataType.UInt8
         raise ValueError(f"unsupported dtype: {dtype}")
 
-    fbb = ttrt.binary.load_from_path(args.binary)
+    fbb = ttrt.binary.load_binary_from_path(args.binary)
     assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
     d = ttrt.binary.as_dict(fbb)
     assert args.program_index < len(d["programs"]), "args.program_index out of range"
@@ -160,7 +160,7 @@ def query(args):
         else:
             d = system_desc_as_dict(desc)
             file_name = d["product_identifier"] + ".ttsys"
-        ttrt.binary.store(desc, file_name)
+        desc.store(file_name)
         print("system desc saved to:", file_name)
 
 

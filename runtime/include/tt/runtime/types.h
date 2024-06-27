@@ -6,6 +6,7 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <memory>
+#include <string_view>
 #include <vector>
 
 #include "tt/runtime/utils.h"
@@ -13,48 +14,70 @@
 
 namespace tt::runtime {
 
-using DeviceIds = std::vector<int>;
-
+namespace detail {
 struct ObjectImpl {
   std::shared_ptr<void> handle;
 
   ObjectImpl(std::shared_ptr<void> handle) : handle(handle) {}
-  template <typename T>
-  ObjectImpl(T &borrowed_reference)
-      : handle(utils::unsafe_borrow_shared(&borrowed_reference)) {}
-
   template <typename T> T &as() { return *static_cast<T *>(handle.get()); }
   template <typename T> T const &as() const {
     return *static_cast<T const *>(handle.get());
   }
 };
-
-struct Flatbuffer : public ObjectImpl {
-  using ObjectImpl::ObjectImpl;
-};
-
-using SystemDesc = Flatbuffer;
-using Binary = Flatbuffer;
-
-struct Device : public ObjectImpl {
-  using ObjectImpl::ObjectImpl;
-};
-
-struct Event : public ObjectImpl {
-  using ObjectImpl::ObjectImpl;
-};
-
-struct Tensor : public ObjectImpl {
-  std::shared_ptr<void> data;
-  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data)
-      : ObjectImpl(handle), data(data) {}
-};
+} // namespace detail
 
 struct TensorDesc {
   std::vector<std::uint32_t> shape;
   std::vector<std::uint32_t> stride;
   std::uint32_t itemsize;
   ::tt::target::DataType dataType;
+};
+
+using DeviceIds = std::vector<int>;
+
+struct Flatbuffer : public detail::ObjectImpl {
+  using detail::ObjectImpl::ObjectImpl;
+
+  static Flatbuffer loadFromPath(char const *path);
+
+  void store(char const *path) const;
+  std::string_view getFileIdentifier() const;
+  std::string getVersion() const;
+  std::string_view getTTMLIRGitHash() const;
+  std::string asJson() const;
+};
+
+struct SystemDesc : public Flatbuffer {
+  using Flatbuffer::Flatbuffer;
+
+  static SystemDesc loadFromPath(char const *path);
+};
+
+struct Binary : public Flatbuffer {
+  using Flatbuffer::Flatbuffer;
+
+  static Binary loadFromPath(char const *path);
+
+  std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
+  std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
+};
+
+struct Device : public detail::ObjectImpl {
+  using detail::ObjectImpl::ObjectImpl;
+
+  template <typename T> static Device borrow(T &object) {
+    return Device(utils::unsafe_borrow_shared(&object));
+  }
+};
+
+struct Event : public detail::ObjectImpl {
+  using detail::ObjectImpl::ObjectImpl;
+};
+
+struct Tensor : public detail::ObjectImpl {
+  std::shared_ptr<void> data;
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data)
+      : detail::ObjectImpl(handle), data(data) {}
 };
 
 } // namespace tt::runtime

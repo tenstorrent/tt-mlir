@@ -37,13 +37,37 @@
 #include "ttnn/operations/creation.hpp"
 #pragma clang diagnostic pop
 
+#include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 
 namespace tt::runtime::ttnn {
+
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
+
+Tensor createTensor(std::shared_ptr<void> data,
+                    std::vector<std::uint32_t> const &shape,
+                    std::vector<std::uint32_t> const &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+
+inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
+  return createTensor(data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+}
+
+Device openDevice(std::vector<int> deviceIds = {0});
+
+void closeDevice(Device device);
+
+Event submit(Device device, Binary executable, std::uint32_t programIndex,
+             std::vector<Tensor> const &inputs,
+             std::vector<Tensor> const &outputs);
+
+void wait(Event event);
+
 void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
+
 } // namespace tt::runtime::ttnn
 
 #endif

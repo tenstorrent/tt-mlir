@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "tt/runtime/binary.h"
 #include "tt/runtime/runtime.h"
 
 #include <pybind11/pybind11.h>

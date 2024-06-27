@@ -6,14 +6,14 @@
 
 #include "flatbuffers/idl.h"
 
-#include "tt/runtime/binary.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
 #include "ttmlir/Target/Common/system_desc_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_bfbs_generated.h"
 
-namespace tt::runtime::binary {
+namespace tt::runtime {
 
 static std::string asJson(void const *fbb, uint8_t const *binarySchema,
                           size_t schemaSize) {
@@ -57,7 +57,7 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  return ::tt::runtime::binary::asJson(
+  return ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::ttnn::TTNNBinaryBinarySchema::data(),
       ::tt::target::ttnn::TTNNBinaryBinarySchema::size());
 }
@@ -120,18 +120,14 @@ std::string_view getTTMLIRGitHash(Flatbuffer binary) {
 }
 
 std::string asJson(Flatbuffer binary) {
-  return ::tt::runtime::binary::asJson(
+  return ::tt::runtime::asJson(
       binary.handle.get(), ::tt::target::SystemDescRootBinarySchema::data(),
       ::tt::target::SystemDescRootBinarySchema::size());
 }
 
 } // namespace system_desc
 
-Flatbuffer loadFromData(void *data) {
-  return Binary{utils::unsafe_borrow_shared(data)};
-}
-
-Flatbuffer loadFromPath(char const *path) {
+Flatbuffer Flatbuffer::loadFromPath(char const *path) {
   // load a flatbuffer from path
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
   if (!fbb.is_open()) {
@@ -142,91 +138,99 @@ Flatbuffer loadFromPath(char const *path) {
   fbb.seekg(0, std::ios::beg);
   auto buffer = utils::malloc_shared(size);
   fbb.read(static_cast<char *>(buffer.get()), size);
-  return Binary{buffer};
+  return Flatbuffer(buffer);
 }
 
-void store(Flatbuffer binary, char const *path) {
+void Flatbuffer::store(char const *path) const {
   // store a flatbuffer to path
   std::ofstream fbb(path, std::ios::binary);
   auto size = ::flatbuffers::GetPrefixedSize(
-      static_cast<const uint8_t *>(binary.handle.get()));
-  fbb.write(reinterpret_cast<char const *>(binary.handle.get()), size);
+      static_cast<const uint8_t *>(handle.get()));
+  fbb.write(reinterpret_cast<char const *>(handle.get()), size);
 }
 
-std::string_view getFileIdentifier(Flatbuffer binary) {
+std::string_view Flatbuffer::getFileIdentifier() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
+          handle.get())) {
     return ::tt::target::ttnn::TTNNBinaryIdentifier();
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
-          binary.handle.get())) {
+          handle.get())) {
     return ::tt::target::SystemDescRootIdentifier();
   }
 
   throw std::runtime_error("Unsupported binary format");
 }
 
-std::string getVersion(Flatbuffer binary) {
+std::string Flatbuffer::getVersion() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
-    return ttnn::getVersion(binary);
+          handle.get())) {
+    return ttnn::getVersion(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
-          binary.handle.get())) {
-    return system_desc::getVersion(binary);
+          handle.get())) {
+    return system_desc::getVersion(*this);
   }
 
   throw std::runtime_error("Unsupported binary format");
 }
 
-std::string_view getTTMLIRGitHash(Flatbuffer binary) {
+std::string_view Flatbuffer::getTTMLIRGitHash() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
-    return ttnn::getTTMLIRGitHash(binary);
+          handle.get())) {
+    return ttnn::getTTMLIRGitHash(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
-          binary.handle.get())) {
-    return system_desc::getTTMLIRGitHash(binary);
+          handle.get())) {
+    return system_desc::getTTMLIRGitHash(*this);
   }
 
   throw std::runtime_error("Unsupported binary format");
 }
 
-std::string asJson(Flatbuffer binary) {
+std::string Flatbuffer::asJson() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
-    return ttnn::asJson(binary);
+          handle.get())) {
+    return ttnn::asJson(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
-          binary.handle.get())) {
-    return system_desc::asJson(binary);
+          handle.get())) {
+    return system_desc::asJson(*this);
   }
 
   throw std::runtime_error("Unsupported binary format");
 }
 
-std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
-                                         std::uint32_t programIndex) {
+SystemDesc SystemDesc::loadFromPath(char const *path) {
+  return SystemDesc(Flatbuffer::loadFromPath(path).handle);
+}
+
+Binary Binary::loadFromPath(char const *path) {
+  return Binary(Flatbuffer::loadFromPath(path).handle);
+}
+
+std::vector<TensorDesc>
+Binary::getProgramInputs(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
-    return ttnn::getProgramInputs(binary, programIndex);
+          handle.get())) {
+    return ttnn::getProgramInputs(*this, programIndex);
   }
 
   throw std::runtime_error("Unsupported binary format");
 }
 
-std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
-                                          std::uint32_t programIndex) {
+std::vector<TensorDesc>
+Binary::getProgramOutputs(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-          binary.handle.get())) {
-    return ttnn::getProgramOutputs(binary, programIndex);
+          handle.get())) {
+    return ttnn::getProgramOutputs(*this, programIndex);
   }
 
   throw std::runtime_error("Unsupported binary format");
 }
 
-} // namespace tt::runtime::binary
+} // namespace tt::runtime
