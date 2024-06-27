@@ -1,20 +1,16 @@
 # **Introduction**
 
-The following document provides an overview to the upcoming TT-MLIR
+The following document provides an overview of the TT-MLIR
 project, with a focus on the technical specifications of an MLIR-based
-compiler stack... So what exactly is an MLIR-based compiler stack? MLIR
-(Multi Level Intermediate Representation) is a new framework coming out
+compiler stack. So what exactly is an MLIR-based compiler stack? MLIR
+(Multi Level Intermediate Representation) is a subproject coming out
 of the LLVM Project. It seeks to introduce extensibility and sustainable
 code design to a very modular compiler framework. This essentially means
 to take a much larger more involved compiler (like LLVM) and split it
 into sub-compilers that each produce their own Intermediate
 Representation (IR) of what you've fed the compiler.
 
-Disclaimer: I'm an intern on the Compiler team, and my understanding of
-certain topics may not be as strong as I would like it to be. If you
-find something incorrect / poorly worded on this document please let me
-know what it is, I'm always happy to learn more about this new software
-stack!
+Disclaimer: This is intended to be a working document, if you find something incorrect or incomplete please feel free to create a PR.
 
 ## **Motivations**
 
@@ -201,11 +197,7 @@ to optimize at *different levels* for later compilation. The "bottom" of
 our graph is now defined as the backend that will produce the
 machine-specific code to be executed. While MLIR could allow for any
 level of complexity downwards for the bottom, we will define a very
-aggressive TTNN backend for the MVP. This essentially means that the
-TT-MLIR projects seeks to introduce a streamlined flow from BUDA to TTNN
-with optimizations occuring in the front-end, back-end and in between
-the translation of these layers.
-
+aggressive TTNN backend for the MVP.
 Desired Optimization List:
 
 -   BUDA (frontend)
