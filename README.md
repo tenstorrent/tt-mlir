@@ -1,5 +1,16 @@
 # tt-mlir
 
+tt-mlir is a compiler project aimed at defining MLIR dialects to abstract compute on Tenstorrent AI accelerators.
+It is built on top of the [MLIR](https://mlir.llvm.org/) compiler infrastructure and targets [TTNN](https://github.com/tenstorrent/tt-metal).
+
+## Project Goals
+
+- Generality: Support a wide range of AI models and workloads including training
+- Scalable: First class primitives to describe scaling to multichip systems
+- Performant: Enable great out of the box performance
+- Tooling: Enable human in the loop guided compiler optimization
+- Open source: All project development is done in the open
+
 ## Build
 
 ### Environment setup
@@ -51,10 +62,8 @@ source env/activate
 cmake --build build -- clang-tidy
 ```
 
-## This repo is very much a work in progress
+## Simple Test
 
-- mlir input tosa/linalg examples `test/ttmlir`.
-- Simple test (each flag is a pass that runs in order):
 ```bash
 ./build/bin/ttmlir-opt --convert-tosa-to-ttir --ttir-to-ttnn-backend-pipeline test/ttmlir/simple_eltwise_tosa.mlir
 # Or
@@ -86,14 +95,12 @@ cmake --build build -- clang-tidy
   - `tensor.pad`: Pad a tensor with a value (ie. convs)
   - `ttir.yield`: return result memref of computation in dispatch region body, lowers to `ttkernel.yield`
   - `ttir.kernel`: lowers to some backend kernel
-- `ttnn`: A TTNN dialect that pattern matches to ttnn operations.
-- `ttir` lowers to `ttnn` or `ttmetal` and `ttkernel` dialects:
-  - `ttmetal`: Operations that dispatch work from host to device.
-    - `ttmetal.dispatch`: Dispatch a grid of compute work.
-  - `ttkernel`: Tenstorrent kernel library operations.
-    - `ttkernel.ffi`: Call a function defined outside of this compilation context.  Usually a hand written piece of C++.
-    - `ttkernel.noc_async_read`
-    - `ttkernel.noc_async_write`
-    - `ttkernel.cb_push_back`
-    - `ttkernel.[matmul|add|multiply]`: Computations on tiles in source register space, store the result in dest register space.
-    - `ttkernel.sfpu_*`: Computations on tiles in dest register space using sfpu coprocessor.
+- `ttnn`: A TTNN dialect that models ttnn API.
+- `ttkernel`: Tenstorrent kernel library operations.
+  - `ttkernel.noc_async_read`
+  - `ttkernel.noc_async_write`
+  - `ttkernel.cb_push_back`
+  - `ttkernel.[matmul|add|multiply]`: Computations on tiles in source register space, store the result in dest register space.
+  - `ttkernel.sfpu_*`: Computations on tiles in dest register space using sfpu coprocessor.
+- `ttmetal`: Operations that dispatch work from host to device.
+  - `ttmetal.dispatch`: Dispatch a grid of compute work.
