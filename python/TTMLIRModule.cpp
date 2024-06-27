@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir/Bindings/Python/Overrides.h"
 
 PYBIND11_MODULE(_ttmlir, m) {
   m.doc() = "ttmlir main python extension";
@@ -28,4 +29,6 @@ PYBIND11_MODULE(_ttmlir, m) {
   mlir::ttmlir::python::populateTTModule(tt_ir);
   auto ttkernel_ir = m.def_submodule("ttkernel_ir", "TTKernel IR Bindings");
   mlir::ttmlir::python::populateTTKernelModule(ttkernel_ir);
+  auto overrides_ = m.def_submodule("overrides", "Python-Bound Overrides");
+  mlir::ttmlir::python::populateOverridesModule(overrides_);
 }
