@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_BINDINGS_PYTHON_OVERRIDESMODULE_H
-#define TTMLIR_BINDINGS_PYTHON_OVERRIDESMODULE_H
+#ifndef TTMLIR_BINDINGS_PYTHON_OVERRIDES_H
+#define TTMLIR_BINDINGS_PYTHON_OVERRIDES_H
 
 #include "mlir/Bindings/Python/PybindAdaptors.h"
 #include "mlir/InitAllDialects.h"
@@ -23,4 +23,4 @@ namespace mlir::ttmlir::python {
 void populateOverridesModule(py::module &m);
 } // namespace mlir::ttmlir::python
 
-#endif // TTMLIR_BINDINGS_PYTHON_OVERRIDESMODULE_H
+#endif // TTMLIR_BINDINGS_PYTHON_OVERRIDES_H
