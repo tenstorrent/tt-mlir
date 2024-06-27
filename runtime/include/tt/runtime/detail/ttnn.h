@@ -50,7 +50,8 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
-  return createTensor(data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
+  return createTensor(data, desc.shape, desc.stride, desc.itemsize,
+                      desc.dataType);
 }
 
 Device openDevice(std::vector<int> deviceIds = {0});

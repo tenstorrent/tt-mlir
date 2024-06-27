@@ -8,4 +8,3 @@ module attributes {torch.debug_module_name = "_lambda", tt.system_desc = #tt.sys
     return %1 : tensor<64x128xf32>
   }
 }
-

@@ -18,4 +18,3 @@ module attributes {torch.debug_module_name = "GraphModule"} {
     return %7, %arg2 : tensor<32x128xf32>, tensor<32x64xf32>
   }
 }
-

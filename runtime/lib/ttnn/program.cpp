@@ -5,17 +5,17 @@
 #include <list>
 #include <unordered_map>
 
-#include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/runtime.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
 namespace tt::runtime::ttnn {
-static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
-                ::ttnn::Device &device,
-                std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-                  std::list<::ttnn::Tensor> &tensorPool) {
+static void
+run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
   if (op->out()->desc()->layout()->memory_desc()->memory_space() ==
       ::tt::target::MemorySpace::System) {
     auto &inputTensor = *liveTensors.at(op->in0()->global_id());
@@ -30,7 +30,7 @@ static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
     return;
   }
   bool isL1 = op->in0()->desc()->layout()->memory_desc()->memory_space() ==
-               ::tt::target::MemorySpace::DeviceL1;
+              ::tt::target::MemorySpace::DeviceL1;
   const auto memoryConfig =
       isL1 ? ::ttnn::L1_MEMORY_CONFIG : ::ttnn::DRAM_MEMORY_CONFIG;
   auto &inputTensor = *liveTensors.at(op->in0()->global_id());
@@ -45,9 +45,10 @@ static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
   // assert(inserted && "Duplicate output tensor");
 }
 
-static void run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
-                std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-                std::list<::ttnn::Tensor> &tensorPool) {
+static void
+run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
     assert(op->ins()->size() == 2 && "Unsupported number of inputs");
@@ -64,9 +65,10 @@ static void run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
   }
 }
 
-static void run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
-                std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-                std::list<::ttnn::Tensor> &tensorPool) {
+static void
+run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::OpenDeviceOp: {
     // Skip for now, do we want device externally supplied?

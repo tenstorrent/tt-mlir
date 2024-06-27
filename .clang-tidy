@@ -25,4 +25,3 @@ CheckOptions:
   llvm-qualified-auto.AddConstToQualified: 'false'
 SystemHeaders:   false
 ...
-

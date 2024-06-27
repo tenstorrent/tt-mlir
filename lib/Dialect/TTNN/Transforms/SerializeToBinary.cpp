@@ -102,7 +102,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   }
   std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
   for (auto input : op.getInputs()) {
-    ins.push_back(cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+    ins.push_back(
+        cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
   }
   assert(op.getOutputs().size() == 1);
   return ::tt::target::ttnn::CreateEltwiseOpDirect(

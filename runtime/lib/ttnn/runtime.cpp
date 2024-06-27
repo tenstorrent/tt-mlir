@@ -158,8 +158,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::vector<Tensor> const &inputHandles,
              std::vector<Tensor> const &outputHandles) {
   ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>();
-  ::tt::target::ttnn::TTNNBinary const &fbb =
-      *getBinary(executableHandle);
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
   inputs.reserve(inputHandles.size());
   for (auto &input : inputHandles) {

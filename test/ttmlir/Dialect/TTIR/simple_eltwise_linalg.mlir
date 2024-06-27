@@ -14,4 +14,3 @@ module attributes {torch.debug_module_name = "_lambda"} {
     return %1 : tensor<64x128xf32>
   }
 }
-

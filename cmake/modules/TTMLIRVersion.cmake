@@ -8,4 +8,3 @@ add_definitions("-DTTMLIR_GIT_HASH=${TTMLIR_GIT_HASH}")
 add_definitions("-DTTMLIR_VERSION_MAJOR=0")
 add_definitions("-DTTMLIR_VERSION_MINOR=0")
 add_definitions("-DTTMLIR_VERSION_RELEASE=0")
-
