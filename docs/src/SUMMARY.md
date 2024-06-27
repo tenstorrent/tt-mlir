@@ -1,7 +1,6 @@
 # Summary
 
-[Introduction](./introduction.md)
-[Overview](./overview.md)
+[Introduction](./overview.md)
 
 # User Guide
 
