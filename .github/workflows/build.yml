@@ -28,8 +28,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v3
-    - uses: pre-commit/action@v3.0.1
 
     - name: mkdir /opt/ttmlir-toolchain
       shell: bash

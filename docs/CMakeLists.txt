@@ -41,8 +41,6 @@ if (DOXYGEN_FOUND)
     DEPENDS
       docs mlir-doc copy-docs-dir
   )
-
-
 else()
-  message(FATAL_ERROR "Doxygen is required to build documentation")
+  message("Doxygen is required to build documentation")
 endif()
