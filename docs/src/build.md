@@ -51,7 +51,7 @@ cmake --build build -- clang-tidy
 
 ## Docs
 
-Doc dependencies: `mdbook`, `doxygen`, `graphviz`
+Doc dependencies: `mdbook`
 
 ```bash
 source env/activate
