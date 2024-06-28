@@ -52,7 +52,7 @@ cmake --build build
 
 Note: To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
 
-Note: 
+Note:
 - TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html
 - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
 
