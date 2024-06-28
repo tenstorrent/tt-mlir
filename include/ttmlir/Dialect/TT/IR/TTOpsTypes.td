@@ -30,7 +30,7 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
     TT grid attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"int64_t">:$shape, 
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
                           "$_builder.getEmptyAffineMap()">:$physical_grid_mapping);

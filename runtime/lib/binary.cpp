@@ -68,7 +68,8 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
   for (auto const *input : *program->inputs()) {
     TensorDesc desc;
-    desc.shape = {input->desc()->shape()->begin(), input->desc()->shape()->end()};
+    desc.shape = {input->desc()->shape()->begin(),
+                  input->desc()->shape()->end()};
     desc.stride = {input->desc()->layout()->strides()->begin(),
                    input->desc()->layout()->strides()->end()};
     desc.itemsize = utils::dataTypeElementSize(
@@ -85,7 +86,8 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
   for (auto const *output : *program->outputs()) {
     TensorDesc desc;
-    desc.shape = {output->desc()->shape()->begin(), output->desc()->shape()->end()};
+    desc.shape = {output->desc()->shape()->begin(),
+                  output->desc()->shape()->end()};
     desc.stride = {output->desc()->layout()->strides()->begin(),
                    output->desc()->layout()->strides()->end()};
     desc.itemsize = utils::dataTypeElementSize(

@@ -4,3 +4,5 @@ clang-format
 clang-tidy
 wheel
 setuptools
+black
+pre-commit
