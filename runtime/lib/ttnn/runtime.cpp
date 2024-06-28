@@ -73,7 +73,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   auto handle = utils::malloc_shared(size);
   std::memcpy(handle.get(), buf, size);
   ::ttnn::close_device(device);
-  return std::make_pair(SystemDesc{handle}, chipIds);
+  return std::make_pair(SystemDesc(handle), chipIds);
 }
 
 template <typename T>

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/Common/system_desc_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
 
 namespace tt::runtime {
@@ -51,6 +52,12 @@ struct SystemDesc : public Flatbuffer {
   using Flatbuffer::Flatbuffer;
 
   static SystemDesc loadFromPath(char const *path);
+
+  ::tt::target::SystemDesc const *get() const {
+    return ::tt::target::GetSizePrefixedSystemDescRoot(handle.get())
+        ->system_desc();
+  }
+  ::tt::target::SystemDesc const *operator->() const { return get(); }
 };
 
 struct Binary : public Flatbuffer {
