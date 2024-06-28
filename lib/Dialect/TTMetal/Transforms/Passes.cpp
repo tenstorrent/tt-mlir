@@ -255,7 +255,6 @@ void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());
   pm.addPass(createConvertTTIRToTTMetal());
-  pm.addPass(createTTMetalSerializeToBinary());
 }
 
 } // namespace mlir::tt::ttmetal

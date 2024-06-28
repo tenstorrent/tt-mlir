@@ -189,11 +189,14 @@ public:
     uint8_t *buf = fbb.GetBufferPointer();
     auto size = fbb.GetSize();
 
-#if 1
-    std::ofstream ttnn("out.ttnn", std::ios::out | std::ios::binary);
-    ttnn.write(reinterpret_cast<char const *>(buf), size);
-    ttnn.close();
-#endif
+    serializedBinary = std::shared_ptr<void>(std::malloc(size), std::free);
+    std::memcpy(serializedBinary.get(), buf, size);
+
+    if (not output.empty()) {
+      std::ofstream ttnn(output, std::ios::out | std::ios::binary);
+      ttnn.write(reinterpret_cast<char const *>(buf), size);
+      ttnn.close();
+    }
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
@@ -202,6 +205,11 @@ public:
     registry.insert<mlir::func::FuncDialect>();
     registry.insert<mlir::emitc::EmitCDialect>();
   }
+
+  std::shared_ptr<void> getBinary() const { return serializedBinary; }
+
+private:
+  std::shared_ptr<void> serializedBinary;
 };
 
 } // namespace mlir::tt::ttnn

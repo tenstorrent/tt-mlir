@@ -134,7 +134,6 @@ void createTTIRToTTNNBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
   pm.addPass(createTTNNOpenDevice());
   pm.addPass(createConvertTTIRToTTNN());
-  pm.addPass(createTTNNSerializeToBinary());
 }
 
 } // namespace mlir::tt::ttnn

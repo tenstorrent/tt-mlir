@@ -33,6 +33,10 @@ def TTNNSerializeToBinary: Pass<"ttnn-serialize-to-binary", "::mlir::ModuleOp"> 
   let description = [{
     todo
   }];
+
+  list<Option> options = [
+    Option<"output", "output", "std::string", "", "Output binary path">,
+  ];
 }
 
 #endif
