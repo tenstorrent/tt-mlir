@@ -19,6 +19,10 @@ def TTMetalSerializeToBinary: Pass<"ttmetal-serialize-to-binary", "::mlir::Modul
   let description = [{
     todo
   }];
+
+  list<Option> options = [
+    Option<"output", "output", "std::string", "", "Output binary path">,
+  ];
 }
 
 #endif

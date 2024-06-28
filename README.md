@@ -48,7 +48,7 @@ cmake --build build -- check-ttmlir
 source env/activate
 cmake --build build -- ttrt
 
-./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_multiply.mlir
+./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline --ttnn-serialize-to-binary="output=out.ttnn" test/ttmlir/Dialect/TTNN/simple_multiply.mlir
 ttrt read --section version out.ttnn
 ttrt read --section system-desc out.ttnn
 
