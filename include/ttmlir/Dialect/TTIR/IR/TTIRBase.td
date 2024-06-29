@@ -25,7 +25,6 @@ def TTIR_Dialect : Dialect {
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
       "::mlir::func::FuncDialect",
-      "::mlir::ml_program::MLProgramDialect",
       "::mlir::tensor::TensorDialect",
       "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",

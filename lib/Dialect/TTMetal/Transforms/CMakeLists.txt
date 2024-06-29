@@ -10,11 +10,6 @@ add_mlir_dialect_library(MLIRTTMetalTransforms
         MLIRTTMetalOpsIncGen
         MLIRTTMetalPassesIncGen
         MLIRTTOpsIncGen
-
-        LINK_LIBS PUBLIC
-        MLIRIR
-        MLIRInferTypeOpInterface
-        MLIRFuncDialect
         )
 
 target_include_directories(MLIRTTMetalTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

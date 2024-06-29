@@ -8,9 +8,4 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MLIRTTIROpsIncGen
         MLIRTTIRPassesIncGen
         MLIRTTOpsIncGen
-
-        LINK_LIBS PUBLIC
-        MLIRIR
-        MLIRInferTypeOpInterface
-        MLIRFuncDialect
         )

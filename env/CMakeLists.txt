@@ -19,6 +19,7 @@ ExternalProject_Add(
       -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN}
       -DFLATBUFFERS_BUILD_TESTS=OFF
       -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)
+      -DFLATBUFFERS_BUILD_SHAREDLIB=ON
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
     GIT_TAG v24.3.7
     DEPENDS python-venv
@@ -37,6 +38,15 @@ ExternalProject_Add(
       -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN}
       -DLLVM_ENABLE_PROJECTS=mlir
       -DLLVM_INSTALL_UTILS=ON
+      # Build shared libraries
+      # ======================
+      -DLLVM_ENABLE_PIC=ON
+      -DLLVM_BUILD_LLVM_DYLIB=ON
+      -DLLVM_LINK_LLVM_DYLIB=ON
+      -DMLIR_BUILD_MLIR_C_DYLIB=ON
+      -DMLIR_LINK_MLIR_DYLIB=ON
+      -DMLIR_BUILD_MLIR_C_DYLIB=ON
+      # ======================
       -DCMAKE_BUILD_TYPE=MinSizeRel
       -DLLVM_ENABLE_ASSERTIONS=ON
       -DMLIR_ENABLE_BINDINGS_PYTHON=ON

@@ -9,9 +9,4 @@ add_mlir_dialect_library(MLIRTTMetalDialect
         DEPENDS
         MLIRTTMetalOpsIncGen
         MLIRTTOpsIncGen
-
-        LINK_LIBS PUBLIC
-        MLIRIR
-        MLIRInferTypeOpInterface
-        MLIRFuncDialect
         )

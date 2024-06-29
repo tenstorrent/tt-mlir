@@ -13,7 +13,7 @@ set(TTMLIR_TEST_DEPENDS
         FileCheck count not
         ttmlir-opt
         )
-if(MLIR_ENABLE_BINDINGS_PYTHON)
+if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
   list(APPEND TTMLIR_TEST_DEPENDS TTMLIRPythonModules)
 endif()
 

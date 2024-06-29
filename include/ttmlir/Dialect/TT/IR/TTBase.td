@@ -24,15 +24,7 @@ def TT_Dialect : Dialect {
     let extraClassDeclaration = [{
         void registerTypes();
     }];
-    let dependentDialects = [
-      "::mlir::arith::ArithDialect",
-      "::mlir::func::FuncDialect",
-      "::mlir::ml_program::MLProgramDialect",
-      "::mlir::tensor::TensorDialect",
-      "::mlir::linalg::LinalgDialect",
-      "::mlir::scf::SCFDialect",
-      "::mlir::cf::ControlFlowDialect"
-    ];
+    let dependentDialects = [];
 }
 
 //===----------------------------------------------------------------------===//
