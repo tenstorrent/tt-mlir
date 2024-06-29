@@ -85,6 +85,21 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+// ANCHOR: adding_an_op_matmul_ttnn
+def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$output);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+// ANCHOR_END: adding_an_op_matmul_ttnn
+
 def TTNN_FullOp : TTNN_Op<"full"> {
     let summary = "Full op.";
     let description = [{

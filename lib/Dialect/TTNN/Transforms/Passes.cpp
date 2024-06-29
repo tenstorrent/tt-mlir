@@ -94,6 +94,21 @@ public:
   }
 };
 
+// ANCHOR: adding_an_op_matmul_op_rewriter
+template <typename TTIROp, typename TTNNOp>
+class TTIRToTTNNBinaryOpRewriter : public OpRewritePattern<TTIROp> {
+public:
+  using OpRewritePattern<TTIROp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(TTIROp op,
+                                PatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<TTNNOp>(op, op.getResult().getType(), op.getA(),
+                                        op.getB(), op.getOutput());
+    return success();
+  }
+};
+// ANCHOR_END: adding_an_op_matmul_op_rewriter
+
 class TensorEmptyToFullRewriter : public OpRewritePattern<tensor::EmptyOp> {
 public:
   using OpRewritePattern<tensor::EmptyOp>::OpRewritePattern;
@@ -113,11 +128,14 @@ public:
   using impl::ConvertTTIRToTTNNBase<ConvertTTIRToTTNN>::ConvertTTIRToTTNNBase;
 
   void runOnOperation() final {
+    // ANCHOR: adding_an_op_matmul_rewrite_pattern_set
     RewritePatternSet patterns(&getContext());
     patterns
         .add<TTIRToTTNNLayoutRewriter, TTIRToTTNNOpRewriter<ttir::AddOp, AddOp>,
              TTIRToTTNNOpRewriter<ttir::MultiplyOp, MultiplyOp>,
+             TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>,
              TensorEmptyToFullRewriter>(&getContext());
+    // ANCHOR_END: adding_an_op_matmul_rewrite_pattern_set
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();

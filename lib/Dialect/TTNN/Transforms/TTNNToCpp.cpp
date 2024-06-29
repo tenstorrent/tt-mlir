@@ -142,6 +142,7 @@ public:
                    TTNNToEmitCOpaqueRewriter<FullOp>,
                    TTNNToEmitCOpaqueRewriter<ToMemoryConfigOp>,
                    TTNNToEmitCOpaqueRewriter<MultiplyOp>,
+                   TTNNToEmitCOpaqueRewriter<MatmulOp>,
                    TTNNToEmitCOpaqueRewriter<CloseDeviceOp>>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {

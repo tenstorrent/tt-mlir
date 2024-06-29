@@ -146,6 +146,28 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+// ANCHOR: adding_an_op_matmul_ttir
+def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
+    let summary = "Matrix multiply operation.";
+    let description = [{
+      Matrix multiply operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+// ANCHOR_END: adding_an_op_matmul_ttir
+
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)
 //===----------------------------------------------------------------------===//

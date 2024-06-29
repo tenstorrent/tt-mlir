@@ -583,6 +583,7 @@ public:
       patterns.add<TTIRLayoutOperandsRewriter<GenericOp>,
                    TTIRLayoutOperandsRewriter<AddOp>,
                    TTIRLayoutOperandsRewriter<MultiplyOp>,
+                   TTIRLayoutOperandsRewriter<MatmulOp>,
                    TTIRLayoutFuncReturnRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {

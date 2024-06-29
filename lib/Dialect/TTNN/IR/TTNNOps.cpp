@@ -30,6 +30,43 @@ namespace mlir::tt::ttnn {
   return success();
 }
 
+// ANCHOR: adding_an_op_matmul_ttnn_verify
+::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  auto inputAShape = inputAType.getShape();
+  auto inputBShape = inputBType.getShape();
+  auto outputShape = outputType.getShape();
+  if (inputAShape.size() < 2) {
+    return emitOpError("Input A must be at least a 2D tensor");
+  }
+  if (inputBShape.size() < 2) {
+    return emitOpError("Input B must be at least a 2D tensor");
+  }
+  if (inputAShape.size() != inputBShape.size()) {
+    return emitOpError("Input A and B must have the same rank");
+  }
+  if (inputAShape.size() != outputShape.size()) {
+    return emitOpError("Input A and B must have the same rank as the output");
+  }
+  if (inputAShape[inputAShape.size() - 1] !=
+      inputBShape[inputBShape.size() - 2]) {
+    return emitOpError("Input A and B must have matching inner dimensions");
+  }
+  if (outputShape[outputShape.size() - 2] !=
+      inputAShape[inputAShape.size() - 2]) {
+    return emitOpError("Output must have the same number of rows as input A");
+  }
+  if (outputShape[outputShape.size() - 1] !=
+      inputBShape[inputBShape.size() - 1]) {
+    return emitOpError(
+        "Output must have the same number of columns as input B");
+  }
+  return success();
+}
+// ANCHOR_END: adding_an_op_matmul_ttnn_verify
+
 ::mlir::LogicalResult AllocOp::verify() {
   auto layout = getResult()
                     .getType()
