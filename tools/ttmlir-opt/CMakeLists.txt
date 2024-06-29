@@ -1,17 +1,6 @@
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
-set(LIBS
-        ${dialect_libs}
-        ${conversion_libs}
-        MLIRArithDialect
-        MLIROptLib
-        MLIRTTDialect
-        MLIRTTKernelDialect
-        MLIRTTIRDialect
-        MLIRTTMetalDialect
-        MLIRTargetCpp
-        MLIRTTNNDialect
-        )
+set(LIBS ${dialect_libs} ${conversion_libs} MLIROptLib MLIRTargetCpp TTMLIR)
 add_llvm_executable(ttmlir-opt ttmlir-opt.cpp)
 
 llvm_update_compile_flags(ttmlir-opt)

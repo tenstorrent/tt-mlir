@@ -54,11 +54,12 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
 
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
-  MLIRPythonSources.Dialects.func
-  MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.arith
-  MLIRPythonExtension.Core
-  MLIRPythonExtension.RegisterEverything
+  MLIRPythonSources.Dialects.func
+  MLIRPythonSources.Dialects.tensor
+  MLIRPythonSources.Dialects.linalg
+  MLIRPythonSources.Dialects.ml_program
+  MLIRPythonSources.Dialects.scf
   TTMLIRPythonSources
   TTMLIRPythonExtensions
 )

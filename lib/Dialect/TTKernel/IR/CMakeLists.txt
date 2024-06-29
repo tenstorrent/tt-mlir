@@ -11,8 +11,5 @@ add_mlir_dialect_library(MLIRTTKernelDialect
         MLIRTTOpsIncGen
 
         LINK_LIBS PUBLIC
-        MLIRIR
-        MLIRInferTypeOpInterface
-        MLIRFuncDialect
         MLIRTTMetalDialect
         )

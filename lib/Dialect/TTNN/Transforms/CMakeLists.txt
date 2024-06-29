@@ -10,11 +10,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
         MLIRTTOpsIncGen
-
-        LINK_LIBS PUBLIC
-        MLIRIR
-        MLIRInferTypeOpInterface
-        MLIRFuncDialect
         )
 
 target_include_directories(MLIRTTNNTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

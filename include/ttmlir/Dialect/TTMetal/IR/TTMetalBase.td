@@ -27,11 +27,8 @@ def TTMetal_Dialect : Dialect {
         void registerTypes();
     }];
     let dependentDialects = [
-      "::mlir::arith::ArithDialect",
       "::mlir::func::FuncDialect",
-      "::mlir::ml_program::MLProgramDialect",
       "::mlir::tensor::TensorDialect",
-      "::mlir::linalg::LinalgDialect",
       "::mlir::scf::SCFDialect",
       "::mlir::cf::ControlFlowDialect",
       "::mlir::tt::TTDialect"
