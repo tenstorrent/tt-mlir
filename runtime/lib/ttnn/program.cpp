@@ -82,6 +82,19 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
   }
 }
 
+// ANCHOR: adding_an_op_matmul_runtime
+static void
+run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  auto &lhs = *liveTensors.at(op->in0()->global_id());
+  auto &rhs = *liveTensors.at(op->in1()->global_id());
+  tensorPool.push_back(
+      ::ttnn::operations::matmul::matmul(lhs, rhs, std::nullopt));
+  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+}
+// ANCHOR_END: adding_an_op_matmul_runtime
+
 static void
 run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
@@ -104,6 +117,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
     return run(op->type_as_EltwiseOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    return run(op->type_as_MatmulOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");

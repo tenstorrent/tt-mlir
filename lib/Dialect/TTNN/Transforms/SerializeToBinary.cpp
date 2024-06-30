@@ -89,6 +89,19 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
                         kHostAllocatedSize));
 }
 
+// ANCHOR: adding_an_op_matmul_serialize_to_binary
+::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
+createOp(FlatbufferObjectCache &cache, MatmulOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
+  auto in1 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  return ::tt::target::ttnn::CreateMatmulOp(*cache.fbb, in0, in1, output);
+}
+// ANCHOR_END: adding_an_op_matmul_serialize_to_binary
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -135,6 +148,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
     return createOperation(cache, createEltwiseOp(cache, multiplyOp),
                            debugString);
+  }
+  if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
+    return createOperation(cache, createOp(cache, matmulOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

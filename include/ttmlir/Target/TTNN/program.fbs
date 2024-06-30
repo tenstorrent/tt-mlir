@@ -35,12 +35,21 @@ table EltwiseOp {
   out: tt.target.TensorRef;
 }
 
+// ANCHOR: adding_an_op_matmul_fbs
+table MatmulOp {
+  in0: tt.target.TensorRef;
+  in1: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+}
+// ANCHOR_END: adding_an_op_matmul_fbs
+
 union OpType {
   OpenDeviceOp,
   CloseDeviceOp,
   ToMemoryConfigOp,
   FullOp,
   EltwiseOp,
+  MatmulOp,
 }
 
 table Operation {
