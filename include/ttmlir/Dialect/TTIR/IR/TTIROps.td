@@ -18,7 +18,7 @@ include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, !listconcat(traits, [TTIROpInterface, DestinationStyleOpInterface, AttrSizedOperandSegments])> {
+    TTIR_Op<mnemonic, !listconcat(traits, [TTIROpInterface, DestinationStyleOpInterface])> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
@@ -28,7 +28,7 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_GenericOp : TTIR_DPSOp<"generic"> {
+def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
@@ -116,7 +116,7 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [Elementwise])> {
+    TTIR_DPSOp<mnemonic, !listconcat(traits, [Elementwise, AttrSizedOperandSegments])> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
