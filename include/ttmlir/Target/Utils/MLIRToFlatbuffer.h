@@ -188,10 +188,12 @@ inline DataType elementTypeToDataType(Type elementType) {
   DataType dtype = DataType::Float32;
   if (isa<FloatType>(elementType)) {
     auto floatType = elementType.cast<FloatType>();
-    if (floatType.getWidth() == 32) {
+    if (floatType.isF32()) {
       dtype = DataType::Float32;
-    } else if (floatType.getWidth() == 16) {
+    } else if (floatType.isF16()) {
       dtype = DataType::Float16;
+    } else if (floatType.isBF16()) {
+      dtype = DataType::BFloat16;
     } else {
       assert(false && "unsupported float type");
     }

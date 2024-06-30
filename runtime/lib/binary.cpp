@@ -20,6 +20,7 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
   flatbuffers::IDLOptions opts;
   opts.size_prefixed = true;
   opts.strict_json = true;
+  opts.output_default_scalars_in_json = true;
   flatbuffers::Parser parser(opts);
 
   if (not parser.Deserialize(binarySchema, schemaSize)) {
