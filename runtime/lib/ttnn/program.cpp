@@ -11,6 +11,16 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
+// It seems like `ttnn::to_layout` cannot be called inside of the
+// `tt::runtime::ttnn` namespace.  TTNN uses a lot of metaprogramming and for
+// some reason a static_assert fails when this is called from within our
+// namespace.
+ttnn::Tensor tilize(ttnn::Tensor const &input) {
+  ttnn::Tensor unsqueezeTensor = ttnn::unsqueeze_to_4D(input);
+  return ttnn::to_layout(unsqueezeTensor, ttnn::TILE_LAYOUT, std::nullopt,
+                         std::nullopt, (Device *)nullptr);
+}
+
 namespace tt::runtime::ttnn {
 static void
 run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
@@ -20,8 +30,18 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
       ::tt::target::MemorySpace::System) {
     auto &inputTensor = *liveTensors.at(op->in0()->global_id());
     auto cpu = inputTensor.cpu();
-    auto untilized = ::tt::tt_metal::tensor_impl::to_layout<float>(
-        cpu, ::ttnn::ROW_MAJOR_LAYOUT);
+    ::ttnn::Tensor untilized;
+    if (op->out()->desc()->layout()->memory_desc()->data_type() ==
+        ::tt::target::DataType::Float32) {
+      untilized = ::tt::tt_metal::tensor_impl::to_layout<float>(
+          cpu, ::ttnn::ROW_MAJOR_LAYOUT);
+    } else if (op->out()->desc()->layout()->memory_desc()->data_type() ==
+               ::tt::target::DataType::BFloat16) {
+      untilized = ::tt::tt_metal::tensor_impl::to_layout<bfloat16>(
+          cpu, ::ttnn::ROW_MAJOR_LAYOUT);
+    } else {
+      throw std::runtime_error("Unsupported data type");
+    }
     auto &outputTensor = *liveTensors.at(op->out()->global_id());
     void *src = ::tt::tt_metal::get_raw_host_data_ptr(untilized);
     void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
@@ -34,10 +54,7 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
   const auto memoryConfig =
       isL1 ? ::ttnn::L1_MEMORY_CONFIG : ::ttnn::DRAM_MEMORY_CONFIG;
   auto &inputTensor = *liveTensors.at(op->in0()->global_id());
-  auto tilized = ::tt::tt_metal::tensor_impl::to_layout<float>(
-      inputTensor, ::ttnn::TILE_LAYOUT);
-  //::ttnn::to_layout(inputTensor, ::ttnn::TILE_LAYOUT, std::nullopt,
-  //                  std::nullopt, (Device *)nullptr);
+  ::ttnn::Tensor tilized = ::tilize(inputTensor);
   auto deviceTensor = ::ttnn::to_device(tilized, &device, memoryConfig);
   tensorPool.push_back(deviceTensor);
   // auto [iter, inserted] =

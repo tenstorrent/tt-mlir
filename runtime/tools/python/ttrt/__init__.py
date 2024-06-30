@@ -101,6 +101,21 @@ def run(args):
             return ttrt.runtime.DataType.UInt8
         raise ValueError(f"unsupported dtype: {dtype}")
 
+    def fromDataType(dtype):
+        if dtype == "Float32":
+            return torch.float32
+        if dtype == "Float16":
+            return torch.float16
+        if dtype == "BFloat16":
+            return torch.bfloat16
+        if dtype == "UInt32":
+            return torch.uint32
+        if dtype == "UInt16":
+            return torch.uint16
+        if dtype == "UInt8":
+            return torch.uint8
+        raise ValueError(f"unsupported dtype: {dtype}")
+
     fbb = ttrt.binary.load_binary_from_path(args.binary)
     assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
     d = ttrt.binary.as_dict(fbb)
@@ -110,9 +125,19 @@ def run(args):
     torch_inputs = []
     torch_outputs = []
     for i in program["inputs"]:
-        torch_inputs.append(torch.randn(i["desc"]["shape"]))
+        torch_inputs.append(
+            torch.randn(
+                i["desc"]["shape"],
+                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
+            )
+        )
     for i in program["outputs"]:
-        torch_outputs.append(torch.zeros(i["desc"]["shape"]))
+        torch_outputs.append(
+            torch.zeros(
+                i["desc"]["shape"],
+                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
+            )
+        )
 
     print("inputs:\n", torch_inputs)
 
@@ -140,7 +165,8 @@ def run(args):
             )
         )
 
-    device = ttrt.runtime.open_device()
+    system_desc, device_ids = ttrt.runtime.get_current_system_desc()
+    device = ttrt.runtime.open_device(device_ids)
     ttrt.runtime.submit(device, fbb, 0, inputs, outputs)
     print("outputs:\n", torch_outputs)
     ttrt.runtime.close_device(device)
