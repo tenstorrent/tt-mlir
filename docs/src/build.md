@@ -13,6 +13,9 @@ cmake -B env/build env
 cmake --build env/build
 ```
 
+> - It is recommended to use the **system installation of python3** for the virtual environment.
+>   Please ensure that you do not already have a venv activated before running the above command.
+
 ## Build
 
 ```bash
@@ -21,11 +24,10 @@ cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCM
 cmake --build build
 ```
 
-Note:
-- To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
-- To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
-- To accelerate builds further, if python bindings aren't needed, `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`. For some reason the python bindings link step is very slow.
-- TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html)
+> - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
+> - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
+> - To accelerate builds further, if python bindings aren't needed, `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`. For some reason the python bindings link step is very slow.
+> - TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html)
 
 | OS | Offline Compiler Only | Runtime Enabled Build |
 |----|-----------------------|-----------------------|
@@ -42,7 +44,6 @@ cmake --build build -- check-ttmlir
 
 ## Lint
 
-- `clang-tidy`: Run clang-tidy on the project
 ```bash
 source env/activate
 cmake --build build -- clang-tidy
@@ -50,13 +51,13 @@ cmake --build build -- clang-tidy
 
 ## Docs
 
-Doc dependencies: `mdbook`
-
 ```bash
 source env/activate
 cmake --build build -- docs
 mdbook serve build/docs/book
 ```
+
+> - `mdbook` can be installed with the system's package manager.
 
 ## Dependencies
 
@@ -79,6 +80,8 @@ sudo apt remove cmake -y
 pip3 install cmake --upgrade
 hash -r
 ```
+
+> Ensure cmake can by found in this path pip installed it to. E.g. `PATH=$PATH:$HOME/.local/bin`
 
 Then run the following command to see the cmake version which should be later than 3.20
 
@@ -105,7 +108,7 @@ brew install ninja
 
 ### `TTMLIRPythonCAPI target requires changing an RPATH`
 
-```bash
+```
 CMake Error at /opt/ttmlir-toolchain/lib/cmake/llvm/AddLLVM.cmake:594 (add_library):
   The install of the TTMLIRPythonCAPI target requires changing an RPATH from
   the build tree, but this is not supported with the Ninja generator unless
@@ -118,7 +121,7 @@ If you get the above error, it means you tried to build with an old version of c
 
 ### `clang++ is not a full path and was not found in the PATH`
 
-```bash
+```
 CMake Error at CMakeLists.txt:2 (project):
   The CMAKE_CXX_COMPILER:
     clang++
