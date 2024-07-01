@@ -43,7 +43,7 @@ ExternalProject_Add(
       -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
       -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
-    GIT_REPOSITORY git@github.com:tenstorrent/tt-metal.git
+    GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
     GIT_TAG v0.49.0
     GIT_PROGRESS ON
 )
