@@ -16,3 +16,17 @@
   - `tools/python`: Python bindings for the runtime, currently this is where `ttrt` is implemented
 - `test`: Test suite
 - `tools/ttmlir-opt`: TTMLIR optimizer driver
+
+# Namespaces
+
+- `mlir`: On the compiler side, we use the MLIR namespace for all MLIR types and operations and subnamespace for our dialects.
+  - `mlir::tt`: Everything ttmlir related is underneath this namespace.  Since
+    we need to subnamespace under `mlir`, just `mlir::tt` seemed better than
+    `mlir::ttmlir` which feels redundant.
+    - `mlir::tt::ttir`: The TTIR dialect namespace
+    - `mlir::tt::ttnn`: The TTNN dialect namespace
+    - `mlir::tt::ttmetal`: The TTMetal dialect namespace
+    - `mlir::tt::ttkernel`: The TTKernel dialect namespace
+- `tt::runtime`: On the runtime side, we use the `tt::runtime` namespace for all runtime types and operations.
+  - `tt::runtime::ttnn`: The TTNN runtime namespace
+  - `tt::runtime::ttmetal`: The TTMetal runtime namespace (not implemented)
