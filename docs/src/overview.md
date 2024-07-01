@@ -272,6 +272,18 @@ and representation of tensors as multi-dimensional data with shapes and
 datatypes. Not much else is different about this dialect, the reference
 covers key topics if implementation details are needed.
 
+### Func Dialect
+\[[Reference](https://mlir.llvm.org/docs/Dialects/Func/)\]
+
+### TOSA Dialect
+\[[Reference](https://mlir.llvm.org/docs/Dialects/TOSA/)\]
+
+### SCF Dialect
+\[[Reference](https://mlir.llvm.org/docs/Dialects/SCFDialect/)\]
+
+### EmitC Dialect
+\[[Reference](https://mlir.llvm.org/docs/Dialects/EmitC/)\]
+
 ## TT-Explorer - Performance Optimization Tool
 
 A unique project related to TT-MLIR is the integration of Performance
