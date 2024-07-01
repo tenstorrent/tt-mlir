@@ -34,7 +34,7 @@ if (DOXYGEN_FOUND)
     COMMAND
       ${CMAKE_COMMAND} -E make_directory ${DOXYGEN_DIR}
     COMMAND
-      ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/configure_doxygen.cmake
+      ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/ConfigureDoxygen.cmake
     COMMAND
       doxygen ${DOXYGEN_DIR}/doxygen.cfg
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
