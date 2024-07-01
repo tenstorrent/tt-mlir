@@ -13,7 +13,7 @@
 - [Additional Reading](./additional-reading.md)
 
 # Code Documentation
-
+- [Doxygen](./doxygen.md)
 - [Project Structure](./project-structure.md)
 - [Dialects Overview](./dialects-overview.md)
 - [Adding an op](./adding-an-op.md)
