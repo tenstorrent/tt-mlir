@@ -49,6 +49,22 @@ source env/activate
 cmake --build build -- clang-tidy
 ```
 
+### Pre-Commit
+Pre-Commit applies a git hook to the local repository such that linting is checked and applied on every `git commit` action. Install from the root of the repository using:
+
+```bash
+source env/activate
+pre-commit install
+```
+
+If you have already committed before installing the pre-commit hooks, you can run on all files to "catch up":
+
+```bash
+pre-commit run --all-files
+```
+
+For more information visit [pre-commit](https://pre-commit.com/)
+
 ## Docs
 
 ```bash

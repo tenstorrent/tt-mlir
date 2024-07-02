@@ -51,3 +51,9 @@ add_subdirectory(runtime)
 add_subdirectory(docs)
 
 include(LintTools)
+
+add_custom_target(precommit-install
+  COMMAND
+    pre-commit install
+  WORKING_DIRECTORY "${TTMLIR_SOURCE_DIR}"
+)
