@@ -147,7 +147,7 @@ Flatbuffer Flatbuffer::loadFromPath(char const *path) {
 void Flatbuffer::store(char const *path) const {
   // store a flatbuffer to path
   std::ofstream fbb(path, std::ios::binary);
-  auto size = ::flatbuffers::GetPrefixedSize(
+  auto size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(handle.get()));
   fbb.write(reinterpret_cast<char const *>(handle.get()), size);
 }
