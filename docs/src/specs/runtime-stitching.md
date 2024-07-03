@@ -29,7 +29,6 @@ In order to achieve this we propose a new runtime concept called stitching:
   to determine where the tensors should live.  Runtime manually invokes a new data
   copy command to get the tenors to the correct memory space / correct memory address.
 - pybuda runtime invokes `mod_a` program submit
-- pybuda runtime also has metadata from compiler describing the location of
 - `mod_b` is invoked at runtime, this time it might be that the compiler left
   the tensor outputs in L1, so no data copy is needed to start running `mod_b`
   since the inputs are already in the correct location.
