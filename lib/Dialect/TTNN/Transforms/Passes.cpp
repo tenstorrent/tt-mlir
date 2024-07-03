@@ -133,6 +133,7 @@ public:
     patterns
         .add<TTIRToTTNNLayoutRewriter, TTIRToTTNNOpRewriter<ttir::AddOp, AddOp>,
              TTIRToTTNNOpRewriter<ttir::MultiplyOp, MultiplyOp>,
+             TTIRToTTNNOpRewriter<ttir::SubtractOp, SubtractOp>,
              TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>,
              TensorEmptyToFullRewriter>(&getContext());
     // ANCHOR_END: adding_an_op_matmul_rewrite_pattern_set

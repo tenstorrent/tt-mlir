@@ -27,6 +27,7 @@ table FullOp {
 enum EltwiseOpType: uint32 {
   Add = 0,
   Multiply = 1,
+  Subtract = 2,
 }
 
 table EltwiseOp {
