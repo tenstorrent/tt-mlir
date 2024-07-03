@@ -117,7 +117,7 @@ CMake Error at /opt/ttmlir-toolchain/lib/cmake/llvm/AddLLVM.cmake:594 (add_libra
   step.
 ```
 
-If you get the above error, it means you tried to build with an old version of cmake and there is a stale file. To fix this, `rm -rf` your build directory, install a newer version of cmake, and then rebuild.
+If you get the above error, it means you tried to build with an old version of cmake or ninja and there is a stale file. To fix this, `rm -rf` your build directory, install a newer version of cmake/ninja, and then rebuild. If you installed ninja via `sudo apt install ninja-build`, it might still be not up-to-date (v1.10.0). You may use ninja in the python virtual environment, or install it via `pip3 install -U ninja`, either way the version `1.11.1.git.kitware.jobserver-1` should work.
 
 ### `clang++ is not a full path and was not found in the PATH`
 
