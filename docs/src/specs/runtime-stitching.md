@@ -1,11 +1,17 @@
 # Runtime Stitching
 
+Runtime stitching adds the ability for the runtime to stitch together multiple,
+indepently compiled programs together at runtime, ie. without compiler knowledge of
+how the binary programs will be composed.
+
+## Motivation
+
 In order to flexibly support arbitrary training schedules / composing multiple
 models together we want to have the ability for the runtime to stitch
 graphs together.  To achieve this we need to define an ABI kind of interface
 between the compiler and the runtime.
 
-## Simple Example
+### Simple Example
 ```
 mod_a = pybuda.compile(PyTorch_module_a)
 mod_b = pybuda.compile(PyTorch_module_b)
@@ -57,6 +63,11 @@ Compiler will decide where the tensors should live, host, device dram, device l1
   tensorDesc);`
 - Runtime will need to invoke `toLayout` on all input tensors before invoking
   the program.
+
+## Test Plan
+
+- Add a new test to the runtime gtest suite that verifies the runtime can
+  correctly stitch together 2 independently compiled programs.
 
 ## Concerns
 

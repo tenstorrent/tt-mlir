@@ -19,4 +19,5 @@
 - [Doxygen](./doxygen.md)
 
 # Specifications
-- [Runtime Stitching](./specs/runtime-stitching.md)
+- [Template](./specs/specs.md)
+  - [Runtime Stitching](./specs/runtime-stitching.md)
