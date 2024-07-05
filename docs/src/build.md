@@ -27,7 +27,15 @@ cmake --build build
 > - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
 > - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
 > - To accelerate builds further, if python bindings aren't needed, `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`. For some reason the python bindings link step is very slow.
-> - TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html)
+> - TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
+> - The runtime build  step depends on the `ARCH_NAME` environment variable, which is set in the `env/activate` script.
+>   If you want to build the runtime for a different architecture, please set `ARCH_NAME` to the desired value
+>   (one of `grayskull`, `wormhole_b0`, or `blackhole`).
+>   Please note that the runtime is built only if `TTMLIR_ENABLE_RUNTIME=ON`.
+> - In addition to `ARCH_NAME`, the runtime build depends on `TT_METAL_HOME` variable,
+>   which is also set in `env/activate` script.
+>   For more information, please refer to
+>   [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
 | OS | Offline Compiler Only | Runtime Enabled Build |
 |----|-----------------------|-----------------------|
