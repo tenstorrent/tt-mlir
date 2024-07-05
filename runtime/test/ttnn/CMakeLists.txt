@@ -1,0 +1,1 @@
+add_runtime_gtest(hello_test hello_test.cc)
