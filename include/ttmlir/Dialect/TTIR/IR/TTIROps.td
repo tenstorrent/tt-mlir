@@ -139,6 +139,13 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
     }];
 }
 
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
+    let summary = "Eltwise subtract.";
+    let description = [{
+      Eltwise subtract operation.
+    }];
+}
+
 def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     let summary = "Eltwise multiply.";
     let description = [{

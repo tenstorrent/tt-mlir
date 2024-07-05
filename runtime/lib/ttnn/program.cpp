@@ -72,9 +72,15 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::multiply(lhs, rhs));
-    // auto [iter, inserted] =
     liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
-    // assert(inserted && "Duplicate output tensor");
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Subtract: {
+    assert(op->ins()->size() == 2 && "Unsupported number of inputs");
+    auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
+    auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
+    tensorPool.push_back(::ttnn::subtract(lhs, rhs));
+    liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     break;
   }
   default:

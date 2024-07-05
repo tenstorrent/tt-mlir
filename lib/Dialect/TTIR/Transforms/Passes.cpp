@@ -70,6 +70,8 @@ public:
     patterns.add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp,
                                                  OperandConstraint::AnyDevice>,
                  TosaToTTIREltwiseBinaryRewriter<tosa::MulOp, ttir::MultiplyOp,
+                                                 OperandConstraint::AnyDevice>,
+                 TosaToTTIREltwiseBinaryRewriter<tosa::SubOp, ttir::SubtractOp,
                                                  OperandConstraint::AnyDevice>>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
@@ -106,6 +108,9 @@ public:
       kernelKind = "eltwise";
     } else if constexpr (std::is_same<TTIROp, ttir::AddOp>::value) {
       kernelName = "add";
+      kernelKind = "eltwise";
+    } else if constexpr (std::is_same<TTIROp, ttir::SubtractOp>::value) {
+      kernelName = "subtract";
       kernelKind = "eltwise";
     } else {
       return rewriter.notifyMatchFailure(op,
@@ -259,7 +264,8 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRLinalgGenericRewriter, TTIRKernelGenericRewriter,
                  TTIRNamedToKernelRewriter<AddOp>,
-                 TTIRNamedToKernelRewriter<MultiplyOp>>(&getContext());
+                 TTIRNamedToKernelRewriter<MultiplyOp>,
+                 TTIRNamedToKernelRewriter<SubtractOp>>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
@@ -583,6 +589,7 @@ public:
       patterns.add<TTIRLayoutOperandsRewriter<GenericOp>,
                    TTIRLayoutOperandsRewriter<AddOp>,
                    TTIRLayoutOperandsRewriter<MultiplyOp>,
+                   TTIRLayoutOperandsRewriter<SubtractOp>,
                    TTIRLayoutOperandsRewriter<MatmulOp>,
                    TTIRLayoutFuncReturnRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
