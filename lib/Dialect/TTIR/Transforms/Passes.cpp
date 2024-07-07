@@ -586,12 +586,14 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutOperandsRewriter<GenericOp>,
-                   TTIRLayoutOperandsRewriter<AddOp>,
-                   TTIRLayoutOperandsRewriter<MultiplyOp>,
-                   TTIRLayoutOperandsRewriter<SubtractOp>,
-                   TTIRLayoutOperandsRewriter<MatmulOp>,
-                   TTIRLayoutFuncReturnRewriter>(&getContext());
+      patterns
+          .add<TTIRLayoutOperandsRewriter<GenericOp>,
+               TTIRLayoutOperandsRewriter<AddOp>,
+               TTIRLayoutOperandsRewriter<MultiplyOp>,
+               TTIRLayoutOperandsRewriter<SubtractOp>,
+               TTIRLayoutOperandsRewriter<MatmulOp>,
+               TTIRLayoutOperandsRewriter<SumOp>, TTIRLayoutFuncReturnRewriter>(
+              &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();

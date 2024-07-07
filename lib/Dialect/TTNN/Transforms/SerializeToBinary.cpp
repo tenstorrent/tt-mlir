@@ -127,6 +127,27 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
           getOperandThroughDPSOps(op.getOutputs().front())));
 }
 
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionOp>
+createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
+  ::tt::target::ttnn::ReductionOpType type;
+  if constexpr (std::is_same_v<ReductionOp, SumOp>) {
+    type = ::tt::target::ttnn::ReductionOpType::Sum;
+  } else {
+    llvm_unreachable("unhandled ReductionOp");
+  }
+
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  auto dim_arg =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+
+  return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
+                                               dim_arg, op.getKeepDim());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString) {
@@ -157,6 +178,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString);
+  }
+  if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
+    return createOperation(cache, createReductionOp(cache, sumOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

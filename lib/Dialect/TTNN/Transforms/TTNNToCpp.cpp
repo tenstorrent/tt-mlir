@@ -144,6 +144,7 @@ public:
                    TTNNToEmitCOpaqueRewriter<MultiplyOp>,
                    TTNNToEmitCOpaqueRewriter<SubtractOp>,
                    TTNNToEmitCOpaqueRewriter<MatmulOp>,
+                   TTNNToEmitCOpaqueRewriter<SumOp>,
                    TTNNToEmitCOpaqueRewriter<CloseDeviceOp>>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
@@ -163,6 +164,10 @@ public:
           module.getLoc(), "ttnn/operations/core.hpp", /*isStandard=*/false));
       module.getBody()->push_front(builder.create<emitc::IncludeOp>(
           module.getLoc(), "ttnn/operations/creation.hpp",
+          /*isStandard=*/false));
+      module.getBody()->push_front(builder.create<emitc::IncludeOp>(
+          module.getLoc(),
+          "ttnn/operations/reduction/generic/generic_reductions.hpp",
           /*isStandard=*/false));
     }
   }

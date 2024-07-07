@@ -153,6 +153,32 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
+    let summary = "Reduction op.";
+    let description = [{
+      Reduction op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         BoolAttr:$keep_dim,
+                         OptionalAttr<I32ArrayAttr>:$dim_arg,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
+def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
+    let summary = "Sum reduction op.";
+    let description = [{
+      Sum reduction op.
+    }];
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";

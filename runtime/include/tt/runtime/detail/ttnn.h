@@ -31,6 +31,7 @@
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #pragma clang diagnostic ignored "-Wunused-function"
 #define FMT_HEADER_ONLY
+#include "ttnn//operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/binary.hpp"
 #include "ttnn/operations/core.hpp"
