@@ -18,6 +18,8 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTNN/Passes.h.inc"
 
+#define GEN_PASS_
+
 void createTTIRToTTNNBackendPipeline(OpPassManager &pm);
 } // namespace mlir::tt::ttnn
 

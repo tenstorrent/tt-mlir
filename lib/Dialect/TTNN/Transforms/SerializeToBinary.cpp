@@ -9,6 +9,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -16,7 +17,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Passes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -219,7 +219,7 @@ public:
     auto mlir = toDebugInfo(fbb, "ttnn", module);
     std::string cpp;
     llvm::raw_string_ostream os(cpp);
-    auto result = emitTTNNAsCpp(module, os);
+    auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
     (void)result;
 
     auto debugInfo =
