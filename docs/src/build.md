@@ -15,6 +15,14 @@ cmake --build env/build
 
 > - It is recommended to use the **system installation of python3** for the virtual environment.
 >   Please ensure that you do not already have a venv activated before running the above command.
+> - Please ensure the directory `/opt/ttmlir-toolchain` exist and its
+>   owner is the current user, i.e. the one that executes the above `cmake` commands.
+>   The commands create it and assign the proper ownership are:
+>     ```bash
+>     sudo mkdir -p /opt/ttmlir-toolchain
+>     sudo chown -R rjakovljevic /opt/ttmlir-toolchain
+>     ```
+
 
 ## Build
 
