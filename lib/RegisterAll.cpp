@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/InitPasses.h"
 
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
@@ -31,7 +32,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 void mlir::tt::registerAllPasses() {
   mlir::tt::ttir::registerPasses();
   mlir::tt::ttnn::registerPasses();
-  mlir::tt::ttmetal::registerPasses();
+  mlir::tt::ttnn::registerAllEmitCPasses();
+  // mlir::tt::ttmetal::registerPasses();
 
   mlir::PassPipelineRegistration<>(
       "ttir-to-ttmetal-backend-pipeline",
