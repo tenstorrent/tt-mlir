@@ -16,6 +16,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/Analysis/GridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Passes.h"
@@ -113,6 +114,9 @@ public:
       kernelKind = "eltwise";
     } else if constexpr (std::is_same<TTIROp, ttir::SubtractOp>::value) {
       kernelName = "subtract";
+      kernelKind = "eltwise";
+    } else if constexpr (std::is_same<TTIROp, ttir::ReluOp>::value) {
+      kernelName = "relu";
       kernelKind = "eltwise";
     } else {
       return rewriter.notifyMatchFailure(op,
@@ -267,7 +271,8 @@ public:
     patterns.add<TTIRLinalgGenericRewriter, TTIRKernelGenericRewriter,
                  TTIRNamedToKernelRewriter<AddOp>,
                  TTIRNamedToKernelRewriter<MultiplyOp>,
-                 TTIRNamedToKernelRewriter<SubtractOp>>(&getContext());
+                 TTIRNamedToKernelRewriter<SubtractOp>,
+                 TTIRNamedToKernelRewriter<ReluOp>>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
@@ -588,14 +593,14 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns
-          .add<TTIRLayoutOperandsRewriter<GenericOp>,
-               TTIRLayoutOperandsRewriter<AddOp>,
-               TTIRLayoutOperandsRewriter<MultiplyOp>,
-               TTIRLayoutOperandsRewriter<SubtractOp>,
-               TTIRLayoutOperandsRewriter<MatmulOp>,
-               TTIRLayoutOperandsRewriter<SumOp>, TTIRLayoutFuncReturnRewriter>(
-              &getContext());
+      patterns.add<
+          TTIRLayoutOperandsRewriter<GenericOp>,
+          TTIRLayoutOperandsRewriter<AddOp>,
+          TTIRLayoutOperandsRewriter<MultiplyOp>,
+          TTIRLayoutOperandsRewriter<SubtractOp>,
+          TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
+          TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
+          &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();

@@ -143,6 +143,7 @@ public:
                    TTNNToEmitCOpaqueRewriter<ToMemoryConfigOp>,
                    TTNNToEmitCOpaqueRewriter<MultiplyOp>,
                    TTNNToEmitCOpaqueRewriter<SubtractOp>,
+                   TTNNToEmitCOpaqueRewriter<ReluOp>,
                    TTNNToEmitCOpaqueRewriter<MatmulOp>,
                    TTNNToEmitCOpaqueRewriter<SumOp>,
                    TTNNToEmitCOpaqueRewriter<CloseDeviceOp>>(&getContext());

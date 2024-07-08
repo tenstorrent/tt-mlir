@@ -117,6 +117,13 @@ def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
     }];
 }
 
+def TTNN_ReluOp : TTNN_ElementwiseOp<"relu"> {
+    let summary = "Eltwise ReLU.";
+    let description = [{
+      Eltwise ReLU operation.
+    }];
+}
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,
