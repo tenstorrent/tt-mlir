@@ -14,4 +14,5 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   MLIRTTIRDialect
   MLIRTTKernelDialect
   MLIRTTIRTransforms
+  MLIRTTIRAnalysis
 )

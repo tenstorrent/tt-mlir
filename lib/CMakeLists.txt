@@ -7,6 +7,7 @@ add_mlir_library(TTMLIR STATIC RegisterAll.cpp
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTIRTransforms
+    MLIRTTIRAnalysis
     MLIRTTNNDialect
     MLIRTTNNTransforms
     MLIRTTKernelDialect
