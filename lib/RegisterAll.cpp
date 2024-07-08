@@ -8,6 +8,7 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Passes.h"
@@ -29,6 +30,10 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 }
 
 void mlir::tt::registerAllPasses() {
+  // Register all dialect conversion passes
+  //
+  mlir::tt::registerTTMLIRConversionPasses();
+
   mlir::tt::ttir::registerPasses();
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
