@@ -1,1 +1,1 @@
-add_runtime_gtest(hello_test hello_test.cc)
+add_runtime_gtest(subtract_test test_subtract.cpp)
