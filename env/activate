@@ -1,8 +1,16 @@
-TTMLIR_VENV="${TTMLIR_VENV:-/opt/ttmlir-toolchain/venv}"
-TOOLCHAIN_ENV="${TOOLCHAIN_ENV:-/opt/ttmlir-toolchain}"
-[ -f $TTMLIR_VENV/bin/activate ] && source $TTMLIR_VENV/bin/activate
+# Step 1: Check if TTMLIR_TOOLCHAIN_DIR is already set, if not, set it to /opt/ttmlir-toolchain
+if [ -z "${TTMLIR_TOOLCHAIN_DIR}" ]; then
+  export TTMLIR_TOOLCHAIN_DIR="/opt/ttmlir-toolchain"
+fi
+
+# Step 2: Check if TTMLIR_VENV_DIR is already set, if not, set it to the venv directory inside TTMLIR_TOOLCHAIN_DIR
+if [ -z "${TTMLIR_VENV_DIR}" ]; then
+  export TTMLIR_VENV_DIR="${TTMLIR_TOOLCHAIN_DIR}/venv"
+fi
+
+[ -f $TTMLIR_VENV_DIR/bin/activate ] && source $TTMLIR_VENV_DIR/bin/activate
 export TTMLIR_ENV_ACTIVATED=1
-export PATH=$TOOLCHAIN_ENV/bin:$TOOLCHAIN_ENV/venv/bin:$PATH
+export PATH=$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH
 export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"
 export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core"
 export ARCH_NAME="${ARCH_NAME:-wormhole_b0}"
