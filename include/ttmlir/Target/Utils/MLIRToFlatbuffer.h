@@ -38,18 +38,18 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::DataType::Float16;
   case DataType::BFloat16:
     return ::tt::target::DataType::BFloat16;
-  case DataType::BC_Float8:
-    return ::tt::target::DataType::BC_Float8;
-  case DataType::BC_BFloat8:
-    return ::tt::target::DataType::BC_BFloat8;
-  case DataType::BC_Float4:
-    return ::tt::target::DataType::BC_Float4;
-  case DataType::BC_BFloat4:
-    return ::tt::target::DataType::BC_BFloat4;
-  case DataType::BC_Float2:
-    return ::tt::target::DataType::BC_Float2;
-  case DataType::BC_BFloat2:
-    return ::tt::target::DataType::BC_BFloat2;
+  case DataType::BFP_Float8:
+    return ::tt::target::DataType::BFP_Float8;
+  case DataType::BFP_BFloat8:
+    return ::tt::target::DataType::BFP_BFloat8;
+  case DataType::BFP_Float4:
+    return ::tt::target::DataType::BFP_Float4;
+  case DataType::BFP_BFloat4:
+    return ::tt::target::DataType::BFP_BFloat4;
+  case DataType::BFP_Float2:
+    return ::tt::target::DataType::BFP_Float2;
+  case DataType::BFP_BFloat2:
+    return ::tt::target::DataType::BFP_BFloat2;
   case DataType::UInt32:
     return ::tt::target::DataType::UInt32;
   case DataType::UInt16:
@@ -274,8 +274,8 @@ inline flatbuffers::Offset<::tt::target::LayoutDesc>
 layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr) {
   assert(attr.isa<LayoutAttr>() && "expected a tensor type");
   auto layoutAttr = attr.cast<LayoutAttr>();
-  auto stridesInt64 = layoutAttr.getStrides();
-  std::vector<int32_t> strides(stridesInt64.begin(), stridesInt64.end());
+  auto strideInt64 = layoutAttr.getStride();
+  std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto gridAttr = layoutAttr.getGrid();
   auto gridShape = gridAttr.getShape();
   assert(gridShape.size() == 2 && "expected a 2D grid");
@@ -283,7 +283,7 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr) {
       ::tt::target::Dim2d(0, 0),
       ::tt::target::Dim2d(gridShape[0], gridShape[1]));
   return ::tt::target::CreateLayoutDescDirect(
-      *cache.fbb, &strides, toFlatbuffer(cache, layoutAttr.getOobVal()), &grid,
+      *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()), &grid,
       cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer));
 }
 

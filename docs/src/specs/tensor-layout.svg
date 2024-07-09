@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xl="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" version="1.1" viewBox="2184 -2173 894 6129" width="894" height="6129">
+  <defs/>
+  <g id="Diagram_1" stroke="none" stroke-opacity="1" stroke-dasharray="none" fill="none" fill-opacity="1">
+    <title>Diagram 1</title>
+    <rect fill="#33333b" x="2184" y="-2173" width="894" height="6129"/>
+    <g id="Diagram_1_Layer_1">
+      <title>Layer 1</title>
+      <g id="Graphic_866">
+        <rect x="2527" y="-1838" width="233" height="472" fill="#c0ffc0"/>
+        <rect x="2527" y="-1838" width="233" height="472" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_868">
+        <text transform="translate(2443 -1620.948)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="9947598e-20" y="30" xml:space="preserve">144</tspan>
+        </text>
+      </g>
+      <g id="Graphic_869">
+        <text transform="translate(2625.708 -1895)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">16</tspan>
+        </text>
+      </g>
+      <g id="Graphic_870">
+        <rect x="2527" y="-1005" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2527" y="-1005" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_871">
+        <text transform="translate(2460.792 -659.5)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">72</tspan>
+        </text>
+      </g>
+      <g id="Graphic_872">
+        <text transform="translate(2625.708 -1062)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">16</tspan>
+        </text>
+      </g>
+      <g id="Graphic_873">
+        <rect x="2527" y="-766.896" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2527" y="-766.896" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_874">
+        <rect x="2407.584" y="1.895996" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2407.584" y="1.895996" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_875">
+        <text transform="translate(2367 94.948)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">72</tspan>
+        </text>
+      </g>
+      <g id="Graphic_876">
+        <text transform="translate(2506.292 -41)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">16</tspan>
+        </text>
+      </g>
+      <g id="Graphic_877">
+        <rect x="2407.584" y="369.896" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2407.584" y="369.896" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_878">
+        <path d="M 2383.0955 -37.20801 L 2872.584 -37.20801 L 2872.584 325.292 L 2383.0955 325.292 Z" stroke="#a5a5a5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8.0,8.0" stroke-width="2"/>
+        <text transform="translate(2388.0955 -32.208008)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="24" fill="white" x="0" y="23" xml:space="preserve">96x32</tspan>
+        </text>
+      </g>
+      <g id="Graphic_879">
+        <path d="M 2383.0955 337.896 L 2872.584 337.896 L 2872.584 700.396 L 2383.0955 700.396 Z" stroke="#a5a5a5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8.0,8.0" stroke-width="2"/>
+        <text transform="translate(2388.0955 342.896)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="24" fill="white" x="0" y="23" xml:space="preserve">96x32</tspan>
+        </text>
+      </g>
+      <g id="Graphic_880">
+        <text transform="translate(2460.792 -897.828)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">72</tspan>
+        </text>
+      </g>
+      <g id="Graphic_881">
+        <text transform="translate(2367 462.948)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">72</tspan>
+        </text>
+      </g>
+      <g id="Graphic_882">
+        <text transform="translate(2325.788 -2118)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">Given some Input Tensor w/ dims: 12x12x16</tspan>
+        </text>
+      </g>
+      <g id="Line_884">
+        <line x1="2260.679" y1="-2032.052" x2="3026.321" y2="-2032.052" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12.0,12.0" stroke-width="3"/>
+      </g>
+      <g id="Graphic_885">
+        <text transform="translate(2364.636 -1994.448)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">Dims [0, N-1] are always tightly packed</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="128.896" y="67.896" xml:space="preserve">physically in memory</tspan>
+        </text>
+      </g>
+      <g id="Line_886">
+        <line x1="2260.679" y1="-1289" x2="3026.321" y2="-1289" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12.0,12.0" stroke-width="3"/>
+      </g>
+      <g id="Graphic_887">
+        <text transform="translate(2292.908 -1249.844)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="164.8" y="30" xml:space="preserve">Regardless of RM or tiled, </tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="23.712" y="67.896" xml:space="preserve">shard shape is expressed as 2D logical shape</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="5684342e-19" y="105.79199" xml:space="preserve">that divides the above form.  Here we have shard</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="258.704" y="143.68799" xml:space="preserve">shape 72x16</tspan>
+        </text>
+      </g>
+      <g id="Line_888">
+        <line x1="2260.679" y1="-498" x2="3026.321" y2="-498" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12.0,12.0" stroke-width="3"/>
+      </g>
+      <g id="Graphic_889">
+        <text transform="translate(2310.7 -458.844)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="21.888" y="30" xml:space="preserve">Tile Shape is independently programmed, a</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="67.896" xml:space="preserve">[1, N] tile means row major. FPU and Noc have</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="68.432" y="105.79199" xml:space="preserve">constraints that need to be enforced.</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="3.584" y="181.68799" xml:space="preserve">The physical shard shape is always the logical</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="61.296" y="219.58398" xml:space="preserve">shard shape padded out to tile shape.</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="3.248" y="295.47998" xml:space="preserve">Here we’ve programmed a tile shape of 32x32</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="3.792" y="333.37598" xml:space="preserve">this implicitly bumps the physical shard shape</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="265.808" y="371.27197" xml:space="preserve">to 96x32.</tspan>
+        </text>
+      </g>
+      <g id="Graphic_890">
+        <rect x="2511.3398" y="1474.896" width="233" height="712.104" fill="#c0ffc0"/>
+        <rect x="2511.3398" y="1474.896" width="233" height="712.104" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_891">
+        <text transform="translate(2427 1812)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="9947598e-20" y="30" xml:space="preserve">384</tspan>
+        </text>
+      </g>
+      <g id="Graphic_892">
+        <text transform="translate(2610.0478 1417.896)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">16</tspan>
+        </text>
+      </g>
+      <g id="Graphic_893">
+        <text transform="translate(2258.4158 808)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="72.256" y="30" xml:space="preserve">Let’s consider a new case where we want </tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="41.232" y="67.896" xml:space="preserve">dim=-2 padded to tile, we need to use explicit</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="150.128" y="105.79199" xml:space="preserve">strides in order to achieve this.</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="5.184" y="181.68799" xml:space="preserve">Again, given some Input Tensor w/ dims: 12x12x16</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="47.904" y="257.58398" xml:space="preserve">By default the stride for this tensor would be:</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="299.472" y="295.47998" xml:space="preserve">192x16x1</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="371.37598" xml:space="preserve">To “pad” dim=-2 out to multiples of 32 we’d instead</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="237.856" y="409.27197" xml:space="preserve">explicitly program:</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="299.472" y="447.16797" xml:space="preserve">512x16x1</tspan>
+        </text>
+      </g>
+      <g id="Line_894">
+        <line x1="2245.0189" y1="765.448" x2="3010.6607" y2="765.448" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12.0,12.0" stroke-width="3"/>
+      </g>
+      <g id="Graphic_895">
+        <text transform="translate(2348.9758 1308)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">Dims [0, N-1] are always tightly packed</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="128.896" y="67.896" xml:space="preserve">physically in memory</tspan>
+        </text>
+      </g>
+      <g id="Graphic_896">
+        <rect x="2511.3398" y="1530" width="233" height="96" fill="#ccc"/>
+        <rect x="2511.3398" y="1530" width="233" height="96" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2516.3398 1568.776)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_897">
+        <rect x="2511.3398" y="1678" width="233" height="96" fill="#ccc"/>
+        <rect x="2511.3398" y="1678" width="233" height="96" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2516.3398 1716.776)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_898">
+        <rect x="2510.8472" y="1825.5075" width="233" height="96" fill="#ccc"/>
+        <rect x="2510.8472" y="1825.5075" width="233" height="96" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2515.8472 1864.2835)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_899">
+        <rect x="2510.3547" y="1973.015" width="233" height="96" fill="#ccc"/>
+        <rect x="2510.3547" y="1973.015" width="233" height="96" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2515.3547 2011.791)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_900">
+        <rect x="2511.3398" y="2139.104" width="233" height="47.895996" fill="#ccc"/>
+        <rect x="2511.3398" y="2139.104" width="233" height="47.895996" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2516.3398 2153.828)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="103.5" y="15" xml:space="preserve">…</tspan>
+        </text>
+      </g>
+      <g id="Line_901">
+        <line x1="2245.0189" y1="2257.089" x2="3010.6607" y2="2257.089" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12.0,12.0" stroke-width="3"/>
+      </g>
+      <g id="Graphic_906">
+        <rect x="2511.1483" y="2486.327" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2511.1483" y="2486.327" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_904">
+        <text transform="translate(2609.8563 2429.327)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">16</tspan>
+        </text>
+      </g>
+      <g id="Graphic_902">
+        <text transform="translate(2444.9403 2579.379)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">96</tspan>
+        </text>
+      </g>
+      <g id="Graphic_907">
+        <text transform="translate(2294.7007 2303.312)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="45474735e-20" y="30" xml:space="preserve">Again, logical shard shape divides the form above.</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="125.616" y="67.896" xml:space="preserve">One possible shard shape 96x16</tspan>
+        </text>
+      </g>
+      <g id="Graphic_908">
+        <rect x="2511.1483" y="2555.327" width="233" height="155" fill="#ccc"/>
+        <rect x="2511.1483" y="2555.327" width="233" height="155" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2516.1483 2623.603)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_909">
+        <rect x="2510.1632" y="2724.431" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2510.1632" y="2724.431" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_910">
+        <text transform="translate(2443.9552 2817.483)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">96</tspan>
+        </text>
+      </g>
+      <g id="Graphic_911">
+        <rect x="2510.1632" y="2793.431" width="233" height="155" fill="#ccc"/>
+        <rect x="2510.1632" y="2793.431" width="233" height="155" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2515.1632 2861.707)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_912">
+        <rect x="2508.6856" y="2962.0424" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2508.6856" y="2962.0424" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_913">
+        <text transform="translate(2442.4776 3055.0944)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">96</tspan>
+        </text>
+      </g>
+      <g id="Graphic_914">
+        <rect x="2508.6856" y="3031.0424" width="233" height="155" fill="#ccc"/>
+        <rect x="2508.6856" y="3031.0424" width="233" height="155" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2513.6856 3099.3184)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_915">
+        <rect x="2507.208" y="3199.654" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2507.208" y="3199.654" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_916">
+        <text transform="translate(2441 3292.706)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">96</tspan>
+        </text>
+      </g>
+      <g id="Graphic_917">
+        <rect x="2507.208" y="3268.654" width="233" height="155" fill="#ccc"/>
+        <rect x="2507.208" y="3268.654" width="233" height="155" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2512.208 3336.93)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+      <g id="Graphic_919">
+        <rect x="2409.112" y="3664.584" width="233" height="224" fill="#c0ffc0"/>
+        <rect x="2409.112" y="3664.584" width="233" height="224" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_920">
+        <path d="M 2384.6235 3632.584 L 2874.112 3632.584 L 2874.112 3905 L 2384.6235 3905 Z" stroke="#a5a5a5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8.0,8.0" stroke-width="2"/>
+        <text transform="translate(2389.6235 3637.584)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="24" fill="white" x="0" y="23" xml:space="preserve">96x32</tspan>
+        </text>
+      </g>
+      <g id="Graphic_921">
+        <text transform="translate(2331 3741.334)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">96</tspan>
+        </text>
+      </g>
+      <g id="Line_922">
+        <line x1="2235.999" y1="3444" x2="3001.641" y2="3444" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="12.0,12.0" stroke-width="3"/>
+      </g>
+      <g id="Graphic_923">
+        <text transform="translate(2346.721 3490.223)" fill="white">
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="0" y="30" xml:space="preserve">Again, physical shape gets padded to tile.</tspan>
+          <tspan font-family="Helvetica Neue" font-size="32" fill="white" x="129.216" y="67.896" xml:space="preserve">Again, here tile is 32x32</tspan>
+        </text>
+      </g>
+      <g id="Graphic_924">
+        <rect x="2409.112" y="3736.334" width="233" height="155" fill="#ccc"/>
+        <rect x="2409.112" y="3736.334" width="233" height="155" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(2414.112 3804.61)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="61.716" y="15" xml:space="preserve">Strided space</tspan>
+        </text>
+      </g>
+    </g>
+  </g>
+</svg>

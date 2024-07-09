@@ -13,11 +13,12 @@
 - [Additional Reading](./additional-reading.md)
 
 # Code Documentation
+
 - [Project Structure](./project-structure.md)
 - [Dialects Overview](./dialects-overview.md)
 - [Adding an op](./adding-an-op.md)
 - [Doxygen](./doxygen.md)
-
-# Specifications
-- [Template](./specs/specs.md)
+- [Specifications](./specs/specs.md)
   - [Runtime Stitching](./specs/runtime-stitching.md)
+  - [Tensor Layout](./specs/tensor-layout.md)
+    - [TTNN Interactive Visualizer](./specs/tensor-layout-interactive.md)
