@@ -20,7 +20,7 @@ cmake --build env/build
 >   The commands create it and assign the proper ownership are:
 >     ```bash
 >     sudo mkdir -p /opt/ttmlir-toolchain
->     sudo chown -R rjakovljevic /opt/ttmlir-toolchain
+>     sudo chown -R $USER /opt/ttmlir-toolchain
 >     ```
 
 
