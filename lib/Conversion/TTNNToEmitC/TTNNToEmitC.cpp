@@ -115,7 +115,7 @@ struct ConvertTTNNToEmitCPass
     mlir::ConversionTarget target(getContext());
 
     target.addLegalDialect<emitc::EmitCDialect>();
-    target.addLegalDialect<mlir::tt::ttnn::TTNNDialect>();
+    // target.addLegalDialect<mlir::tt::ttnn::TTNNDialect>();
 
     RewritePatternSet patterns(&getContext());
     populateTTNNToEmitCPatterns(&getContext(), patterns);
