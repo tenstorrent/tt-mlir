@@ -201,5 +201,12 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 
+---------------------------------------------------------------------------
 
-   Copyright (c) 2024 Tenstorrent AI ULC
+Third-Party Dependencies:
+
+The following dependencies are utilized by this project but are not explicitly
+distributed as part of the software:
+
+- llvm-project - Apache 2.0 with LLVM Exceptions (https://github.com/llvm/llvm-project/blob/main/LICENSE.TXT)
+- flatbuffers - Apache 2.0 (https://github.com/google/flatbuffers/blob/master/LICENSE)
