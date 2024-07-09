@@ -147,6 +147,7 @@ public:
         .add<TTIRToTTNNLayoutRewriter, TTIRToTTNNOpRewriter<ttir::AddOp, AddOp>,
              TTIRToTTNNOpRewriter<ttir::MultiplyOp, MultiplyOp>,
              TTIRToTTNNOpRewriter<ttir::SubtractOp, SubtractOp>,
+             TTIRToTTNNOpRewriter<ttir::ReluOp, ReluOp>,
              TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>,
              TTIRToTTNNReductionOpRewriter<ttir::SumOp, SumOp>,
              TensorEmptyToFullRewriter>(&getContext());

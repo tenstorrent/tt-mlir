@@ -179,6 +179,13 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     }];
 }
 
+def TTIR_ReluOp : TTIR_ElementwiseOp<"relu"> {
+    let summary = "Eltwise ReLU.";
+    let description = [{
+      Eltwise ReLU operation.
+    }];
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";
