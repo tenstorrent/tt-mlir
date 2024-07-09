@@ -28,8 +28,9 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
   }
 
   std::string text;
-  if (::flatbuffers::GenerateText(parser, fbb, &text)) {
-    throw std::runtime_error("Failed to generate JSON");
+  const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
+  if (err) {
+    throw std::runtime_error("Failed to generate JSON: " + std::string(err));
   }
 
   return text;

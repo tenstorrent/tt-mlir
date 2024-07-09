@@ -212,6 +212,43 @@ inline DataType elementTypeToDataType(Type elementType) {
   return dtype;
 }
 
+template <typename AttrType, typename ValueType>
+struct ArrayAttrToFlatbufferSerializer {
+  static flatbuffers::Offset<flatbuffers::Vector<ValueType>>
+  impl(FlatbufferObjectCache &cache, const ArrayAttr &arrayAttr) {
+    assert(false && "unsupported array attr to value type serializer");
+  }
+};
+
+template <typename ValueType>
+struct ArrayAttrToFlatbufferSerializer<IntegerAttr, ValueType> {
+  static flatbuffers::Offset<flatbuffers::Vector<ValueType>>
+  impl(FlatbufferObjectCache &cache, const ::mlir::ArrayAttr &arrayAttr) {
+    return cache.fbb->CreateVector<ValueType>(
+        arrayAttr.size(), [&arrayAttr](size_t i) {
+          return static_cast<ValueType>(
+              mlir::cast<IntegerAttr>(arrayAttr[i]).getInt());
+        });
+  }
+};
+
+template <typename AttrType, typename ValueType>
+inline flatbuffers::Offset<flatbuffers::Vector<ValueType>>
+arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
+                      const ::mlir::ArrayAttr &arrayAttr) {
+  return ArrayAttrToFlatbufferSerializer<AttrType, ValueType>::impl(cache,
+                                                                    arrayAttr);
+}
+
+template <typename AttrType, typename ValueType>
+inline flatbuffers::Offset<flatbuffers::Vector<ValueType>>
+arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
+                      const std::optional<::mlir::ArrayAttr> &arrayAttrOpt) {
+  return arrayAttrOpt.has_value() ? arrayAttrToFlatbuffer<AttrType, ValueType>(
+                                        cache, arrayAttrOpt.value())
+                                  : 0;
+}
+
 inline flatbuffers::Offset<::tt::target::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
   auto shapeInt64 = memref.getShape();

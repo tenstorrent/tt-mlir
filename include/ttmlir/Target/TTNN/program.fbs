@@ -36,6 +36,18 @@ table EltwiseOp {
   out: tt.target.TensorRef;
 }
 
+enum ReductionOpType: uint32 {
+  Sum = 0,
+}
+
+table ReductionOp {
+  type: ReductionOpType;
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim_arg: [int32];
+  keep_dim: bool;
+}
+
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
   in0: tt.target.TensorRef;
@@ -51,6 +63,7 @@ union OpType {
   FullOp,
   EltwiseOp,
   MatmulOp,
+  ReductionOp
 }
 
 table Operation {

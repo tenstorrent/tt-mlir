@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <list>
+#include <optional>
 #include <unordered_map>
 
 #include "tt/runtime/detail/ttnn.h"
@@ -88,6 +89,28 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
   }
 }
 
+static void
+run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  switch (op->type()) {
+  case ::tt::target::ttnn::ReductionOpType::Sum: {
+    auto &in = *liveTensors.at(op->in()->global_id());
+
+    const auto *dim_arg_fb_ptr = op->dim_arg();
+    std::optional<vector<int>> dim_arg =
+        dim_arg_fb_ptr ? std::make_optional(std::vector<int>(
+                             dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
+                       : std::nullopt;
+
+    tensorPool.push_back(::ttnn::sum(in, dim_arg, op->keep_dim()));
+
+    liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
+  }
+}
+
 // ANCHOR: adding_an_op_matmul_runtime
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
@@ -126,6 +149,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::MatmulOp: {
     return run(op->type_as_MatmulOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    return run(op->type_as_ReductionOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");

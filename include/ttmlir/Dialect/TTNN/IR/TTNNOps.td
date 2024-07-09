@@ -92,6 +92,31 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPSOp<mnemonic, traits> {
+    let summary = "Reduction op.";
+    let description = [{
+      Reduction op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         BoolAttr:$keep_dim,
+                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
+def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
+    let summary = "Sum reduction op.";
+    let description = [{
+      Sum reduction op.
+    }];
+}
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,
