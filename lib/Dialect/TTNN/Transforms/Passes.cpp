@@ -165,6 +165,9 @@ public:
 
 void createTTIRToTTNNBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  // Not ready to be enabled by default.
+  //
+  // pm.addPass(mlir::tt::ttir::createTTIRGridSet());
   pm.addPass(createTTNNOpenDevice());
   pm.addPass(createConvertTTIRToTTNN());
 }

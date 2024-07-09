@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
+#include "ttmlir/Dialect/TTIR/Analysis/GridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Passes.h"
 
 namespace mlir::tt::ttir {
@@ -25,6 +26,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
+#define GEN_PASS_DEF_TTIRGRIDSET
 #include "ttmlir/Dialect/TTIR/Passes.h.inc"
 
 template <typename TosaOp, typename TTIROp,
@@ -724,6 +726,78 @@ public:
         rewriter.setInsertionPointAfter(endOp);
         rewriter.create<DeallocOp>(endOp->getLoc(), alloc.getResult());
       });
+    });
+  }
+};
+
+class TTIRGridSet : public impl::TTIRGridSetBase<TTIRGridSet> {
+public:
+  using impl::TTIRGridSetBase<TTIRGridSet>::TTIRGridSetBase;
+  void runOnOperation() final {
+    // Currently a placeholder pass for grid size optimization.
+    // Goes through all the operations and sets the grid size to max supported
+    // by target chip. Lacks:
+    // - Proper update of layout attributes related to grid size.
+    // - Constraint checking, whether the grid size is supported by the current
+    // OP based on inputs and op type.
+    //
+    ModuleOp module_op = getOperation();
+
+    // Get the max grid size from the system description.
+    //
+    assert(module_op->hasAttr(tt::SystemDescAttr::name));
+    GridAttr max_grid = module_op->getAttr(tt::SystemDescAttr::name)
+                            .cast<tt::SystemDescAttr>()
+                            .getChipDescs()[0]
+                            .getGrid();
+    module_op->walk([&](func::FuncOp func) {
+      Type lastOpResultType;
+      func->walk([&](Operation *op) {
+        if (op->getNumResults() == 0) {
+          return;
+        }
+
+        GridAnalysis &grid_analysis = getChildAnalysis<GridAnalysis>(op);
+
+        // Initialize the grid analysis with the max grid size.
+        //
+        grid_analysis.init(
+            GridAnalysisInput(max_grid.getShape()[0], max_grid.getShape()[1]));
+
+        // Run the grid analysis and get the result.
+        //
+        GridAnalysisResult grid_analysis_result = grid_analysis.getResult();
+
+        LayoutAttr layout = op->getResult(0)
+                                .getType()
+                                .template cast<RankedTensorType>()
+                                .getEncoding()
+                                .template cast<LayoutAttr>();
+
+        // Update the output layout attribute with the new grid size.
+        //
+        op->getResult(0).setType(RankedTensorType::get(
+            op->getResult(0).getType().cast<RankedTensorType>().getShape(),
+            op->getResult(0)
+                .getType()
+                .cast<RankedTensorType>()
+                .getElementType(),
+            LayoutAttr::get(
+                &getContext(), layout.getStrides(), layout.getOobVal(),
+                GridAttr::get(&getContext(),
+                              {grid_analysis_result.target_rows,
+                               grid_analysis_result.target_columns}),
+                layout.getMemref())));
+        lastOpResultType = op->getResult(0).getType();
+      });
+
+      // Update the function type to reflect the last operation's result type.
+      //
+      FunctionType func_type = func.getFunctionType();
+      SmallVector<Type> newReturnTypes = {lastOpResultType};
+      FunctionType newFuncType = FunctionType::get(
+          func.getContext(), func_type.getInputs(), newReturnTypes);
+      func.setType(newFuncType);
     });
   }
 };

@@ -42,4 +42,12 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
+  let summary = "Determine grid size for ops.";
+  let description = [{
+    Go through the ops, set grid size for each op based on grid analysis,
+    by updating layout attribute of each op.
+  }];
+}
+
 #endif
