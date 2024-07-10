@@ -391,6 +391,16 @@ under the same grid primitive that also divides tensor rows and columns.
   use-cases we've ran into in the past in a single, succinct representation.
   This flexibility will need to be further constrained by backends to avoid
   unsupported programming of this attribute.
+- Optimization solution space is potentially large with all of this flexibility.
+  Two things that I hope can help protect us here:
+    - By and large the heuristic we'll be following is just max the grid at all
+      costs. This should really narrow down the solution space to only a handful
+      of options and we only keep exploring if producers/consumers end up with
+      nasty reblocking.
+    - We can constrain the optimizer heuristics as aggressively as possible in
+      the beginning and just advertise the full flexible options to the UI model
+      explorer. Hopefully this enables us to experiment with crazier grid layouts
+      and prove it's worthwhile before writing an algorithm.
 
 <br>
 <br>
