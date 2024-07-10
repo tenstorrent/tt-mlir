@@ -30,6 +30,7 @@
 #pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #pragma clang diagnostic ignored "-Wunused-function"
+#pragma clang diagnostic ignored "-Wpessimizing-move"
 #define FMT_HEADER_ONLY
 #include "ttnn//operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/device.hpp"

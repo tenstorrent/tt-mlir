@@ -51,7 +51,7 @@ std::string getVersion(Flatbuffer binary) {
   auto const *version = getBinary(binary)->version();
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
-         std::to_string(version->release());
+         std::to_string(version->patch());
 }
 
 std::string_view getTTMLIRGitHash(Flatbuffer binary) {
@@ -116,7 +116,7 @@ std::string getVersion(Flatbuffer binary) {
   auto const *version = getBinary(binary)->version();
   return std::to_string(version->major()) + "." +
          std::to_string(version->minor()) + "." +
-         std::to_string(version->release());
+         std::to_string(version->patch());
 }
 
 std::string_view getTTMLIRGitHash(Flatbuffer binary) {

@@ -16,17 +16,17 @@ namespace ttmlir {
 #ifndef TTMLIR_VERSION_MINOR
 #error "TTMLIR_VERSION_MINOR must be defined"
 #endif
-#ifndef TTMLIR_VERSION_RELEASE
-#error "TTMLIR_VERSION_RELEASE must be defined"
+#ifndef TTMLIR_VERSION_PATCH
+#error "TTMLIR_VERSION_PATCH must be defined"
 #endif
 
 struct Version {
   unsigned major;
   unsigned minor;
-  unsigned release;
+  unsigned patch;
 
-  constexpr Version(unsigned major, unsigned minor, unsigned release)
-      : major(major), minor(minor), release(release) {}
+  constexpr Version(unsigned major, unsigned minor, unsigned patch)
+      : major(major), minor(minor), patch(patch) {}
 
   constexpr bool operator<=(const Version &other) const {
     return major < other.major ||
@@ -41,7 +41,7 @@ struct Version {
 
 inline constexpr Version getVersion() {
   return Version(TTMLIR_VERSION_MAJOR, TTMLIR_VERSION_MINOR,
-                 TTMLIR_VERSION_RELEASE);
+                 TTMLIR_VERSION_PATCH);
 }
 
 #define XSTR(s) STR(s)

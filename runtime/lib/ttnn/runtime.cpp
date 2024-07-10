@@ -37,7 +37,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   ::flatbuffers::FlatBufferBuilder fbb;
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
-                                ttmlirVersion.release);
+                                ttmlirVersion.patch);
   ::tt::target::Dim2d deviceGrid = toFlatbuffer(device.logical_grid_size());
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs = {
       ::tt::target::CreateChipDesc(fbb, toFlatbuffer(device.arch()),

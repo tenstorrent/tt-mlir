@@ -215,7 +215,7 @@ public:
 
     ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
     ::tt::target::Version binaryVersion(
-        ttmlirVersion.major, ttmlirVersion.minor, ttmlirVersion.release);
+        ttmlirVersion.major, ttmlirVersion.minor, ttmlirVersion.patch);
 
     std::vector<::flatbuffers::Offset<::tt::target::metal::CommandQueue>>
         commandQueues = {
