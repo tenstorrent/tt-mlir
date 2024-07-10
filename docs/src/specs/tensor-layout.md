@@ -126,7 +126,7 @@ left inclusive, right exclusive. Let's consider a few examples:
 ```
 (d0, d1, d2, d3) -> (d0 <> d1, d2, d3)
 ```
-- 6D tensor onto a 4D grid and `collapseIntervals=[(0, 3), (-3, -1)]`:
+- 7D tensor onto a 4D grid and `collapseIntervals=[(0, 3), (-3, -1)]`:
 ```
 (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 ```

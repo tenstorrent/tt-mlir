@@ -82,7 +82,7 @@ static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
 //   - 4D tensor onto a 3D grid collapseIntervals=[(0, 2)]:
 //       (d0, d1, d2, d3) -> (d0 <> d1, d2, d3)
 //
-//   - 6D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
+//   - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
 //       (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 //
 static mlir::AffineMap collapsedLinearAffineMap(
