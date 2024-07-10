@@ -1,7 +1,10 @@
 #include "llvm/ADT/ScopeExit.h"
+#include <llvm/ADT/StringRef.h>
+#include <mlir/Support/LogicalResult.h>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -11,100 +14,63 @@
 #include "../PassDetail.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 using namespace mlir;
 using namespace mlir::emitc;
 using namespace mlir::tt::ttnn;
 
+template <typename SrcOp, typename Adaptor = typename SrcOp::Adaptor>
+class DefaultOpConversionPattern : public OpConversionPattern<SrcOp> {
+  using OpConversionPattern<SrcOp>::OpConversionPattern;
+
+public:
+  DefaultOpConversionPattern(MLIRContext *ctx)
+      : OpConversionPattern<SrcOp>(ctx) {}
+
+private:
+  std::string getOpName(SrcOp op) const {
+    auto name = op.getOperationName();
+    if (name.starts_with("ttnn.")) {
+      return "ttnn::" + name.drop_front(5).str();
+    }
+    return "ttnn::" + name.str();
+  }
+
+  LogicalResult
+  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    SmallVector<Attribute, 4> templateArguments;
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, srcOp->getResultTypes(), getOpName(srcOp), nullptr, nullptr,
+        adaptor.getOperands());
+
+    return success();
+  }
+};
+
 void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  mlir::RewritePatternSet &patterns) {
-  //   // Insert patterns for TOSA data node ops.
-  //   patterns.add<ConstOpConversion>(ctx);
+  // Device ops
+  //
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::OpenDeviceOp>>(ctx);
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::CloseDeviceOp>>(ctx);
 
-  //   // Insert patterns for TOSA unary elementwise ops.
-  //   patterns.add<GenericOpConversion<tosa::AbsOp>>(ctx, "emitc::tosa::abs");
-  //   patterns.add<GenericOpConversion<tosa::CastOp>>(ctx, "emitc::tosa::cast",
-  //                                                   /*explicitResultType=*/true);
-  //   patterns.add<GenericOpConversion<tosa::CeilOp>>(ctx,
-  //   "emitc::tosa::ceil"); patterns.add<GenericOpConversion<tosa::ClzOp>>(ctx,
-  //   "emitc::tosa::clz"); patterns.add<ClampOpConversion>(ctx);
-  //   patterns.add<GenericOpConversion<tosa::ExpOp>>(ctx, "emitc::tosa::exp");
-  //   patterns.add<GenericOpConversion<tosa::FloorOp>>(ctx,
-  //   "emitc::tosa::floor");
-  //   patterns.add<GenericOpConversion<tosa::LogOp>>(ctx, "emitc::tosa::log");
-  //   patterns.add<NegateOpConversion>(ctx);
-  //   patterns.add<GenericOpConversion<tosa::ReciprocalOp>>(
-  //       ctx, "emitc::tosa::reciprocal");
-  //   patterns.add<RescaleOpConversion>(ctx);
-  //   patterns.add<RsqrtOpConversion>(ctx);
-  //   patterns.add<GenericOpConversion<tosa::TanhOp>>(ctx,
-  //   "emitc::tosa::tanh");
+  // Memory ops
+  //
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::ToMemoryConfigOp>>(
+      ctx);
 
-  //   // Insert patterns for TOSA binary elementwise ops.
-  //   patterns.add<CallOpBroadcastableConversion<tosa::AddOp>>(ctx,
-  //                                                            "emitc::tosa::add");
-  //   patterns.add<ArithmeticRightShiftOpConversion>(
-  //       ctx, "emitc::tosa::arithmetic_right_shift");
-  //   patterns.add<CallOpBroadcastableConversion<tosa::EqualOp>>(
-  //       ctx, "emitc::tosa::equal", /*explicitResultType=*/true);
-  //   patterns.add<CallOpBroadcastableConversion<tosa::GreaterEqualOp>>(
-  //       ctx, "emitc::tosa::greater_equal", /*explicitResultType=*/true);
-  //   patterns.add<CallOpBroadcastableConversion<tosa::LogicalLeftShiftOp>>(
-  //       ctx, "emitc::tosa::logical_left_shift");
-  //   patterns.add<CallOpBroadcastableConversion<tosa::MaximumOp>>(
-  //       ctx, "emitc::tosa::maximum");
-  //   patterns.add<CallOpBroadcastableConversion<tosa::MinimumOp>>(
-  //       ctx, "emitc::tosa::minimum");
-  //   patterns.add<MulOpConversion>(ctx, "emitc::tosa::mul");
-  //   patterns.add<CallOpBroadcastableConversion<tosa::PowOp>>(ctx,
-  //                                                            "emitc::tosa::pow");
-  //   patterns.add<CallOpBroadcastableConversion<tosa::SubOp>>(ctx,
-  //                                                            "emitc::tosa::sub");
-  //   patterns.add<GenericOpConversion<tosa::TableOp>>(ctx,
-  //   "emitc::tosa::table");
+  // Tensor ops
+  //
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::FullOp>>(ctx);
 
-  //   // Insert patterns for TOSA ternary elementwise ops.
-  //   patterns.add<SelectOpConversion>(ctx);
-
-  //   // Insert patterns for other TOSA ops.
-  //   patterns.add<ConcatOpConversion>(ctx);
-  //   patterns.add<GenericConvOpConversion<tosa::Conv2DOp>>(ctx,
-  //                                                         "emitc::tosa::conv2d");
-  //   patterns.add<GenericConvOpConversion<tosa::DepthwiseConv2DOp>>(
-  //       ctx, "emitc::tosa::depthwise_conv2d");
-  //   patterns.add<GenericPoolOpConversion<tosa::AvgPool2dOp>>(
-  //       ctx, "emitc::tosa::avg_pool2d");
-  //   patterns.add<GenericPoolOpConversion<tosa::MaxPool2dOp>>(
-  //       ctx, "emitc::tosa::max_pool2d");
-  //   patterns.add<FullyConnectedOpConversion>(ctx,
-  //   "emitc::tosa::fully_connected");
-  //   patterns.add<GenericOpConversion<tosa::GatherOp>>(
-  //       ctx, "emitc::tosa::gather",
-  //       /*explicitResultType=*/true);
-  //   patterns.add<MatMulOpConversion>(ctx);
-  //   patterns.add<TileOpConversion>(ctx);
-  //   patterns.add<ReduceOpConversion<tosa::ArgMaxOp>>(ctx,
-  //   "emitc::tosa::argmax",
-  //                                                    false);
-  //   patterns.add<ReduceOpConversion<tosa::ReduceAllOp>>(
-  //       ctx, "emitc::tosa::reduce_all", true);
-  //   patterns.add<ReduceOpConversion<tosa::ReduceAnyOp>>(
-  //       ctx, "emitc::tosa::reduce_any", true);
-  //   patterns.add<ReduceOpConversion<tosa::ReduceMaxOp>>(
-  //       ctx, "emitc::tosa::reduce_max", true);
-  //   patterns.add<ReduceOpConversion<tosa::ReduceMinOp>>(
-  //       ctx, "emitc::tosa::reduce_min", true);
-  //   patterns.add<ReduceOpConversion<tosa::ReduceProdOp>>(
-  //       ctx, "emitc::tosa::reduce_prod", true);
-  //   patterns.add<ReduceOpConversion<tosa::ReduceSumOp>>(
-  //       ctx, "emitc::tosa::reduce_sum", true);
-  //   patterns.add<GenericOpConversion<tosa::ReshapeOp>>(
-  //       ctx, "emitc::tosa::reshape",
-  //       /*explicitResultType=*/true);
-  //   patterns.add<SliceOpConversion>(ctx);
-  //   patterns.add<PadOpConversion>(ctx);
-  //   patterns.add<GenericOpConversion<tosa::TransposeOp>>(
-  //       ctx, "emitc::tosa::transpose", /*explicitResultType=*/true);
+  // Math ops
+  //
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::AddOp>>(ctx);
+  patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::MultiplyOp>>(ctx);
 }
 
 namespace {
@@ -115,7 +81,7 @@ struct ConvertTTNNToEmitCPass
     mlir::ConversionTarget target(getContext());
 
     target.addLegalDialect<emitc::EmitCDialect>();
-    // target.addLegalDialect<mlir::tt::ttnn::TTNNDialect>();
+    target.addIllegalDialect<mlir::tt::ttnn::TTNNDialect>();
 
     RewritePatternSet patterns(&getContext());
     populateTTNNToEmitCPatterns(&getContext(), patterns);
