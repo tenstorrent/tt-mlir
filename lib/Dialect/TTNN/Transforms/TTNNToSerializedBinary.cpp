@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
+#include "ttmlir/Dialect/TTNN/Transforms/TTNNToSerializedBinary.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
@@ -262,5 +263,24 @@ public:
 private:
   std::shared_ptr<void> serializedBinary;
 };
+
+std::shared_ptr<void> emitTTNNAsFlatbuffer(OwningOpRef<ModuleOp> &moduleOp) {
+  auto pm = PassManager::on<ModuleOp>(moduleOp.get().getContext());
+  auto pass = createTTNNSerializeToBinary();
+  Pass *basePass = pass.get();
+  pm.addPass(std::move(pass));
+
+  // Run the pass manager.
+  if (failed(pm.run(moduleOp.get()))) {
+    return nullptr;
+  }
+
+  auto *derivedPass = llvm::dyn_cast<TTNNSerializeToBinary>(basePass);
+  if (!derivedPass) {
+    return nullptr;
+  }
+
+  return derivedPass->getBinary();
+}
 
 } // namespace mlir::tt::ttnn
