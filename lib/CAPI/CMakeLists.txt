@@ -1,6 +1,7 @@
 add_mlir_public_c_api_library(TTMLIRCAPI
   Dialects.cpp
   TTKernelTypes.cpp
+  TTTypes.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir-c/

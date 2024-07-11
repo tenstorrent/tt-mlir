@@ -5,7 +5,9 @@
 #ifndef TTMLIR_BINDINGS_PYTHON_OVERRIDES_H
 #define TTMLIR_BINDINGS_PYTHON_OVERRIDES_H
 
+#include "mlir-c/Bindings/Python/Interop.h"
 #include "mlir/Bindings/Python/PybindAdaptors.h"
+#include "mlir/CAPI/IR.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Parser/Parser.h"

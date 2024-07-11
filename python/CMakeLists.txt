@@ -38,6 +38,12 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME ttkernel
 )
 
+declare_mlir_python_sources(TTMLIRPythonSources.Overrides
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES overrides.py
+)
+
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
   ADD_TO_PARENT TTMLIRPythonExtensions
