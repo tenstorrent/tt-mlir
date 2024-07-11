@@ -23,6 +23,8 @@ jobs:
       MDBOOK_VERSION: 0.4.36
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history and tags
       - name: mkdir /opt/ttmlir-toolchain
         shell: bash
         run: |
