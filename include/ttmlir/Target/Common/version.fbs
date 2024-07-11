@@ -3,5 +3,5 @@ namespace tt.target;
 struct Version {
   major: uint16;
   minor: uint16;
-  release: uint32;
+  patch: uint32;
 }
