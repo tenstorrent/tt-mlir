@@ -1,5 +1,5 @@
-#ifndef TTNN_CONVERSION_PASSES
-#define TTNN_CONVERSION_PASSES
+#ifndef TTMLIR_CONVERSION_PASSES
+#define TTMLIR_CONVERSION_PASSES
 
 include "mlir/Pass/PassBase.td"
 
@@ -9,4 +9,4 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::func::FuncOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
-#endif // TTNN_CONVERSION_PASSES
+#endif // TTMLIR_CONVERSION_PASSES

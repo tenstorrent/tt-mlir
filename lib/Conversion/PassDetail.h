@@ -4,12 +4,14 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include <mlir/Dialect/EmitC/IR/EmitC.h>
+
+namespace mlir::emitc {
+class EmitCDialect;
+}
 
 namespace mlir::tt::ttnn {
 
-// class TTNNDialect;
-
-// using namespace mlir;
 #define GEN_PASS_CLASSES
 #include "ttmlir/Conversion/Passes.h.inc"
 #define GEN_PASS_DEF_CONVERTTTNNTOEMITC
