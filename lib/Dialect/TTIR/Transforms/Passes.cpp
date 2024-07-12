@@ -750,18 +750,14 @@ public:
 
         // Update the output layout attribute with the new grid size.
         //
+        auto resultTy = op->getResult(0).getType().cast<RankedTensorType>();
         op->getResult(0).setType(RankedTensorType::get(
-            op->getResult(0).getType().cast<RankedTensorType>().getShape(),
-            op->getResult(0)
-                .getType()
-                .cast<RankedTensorType>()
-                .getElementType(),
-            LayoutAttr::get(
-                &getContext(), layout.getStrides(), layout.getOobVal(),
+            resultTy.getShape(), resultTy.getElementType(),
+            layout.withGrid(
+                &getContext(), resultTy,
                 GridAttr::get(&getContext(),
                               {grid_analysis_result.target_rows,
-                               grid_analysis_result.target_columns}),
-                layout.getMemref())));
+                               grid_analysis_result.target_columns}))));
         lastOpResultType = op->getResult(0).getType();
       });
 
