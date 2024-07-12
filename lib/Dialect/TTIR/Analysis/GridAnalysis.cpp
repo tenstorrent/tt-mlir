@@ -11,4 +11,14 @@ void GridAnalysis::analysisImplementation() {
   analysis_result.target_rows = analysis_input.max_supported_rows;
   analysis_result.target_columns = analysis_input.max_supported_columns;
 }
+
+void GridAnalysis::handleOverride(llvm::json::Object *override) {
+  // Need to now collect the grid parameter from the override:
+  // Grid Override Syntax: [rows, cols]
+  llvm::json::Array newGrid = *(override->getArray("grid"));
+
+  analysis_result.target_rows = newGrid[0].getAsInteger().value();
+  analysis_result.target_columns = newGrid[1].getAsInteger().value();
+}
+
 } // namespace mlir::tt::ttir

@@ -41,6 +41,7 @@ class GridAnalysis
 
 private:
   void analysisImplementation() override;
+  void handleOverride(llvm::json::Object *override) override;
 
 public:
   GridAnalysis(Operation *op) : TTIRAnalysis(op) {}

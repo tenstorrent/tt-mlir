@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_TTIRANALYSIS_H
 
 #include "mlir/IR/Operation.h"
+#include "ttmlir/Dialect/TTIR/Analysis/OverrideMap.h"
 
 namespace mlir::tt::ttir {
 // Base class for all TTIR analyses.
@@ -14,6 +15,7 @@ template <class I, class R> class TTIRAnalysis {
 protected:
   Operation *op;
   bool is_valid = false;
+  std::string attributeName;
   R analysis_result;
   I analysis_input;
 
@@ -23,6 +25,7 @@ protected:
   // Must be implemented by every analysis type.
   //
   virtual void analysisImplementation() = 0;
+  virtual void handleOverride(llvm::json::Object *override) = 0;
 
 public:
   virtual ~TTIRAnalysis() {};
@@ -41,7 +44,11 @@ public:
   // Get the analysis result.
   //
   const R &getResult() {
-    runAnalysis();
+    auto overrideMap = tt::OverrideMap::getInstance();
+    if (overrideMap->containsOverride(attributeName))
+      handleOverride(overrideMap->getOverride(attributeName));
+    else
+      runAnalysis();
     return analysis_result;
   }
 
