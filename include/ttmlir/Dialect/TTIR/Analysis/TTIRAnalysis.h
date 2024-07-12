@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_TTIRANALYSIS_H
+#define TTMLIR_DIALECT_TTIR_ANALYSIS_TTIRANALYSIS_H
+
 #include "mlir/IR/Operation.h"
 
 namespace mlir::tt::ttir {
@@ -10,12 +13,11 @@ namespace mlir::tt::ttir {
 template <class I, class R> class TTIRAnalysis {
 protected:
   Operation *op;
-  bool is_valid;
+  bool is_valid = false;
   R analysis_result;
   I analysis_input;
 
-  TTIRAnalysis(Operation *op) : op(op), is_valid(false) {}
-  virtual ~TTIRAnalysis() {};
+  TTIRAnalysis(Operation *op) : op(op) {}
 
   // Actual implementation of the analysis.
   // Must be implemented by every analysis type.
@@ -23,6 +25,8 @@ protected:
   virtual void analysisImplementation() = 0;
 
 public:
+  virtual ~TTIRAnalysis() {};
+
   // Initialize the analysis with the input if needed.
   //
   void init(const I &input) {
@@ -54,3 +58,5 @@ private:
   }
 };
 } // namespace mlir::tt::ttir
+
+#endif
