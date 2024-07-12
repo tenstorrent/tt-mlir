@@ -13,9 +13,9 @@ include "mlir/IR/OpBase.td"
 
 def TT_Dialect : Dialect {
     let name = "tt";
-    let summary = "TT types and operations common to all TT dialects.";
+    let summary = "TT types and attributes common to all TT dialects.";
     let description = [{
-        This dialect defines types and operations common to all TT dialects.
+        This dialect defines types and attributes common to all TT dialects.
     }];
     let cppNamespace = "::mlir::tt";
 

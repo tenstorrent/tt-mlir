@@ -20,12 +20,12 @@ enum DataType: ushort {
   Float32 = 0,
   Float16 = 1,
   BFloat16 = 2,
-  BC_Float8 = 3,
-  BC_BFloat8 = 4,
-  BC_Float4 = 5,
-  BC_BFloat4 = 6,
-  BC_Float2 = 7,
-  BC_BFloat2 = 8,
+  BFP_Float8 = 3,
+  BFP_BFloat8 = 4,
+  BFP_Float4 = 5,
+  BFP_BFloat4 = 6,
+  BFP_Float2 = 7,
+  BFP_BFloat2 = 8,
   UInt32 = 9,
   UInt16 = 10,
   UInt8 = 11,
@@ -60,7 +60,7 @@ table MemoryDesc {
 }
 
 table LayoutDesc {
-  strides: [int];
+  stride: [int];
   oob_val: OOBVal;
   grid: Dim2dRange;
   memory_desc: MemoryDesc;

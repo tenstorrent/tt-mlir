@@ -11,8 +11,3 @@ understanding the project.
 - [memref dialect](https://mlir.llvm.org/docs/Dialects/MemRef/)
 - [tosa spec](https://www.mlplatform.org/tosa/tosa_spec.html)
 - [torch-mlir](https://github.com/llvm/torch-mlir)
-  - See `python/resnet18.py` for an example of collecting torch-mlir output.
-  - `source env/activate && python python/resnet18.py > resnet18_linalg.mlir`
-  - Uncomment `output_type = "linalg-on-tensors"` to get linalg output.
-  - Uncomment `resnet50` to get resnet50 output.
-  - Tosa dialect by default embeds all constant tensor data + weights in the IR making it too large to checkin. Hopefully there's a way to disable this.

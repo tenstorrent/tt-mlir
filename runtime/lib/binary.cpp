@@ -72,8 +72,8 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
-    desc.stride = {input->desc()->layout()->strides()->begin(),
-                   input->desc()->layout()->strides()->end()};
+    desc.stride = {input->desc()->layout()->stride()->begin(),
+                   input->desc()->layout()->stride()->end()};
     desc.itemsize = utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
@@ -90,8 +90,8 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};
-    desc.stride = {output->desc()->layout()->strides()->begin(),
-                   output->desc()->layout()->strides()->end()};
+    desc.stride = {output->desc()->layout()->stride()->begin(),
+                   output->desc()->layout()->stride()->end()};
     desc.itemsize = utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();

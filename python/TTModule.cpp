@@ -16,12 +16,12 @@ void populateTTModule(py::module &m) {
       .value("Float32", tt::DataType::Float32)
       .value("Float16", tt::DataType::Float16)
       .value("BFloat16", tt::DataType::BFloat16)
-      .value("BC_Float8", tt::DataType::BC_Float8)
-      .value("BC_BFloat8", tt::DataType::BC_BFloat8)
-      .value("BC_Float4", tt::DataType::BC_Float4)
-      .value("BC_BFloat4", tt::DataType::BC_BFloat4)
-      .value("BC_Float2", tt::DataType::BC_Float2)
-      .value("BC_BFloat2", tt::DataType::BC_BFloat2)
+      .value("BFP_Float8", tt::DataType::BFP_Float8)
+      .value("BFP_BFloat8", tt::DataType::BFP_BFloat8)
+      .value("BFP_Float4", tt::DataType::BFP_Float4)
+      .value("BFP_BFloat4", tt::DataType::BFP_BFloat4)
+      .value("BFP_Float2", tt::DataType::BFP_Float2)
+      .value("BFP_BFloat2", tt::DataType::BFP_BFloat2)
       .value("UInt32", tt::DataType::UInt32)
       .value("UInt16", tt::DataType::UInt16)
       .value("UInt8", tt::DataType::UInt8);
@@ -58,6 +58,10 @@ void populateTTModule(py::module &m) {
       .def("__len__", &llvm::ArrayRef<int64_t>::size);
 
   py::class_<tt::GridAttr>(m, "GridAttr")
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> shape) {
+                    return wrap(tt::GridAttr::get(unwrap(ctx), shape));
+                  })
       .def_property_readonly("name",
                              [](tt::GridAttr const &ga) { return ga.name; })
       .def_property_readonly("shape", &tt::GridAttr::getShape)
@@ -78,12 +82,47 @@ void populateTTModule(py::module &m) {
           &MemRefType::getMemorySpace); // mlir::Attribute not supported
 
   py::class_<tt::LayoutAttr>(m, "LayoutAttr")
+      .def_static("get",
+                  [](MlirContext ctx, MlirType rankedTensorType,
+                     tt::MemorySpace memorySpace, MlirAttribute grid,
+                     std::vector<std::pair<std::int64_t, std::int64_t>>
+                         collapseIntervals,
+                     tt::OOBVal oobVal) {
+                    return wrap(tt::LayoutAttr::get(
+                        unwrap(ctx),
+                        unwrap(rankedTensorType).cast<RankedTensorType>(),
+                        memorySpace, unwrap(grid).cast<tt::GridAttr>(),
+                        collapseIntervals, oobVal));
+                  })
+      .def_static("with_grid",
+                  [](MlirContext ctx, MlirAttribute self,
+                     std::vector<std::int64_t> tensorShape, MlirAttribute grid,
+                     std::vector<std::pair<std::int64_t, std::int64_t>>
+                         collapseIntervals) {
+                    return wrap(unwrap(self).cast<tt::LayoutAttr>().withGrid(
+                        unwrap(ctx), tensorShape,
+                        unwrap(grid).cast<tt::GridAttr>(), collapseIntervals));
+                  })
+      .def_static("with_grid_",
+                  [](MlirContext ctx, MlirAttribute self,
+                     std::vector<std::int64_t> tensorShape, MlirAttribute grid,
+                     std::vector<std::pair<std::int64_t, std::int64_t>>
+                         collapseIntervals) {
+                    return unwrap(self).cast<tt::LayoutAttr>().withGrid(
+                        unwrap(ctx), tensorShape,
+                        unwrap(grid).cast<tt::GridAttr>(), collapseIntervals);
+                  })
       .def_static(
-          "get",
-          [](MlirContext ctx, ::llvm::ArrayRef<int64_t> strides,
-             tt::OOBVal oobval, tt::GridAttr gridAttr, MemRefType memrefType) {
-            return wrap(tt::LayoutAttr::get(unwrap(ctx), strides, oobval,
-                                            gridAttr, memrefType));
+          "with_element_type",
+          [](MlirContext ctx, MlirAttribute self, MlirType elementType) {
+            return wrap(unwrap(self).cast<tt::LayoutAttr>().withElementType(
+                unwrap(ctx), unwrap(elementType)));
+          })
+      .def_static(
+          "with_element_type_",
+          [](MlirContext ctx, MlirAttribute self, MlirType elementType) {
+            return unwrap(self).cast<tt::LayoutAttr>().withElementType(
+                unwrap(ctx), unwrap(elementType));
           })
       .def("getLayout",
            [](MlirType &type) {
@@ -97,11 +136,18 @@ void populateTTModule(py::module &m) {
                  tensor.getEncoding().template cast<tt::LayoutAttr>();
              return layout;
            })
-      .def_property_readonly("strides", &tt::LayoutAttr::getStrides)
+      .def("wrapped", [](tt::LayoutAttr const &self) { return wrap(self); })
+      .def_property_readonly("stride",
+                             [](tt::LayoutAttr const &self) {
+                               auto stride = self.getStride();
+                               return std::vector<std::int64_t>(stride.begin(),
+                                                                stride.end());
+                             })
       .def_property_readonly("oobval", &tt::LayoutAttr::getOobVal)
       .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
       .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
-      .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace);
+      .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
+      .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape);
 
   py::class_<tt::TileType>(m, "TileType")
       .def_static("get",

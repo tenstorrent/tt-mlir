@@ -372,37 +372,6 @@ inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
   return MemorySpace::System;
 }
 
-inline SmallVector<int64_t> canonicalStride(::llvm::ArrayRef<int64_t> shape) {
-  SmallVector<int64_t> stride;
-  stride.push_back(1);
-  for (auto iter = shape.rbegin(); iter != shape.rend(); ++iter) {
-    stride.insert(stride.begin(),
-                  stride.front() * *iter); // TODO(nsmith): alignup 16B
-  }
-  return stride;
-}
-
-inline LayoutAttr
-canonicalLayoutAttr(MLIRContext *ctx, RankedTensorType ty,
-                    MemorySpace memorySpace = MemorySpace::System) {
-  auto map = AffineMap::getMultiDimIdentityMap(ty.getRank(), ctx);
-  auto memref = MemRefType::get(ty.getShape(), ty.getElementType(), map,
-                                MemorySpaceAttr::get(ctx, memorySpace));
-  return LayoutAttr::get(ctx, canonicalStride(ty.getShape()), OOBVal::Undef,
-                         GridAttr::get(ctx), memref);
-}
-
-inline LayoutAttr
-canonicalLayoutAttr(PatternRewriter &rewriter, RankedTensorType ty,
-                    MemorySpace memorySpace = MemorySpace::System) {
-  auto map = rewriter.getMultiDimIdentityMap(ty.getRank());
-  auto memref = MemRefType::get(ty.getShape(), ty.getElementType(), map,
-                                rewriter.getAttr<MemorySpaceAttr>(memorySpace));
-  return rewriter.getAttr<LayoutAttr>(canonicalStride(ty.getShape()),
-                                      OOBVal::Undef,
-                                      rewriter.getAttr<GridAttr>(), memref);
-}
-
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx) {
@@ -412,7 +381,7 @@ public:
       if (layout) {
         return type;
       }
-      auto newLayout = canonicalLayoutAttr(ctx, type);
+      auto newLayout = LayoutAttr::get(ctx, type);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -488,7 +457,7 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
     return std::nullopt;
   }
 
-  auto desiredLayout = canonicalLayoutAttr(rewriter, ty, desiredMemorySpace);
+  auto desiredLayout = rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace);
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
@@ -781,18 +750,14 @@ public:
 
         // Update the output layout attribute with the new grid size.
         //
+        auto resultTy = op->getResult(0).getType().cast<RankedTensorType>();
         op->getResult(0).setType(RankedTensorType::get(
-            op->getResult(0).getType().cast<RankedTensorType>().getShape(),
-            op->getResult(0)
-                .getType()
-                .cast<RankedTensorType>()
-                .getElementType(),
-            LayoutAttr::get(
-                &getContext(), layout.getStrides(), layout.getOobVal(),
+            resultTy.getShape(), resultTy.getElementType(),
+            layout.withGrid(
+                &getContext(), resultTy,
                 GridAttr::get(&getContext(),
                               {grid_analysis_result.target_rows,
-                               grid_analysis_result.target_columns}),
-                layout.getMemref())));
+                               grid_analysis_result.target_columns}))));
         lastOpResultType = op->getResult(0).getType();
       });
 
