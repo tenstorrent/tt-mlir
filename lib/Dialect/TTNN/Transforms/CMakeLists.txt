@@ -1,7 +1,7 @@
 add_mlir_dialect_library(MLIRTTNNTransforms
         Passes.cpp
         TTNNToCpp.cpp
-        SerializeToBinary.cpp
+        TTNNToSerializedBinary.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
