@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_GRIDANALYSIS_H
+#define TTMLIR_DIALECT_TTIR_ANALYSIS_GRIDANALYSIS_H
+
 #include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
 
 namespace mlir::tt::ttir {
@@ -43,3 +46,5 @@ public:
   GridAnalysis(Operation *op) : TTIRAnalysis(op) {}
 };
 } // namespace mlir::tt::ttir
+
+#endif
