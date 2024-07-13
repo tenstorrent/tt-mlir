@@ -22,13 +22,20 @@ if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   message(FATAL_ERROR "In-source builds are not allowed. Please make a new directory (called a build directory) and run CMake from there.")
 endif()
 
+# If there are multiple python env we need to explicitly set the python3 executable
+set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
+
 include(FindMLIR)
 include(TTMLIRVersion)
 
-set(TTMLIR_TOOLCHAIN "/opt/ttmlir-toolchain" CACHE STRING "Path to the toolchain")
+if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
+    message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
+endif()
+
+set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})
 set(TTMLIR_BINARY_DIR ${PROJECT_BINARY_DIR})
-set(LLVM_LIT_TOOLS_DIR "${TTMLIR_TOOLCHAIN}/src/llvm-project/llvm/utils/lit")
+set(LLVM_LIT_TOOLS_DIR "${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project/llvm/utils/lit")
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
 include_directories(${TTMLIR_SOURCE_DIR}/include)
