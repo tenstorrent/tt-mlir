@@ -105,13 +105,13 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
   case ::tt::target::ttnn::ReductionOpType::Sum: {
     auto &in = *liveTensors.at(op->in()->global_id());
 
-    const auto *dim_arg_fb_ptr = op->dim_arg();
-    std::optional<vector<int>> dim_arg =
-        dim_arg_fb_ptr ? std::make_optional(std::vector<int>(
-                             dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
-                       : std::nullopt;
+    const auto *dimArgFbPtr = op->dim_arg();
+    std::optional<vector<int>> dimArg =
+        dimArgFbPtr ? std::make_optional(std::vector<int>(dimArgFbPtr->begin(),
+                                                          dimArgFbPtr->end()))
+                    : std::nullopt;
 
-    tensorPool.push_back(::ttnn::sum(in, dim_arg, op->keep_dim()));
+    tensorPool.push_back(::ttnn::sum(in, dimArg, op->keep_dim()));
 
     liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     break;

@@ -170,6 +170,8 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mn
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {

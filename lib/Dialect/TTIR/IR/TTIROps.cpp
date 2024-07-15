@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include <unordered_set>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -94,6 +95,42 @@
     return emitOpError(
         "Allocating from a device memory space must have address "
         "set to a non-zero value, device addresses are statically allocated");
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
+  auto keepDim = getKeepDim();
+  if (not keepDim) {
+    return emitOpError("Sum op must have keep dim attribute set to true");
+  }
+
+  auto inputShape = getInput().getType().getShape();
+  auto dimArgOpt = getDimArg();
+  if (dimArgOpt.has_value()) {
+    const auto &dimArgArray = dimArgOpt.value();
+    if (dimArgArray.size() > inputShape.size()) {
+      return emitOpError("Dim arg attribute has more indexes then there are "
+                         "dimensions of the input tensor");
+    }
+
+    const int maxPositiveIndex = inputShape.size() - 1;
+    const int minNegativeIndex = -inputShape.size();
+    std::unordered_set<int64_t> seenIndexes;
+    for (auto reductionAxisAttr : dimArgArray) {
+      auto reductionAxis = reductionAxisAttr.cast<IntegerAttr>().getInt();
+
+      if (seenIndexes.count(reductionAxis)) {
+        return emitOpError("Duplicate reduction axis");
+      }
+      seenIndexes.insert(reductionAxis);
+
+      if (reductionAxis < minNegativeIndex ||
+          reductionAxis > maxPositiveIndex) {
+        return emitOpError("Reduction axis out of range");
+      }
+    }
   }
 
   return success();
