@@ -10,6 +10,11 @@ repos:
     - id: clang-format
       types_or: [c++, c]
       args: [-style=file, -i]
+  - repo: https://github.com/espressif/check-copyright/
+    rev: v1.0.3
+    hooks:
+      - id: check-copyright
+        args: ['--config', '.github/check-spdx.yaml']
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v3.4.0
     hooks:
