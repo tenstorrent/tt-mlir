@@ -711,7 +711,6 @@ public:
     // Currently a placeholder pass for grid size optimization.
     // Goes through all the operations and sets the grid size to max supported
     // by target chip. Lacks:
-    // - Proper update of layout attributes related to grid size.
     // - Constraint checking, whether the grid size is supported by the current
     // OP based on inputs and op type.
     //
@@ -742,19 +741,18 @@ public:
         //
         GridAnalysisResult grid_analysis_result = grid_analysis.getResult();
 
-        LayoutAttr layout = op->getResult(0)
-                                .getType()
-                                .template cast<RankedTensorType>()
-                                .getEncoding()
-                                .template cast<LayoutAttr>();
+        RankedTensorType tensor_type =
+            op->getResult(0).getType().template cast<RankedTensorType>();
+        LayoutAttr layout =
+            tensor_type.getEncoding().template cast<LayoutAttr>();
+        llvm::ArrayRef<int64_t> tensor_shape = tensor_type.getShape();
 
         // Update the output layout attribute with the new grid size.
         //
-        auto resultTy = op->getResult(0).getType().cast<RankedTensorType>();
         op->getResult(0).setType(RankedTensorType::get(
-            resultTy.getShape(), resultTy.getElementType(),
+            tensor_shape, tensor_type.getElementType(),
             layout.withGrid(
-                &getContext(), resultTy,
+                &getContext(), tensor_shape,
                 GridAttr::get(&getContext(),
                               {grid_analysis_result.target_rows,
                                grid_analysis_result.target_columns}))));
