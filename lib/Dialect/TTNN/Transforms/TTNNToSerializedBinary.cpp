@@ -151,6 +151,18 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
                                                dim_arg, op.getKeepDim());
 }
 
+template <typename SoftmaxOp>
+::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
+createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  int32_t dimension = op.getDimension();
+
+  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString) {
@@ -187,6 +199,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
     return createOperation(cache, createReductionOp(cache, sumOp), debugString);
+  }
+  if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
+    return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
+                           debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

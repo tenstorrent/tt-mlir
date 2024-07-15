@@ -186,6 +186,26 @@ def TTIR_ReluOp : TTIR_ElementwiseOp<"relu"> {
     }];
 }
 
+def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
+    let summary = "Softmax operation.";
+    let description = [{
+      Softmax operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32Attr:$dimension,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";

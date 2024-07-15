@@ -53,6 +53,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::SubtractOp>>(typeConverter,
                                                              ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::SumOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MultiplyOp>>(typeConverter,
                                                              ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
@@ -88,6 +89,9 @@ struct ConvertTTNNToEmitCPass
           module.getLoc(),
           "ttnn/operations/reduction/generic/generic_reductions.hpp",
           /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(module.getLoc(),
+                                       "ttnn/operations/normalization.hpp",
+                                       /*isStandard=*/false);
     }
 
     // TTNN -> EmitC

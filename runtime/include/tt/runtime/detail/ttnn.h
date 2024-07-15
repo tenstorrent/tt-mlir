@@ -38,6 +38,7 @@
 #include "ttnn/operations/core.hpp"
 #include "ttnn/operations/creation.hpp"
 #include "ttnn/operations/matmul.hpp"
+#include "ttnn/operations/normalization.hpp"
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"

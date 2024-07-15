@@ -107,6 +107,18 @@ class TTIRToTTNNReductionOpRewriter : public OpRewritePattern<TTIROp> {
   }
 };
 
+class TTIRToTTNNSoftmaxOpRewriter : public OpRewritePattern<ttir::SoftmaxOp> {
+  using OpRewritePattern<ttir::SoftmaxOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::SoftmaxOp op,
+                                PatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<SoftmaxOp>(op, op.getResult().getType(),
+                                           op.getInput(), op.getOutput(),
+                                           op.getDimension());
+    return success();
+  }
+};
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 template <typename TTIROp, typename TTNNOp>
 class TTIRToTTNNBinaryOpRewriter : public OpRewritePattern<TTIROp> {
@@ -150,7 +162,8 @@ public:
              TTIRToTTNNOpRewriter<ttir::ReluOp, ReluOp>,
              TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>,
              TTIRToTTNNReductionOpRewriter<ttir::SumOp, SumOp>,
-             TensorEmptyToFullRewriter>(&getContext());
+             TTIRToTTNNSoftmaxOpRewriter, TensorEmptyToFullRewriter>(
+            &getContext());
     // ANCHOR_END: adding_an_op_matmul_rewrite_pattern_set
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
