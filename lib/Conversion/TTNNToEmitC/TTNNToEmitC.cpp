@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/raw_ostream.h>
+#include <mlir-c/IR.h>
 #include <mlir/Support/LogicalResult.h>
 
 #include "../PassDetail.h"
@@ -41,92 +42,6 @@ public:
   }
 };
 
-// class TTNNToEmitCTypeRewriter : public ConversionPattern {
-// public:
-//   TTNNToEmitCTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
-//       : ConversionPattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
-//         converter(&converter) {}
-
-//   template <typename ValueRange>
-//   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const
-//   {
-//     bool updated = false;
-//     auto result = converter->convertTypes(valueRange.getTypes(), newTypes);
-//     std::cout << "VESELO" << std::endl;
-//     llvm::errs() << "ZA SVAKI SLUCAJ" << "\n";
-//     if (result.failed()) {
-//       return false;
-//     }
-//     for (auto [operand, newType] : llvm::zip(valueRange, newTypes)) {
-//       if (operand.getType() == newType) {
-//         continue;
-//       }
-//       operand.setType(newType);
-//       updated = true;
-//     }
-//     return updated;
-//   }
-
-//   bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
-//     std::cout << "VESELO2" << std::endl;
-//     llvm::errs() << "ZA SVAKI SLUCAJ2" << "\n";
-//     auto funcOp = dyn_cast<func::FuncOp>(op);
-//     if (not funcOp) {
-//       return false;
-//     }
-//     SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
-//     SmallVector<Type> outputTypes(funcOp.getResultTypes());
-//     for (Type &ty : inputTypes) {
-//       ty = converter->convertType(ty);
-//     }
-//     for (Type &ty : outputTypes) {
-//       ty = converter->convertType(ty);
-//     }
-//     auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
-//     if (funcOp.getFunctionType() == newType) {
-//       return false;
-//     }
-//     funcOp.setFunctionType(newType);
-//     return true;
-//   }
-
-//   LogicalResult
-//   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     bool updated = false;
-//     SmallVector<Type> operandss;
-//     SmallVector<Type> results;
-//     updated |= convertTypes(op->getOperands(), operandss);
-//     updated |= convertTypes(op->getResults(), results);
-//     updated |= convertFuncType(op, rewriter);
-//     return updated ? success() : failure();
-//   }
-
-//   const TypeConverter *converter;
-// };
-
-// template <typename OpTy>
-// class TTNNToEmitCOpaqueRewriter : public OpRewritePattern<OpTy> {
-// public:
-//   using OpRewritePattern<OpTy>::OpRewritePattern;
-
-//   std::string getOpName(OpTy op) const {
-//     auto name = op.getOperation()->getName().getStringRef();
-//     if (name.starts_with("ttnn.")) {
-//       name = name.drop_front(5);
-//     }
-//     return "ttnn::" + name.str();
-//   }
-
-//   LogicalResult matchAndRewrite(OpTy op,
-//                                 PatternRewriter &rewriter) const final {
-//     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-//         op, op->getResultTypes(), getOpName(op), nullptr, nullptr,
-//         op->getOperands());
-//     return success();
-//   }
-// };
-
 template <typename SrcOp, typename Adaptor = typename SrcOp::Adaptor>
 class DefaultOpConversionPattern : public OpConversionPattern<SrcOp> {
   using OpConversionPattern<SrcOp>::OpConversionPattern;
@@ -136,10 +51,11 @@ public:
       : OpConversionPattern<SrcOp>(ctx) {}
 
   DefaultOpConversionPattern(const TypeConverter &typeConverter,
-                             MLIRContext *context, bool convertTypes = true, PatternBenefit benefit = 1)
+                             MLIRContext *context, bool convertTypes = true,
+                             PatternBenefit benefit = 1)
       : OpConversionPattern<SrcOp>(typeConverter, context, benefit) {
-        this->convertTypes = convertTypes;
-      }
+    this->convertTypes = convertTypes;
+  }
 
   std::string getOpName(SrcOp op) const {
     auto name = op.getOperationName();
@@ -152,12 +68,7 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     SmallVector<Attribute, 4> templateArguments;
-
-    // srcOp->dump();
-    // auto r = srcOp->getResultTypes();
-    // std::for_each(r.begin(), r.end(), [](Type t) { t.dump(); });
 
     auto operands = adaptor.getOperands();
     (void)operands;
@@ -174,12 +85,11 @@ public:
           srcOp, srcOp->getResultTypes(), getOpName(srcOp), nullptr, nullptr,
           adaptor.getOperands());
     }
-    // resultTy => srcOp->getResultTypes()
 
     return success();
   }
 
-  private:
+private:
   bool convertTypes = false;
 };
 
@@ -190,7 +100,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::OpenDeviceOp>>(
       typeConverter, ctx, true);
-  // patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::OpenDeviceOp>>(typeConverter);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::CloseDeviceOp>>(
       typeConverter, ctx);
 
@@ -210,9 +119,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                                                   ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::MultiplyOp>>(
       typeConverter, ctx);
-
-
-  // patterns.add<DefaultOpConversionPattern<mlir::func::ReturnOp>>(typeConverter, ctx);
 }
 
 namespace {
@@ -224,89 +130,63 @@ struct ConvertTTNNToEmitCPass
 
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalDialect<emitc::EmitCDialect>();
-
-    target.addLegalOp<mlir::func::FuncOp>();
-    target.addLegalOp<mlir::func::ReturnOp>();
-    // target.addLegalDialect<mlir::tt::ttnn::TTNNDialect>();
-    // target.addIllegalDialect<mlir::tt::TTDialect>();
     target.addIllegalDialect<mlir::tt::ttnn::TTNNDialect>();
 
-    std::cout << "PRE PRINT" << std::endl;
+    // Add header imports to front of module
+    //
+    {
+      auto module = getOperation();
+      OpBuilder builder(module);
 
-    // auto x = getOperation();
-    // auto r = x->getResultTypes();
-    getOperation()->dump();
-    // std::for_each(r.begin(), r.end(), [](Type t) { t.dump(); });
-    std::cout
-        << "=================================================================="
-        << std::endl;
-
-    TTNNToEmitCTypeConverter typeConverter(&getContext());
-    RewritePatternSet patterns(&getContext());
-
-    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
-        patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-             typeConverter.isLegal(&op.getBody());
-    });
-
-
-    populateReturnOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::ReturnOp>(
-        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
-
-    populateCallOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<func::CallOp>(
-        [&](func::CallOp op) { return typeConverter.isLegal(op); });
-
-    // populateBranchOpInterfaceTypeConversionPattern(patterns, typeConverter);
-    // target.markUnknownOpDynamicallyLegal([&](Operation *op) {
-    //   return isNotBranchOpInterfaceOrReturnLikeOp(op) ||
-    //          isLegalForBranchOpInterfaceTypeConversionPattern(op,
-    //                                                           typeConverter) ||
-    //          isLegalForReturnOpTypeConversionPattern(op, typeConverter);
-    // });
-
-
-    populateTTNNToEmitCPatterns(&getContext(), patterns, typeConverter);
-    // FrozenRewritePatternSet patternSet(std::move(patterns));
-
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
-      signalPassFailure();
-      return;
+      builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn/device.h",
+                                       /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(
+          module.getLoc(), "ttnn/operations/eltwise/binary/binary.hpp",
+          /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(
+          module.getLoc(), "ttnn/operations/core.hpp", /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(module.getLoc(),
+                                       "ttnn/operations/creation.hpp",
+                                       /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(
+          module.getLoc(),
+          "ttnn/operations/reduction/generic/generic_reductions.hpp",
+          /*isStandard=*/false);
     }
 
-    // {
-    //   RewritePatternSet patterns(&getContext());
-    //   populateTTNNToEmitCPatterns(&getContext(), patterns);
-    //   if (failed(applyPatternsAndFoldGreedily(getOperation(),
-    //                                           std::move(patterns)))) {
-    //     signalPassFailure();
-    //     return;
-    //   }
-    // }
+    // TTNN -> EmitC
+    //
+    {
+      TTNNToEmitCTypeConverter typeConverter(&getContext());
+      RewritePatternSet patterns(&getContext());
 
-    // {
-    //   auto module = getOperation();
-    //   OpBuilder builder(module);
-    //   module.getBody()->push_front(builder.create<emitc::IncludeOp>(
-    //       module.getLoc(), "ttnn/device.h", /*isStandard=*/false));
-    //   module.getBody()->push_front(builder.create<emitc::IncludeOp>(
-    //       module.getLoc(), "ttnn/operations/eltwise/binary/binary.hpp",
-    //       /*isStandard=*/false));
-    //   module.getBody()->push_front(builder.create<emitc::IncludeOp>(
-    //       module.getLoc(), "ttnn/operations/core.hpp",
-    //       /*isStandard=*/false));
-    //   module.getBody()->push_front(builder.create<emitc::IncludeOp>(
-    //       module.getLoc(), "ttnn/operations/creation.hpp",
-    //       /*isStandard=*/false));
-    //   module.getBody()->push_front(builder.create<emitc::IncludeOp>(
-    //       module.getLoc(),
-    //       "ttnn/operations/reduction/generic/generic_reductions.hpp",
-    //       /*isStandard=*/false));
-    // }
+      // Func dialect handling
+      //
+      populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+          patterns, typeConverter);
+      target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+        return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+               typeConverter.isLegal(&op.getBody());
+      });
+      populateReturnOpTypeConversionPattern(patterns, typeConverter);
+      target.addDynamicallyLegalOp<func::ReturnOp>(
+          [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+      populateCallOpTypeConversionPattern(patterns, typeConverter);
+      target.addDynamicallyLegalOp<func::CallOp>(
+          [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
+      // TTNN -> EmitC patterns
+      //
+      populateTTNNToEmitCPatterns(&getContext(), patterns, typeConverter);
+
+      // Apply conversion
+      //
+      if (failed(applyFullConversion(getOperation(), target,
+                                     std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
   };
 };
 
