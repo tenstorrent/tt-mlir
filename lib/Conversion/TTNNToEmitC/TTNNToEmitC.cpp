@@ -6,6 +6,8 @@
 
 #include "../PassDetail.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
@@ -134,8 +136,10 @@ public:
       : OpConversionPattern<SrcOp>(ctx) {}
 
   DefaultOpConversionPattern(const TypeConverter &typeConverter,
-                             MLIRContext *context, PatternBenefit benefit = 1)
-      : OpConversionPattern<SrcOp>(typeConverter, context, benefit) {}
+                             MLIRContext *context, bool convertTypes = true, PatternBenefit benefit = 1)
+      : OpConversionPattern<SrcOp>(typeConverter, context, benefit) {
+        this->convertTypes = convertTypes;
+      }
 
   std::string getOpName(SrcOp op) const {
     auto name = op.getOperationName();
@@ -151,14 +155,15 @@ public:
 
     SmallVector<Attribute, 4> templateArguments;
 
-    srcOp->dump();
-    auto r = srcOp->getResultTypes();
-    std::for_each(r.begin(), r.end(), [](Type t) { t.dump(); });
+    // srcOp->dump();
+    // auto r = srcOp->getResultTypes();
+    // std::for_each(r.begin(), r.end(), [](Type t) { t.dump(); });
 
     auto operands = adaptor.getOperands();
+    (void)operands;
 
     auto sz = srcOp->getResultTypes().size();
-    if (sz > 0) {
+    if (sz > 0 && convertTypes) {
       auto resultTy = cast<emitc::OpaqueType>(
           this->getTypeConverter()->convertType(srcOp->getResult(0).getType()));
       rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
@@ -173,6 +178,9 @@ public:
 
     return success();
   }
+
+  private:
+  bool convertTypes = false;
 };
 
 void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
@@ -181,7 +189,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Device ops
   //
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::OpenDeviceOp>>(
-      typeConverter, ctx);
+      typeConverter, ctx, true);
   // patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::OpenDeviceOp>>(typeConverter);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::CloseDeviceOp>>(
       typeConverter, ctx);
@@ -202,6 +210,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                                                   ctx);
   patterns.add<DefaultOpConversionPattern<mlir::tt::ttnn::MultiplyOp>>(
       typeConverter, ctx);
+
+
+  // patterns.add<DefaultOpConversionPattern<mlir::func::ReturnOp>>(typeConverter, ctx);
 }
 
 namespace {
@@ -213,22 +224,51 @@ struct ConvertTTNNToEmitCPass
 
     target.addLegalDialect<mlir::func::FuncDialect>();
     target.addLegalDialect<emitc::EmitCDialect>();
+
+    target.addLegalOp<mlir::func::FuncOp>();
+    target.addLegalOp<mlir::func::ReturnOp>();
     // target.addLegalDialect<mlir::tt::ttnn::TTNNDialect>();
     // target.addIllegalDialect<mlir::tt::TTDialect>();
-    // target.addIllegalDialect<mlir::tt::ttnn::TTNNDialect>();
+    target.addIllegalDialect<mlir::tt::ttnn::TTNNDialect>();
 
-    std::cout << "SE DESILO STA?" << std::endl;
+    std::cout << "PRE PRINT" << std::endl;
 
-    auto x = getOperation();
-    auto r = x->getResultTypes();
+    // auto x = getOperation();
+    // auto r = x->getResultTypes();
     getOperation()->dump();
-    std::for_each(r.begin(), r.end(), [](Type t) { t.dump(); });
+    // std::for_each(r.begin(), r.end(), [](Type t) { t.dump(); });
     std::cout
         << "=================================================================="
         << std::endl;
 
     TTNNToEmitCTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
+
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
+
+
+    populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::ReturnOp>(
+        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+
+    populateCallOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::CallOp>(
+        [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
+    // populateBranchOpInterfaceTypeConversionPattern(patterns, typeConverter);
+    // target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+    //   return isNotBranchOpInterfaceOrReturnLikeOp(op) ||
+    //          isLegalForBranchOpInterfaceTypeConversionPattern(op,
+    //                                                           typeConverter) ||
+    //          isLegalForReturnOpTypeConversionPattern(op, typeConverter);
+    // });
+
+
     populateTTNNToEmitCPatterns(&getContext(), patterns, typeConverter);
     // FrozenRewritePatternSet patternSet(std::move(patterns));
 
