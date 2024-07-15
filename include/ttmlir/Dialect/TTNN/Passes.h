@@ -18,7 +18,22 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTNN/Passes.h.inc"
 
-void createTTIRToTTNNBackendPipeline(OpPassManager &pm);
+// Options for the TTIR to TTNN backend pipeline.
+//
+struct TTIRToTTNNBackendPipelineOptions
+    : public PassPipelineOptions<TTIRToTTNNBackendPipelineOptions> {
+  // If this option is true, run GridSet pass and try setting max available grid
+  // size for OP execution.
+  // If this option is false, skip running GridSet pass,
+  // thus leaving all ops on 1x1 grid.
+  Option<bool> gridSetPassEnabled{
+      *this, "enable-grid-set",
+      llvm::cl::desc("Determine and set max valid grid for Op execution."),
+      llvm::cl::init(true)};
+};
+
+void createTTIRToTTNNBackendPipeline(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 } // namespace mlir::tt::ttnn
 
 #endif

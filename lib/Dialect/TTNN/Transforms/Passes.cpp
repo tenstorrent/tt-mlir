@@ -164,9 +164,13 @@ public:
   }
 };
 
-void createTTIRToTTNNBackendPipeline(OpPassManager &pm) {
+void createTTIRToTTNNBackendPipeline(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
-  pm.addPass(mlir::tt::ttir::createTTIRGridSet());
+  if (options.gridSetPassEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRGridSet());
+  }
+
   pm.addPass(createTTNNOpenDevice());
   pm.addPass(createConvertTTIRToTTNN());
 }
