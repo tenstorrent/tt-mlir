@@ -31,26 +31,10 @@ jobs:
       with:
           fetch-depth: 0 # Fetch all history and tags
 
-    - name: mkdir /opt/ttmlir-toolchain
-      shell: bash
-      run: |
-        sudo mkdir -p /opt/ttmlir-toolchain
-        sudo chown -R ${USER} /opt/ttmlir-toolchain
-
-    - name: Cache ttmlir-toolchain
-      uses: actions/cache@v3
+    - name: Build and cache ttmlir-toolchain
+      uses: ./.github/actions/build_toolchain
       with:
-        path: /opt/ttmlir-toolchain
-        key: ${{ runner.OS }}-ttmlir-toolchain-cache-${{ hashFiles('env/**') }}
-        restore-keys: |
-          ${{ runner.OS }}-ttmlir-toolchain-cache-
-
-    - name: Build ttmlir-toolchain
-      shell: bash
-      run: |
-        source env/activate
-        cmake -B env/build env
-        cmake --build env/build
+        os: ${{ matrix.os }}
 
     - name: Set reusable strings
       id: strings

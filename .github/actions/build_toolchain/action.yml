@@ -1,0 +1,25 @@
+name: 'Build ttmlir-toolchain'
+description: 'Creates directory, caches, and builds the ttmlir-toolchain'
+inputs:
+  os:
+    description: 'Operating System'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - run: |
+        sudo mkdir -p /opt/ttmlir-toolchain
+        sudo chown -R ${USER} /opt/ttmlir-toolchain
+      shell: bash
+      name: 'mkdir /opt/ttmlir-toolchain'
+    - uses: actions/cache@v3
+      with:
+        path: /opt/ttmlir-toolchain
+        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}
+      name: 'Cache ttmlir-toolchain'
+    - run: |
+        source env/activate
+        cmake -B env/build env
+        cmake --build env/build
+      shell: bash
+      name: 'Build ttmlir-toolchain'
