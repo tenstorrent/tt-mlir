@@ -7,7 +7,11 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 import shutil
 
-__version__ = "0.0.1"
+TTMLIR_VERSION_MAJOR=os.getenv('TTMLIR_VERSION_MAJOR', '0')
+TTMLIR_VERSION_MINOR=os.getenv('TTMLIR_VERSION_MINOR', '0')
+TTMLIR_VERSION_PATCH=os.getenv('TTMLIR_VERSION_PATCH', '0')
+
+__version__ = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PATCH}"
 
 src_dir = os.environ.get(
     "SOURCE_ROOT",

@@ -6,6 +6,7 @@ import ttrt.binary
 import os
 import json
 
+from pkg_resources import get_distribution
 
 def system_desc_as_dict(desc):
     return json.loads(desc.as_json())
@@ -16,6 +17,14 @@ if "LOGGER_LEVEL" not in os.environ:
 if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
+def check_version(fb_version):
+    package_name = 'ttrt'
+    try:
+        package_version = get_distribution(package_name).version
+    except Exception as e:
+        print(f"Error retrieving version: {e} for {package_name}")
+
+    assert package_version == fb_version, f"{package_name}=v{package_version} does not match flatbuffer=v{fb_version}"
 
 def mlir_sections(fbb):
     d = ttrt.binary.as_dict(fbb)
@@ -73,6 +82,7 @@ read_actions = {
 
 def read(args):
     fbb = ttrt.binary.load_from_path(args.binary)
+    check_version(fbb.version)
     read_actions[args.section](fbb)
 
 
@@ -117,6 +127,7 @@ def run(args):
         raise ValueError(f"unsupported dtype: {dtype}")
 
     fbb = ttrt.binary.load_binary_from_path(args.binary)
+    check_version(fbb.version)
     assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
     d = ttrt.binary.as_dict(fbb)
     assert args.program_index < len(d["programs"]), "args.program_index out of range"
