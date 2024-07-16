@@ -4,7 +4,6 @@
 
 #include <fstream>
 
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
@@ -220,8 +219,6 @@ public:
     auto mlir = toDebugInfo(fbb, "ttnn", module);
     std::string cpp;
     llvm::raw_string_ostream os(cpp);
-    auto result = emitTTNNAsCpp(module, os);
-    (void)result;
 
     auto debugInfo =
         ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
@@ -255,7 +252,6 @@ public:
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
     registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
     registry.insert<mlir::func::FuncDialect>();
-    registry.insert<mlir::emitc::EmitCDialect>();
   }
 
   std::shared_ptr<void> getBinary() const { return serializedBinary; }
