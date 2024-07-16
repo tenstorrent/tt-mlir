@@ -1,1 +1,17 @@
 * @nsmithtt
+*.fbs @tapspatel
+/.github/ @vmilosevic
+/include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT
+/include/ttmlir/Dialect/TT/ @sdjordjevicTT @rpavlovicTT @mrakitaTT
+/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @rpavlovicTT @mrakitaTT
+/include/ttmlir/Dialect/TTIR/Analysis/ @nobradovictt
+/include/ttmlir/Dialect/TTKernel/ @rjakovljevicTT
+/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @rpavlovicTT
+/lib/Conversion/TTNNToEmitC/ @svuckovicTT
+/lib/Dialect/TT/ @sdjordjevicTT @rpavlovicTT @mrakitaTT
+/lib/Dialect/TTIR/ @sdjordjevicTT @rpavlovicTT @mrakitaTT
+/lib/Dialect/TTIR/Analysis/ @nobradovictt
+/lib/Dialect/TTKernel/ @rjakovljevicTT
+/lib/Dialect/TTNN/ @sdjordjevicTT @rpavlovicTT
+/runtime/ @jnie-TT @kmabeeTT
+/runtime/tools/ @tapspatel
