@@ -7,18 +7,22 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Mkdir /opt/ttmlir-toolchain
+      shell: bash
+      run: |
+        sudo mkdir -p /opt/ttmlir-toolchain
+        sudo chown -R ${USER} /opt/ttmlir-toolchain
+
     - name: 'Cache ttmlir-toolchain'
       uses: actions/cache@v3
       with:
         path: /opt/ttmlir-toolchain
-        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}      
+        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}
 
     - name: 'Build ttmlir-toolchain'
       if: steps.cache-toolchain.outputs.cache-hit != 'true'
+      shell: bash
       run: |
-        sudo mkdir -p /opt/ttmlir-toolchain
-        sudo chown -R ${USER} /opt/ttmlir-toolchain
         source env/activate
         cmake -B env/build env
         cmake --build env/build
-      shell: bash
