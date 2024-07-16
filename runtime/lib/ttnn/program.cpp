@@ -30,12 +30,25 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
   if (op->out()->desc()->layout()->memory_desc()->memory_space() ==
       ::tt::target::MemorySpace::System) {
     auto &inputTensor = *liveTensors.at(op->in0()->global_id());
+
+    // TODO: This is a hack to get correct data to the CPU.
+    // The cpu() method should be blocking, but for some reason this is needed.
+    // 
+    device.push_work([&device] () mutable {
+      ::tt::tt_metal::detail::Synchronize(&device);
+    });
+
+    // Alternative (why?):
+    inputTensor.cpu();
+
     auto cpu = inputTensor.cpu();
     ::ttnn::Tensor untilized;
+
     if (op->out()->desc()->layout()->memory_desc()->data_type() ==
         ::tt::target::DataType::Float32) {
       untilized = ::tt::tt_metal::tensor_impl::to_layout<float>(
           cpu, ::ttnn::ROW_MAJOR_LAYOUT);
+    
     } else if (op->out()->desc()->layout()->memory_desc()->data_type() ==
                ::tt::target::DataType::BFloat16) {
       untilized = ::tt::tt_metal::tensor_impl::to_layout<bfloat16>(

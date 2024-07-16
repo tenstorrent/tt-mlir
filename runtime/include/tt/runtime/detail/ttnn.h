@@ -38,6 +38,7 @@
 #include "ttnn/operations/core.hpp"
 #include "ttnn/operations/creation.hpp"
 #include "ttnn/operations/matmul.hpp"
+#include "tt_metal/detail/tt_metal.hpp"
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
