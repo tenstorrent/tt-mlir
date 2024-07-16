@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [macos-latest]
+        os: [ubuntu-latest]
         c_compiler: [clang]
         enable_runtime: [ON, OFF]
 
@@ -23,7 +23,7 @@ jobs:
           #  c_compiler: clang
           #  cpp_compiler: clang++
           #  build_type: Release
-          - os: macos-latest
+          - os: ubuntu-latest
             c_compiler: clang
             cpp_compiler: clang++
             build_type: Release
