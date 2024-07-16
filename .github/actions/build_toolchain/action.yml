@@ -18,7 +18,7 @@ runs:
       uses: actions/cache@v3
       with:
         path: /opt/ttmlir-toolchain
-        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}
+        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/CMakeLists.txt') }}
 
     - name: 'Build ttmlir-toolchain'
       if: steps.cache-toolchain.outputs.cache-hit != 'true'

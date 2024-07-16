@@ -1,5 +1,6 @@
 cmake
 ninja
+clang-17
 clang-format
 clang-tidy
 wheel
