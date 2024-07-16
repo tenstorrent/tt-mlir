@@ -137,12 +137,12 @@ void populateTTModule(py::module &m) {
              return layout;
            })
       .def("wrapped", [](tt::LayoutAttr const &self) { return wrap(self); })
-      .def_property_readonly("stride",
-                             [](tt::LayoutAttr const &self) {
-                               auto stride = self.getStride();
-                               return std::vector<std::int64_t>(stride.begin(),
-                                                                stride.end());
-                             })
+      .def_property_readonly(
+          "stride",
+          [](tt::LayoutAttr const &self, std::vector<int64_t> logicalShape) {
+            auto stride = self.getStride(logicalShape);
+            return std::vector<std::int64_t>(stride.begin(), stride.end());
+          })
       .def_property_readonly("oobval", &tt::LayoutAttr::getOobVal)
       .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
       .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
