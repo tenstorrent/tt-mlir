@@ -38,7 +38,8 @@ void mlir::tt::registerAllPasses() {
       "Pipeline lowering ttir to ttmetal backend.",
       mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
 
-  mlir::PassPipelineRegistration<>(
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTIRToTTNNBackendPipelineOptions>(
       "ttir-to-ttnn-backend-pipeline",
       "Pipeline lowering ttir to ttmetal backend.",
       mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
