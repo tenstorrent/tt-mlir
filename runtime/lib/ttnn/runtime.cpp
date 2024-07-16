@@ -40,8 +40,9 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
                                 ttmlirVersion.patch);
   ::tt::target::Dim2d deviceGrid = toFlatbuffer(device.logical_grid_size());
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs = {
-      ::tt::target::CreateChipDesc(fbb, toFlatbuffer(device.arch()),
-                                   &deviceGrid),
+      ::tt::target::CreateChipDesc(
+          fbb, toFlatbuffer(device.arch()), &deviceGrid, (1 << 20), 12,
+          (1 << 20), L1_ALIGNMENT, PCIE_ALIGNMENT, DRAM_ALIGNMENT),
   };
   std::vector<uint32_t> chipDescIndices = {
       0,
