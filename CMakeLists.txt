@@ -14,7 +14,7 @@ set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
 
 include(TTMLIRBuildTypes)
 

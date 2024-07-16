@@ -58,7 +58,7 @@ ExternalProject_Add(
     SOURCE_SUBDIR llvm
     LIST_SEPARATOR ","
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-    GIT_TAG llvmorg-18.1.0
+    GIT_TAG 694b132177a96a61dac62b3e3d2989a063feafa7
     GIT_PROGRESS ON
     DEPENDS python-venv
 )
