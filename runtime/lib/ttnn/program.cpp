@@ -70,7 +70,7 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
   auto &inputTensor = *liveTensors.at(op->in0()->global_id());
   ::ttnn::Tensor tilized = ::tilize(inputTensor);
   auto deviceTensor = ::ttnn::to_device(tilized, &device, memoryConfig);
-  tensorPool.push_back(deviceTensor);
+  tensorPool.push_back(std::move(deviceTensor));
   // auto [iter, inserted] =
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
   // assert(inserted && "Duplicate output tensor");
