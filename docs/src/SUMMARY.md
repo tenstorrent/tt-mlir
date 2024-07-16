@@ -8,6 +8,7 @@
   - [Internal Build Notes / IRD](./internal-build.md)
 - [Tools](./tools.md)
   - [ttmlir-opt](./ttmlir-opt.md)
+  - [ttmlir-translate](./ttmlir-translate.md)
   - [ttrt](./ttrt.md)
 - [Flatbuffers](./flatbuffers.md)
 - [Additional Reading](./additional-reading.md)
