@@ -9,6 +9,7 @@
 - [Tools](./tools.md)
   - [ttmlir-opt](./ttmlir-opt.md)
   - [ttrt](./ttrt.md)
+  - [tt-explorer](./tt-explorer.md)
 - [Flatbuffers](./flatbuffers.md)
 - [Additional Reading](./additional-reading.md)
 
