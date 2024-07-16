@@ -171,7 +171,12 @@ LayoutAttr LayoutAttr::get(
 }
 
 llvm::SmallVector<int64_t> LayoutAttr::getStride() const {
-  return llvm::SmallVector<int64_t>();
+  llvm::SmallVector<int64_t> stride(getMemref().getShape().size() + 1);
+  stride.back() = 1;
+  for (int i = getMemref().getShape().size() - 1; i >= 0; --i) {
+    stride[i] = stride[i + 1] * getMemref().getShape()[i];
+  }
+  return stride;
 }
 
 llvm::SmallVector<int64_t> LayoutAttr::getShardShape() const {
