@@ -14,6 +14,7 @@ runs:
         sudo chown -R ${USER} /opt/ttmlir-toolchain
 
     - name: 'Cache ttmlir-toolchain'
+      id: cache-toolchain
       uses: actions/cache@v3
       with:
         path: /opt/ttmlir-toolchain
