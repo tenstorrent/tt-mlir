@@ -26,22 +26,21 @@ public:
                              MLIRContext *context, PatternBenefit benefit = 1)
       : OpConversionPattern<SrcOp>(typeConverter, context, benefit) {}
 
-  // Coverts op name by removing the dialect prefix ("ttnn.") and replacing with
-  // namespace prefix ("ttnn::")
+  // Converts op name by removing the dialect prefix ("ttnn.") and replacing
+  // with namespace prefix ("ttnn::")
   //
   std::string convertOpName(SrcOp op) const {
     auto name = op.getOperationName();
-    if (name.starts_with("ttnn.")) {
-      return "ttnn::" + name.drop_front(5).str();
-    }
-    return "ttnn::" + name.str();
+    assert(
+        name.starts_with("ttnn.") &&
+        "DefaultOpConversionPattern only supports ops from the TTNN dialect");
+
+    return name.str().replace(0, 5, "ttnn::");
   }
 
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Attribute, 4> templateArguments;
-
     int numReturnTypes = srcOp->getResultTypes().size();
     assert(numReturnTypes <= 1 &&
            "DefaultOpConversionPattern does not support multiple return types");
