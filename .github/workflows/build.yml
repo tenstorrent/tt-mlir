@@ -16,6 +16,8 @@ jobs:
       matrix:
         os: [macos-latest]
         c_compiler: [clang]
+        enable_runtime: [ON, OFF]
+
         include:
           #- os: ubuntu-latest
           #  c_compiler: clang
@@ -57,6 +59,8 @@ jobs:
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }} \
         -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+        -DTTMLIR_ENABLE_RUNTIME=${{ matrix.enable_runtime }} \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.enable_runtime }} \
         -S ${{ github.workspace }}
 
     - name: Build
