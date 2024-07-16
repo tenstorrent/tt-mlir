@@ -8,6 +8,7 @@ import json
 
 from pkg_resources import get_distribution
 
+
 def system_desc_as_dict(desc):
     return json.loads(desc.as_json())
 
@@ -17,14 +18,18 @@ if "LOGGER_LEVEL" not in os.environ:
 if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
+
 def check_version(fb_version):
-    package_name = 'ttrt'
+    package_name = "ttrt"
     try:
         package_version = get_distribution(package_name).version
     except Exception as e:
         print(f"Error retrieving version: {e} for {package_name}")
 
-    assert package_version == fb_version, f"{package_name}=v{package_version} does not match flatbuffer=v{fb_version}"
+    assert (
+        package_version == fb_version
+    ), f"{package_name}=v{package_version} does not match flatbuffer=v{fb_version}"
+
 
 def mlir_sections(fbb):
     d = ttrt.binary.as_dict(fbb)
