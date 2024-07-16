@@ -1,0 +1,29 @@
+name: 'Build ttmlir-toolchain'
+description: 'Loads the ttmlir-toolchain from cache or builds it if there is no cache hit'
+inputs:
+  os:
+    description: 'Operating System'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Mkdir /opt/ttmlir-toolchain
+      shell: bash
+      run: |
+        sudo mkdir -p /opt/ttmlir-toolchain
+        sudo chown -R ${USER} /opt/ttmlir-toolchain
+
+    - name: 'Cache ttmlir-toolchain'
+      id: cache-toolchain
+      uses: actions/cache@v3
+      with:
+        path: /opt/ttmlir-toolchain
+        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}
+
+    - name: 'Build ttmlir-toolchain'
+      if: steps.cache-toolchain.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        source env/activate
+        cmake -B env/build env
+        cmake --build env/build

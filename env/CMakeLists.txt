@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
+
+set(FLATBUFFERS_VERSION "v24.3.7")
+set(LLVM_PROJECT_VERSION "llvmorg-18.1.0")
+
 include(ExternalProject)
 
 if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
@@ -25,7 +29,7 @@ ExternalProject_Add(
     -DFLATBUFFERS_BUILD_TESTS=OFF
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)
     GIT_REPOSITORY https://github.com/google/flatbuffers.git
-    GIT_TAG v24.3.7
+    GIT_TAG ${FLATBUFFERS_VERSION}
     DEPENDS python-venv
 )
 
@@ -58,7 +62,7 @@ ExternalProject_Add(
     SOURCE_SUBDIR llvm
     LIST_SEPARATOR ","
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-    GIT_TAG llvmorg-18.1.0
+    GIT_TAG ${LLVM_PROJECT_VERSION}
     GIT_PROGRESS ON
     DEPENDS python-venv
 )
