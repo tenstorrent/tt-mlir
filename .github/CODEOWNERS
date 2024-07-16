@@ -13,5 +13,5 @@
 /lib/Dialect/TTIR/Analysis/ @nobradovictt
 /lib/Dialect/TTKernel/ @rjakovljevicTT
 /lib/Dialect/TTNN/ @sdjordjevicTT @rpavlovicTT
-/runtime/ @jnie-TT @kmabeeTT
+/runtime/ @jnie-TT @kmabeeTT @AleksKnezevic
 /runtime/tools/ @tapspatel
