@@ -27,10 +27,10 @@ class TTNN_Type<string name, string typeMnemonic, list<Trait> traits = []>
 // Should Attr be a separate file?
 
 class TTNN_Attr<string name, string attrMnemonic, list<Trait> traits = [],
-                   string baseCppClass = "::mlir::Attribute">
+                string baseCppClass = "::mlir::Attribute">
     : AttrDef<TTNN_Dialect, name, traits, baseCppClass> {
   let mnemonic = attrMnemonic;
-  let attrName = "ttnn." # attrMnemonic;
+  let attrName = "ttnn." #attrMnemonic;
 }
 
 def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {

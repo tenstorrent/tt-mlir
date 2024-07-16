@@ -30,7 +30,7 @@ class TTMetal_Attr<string name, string attrMnemonic, list<Trait> traits = [],
                    string baseCppClass = "::mlir::Attribute">
     : AttrDef<TTMetal_Dialect, name, traits, baseCppClass> {
   let mnemonic = attrMnemonic;
-  let attrName = "ttmetal." # attrMnemonic;
+  let attrName = "ttmetal." #attrMnemonic;
 }
 
 def TTMetal_CoreRangeAttr : TTMetal_Attr<"CoreRange", "core_range"> {

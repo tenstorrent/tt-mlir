@@ -14,15 +14,15 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 
-def AnyMemRefOrCB: AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
+def AnyMemRefOrCB : AnyTypeOf<[AnyNon0RankedMemRef, TTKernel_CB]>;
 
 //===----------------------------------------------------------------------===//
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
 def TTKernel_PackSetDataTypeOp : TTKernel_Op<"pack_set_data_type"> {
-    let summary = "Pack set DataType op.";
-    let description = [{
+  let summary = "Pack set DataType op.";
+  let description = [{
       Pack set DataType operation
     }];
 
@@ -65,7 +65,7 @@ def TTKernel_UnpackABOp : TTKernel_Op<"unpack_ab"> {
     let arguments = (ins TTKernel_CB:$cb_a, I32:$src_a_index, TTKernel_CB:$cb_b, I32:$src_b_index);
 }
 
-def TTKernel_AcquireDstOp : TTKernel_Op<"acquire_dst"> {
+def TTKernel_Acqui reD stOp : TTKernel_Op<"acquire_dst"> {
     let summary = "Aquire dest call.";
     let description = [{
       Aquire dest operation
@@ -161,14 +161,14 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
 }
 
 def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
-    let summary = "CBWaitFront call.";
-    let description = [{
-      CBWaitFront operation
-    }];
+    let summary = "CBWaitFront call.
+                       "; let description = [{
+        CBWaitFront operation
+  }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+  let arguments = (ins TTKernel_CB : $cb);
 
-    let hasVerifier = 1;
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -176,8 +176,8 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
 //===----------------------------------------------------------------------===//
 
 def TTKernel_BuiltinOp : TTKernel_Op<"builtin"> {
-    let summary = "Builtin call.";
-    let description = [{
+  let summary = "Builtin call.";
+  let description = [{
       Kernel operation
     }];
 

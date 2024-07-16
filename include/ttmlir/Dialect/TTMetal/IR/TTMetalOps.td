@@ -17,13 +17,15 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-class AtLeastRegion<int numBlocks> : Region<
-  CPred<"$_self.getBlocks().size() >= " # numBlocks>,
-  "region with " # numBlocks # " blocks">;
+class AtLeastRegion<int numBlocks>
+    : Region<CPred<"$_self.getBlocks().size() >= " #numBlocks>,
+             "region with " #numBlocks #" blocks">;
 
-def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch op.";
-    let description = [{
+def TTMetal_DispatchOp
+    : TTMetal_Op<"dispatch",
+                 [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+  let summary = "Dispatch op.";
+  let description = [{
       Dispatch operation
     }];
 
@@ -56,10 +58,11 @@ def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
 
-    let hasVerifier = 1;
+    let h asVerifier = 1;
 }
 
-def TTMetal_HostReadOp : TTMetal_Op<"host_read", [DestinationStyleOpInterface]> {
+def TT Metal_HostReadOp
+      : TTMetal_Op<"host_read", [DestinationStyleOpInterface]> {
     let summary = "Host read op.";
     let description = [{
       Host read operation

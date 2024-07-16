@@ -18,10 +18,10 @@ include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
 // Should Attr be a separate file?
 
 class TT_Attr<string name, string attrMnemonic, list<Trait> traits = [],
-                   string baseCppClass = "::mlir::Attribute">
+              string baseCppClass = "::mlir::Attribute">
     : AttrDef<TT_Dialect, name, traits, baseCppClass> {
   let mnemonic = attrMnemonic;
-  let attrName = "tt." # attrMnemonic;
+  let attrName = "tt." #attrMnemonic;
 }
 
 def TT_GridAttr : TT_Attr<"Grid", "grid"> {
@@ -130,7 +130,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     Examples:
     ```mlir
     tensor<8x300xf32,
-      #tt.layout<(d0, d1) -> (d0, d1),
+#tt.layout<(d0, d1)->(d0, d1),
         undef,
         <1x2>,
         memref<8x150xf32, #tt.memory_space<l1>>
@@ -138,7 +138,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     >
 
     tensor<8x96x32xf32,
-      #tt.layout<(d0, d1, d2) -> (d0 * 96 + d1, d2),
+#tt.layout<(d0, d1, d2)->(d0 * 96 + d1, d2),
         undef,
         <2x1>,
         memref<384x32xf32, #tt.memory_space<l1>>
@@ -146,7 +146,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     >
 
     tensor<8x96x32xf32,
-      #tt.layout<(d0, d1, d2) -> (d0 * 96 + d1, d1, d2),
+#tt.layout<(d0, d1, d2)->(d0 * 96 + d1, d1, d2),
         undef,
         <2x1x2>,
         memref<384x96x16xf32, #tt.memory_space<l1>>
@@ -154,7 +154,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     >
 
     tensor<5x3x2x2x7x32x32xf32,
-      #tt.layout<
+#tt.layout<
         (d0, d1, d2, d3, d4, d5, d6)
           -> (d0 * 2688 + d1 * 896 + d2 * 448 + d3 * 224 + d4 * 32 + d5, d4, d5, d6),
         undef,
@@ -163,15 +163,15 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       >
     >
     ```
-  }];
+}];
 
-  let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
+let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
                         AttrParameter<"OOBVal", "A tracked out of bounds value that fills padding space.">:$oob_val,
                         AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
                         AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref);
-  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref `>`";
+let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref `>`";
 
-  let extraClassDeclaration = [{
+let extraClassDeclaration = [{
       static LayoutAttr get(::mlir::MLIRContext *context,
                             ArrayRef<int64_t> tensorShape,
                             Type elementType,

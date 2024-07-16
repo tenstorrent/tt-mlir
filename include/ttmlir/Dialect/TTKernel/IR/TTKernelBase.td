@@ -12,9 +12,9 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 def TTKernel_Dialect : Dialect {
-    let name = "ttkernel";
-    let summary = "A TTKernel out-of-tree MLIR dialect.";
-    let description = [{
+  let name = "ttkernel";
+  let summary = "A TTKernel out-of-tree MLIR dialect.";
+  let description = [{
         This dialect is an example of an out-of-tree MLIR dialect designed to
         illustrate the basic setup required to develop MLIR-based tools without
         working inside of the LLVM source tree.
@@ -36,9 +36,10 @@ def TTKernel_Dialect : Dialect {
 
 //===----------------------------------------------------------------------===//
 // Base TTKernel operation definition.
-//===----------------------------------------------------------------------===//
+//===---------------------------------------------------------- -- -- -- -- -- -- ==
+      = //
 
-class TTKernel_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTKernel_Dialect, mnemonic, traits>;
+      class TTKernel_Op<string mnemonic, list<Trait> traits = []>
+      : Op<TTKernel_Dialect, mnemonic, traits>;
 
 #endif

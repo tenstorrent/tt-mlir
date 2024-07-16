@@ -12,9 +12,10 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 def TTIR_Dialect : Dialect {
-    let name = "ttir";
-    let summary = "TTIR dialect provides high level semantics for dispatching work to TT HW.";
-    let description = [{
+  let name = "ttir";
+  let summary = "TTIR dialect provides high level semantics for dispatching "
+                "work to TT HW.";
+  let description = [{
         This dialect provides high level semantics for dispatching work to TT HW.
         It defines a set of declarative/high level operations that are used to
         describe the dispatch, but is largely agnostic to the set of operations
@@ -37,7 +38,7 @@ def TTIR_Dialect : Dialect {
 // Base TTIR operation definition.
 //===----------------------------------------------------------------------===//
 
-class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, traits>;
+class TTIR_Op<string mnemonic, list<Trait> traits =[] >
+      :  Op<TTIR_Dialect, mnemonic, traits>;
 
 #endif

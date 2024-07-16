@@ -12,9 +12,9 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 def TT_Dialect : Dialect {
-    let name = "tt";
-    let summary = "TT types and attributes common to all TT dialects.";
-    let description = [{
+  let name = "tt";
+  let summary = "TT types and attributes common to all TT dialects.";
+  let description = [{
         This dialect defines types and attributes common to all TT dialects.
     }];
     let cppNamespace = "::mlir::tt";
@@ -32,6 +32,6 @@ def TT_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TT_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TT_Dialect, mnemonic, traits>;
+        Op<TT_Dialect, mnemonic, tra its > ;
 
 #endif

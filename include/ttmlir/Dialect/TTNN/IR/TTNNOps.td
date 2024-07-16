@@ -16,8 +16,8 @@ include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
 def TTNN_OpenDeviceOp : TTNN_Op<"open_device"> {
-    let summary = "Open Device op.";
-    let description = [{
+  let summary = "Open Device op.";
+  let description = [{
     }];
 
     let arguments = (ins);
@@ -48,8 +48,8 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [DestinationStyleOpInter
     let hasVerifier = 1;
 }
 
-class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
+class TTNN_NamedDPS Op<string mnemonic, list<Trait> traits = []>
+      : TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
@@ -106,13 +106,14 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPS
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable();
+  }
+}];
 }
 
 def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
-    let summary = "Sum reduction op.";
-    let description = [{
+  let summary = "Sum reduction op.";
+  let description = [{
       Sum reduction op.
     }];
 }

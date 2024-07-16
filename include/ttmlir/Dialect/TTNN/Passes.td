@@ -7,7 +7,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTNNOpenDevice: Pass<"ttnn-open-device", "::mlir::ModuleOp"> {
+def TTNNOpenDevice : Pass<"ttnn-open-device", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
     todo
@@ -28,9 +28,11 @@ def ConvertTTNNToEmitC: Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTNNSerializeToBinary: Pass<"ttnn-serialize-to-binary", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
+def TTNNSerializeToBinary: Pass<"ttnn-serialize-to-binary",
+
+                     "::mlir::ModuleOp" > {
+    let summary = "";
+    let description = [{
     todo
   }];
 

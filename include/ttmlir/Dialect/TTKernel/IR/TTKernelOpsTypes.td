@@ -18,12 +18,15 @@ class TTKernel_Type<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
-    let summary = "TTKernel cb";
-    let description = "Circular buffer type in TTKernel dialect";
-    let parameters = (ins "uint64_t":$address, "uint64_t":$port, "MemRefType":$memref);
-    let assemblyFormat = "`<` $address`,` $port`,` $memref `>`";
+  let summary = "TTKernel cb";
+  let description = "Circular buffer type in TTKernel dialect";
+  let parameters = (ins "uint64_t"
+                    : $address, "uint64_t"
+                    : $port, "MemRefType"
+                    : $memref);
+  let assemblyFormat = "`<` $address`,` $port`,` $memref `>`";
 
-    let extraClassDeclaration = [{
+  let extraClassDeclaration = [{
         ::llvm::ArrayRef<int64_t> getShape() const {
           return getMemref().getShape();
         }

@@ -50,19 +50,19 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
       ```
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
-    let results = (outs Variadic<AnyRankedTensor>:$results);
-    let regions = (region AnyRegion:$region);
+let results = (outs Variadic<AnyRankedTensor> : $results);
+let regions = (region AnyRegion : $region);
 }
 
 def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
-    let summary = "Layout op.";
-    let description = [{
+  let summary = "Layout op.";
+  let description = [{
       Layout operation, transition tensors from one layout to another.  Some examples include:
         - Transitioning between different memory spaces, e.g. DRAM to L1.
         - Transitioning between different data types, e.g. f32 to f16.
@@ -182,14 +182,14 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
 def TTIR_ReluOp : TTIR_ElementwiseOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{
-      Eltwise ReLU operation.
-    }];
+      Eltwise ReLU ope ration.
+}];
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
-    let summary = "Matrix multiply operation.";
-    let description = [{
+  let summary = "Matrix multiply operation.";
+  let description = [{
       Matrix multiply operation.
     }];
 

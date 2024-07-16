@@ -12,9 +12,9 @@ include "mlir/IR/OpBase.td"
 //===----------------------------------------------------------------------===//
 
 def TTMetal_Dialect : Dialect {
-    let name = "ttmetal";
-    let summary = "A TTMetal out-of-tree MLIR dialect.";
-    let description = [{
+  let name = "ttmetal";
+  let summary = "A TTMetal out-of-tree MLIR dialect.";
+  let description = [{
         This dialect is an example of an out-of-tree MLIR dialect designed to
         illustrate the basic setup required to develop MLIR-based tools without
         working inside of the LLVM source tree.
@@ -37,9 +37,10 @@ def TTMetal_Dialect : Dialect {
 
 //===----------------------------------------------------------------------===//
 // Base TTMetal operation definition.
-//===----------------------------------------------------------------------===//
+//===------------ -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- ==
+      = //
 
-class TTMetal_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTMetal_Dialect, mnemonic, traits>;
+      class TTMetal_Op<string mnemonic, list<Trait> traits = []>
+      : Op<TTMetal_Dialect, mnemonic, traits>;
 
 #endif
