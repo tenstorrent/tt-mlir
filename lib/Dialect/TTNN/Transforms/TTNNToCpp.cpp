@@ -20,7 +20,7 @@ LogicalResult emitTTNNAsCpp(ModuleOp origOp, llvm::raw_ostream &os) {
   auto cleanupDispatchClone = llvm::make_scope_exit([&op] { op->erase(); });
 
   auto pm = PassManager::on<ModuleOp>(op.getContext());
-  pm.addPass(createConvertTTNNToEmitCPass());
+  pm.addNestedPass<func::FuncOp>(createConvertTTNNToEmitCPass());
 
   if (pm.run(op).failed()) {
     return failure();
