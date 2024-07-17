@@ -13,4 +13,3 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         )
 
 target_include_directories(MLIRTTNNTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
-target_link_libraries(MLIRTTNNTransforms PRIVATE TTMLIRTTNNToEmitC)
