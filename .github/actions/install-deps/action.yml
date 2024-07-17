@@ -9,6 +9,15 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Retrieve and install pkg deps based on OS
+      if: startsWith(inputs.os, 'ubuntu')
+      id: retrieve-pkg-deps
+      shell: bash
+      run: |
+        DEPENDENCIES=$(jq -r --arg os "${{ inputs.os }}" '.[$os] | .[]' $GITHUB_ACTION_PATH/dependencies.json)
+        echo $DEPENDENCIES
+        sudo apt update
+        sudo apt install -y $DEPENDENCIES
     - name: Install Clang-17
       if: startsWith(inputs.os, 'ubuntu')
       shell: bash

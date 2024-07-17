@@ -1,0 +1,5 @@
+{
+  "ubuntu-latest": [
+    "libnuma-dev"
+  ]
+}
