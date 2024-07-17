@@ -21,13 +21,6 @@ def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   }];
 }
 
-def ConvertTTNNToEmitC: Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    todo
-  }];
-}
-
 def TTNNSerializeToBinary: Pass<"ttnn-serialize-to-binary", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
