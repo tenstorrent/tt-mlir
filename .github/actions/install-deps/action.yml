@@ -1,0 +1,19 @@
+name: "Install build dependencies"
+description: "Installs build dependencies on GitHub Actions runners"
+
+inputs:
+  os:
+    description: 'Runner OS'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Clang-17
+      if: startsWith(runner.os, 'ubuntu')
+      shell: bash
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod u+x llvm.sh
+        sudo ./llvm.sh 17
+        sudo apt install -y libc++-17-dev libc++abi-17-dev

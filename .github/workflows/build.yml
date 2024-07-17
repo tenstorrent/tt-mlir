@@ -14,27 +14,29 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-latest]
         c_compiler: [clang]
-        enable_runtime: [ON, OFF]
+        cpp_compiler: [clang++]
+        build_type: [Release]
 
         include:
-          #- os: ubuntu-latest
-          #  c_compiler: clang
-          #  cpp_compiler: clang++
-          #  build_type: Release
           - os: ubuntu-latest
-            c_compiler: clang
-            cpp_compiler: clang++
-            build_type: Release
+            enable_runtime: ON
+          - os: macos-latest
+            enable_runtime: OFF
 
     steps:
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0 # Fetch all history and tags
 
+    - name: Install build dpndancies
+      uses: ./.github/actions/install-deps
+      with:
+        os: ${{ matrix.os }}
+
     - name: Build and cache ttmlir-toolchain
-      uses: ./.github/actions/build_toolchain
+      uses: ./.github/actions/build-toolchain
       with:
         os: ${{ matrix.os }}
 
