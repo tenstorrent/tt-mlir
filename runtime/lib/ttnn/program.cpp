@@ -92,6 +92,14 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
+    assert(op->ins()->size() == 2 && "Unsupported number of inputs");
+    ::ttnn::Tensor &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
+    tensorPool.push_back(::ttnn::ge(lhs, rhs));
+    liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   default:
     throw std::runtime_error("Unsupported elementwise operation type");
   }

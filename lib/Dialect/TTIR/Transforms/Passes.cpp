@@ -75,6 +75,9 @@ public:
                  TosaToTTIREltwiseBinaryRewriter<tosa::MulOp, ttir::MultiplyOp,
                                                  OperandConstraint::AnyDevice>,
                  TosaToTTIREltwiseBinaryRewriter<tosa::SubOp, ttir::SubtractOp,
+                                                 OperandConstraint::AnyDevice>,
+                 TosaToTTIREltwiseBinaryRewriter<tosa::GreaterEqualOp,
+                                                 ttir::GreaterEqualOp,
                                                  OperandConstraint::AnyDevice>>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
@@ -114,6 +117,9 @@ public:
       kernelKind = "eltwise";
     } else if constexpr (std::is_same<TTIROp, ttir::SubtractOp>::value) {
       kernelName = "subtract";
+      kernelKind = "eltwise";
+    } else if constexpr (std::is_same<TTIROp, ttir::GreaterEqualOp>::value) {
+      kernelName = "ge";
       kernelKind = "eltwise";
     } else if constexpr (std::is_same<TTIROp, ttir::ReluOp>::value) {
       kernelName = "relu";
@@ -272,6 +278,7 @@ public:
                  TTIRNamedToKernelRewriter<AddOp>,
                  TTIRNamedToKernelRewriter<MultiplyOp>,
                  TTIRNamedToKernelRewriter<SubtractOp>,
+                 TTIRNamedToKernelRewriter<GreaterEqualOp>,
                  TTIRNamedToKernelRewriter<ReluOp>>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
@@ -567,6 +574,7 @@ public:
           TTIRLayoutOperandsRewriter<AddOp>,
           TTIRLayoutOperandsRewriter<MultiplyOp>,
           TTIRLayoutOperandsRewriter<SubtractOp>,
+          TTIRLayoutOperandsRewriter<GreaterEqualOp>,
           TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
           TTIRLayoutOperandsRewriter<SoftmaxOp>,
           TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
