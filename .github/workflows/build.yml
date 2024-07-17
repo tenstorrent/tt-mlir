@@ -30,7 +30,7 @@ jobs:
       with:
           fetch-depth: 0 # Fetch all history and tags
 
-    - name: Install build dpndancies
+    - name: Install build dependencies
       uses: ./.github/actions/install-deps
       with:
         os: ${{ matrix.os }}

@@ -10,7 +10,7 @@ runs:
   using: "composite"
   steps:
     - name: Install Clang-17
-      if: startsWith(runner.os, 'ubuntu')
+      if: startsWith(inputs.os, 'ubuntu')
       shell: bash
       run: |
         wget https://apt.llvm.org/llvm.sh
