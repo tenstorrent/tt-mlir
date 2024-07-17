@@ -19,7 +19,7 @@
 ttnn::Tensor tilize(ttnn::Tensor const &input) {
   ttnn::Tensor unsqueezeTensor = ttnn::unsqueeze_to_4D(input);
   return ttnn::to_layout(unsqueezeTensor, ttnn::TILE_LAYOUT, std::nullopt,
-                         std::nullopt, (Device *)nullptr);
+                         std::nullopt, nullptr);
 }
 
 namespace tt::runtime::ttnn {
