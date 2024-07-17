@@ -140,8 +140,8 @@ TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>
 ```
 
 We also need to add this op to the C++ emitter,
-`lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp` see
-`populateTTNNToEmitCPatterns(...)`.
+`lib/Dialect/TTNN/Transforms/TTNNToCpp.cpp` see
+`TTNNToEmitCOpaqueRewriter<MatmulOp>`.
 
 ## 4. Add a unit test for the Op
 

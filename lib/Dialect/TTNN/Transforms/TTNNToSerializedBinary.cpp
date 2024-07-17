@@ -220,7 +220,7 @@ public:
     auto mlir = toDebugInfo(fbb, "ttnn", module);
     std::string cpp;
     llvm::raw_string_ostream os(cpp);
-    auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
+    auto result = emitTTNNAsCpp(module, os);
     (void)result;
 
     auto debugInfo =
