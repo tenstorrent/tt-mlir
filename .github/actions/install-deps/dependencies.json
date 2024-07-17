@@ -1,5 +1,9 @@
 {
   "ubuntu-latest": [
-    "libnuma-dev"
+    "libnuma-dev",
+    "libyaml-cpp-dev",
+    "libhwloc-dev",
+    "libgtest-dev",
+    "libboost-dev"
   ]
 }
