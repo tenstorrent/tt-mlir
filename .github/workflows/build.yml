@@ -72,7 +72,7 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
 
     - name: Lint
-      if: matrix.enable_runtime == 'ON'
+      if: matrix.enable_runtime == 'OFF'
       shell: bash
       run: |
         source env/activate
