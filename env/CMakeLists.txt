@@ -58,8 +58,13 @@ ExternalProject_Add(
     SOURCE_SUBDIR llvm
     LIST_SEPARATOR ","
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git
-    GIT_TAG 694b132177a96a61dac62b3e3d2989a063feafa7
+    GIT_TAG 9ddfe62f5c11e3f65f444209f514029ded2d58b9
     GIT_PROGRESS ON
+    PATCH_COMMAND patch -p1 < ${CMAKE_CURRENT_SOURCE_DIR}/patches/build.patch
+    PATCH_COMMAND patch -p1 < ${CMAKE_CURRENT_SOURCE_DIR}/patches/generated.patch
+    PATCH_COMMAND patch -p1 < ${CMAKE_CURRENT_SOURCE_DIR}/patches/mathextras.patch
+    PATCH_COMMAND patch -p1 < ${CMAKE_CURRENT_SOURCE_DIR}/patches/toolchains.patch
+    PATCH_COMMAND patch -p1 < ${CMAKE_CURRENT_SOURCE_DIR}/patches/zstd.patch
     DEPENDS python-venv
 )
 
