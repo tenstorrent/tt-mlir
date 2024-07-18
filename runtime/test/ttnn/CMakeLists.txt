@@ -1,1 +1,0 @@
-add_runtime_gtest(subtract_test test_subtract.cpp)

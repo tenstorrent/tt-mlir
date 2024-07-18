@@ -27,11 +27,7 @@ set(TTMETAL_INCLUDE_DIRS
   PARENT_SCOPE
 )
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib PARENT_SCOPE)
-set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib)
-
 set(TTNN_LIBRARY ${TTMETAL_LIBRARY_DIR}/_ttnn.so PARENT_SCOPE)
-set(TTNN_LIBRARY ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
-
 set(TTMETAL_LIBRARY -ltt_metal PARENT_SCOPE)
 
 if(EXISTS ${TTNN_LIBRARY})
@@ -52,4 +48,5 @@ ExternalProject_Add(
     GIT_PROGRESS ON
 )
 endif()
+
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
