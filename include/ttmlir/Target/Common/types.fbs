@@ -98,6 +98,9 @@ table ChipDesc {
   l1_size: uint64;
   num_dram_channels: uint32;
   dram_channel_size: uint64;
+  noc_l1_address_align_bytes: uint32;
+  pcie_address_align_bytes: uint32;
+  noc_dram_address_align_bytes: uint32;
 }
 
 struct ChipCoord {

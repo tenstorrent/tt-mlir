@@ -61,8 +61,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
     TT chip_desc attribute
   }];
 
-  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize);
-  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` $grid `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `}`";
+  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize, "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes, "unsigned":$nocDRAMAddressAlignBytes);
+  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` $grid `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `,` `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,` `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,` `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes `}`";
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {

@@ -132,7 +132,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   return ::tt::target::CreateChipDesc(
       *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
       chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
-      chipDesc.getDramChannelSize());
+      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
+      chipDesc.getPcieAddressAlignBytes(),
+      chipDesc.getNocDRAMAddressAlignBytes());
 }
 
 template <typename T>

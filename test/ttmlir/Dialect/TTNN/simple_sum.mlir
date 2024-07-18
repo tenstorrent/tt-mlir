@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|tile|any_device|any_device_tile>
-module attributes {torch.debug_module_name = "_lambda", tt.system_desc = #tt.system_desc<[{arch = <wormhole_b0>, grid = <8x8>, l1_size = 1048576, num_dram_channels = 12, dram_channel_size = 1048576}], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {
+module attributes {torch.debug_module_name = "_lambda", tt.system_desc = #tt.system_desc<[{arch = <wormhole_b0>, grid = <8x8>, l1_size = 1048576, num_dram_channels = 12, dram_channel_size = 1048576, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32}], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {
   func.func @forward(%arg0: tensor<512x1024xbf16>) -> tensor<512x32xbf16> {
     // CHECK: %[[C:.*]] = "ttnn.open_device"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.full"[[C:.*]]
