@@ -92,6 +92,7 @@ jobs:
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
       with:
         report_paths: build/test/report.xml
-        check_name: JUnit Test Report ${{ matrix.test_suite }} ${{ matrix.hw }}
+        check_name: ${{ matrix.os }} MLIR Tests
