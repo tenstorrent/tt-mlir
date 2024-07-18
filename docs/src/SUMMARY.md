@@ -10,6 +10,7 @@
   - [ttmlir-opt](./ttmlir-opt.md)
   - [ttmlir-translate](./ttmlir-translate.md)
   - [ttrt](./ttrt.md)
+  - [tt-explorer](./tt-explorer.md)
 - [Flatbuffers](./flatbuffers.md)
 - [Additional Reading](./additional-reading.md)
 
