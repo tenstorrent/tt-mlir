@@ -26,6 +26,26 @@
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Shapes of input and output of a softmax operation must be the same
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("Input and output shapes must be the same");
+  }
+
+  int32_t dim = getDimension();
+
+  // Check that the dim is within the bounds of the input tensor
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension attribute must be within the bounds of the input tensor");
+  }
+
+  return success();
+}
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();

@@ -119,6 +119,17 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
   }
 }
 
+static void
+run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::device::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
+  int32_t dimension = op->dimension();
+
+  tensorPool.push_back(::ttnn::softmax(in, dimension));
+  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+}
+
 // ANCHOR: adding_an_op_matmul_runtime
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
@@ -160,6 +171,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return run(op->type_as_ReductionOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    return run(op->type_as_SoftmaxOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");

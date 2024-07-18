@@ -49,6 +49,12 @@ table ReductionOp {
   keep_dim: bool;
 }
 
+table SoftmaxOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dimension: int32;
+}
+
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
   in0: tt.target.TensorRef;
@@ -64,7 +70,8 @@ union OpType {
   FullOp,
   EltwiseOp,
   MatmulOp,
-  ReductionOp
+  ReductionOp,
+  SoftmaxOp
 }
 
 table Operation {

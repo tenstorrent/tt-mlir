@@ -124,6 +124,24 @@ def TTNN_ReluOp : TTNN_ElementwiseOp<"relu"> {
     }];
 }
 
+def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {
+    let summary = "Softmax op.";
+    let description = [{
+      Softmax operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32Attr: $dimension);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,
