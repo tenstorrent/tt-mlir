@@ -13,6 +13,7 @@
   - [tt-explorer](./tt-explorer.md)
 - [Flatbuffers](./flatbuffers.md)
 - [Additional Reading](./additional-reading.md)
+- [Code of Conduct](./code-of-conduct.md)
 
 # Code Documentation
 
