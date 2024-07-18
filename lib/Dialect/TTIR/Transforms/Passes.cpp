@@ -724,9 +724,14 @@ public:
                             .getChipDescs()[0]
                             .getGrid();
     module_op->walk([&](func::FuncOp func) {
-      Type lastOpResultType;
+      SmallVector<Type> funcResultTypes;
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
+          func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
+          if (funcReturn) {
+            funcResultTypes.append(funcReturn.getOperandTypes().begin(),
+                                   funcReturn.getOperandTypes().end());
+          }
           return;
         }
 
@@ -756,15 +761,14 @@ public:
                 GridAttr::get(&getContext(),
                               {grid_analysis_result.target_rows,
                                grid_analysis_result.target_columns}))));
-        lastOpResultType = op->getResult(0).getType();
       });
 
-      // Update the function type to reflect the last operation's result type.
+      // Update the function type to reflect the updated return operation's
+      // result types.
       //
       FunctionType func_type = func.getFunctionType();
-      SmallVector<Type> newReturnTypes = {lastOpResultType};
       FunctionType newFuncType = FunctionType::get(
-          func.getContext(), func_type.getInputs(), newReturnTypes);
+          func.getContext(), func_type.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
   }
