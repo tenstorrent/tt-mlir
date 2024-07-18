@@ -14,25 +14,29 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [macos-latest]
+        os: [ubuntu-20.04, macos-latest]
         c_compiler: [clang]
+        cpp_compiler: [clang++]
+        build_type: [Release]
+
         include:
-          #- os: ubuntu-latest
-          #  c_compiler: clang
-          #  cpp_compiler: clang++
-          #  build_type: Release
+          - os: ubuntu-20.04
+            enable_runtime: ON
           - os: macos-latest
-            c_compiler: clang
-            cpp_compiler: clang++
-            build_type: Release
+            enable_runtime: OFF
 
     steps:
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0 # Fetch all history and tags
 
+    - name: Install build dependencies
+      uses: ./.github/actions/install-deps
+      with:
+        os: ${{ matrix.os }}
+
     - name: Build and cache ttmlir-toolchain
-      uses: ./.github/actions/build_toolchain
+      uses: ./.github/actions/build-toolchain
       with:
         os: ${{ matrix.os }}
 
@@ -57,6 +61,8 @@ jobs:
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }} \
         -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+        -DTTMLIR_ENABLE_RUNTIME=${{ matrix.enable_runtime }} \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.enable_runtime }} \
         -S ${{ github.workspace }}
 
     - name: Build
@@ -66,6 +72,7 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
 
     - name: Lint
+      if: matrix.enable_runtime == 'OFF'
       shell: bash
       run: |
         source env/activate
