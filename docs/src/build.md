@@ -111,7 +111,7 @@ sudo apt install ninja-build
 
 ### Ubuntu 20.04
 
-On Ubuntu 20.04 we need to instal clang and to update the version of cmake because 3.20 is the minimum required for this project.
+On Ubuntu 20.04 we need to install clang and to update the version of cmake because 3.20 is the minimum required for this project.
 
 ```bash
 sudo apt-get update
