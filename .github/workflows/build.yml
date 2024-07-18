@@ -14,13 +14,13 @@ jobs:
       fail-fast: false
 
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-20.04, macos-latest]
         c_compiler: [clang]
         cpp_compiler: [clang++]
         build_type: [Release]
 
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             enable_runtime: ON
           - os: macos-latest
             enable_runtime: OFF
