@@ -92,6 +92,13 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
+    let summary = "Eltwise greater than or equal to.";
+    let description = [{
+      Eltwise greater than or equal to operation.
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{

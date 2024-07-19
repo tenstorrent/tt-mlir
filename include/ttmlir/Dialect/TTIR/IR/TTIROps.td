@@ -153,6 +153,13 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
+    let summary = "Eltwise greater than or equal to.";
+    let description = [{
+      Eltwise greater than or equal to operation.
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
