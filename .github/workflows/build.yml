@@ -33,7 +33,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}
+        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}
 
     - name: Set reusable strings
       id: strings
