@@ -24,15 +24,16 @@ if (NOT FLATBUFFERS_LIB)
 endif()
 
 add_library(TTRuntimeTEST INTERFACE)
-add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTRuntime)
+add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTRuntime TTEAGER_LIBRARY TTMETAL_LIBRARY)
 target_include_directories(TTRuntimeTEST INTERFACE
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
     ${TTMLIR_TOOLCHAIN}/include
 )
+
 target_link_libraries(TTRuntimeTEST INTERFACE
-    tt_eager
-    tt_metal
+    TTEAGER_LIBRARY
+    TTMETAL_LIBRARY
     TTRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
