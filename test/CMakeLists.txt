@@ -19,6 +19,7 @@ endif()
 
 add_lit_testsuite(check-ttmlir "Running the ttmlir regression tests"
         ${CMAKE_CURRENT_BINARY_DIR}
+        --xunit-xml-output report.xml
         DEPENDS ${TTMLIR_TEST_DEPENDS}
         )
 set_target_properties(check-ttmlir PROPERTIES FOLDER "Tests")
