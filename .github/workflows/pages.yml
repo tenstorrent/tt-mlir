@@ -17,22 +17,19 @@ concurrency:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        build: [{runs-on: macos-latest}]
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on: macos-latest
     env:
       MDBOOK_VERSION: 0.4.36
     steps:
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch all history and tags
 
       - name: Build and cache ttmlir-toolchain
         uses: ./.github/actions/build-toolchain
         with:
-          os: ${{ runs-on }}
+          os: jobs.build.runs-on
 
       - name: Install mdBook
         run: |
