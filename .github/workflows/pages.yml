@@ -17,12 +17,15 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        build: [{runs-on: macos-latest}]
+    runs-on: ${{ matrix.build.runs-on }}
     env:
       MDBOOK_VERSION: 0.4.36
     steps:
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Fetch all history and tags
 
