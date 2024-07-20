@@ -1,0 +1,151 @@
+load(
+    "@llvm-project//mlir:tblgen.bzl",
+    "gentbl_cc_library",
+    "td_library",
+)
+
+filegroup(
+    name="headers",
+    srcs=glob(["**/*.h"]),
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttnn_ops_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-op-decls"],
+            "TTNNOps.h.inc",
+        ),
+        (
+            ["-gen-op-defs"],
+            "TTNNOps.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTNNOps.td",
+    deps=[
+        ":ttnn_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+
+gentbl_cc_library(
+    name="ttnn_enums_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-enum-decls"],
+            "TTNNOpsEnums.h.inc",
+        ),
+        (
+            ["-gen-enum-defs"],
+            "TTNNOpsEnums.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTNNOpsEnums.td",
+    deps=[
+        ":ttnn_td_files",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttnn_attrs_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-attrdef-decls"],
+            "TTNNOpsAttrDefs.h.inc",
+        ),
+        (
+            ["-gen-attrdef-defs"],
+            "TTNNOpsAttrDefs.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTNNOpsTypes.td",
+    deps=[
+        ":ttnn_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttnn_types_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-typedef-decls",
+                "--typedefs-dialect=ttnn",
+            ],
+            "TTNNOpsTypes.h.inc",
+        ),
+        (
+            [
+                "-gen-typedef-defs",
+                "--typedefs-dialect=ttnn",
+            ],
+            "TTNNOpsTypes.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTNNOps.td",
+    deps=[
+        ":ttnn_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttnn_dialect_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-dialect-decls",
+                "--dialect=ttnn",
+            ],
+            "TTNNOpsDialect.h.inc",
+        ),
+        (
+            [
+                "-gen-dialect-defs",
+                "--dialect=ttnn",
+            ],
+            "TTNNOpsDialect.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTNNOps.td",
+    deps=[
+        ":ttnn_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+td_library(
+    name="ttnn_td_files",
+    srcs=[
+        "TTNNBase.td",
+        "TTNNOps.td",
+        "TTNNOpsEnums.td",
+        "TTNNOpsTypes.td",
+    ],
+    deps=[
+        "//include/ttmlir/Dialect/TT/IR:tt_td_files",
+        "@llvm-project//mlir:BuiltinDialectTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:ShapeOpsTdFiles",
+    ],
+    includes=["../../../../"],
+    visibility=["//visibility:public"],
+)

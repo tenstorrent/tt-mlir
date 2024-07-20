@@ -1,0 +1,156 @@
+
+load(
+    "@llvm-project//mlir:tblgen.bzl",
+    "gentbl_cc_library",
+    "td_library",
+)
+
+filegroup(
+    name="headers",
+    srcs=glob(["**/*.h"]),
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttmetal_ops_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-op-decls"],
+            "TTMetalOps.h.inc",
+        ),
+        (
+            ["-gen-op-defs"],
+            "TTMetalOps.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTMetalOps.td",
+    deps=[
+        ":ttmetal_td_files",
+        "//include/ttmlir/Dialect/TTKernel/IR:ttkernel_td_files",
+        "@llvm-project//mlir:LinalgOpsTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttmetal_enums_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-enum-decls"],
+            "TTMetalOpsEnums.h.inc",
+        ),
+        (
+            ["-gen-enum-defs"],
+            "TTMetalOpsEnums.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTMetalOpsEnums.td",
+    deps=[
+        ":ttmetal_td_files",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttmetal_attrs_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-attrdef-decls"],
+            "TTMetalOpsAttrDefs.h.inc",
+        ),
+        (
+            ["-gen-attrdef-defs"],
+            "TTMetalOpsAttrDefs.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTMetalOpsTypes.td",
+    deps=[
+        ":ttmetal_td_files",
+        "//include/ttmlir/Dialect/TTKernel/IR:ttkernel_td_files",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttmetal_dialect_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-dialect-decls",
+                "--dialect=ttmetal",
+            ],
+            "TTMetalOpsDialect.h.inc",
+        ),
+        (
+            [
+                "-gen-dialect-defs",
+                "--dialect=ttmetal",
+            ],
+            "TTMetalOpsDialect.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTMetalOps.td",
+    deps=[
+        ":ttmetal_td_files",
+        "//include/ttmlir/Dialect/TTKernel/IR:ttkernel_td_files",
+        "@llvm-project//mlir:LinalgOpsTdFiles",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttmetal_types_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-typedef-decls",
+                "--typedefs-dialect=ttmetal",
+            ],
+            "TTMetalOpsTypes.h.inc",
+        ),
+        (
+            [
+                "-gen-typedef-defs",
+                "--typedefs-dialect=ttmetal",
+            ],
+            "TTMetalOpsTypes.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTMetalOps.td",
+    deps=[
+        ":ttmetal_td_files",
+        "//include/ttmlir/Dialect/TTKernel/IR:ttkernel_td_files",
+        "@llvm-project//mlir:LinalgOpsTdFiles",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+td_library(
+    name="ttmetal_td_files",
+    srcs=[
+        "TTMetalBase.td",
+        "TTMetalOps.td",
+        "TTMetalOpsEnums.td",
+        "TTMetalOpsTypes.td",
+    ],
+    deps=[
+        "//include/ttmlir/Dialect/TT/IR:tt_td_files",
+        "@llvm-project//mlir:BuiltinDialectTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:ShapeOpsTdFiles",
+    ],
+    includes=["../../../../"],
+    visibility=["//visibility:public"],
+)
