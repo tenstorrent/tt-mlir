@@ -227,7 +227,7 @@ Then, try to build again.
 
 When debugging python on macOS via lldb you may see an error like:
 ```
-(lldb) r                                                                                                                                                                                                              
+(lldb) r
 error: process exited with status -1 (attach failed (Not allowed to attach to process.  Look in the console messages (Console.app), near the debugserver entries, when the attach failed.  The subsystem that denied t
 he attach permission will likely have logged an informative message about why it was denied.))
 ```
