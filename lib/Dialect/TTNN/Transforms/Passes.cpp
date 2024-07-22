@@ -181,8 +181,11 @@ public:
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
+
   if (options.gridSetPassEnabled) {
-    pm.addPass(mlir::tt::ttir::createTTIRGridSet());
+    ttir::TTIRGridSetOptions gridSetOptions;
+    gridSetOptions.overrideGridSizes = options.overrideGridSizes;
+    pm.addPass(mlir::tt::ttir::createTTIRGridSet(gridSetOptions));
   }
 
   pm.addPass(createTTNNOpenDevice());
