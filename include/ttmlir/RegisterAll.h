@@ -13,7 +13,7 @@ class DialectRegistry;
 
 namespace mlir::tt {
 
-void registerAllDialects(mlir::DialectRegistry &registry);
+void registerAllDialects(mlir::DialectRegistry *registry);
 void registerAllPasses();
 
 } // namespace mlir::tt

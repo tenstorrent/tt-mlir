@@ -17,16 +17,16 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Passes.h"
 
-void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
+void mlir::tt::registerAllDialects(mlir::DialectRegistry *registry) {
   registry
-      .insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
-              mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-              mlir::tt::ttkernel::TTKernelDialect, mlir::arith::ArithDialect,
-              mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
-              mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-              mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-              mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-              mlir::emitc::EmitCDialect>();
+      ->insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+               mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
+               mlir::tt::ttkernel::TTKernelDialect, mlir::arith::ArithDialect,
+               mlir::func::FuncDialect, mlir::ml_program::MLProgramDialect,
+               mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
+               mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+               mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+               mlir::emitc::EmitCDialect>();
 }
 
 void mlir::tt::registerAllPasses() {

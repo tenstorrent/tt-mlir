@@ -7,6 +7,7 @@ add_llvm_library(TTMLIRPlugin
 
   LINK_LIBS
   MLIR
+  TTMLIR
 )
 
 target_include_directories(
