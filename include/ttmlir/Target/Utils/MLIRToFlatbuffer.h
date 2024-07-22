@@ -126,17 +126,6 @@ T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
 }
 
-inline flatbuffers::Offset<::tt::target::ChipDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
-  auto grid = toFlatbuffer(cache, chipDesc.getGrid());
-  return ::tt::target::CreateChipDesc(
-      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
-      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
-      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
-      chipDesc.getPcieAddressAlignBytes(),
-      chipDesc.getNocDRAMAddressAlignBytes());
-}
-
 template <typename T>
 using ToFlatbufferReturnType = decltype(toFlatbuffer(
     std::declval<FlatbufferObjectCache &>(), std::declval<T>()));
@@ -172,6 +161,18 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return cache.fbb->CreateVector<ToFlatbufferReturnType<T>>(
       arr.size(),
       [&cache, arr](size_t i) { return toFlatbuffer(cache, arr[i]); });
+}
+
+inline flatbuffers::Offset<::tt::target::ChipDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
+  assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
+  auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
+  return ::tt::target::CreateChipDesc(
+      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
+      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
+      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
+      chipDesc.getPcieAddressAlignBytes(),
+      chipDesc.getNocDRAMAddressAlignBytes());
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>

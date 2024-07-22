@@ -57,7 +57,7 @@ public:
       builder.setInsertionPoint(block, opRange.begin());
       auto openDevice = builder.create<OpenDeviceOp>(
           func.getLoc(), builder.getType<tt::DeviceType>(
-                             builder.getAttr<tt::GridAttr>(), chipDescIndices));
+                             builder.getAttr<tt::DeviceAttr>(systemDesc)));
 
       builder.setInsertionPoint(block, opRange.end());
       builder.create<CloseDeviceOp>(func.getLoc(), openDevice.getResult());
@@ -177,4 +177,17 @@ public:
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
   }
 };
+
+void createTTIRToTTNNBackendPipeline(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
+  pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  if (options.gridSetPassEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRGridSet());
+  }
+
+  pm.addPass(createTTNNOpenDevice());
+  pm.addPass(createConvertTTIRToTTNN());
+}
+
 } // namespace mlir::tt::ttnn

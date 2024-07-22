@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <numeric>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
@@ -25,9 +27,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       // Chip Descriptors
       {
           tt::ChipDescAttr::get(
-              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
-              tt::GridAttr::get(context, {8, 8}), (1 << 20), 12, (1 << 20), 16,
-              32, 32),
+              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0), {8, 8},
+              (1 << 20), 12, (1 << 20), 16, 32, 32),
       },
       // Chip Descriptor Indices
       {
@@ -281,6 +282,72 @@ MemorySpace LayoutAttr::getMemorySpace() const {
       .getMemorySpace()
       .template cast<mlir::tt::MemorySpaceAttr>()
       .getValue();
+}
+
+DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
+                           SystemDescAttr systemDesc,
+                           ArrayRef<unsigned> chipIds) {
+  assert(not chipIds.empty() && "expected at least one chip");
+  ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
+  ArrayRef<int64_t> physicalGrid(chipDesc.getGrid());
+  assert(physicalGrid.size() == 2 && "expected 2D grid");
+  for (unsigned chipId : chipIds) {
+    ChipDescAttr chip = systemDesc.getChipDescs()[chipId];
+    if (chip.getGrid() != physicalGrid) {
+      llvm::report_fatal_error("all chips must have the same grid shape");
+    }
+  }
+
+  SmallVector<int64_t> virtualGrid(physicalGrid);
+  if (chipIds.size() > 1) {
+    virtualGrid.insert(virtualGrid.begin(), chipIds.size());
+  }
+  assert(virtualGrid.size() >= 2 && "expected at least 2D grid");
+
+  // auto c0 = getAffineConstantExpr(physicalGrid[0], context);
+  // auto c1 = getAffineConstantExpr(physicalGrid[1], context);
+  auto dZ = getAffineConstantExpr(0, context);
+  auto dY = getAffineDimExpr(virtualGrid.size() - 2, context);
+  auto dX = getAffineDimExpr(virtualGrid.size() - 1, context);
+  assert(chipIds.size() == 1 && "only single chip supported for now");
+
+  SmallVector<AffineExpr> gridExprs = {dZ, dY, dX};
+  auto gridMap = AffineMap::get(virtualGrid.size(), 0, gridExprs, context);
+
+  return get(context, GridAttr::get(context, virtualGrid, gridMap), chipIds);
+}
+
+DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
+                           SystemDescAttr systemDesc) {
+  SmallVector<unsigned> chipIds(systemDesc.getChipDescIndices().size());
+  std::iota(chipIds.begin(), chipIds.end(), 0);
+  return get(context, systemDesc, chipIds);
+}
+
+::mlir::LogicalResult
+DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                   ::mlir::tt::GridAttr grid,
+                   ::llvm::ArrayRef<unsigned> chipIds) {
+  if (chipIds.empty()) {
+    emitError() << "expected at least one chip";
+    return ::mlir::failure();
+  }
+
+  auto gridShape = grid.getShape();
+  for (auto dim : gridShape) {
+    if (dim <= 0) {
+      emitError() << "expected positive grid dimensions";
+      return ::mlir::failure();
+    }
+  }
+
+  auto physicalGridMapping = grid.getPhysicalGridMapping();
+  if (physicalGridMapping.getNumResults() != 3) {
+    emitError() << "expected physical grid mapping to have 3 results";
+    return ::mlir::failure();
+  }
+
+  return ::mlir::success();
 }
 
 llvm::SmallVector<int64_t>

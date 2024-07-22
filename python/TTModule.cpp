@@ -6,6 +6,7 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
+#include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -148,6 +149,18 @@ void populateTTModule(py::module &m) {
       .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
       .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
       .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape);
+
+  py::class_<tt::DeviceAttr>(m, "DeviceAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> shape,
+             MlirAffineMap physicalGridMapping, std::vector<unsigned> chipIds) {
+            return wrap(tt::DeviceAttr::get(
+                unwrap(ctx), shape, unwrap(physicalGridMapping), chipIds));
+          })
+      .def("unwrap", [](MlirAttribute const &self) {
+        return unwrap(self).cast<tt::DeviceAttr>();
+      });
 
   py::class_<tt::TileType>(m, "TileType")
       .def_static("get",

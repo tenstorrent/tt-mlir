@@ -57,10 +57,11 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 createOp(FlatbufferObjectCache &cache, OpenDeviceOp op) {
   auto result = op.getResult();
   auto resultType = result.getType().cast<DeviceType>();
-  ::tt::target::Dim2d mesh = toFlatbuffer(cache, resultType.getMesh());
-  auto chipIds = toFlatbuffer(cache, resultType.getChipIds());
+  ::tt::target::Dim2d grid =
+      toFlatbuffer(cache, resultType.getDesc().getGrid());
+  auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
-  return ::tt::target::ttnn::CreateOpenDeviceOp(*cache.fbb, &mesh, chipIds,
+  return ::tt::target::ttnn::CreateOpenDeviceOp(*cache.fbb, &grid, chipIds,
                                                 out);
 }
 

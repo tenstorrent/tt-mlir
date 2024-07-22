@@ -28,7 +28,31 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRGRIDSET
+#define GEN_PASS_DEF_TTIRIMPLICITDEVICE
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+
+class TTIRImplicitDevice
+    : public impl::TTIRImplicitDeviceBase<TTIRImplicitDevice> {
+public:
+  using impl::TTIRImplicitDeviceBase<
+      TTIRImplicitDevice>::TTIRImplicitDeviceBase;
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+
+    if (not module->hasAttr(tt::DeviceAttr::name)) {
+      assert(module->hasAttr(tt::SystemDescAttr::name));
+      auto systemDesc = module->getAttr(tt::SystemDescAttr::name);
+      module->setAttr(
+          tt::DeviceAttr::name,
+          tt::DeviceAttr::get(&getContext(),
+                              systemDesc.cast<tt::SystemDescAttr>()));
+    }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+  }
+};
 
 template <typename TosaOp, typename TTIROp,
           OperandConstraint operandConstraints>
@@ -727,10 +751,9 @@ public:
 
     // Get the max grid size from the system description.
     //
-    assert(module_op->hasAttr(tt::SystemDescAttr::name));
-    GridAttr max_grid = module_op->getAttr(tt::SystemDescAttr::name)
-                            .cast<tt::SystemDescAttr>()
-                            .getChipDescs()[0]
+    assert(module_op->hasAttr(tt::DeviceAttr::name));
+    GridAttr max_grid = module_op->getAttr(tt::DeviceAttr::name)
+                            .cast<tt::DeviceAttr>()
                             .getGrid();
     module_op->walk([&](func::FuncOp func) {
       SmallVector<Type> funcResultTypes;
