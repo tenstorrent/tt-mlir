@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <fstream>
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -9,6 +10,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Target/Common/system_desc_generated.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -47,6 +49,81 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       },
       // Chip Channel Connections
       {});
+}
+
+mlir::tt::SystemDescAttr
+mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
+  // Check if file exists
+  assert(!path.empty() && "cluster desc path must not be empty!");
+  std::ifstream fbb(path, std::ios::binary | std::ios::ate);
+  assert(fbb.good() && "cluster desc does not exist!");
+  std::streampos size = fbb.tellg();
+  fbb.seekg(0, std::ios::beg);
+  auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
+  fbb.read(static_cast<char *>(buffer.get()), size);
+
+  // Read relevant information from binary
+  auto binary_system_desc =
+      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
+  auto const *binary_chip_desc = binary_system_desc->chip_descs();
+  auto const *binary_chip_desc_indices =
+      binary_system_desc->chip_desc_indices();
+  auto const *chip_capabilities = binary_system_desc->chip_capabilities();
+  auto const *binary_chip_coords = binary_system_desc->chip_coords();
+
+  // Acquire chip descs
+  std::vector<tt::ChipDescAttr> chip_desc_list;
+  for (auto element : *binary_chip_desc) {
+    auto current_chip_desc_attr = tt::ChipDescAttr::get(
+        context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
+        {element->grid_size()->y(), element->grid_size()->x()},
+        element->l1_size(), element->num_dram_channels(),
+        element->dram_channel_size(), element->noc_l1_address_align_bytes(),
+        element->pcie_address_align_bytes(),
+        element->noc_dram_address_align_bytes());
+
+    chip_desc_list.push_back(current_chip_desc_attr);
+  }
+
+  // Acquire chip indices
+  std::vector<uint32_t> chip_indices_list;
+  for (auto element : *binary_chip_desc_indices) {
+    chip_indices_list.push_back(element);
+  }
+
+  // Acquire chip capabilities
+  std::vector<tt::ChipCapabilityAttr> chip_capabilities_list;
+  for (auto element : *chip_capabilities) {
+    static_assert(
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::mlir::tt::ChipCapability::PCIE) ==
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::tt::target::ChipCapability::PCIE));
+    static_assert(
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::mlir::tt::ChipCapability::HostMMIO) ==
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::tt::target::ChipCapability::HostMMIO));
+
+    auto chip_capabilities_attr = tt::ChipCapabilityAttr::get(
+        context, static_cast<::mlir::tt::ChipCapability>(element));
+    chip_capabilities_list.push_back(chip_capabilities_attr);
+  }
+
+  // Acquire chip coordinates
+  std::vector<tt::ChipCoordAttr> chip_coordinate_list;
+  for (auto element : *binary_chip_coords) {
+    auto chip_coordinate_attr = tt::ChipCoordAttr::get(
+        context, element->rack(), element->shelf(), element->y(), element->x());
+    chip_coordinate_list.push_back(chip_coordinate_attr);
+  }
+
+  // Generate system desc attribute
+  auto system_desc_attr =
+      tt::SystemDescAttr::get(context, chip_desc_list, chip_indices_list,
+                              chip_capabilities_list, chip_coordinate_list, {});
+
+  return system_desc_attr;
 }
 
 static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,

@@ -57,4 +57,15 @@ def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
+  let summary = "Load system desc.";
+  let description = [{
+    Load system descriptor as a compiler pass.
+  }];
+
+  list<Option> options = [
+        Option<"path", "path", "std::string", "", "System desc path">,
+    ];
+}
+
 #endif

@@ -29,6 +29,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRGRIDSET
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
+#define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 class TTIRImplicitDevice
@@ -748,6 +749,25 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+  }
+};
+
+class TTIRLoadSystemDesc
+    : public impl::TTIRLoadSystemDescBase<TTIRLoadSystemDesc> {
+public:
+  using impl::TTIRLoadSystemDescBase<
+      TTIRLoadSystemDesc>::TTIRLoadSystemDescBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+
+    if (not path.empty()) {
+      module->setAttr(tt::SystemDescAttr::name,
+                      tt::SystemDescAttr::getFromPath(&getContext(), path));
+    } else if (not module->hasAttr(tt::SystemDescAttr::name)) {
+      module->setAttr(tt::SystemDescAttr::name,
+                      tt::SystemDescAttr::getDefault(&getContext()));
+    }
   }
 };
 
