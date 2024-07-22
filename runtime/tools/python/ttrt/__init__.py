@@ -18,7 +18,7 @@ import shutil
 
 import ttrt.binary
 from ttrt.common.api import read, run, query, perf
-from ttrt.common.util import read_actions, ttrt_cleanup
+from ttrt.common.util import read_actions
 
 #######################################################################################
 #######################################**MAIN**########################################
@@ -38,11 +38,15 @@ def main():
         "read", help="read information from flatbuffer binary"
     )
     read_parser.add_argument(
-        "-s",
         "--section",
         default="all",
         choices=sorted(list(read_actions.keys())),
         help="output sections of the fb",
+    )
+    read_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
     )
     read_parser.add_argument("binary", help="flatbuffer binary file")
     read_parser.set_defaults(func=read)
@@ -52,10 +56,19 @@ def main():
     """
     run_parser = subparsers.add_parser("run", help="run a flatbuffer binary")
     run_parser.add_argument(
-        "-p",
         "--program-index",
         default=0,
         help="the program inside the fbb to run",
+    )
+    run_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
+    )
+    run_parser.add_argument(
+        "--loops",
+        default=1,
+        help="number of loops",
     )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
@@ -84,8 +97,13 @@ def main():
     query_parser.add_argument(
         "--save-system-desc",
         nargs="?",
-        default="",
+        default="system_desc.ttsys",
         help="serialize a system desc for the current system to a file",
+    )
+    query_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
     )
     query_parser.set_defaults(func=query)
 
@@ -96,7 +114,6 @@ def main():
         "perf", help="run performance trace and collect performance data"
     )
     perf_parser.add_argument(
-        "-p",
         "--program-index",
         default=0,
         help="the program inside the fbb to run",
@@ -116,6 +133,16 @@ def main():
         default="",
         help="perf csv file generated from performance run",
     )
+    perf_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
+    )
+    perf_parser.add_argument(
+        "--loops",
+        default=1,
+        help="number of loops",
+    )
     perf_parser.add_argument("binary", help="flatbuffer binary file")
     perf_parser.set_defaults(func=perf)
 
@@ -126,7 +153,6 @@ def main():
         return
 
     # run command
-    ttrt_cleanup()
     args.func(args)
 
 
