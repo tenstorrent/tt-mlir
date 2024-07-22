@@ -288,6 +288,7 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
                            ArrayRef<unsigned> chipIds) {
   assert(not chipIds.empty() && "expected at least one chip");
+  assert(chipIds.size() == 1 && "only single chip supported for now");
   ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
   ArrayRef<int64_t> physicalGrid(chipDesc.getGrid());
   assert(physicalGrid.size() == 2 && "expected 2D grid");
@@ -309,7 +310,6 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   auto dZ = getAffineConstantExpr(0, context);
   auto dY = getAffineDimExpr(virtualGrid.size() - 2, context);
   auto dX = getAffineDimExpr(virtualGrid.size() - 1, context);
-  assert(chipIds.size() == 1 && "only single chip supported for now");
 
   SmallVector<AffineExpr> gridExprs = {dZ, dY, dX};
   auto gridMap = AffineMap::get(virtualGrid.size(), 0, gridExprs, context);

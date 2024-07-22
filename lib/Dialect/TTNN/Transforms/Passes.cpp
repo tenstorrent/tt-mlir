@@ -178,16 +178,4 @@ public:
   }
 };
 
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
-  pm.addPass(mlir::tt::ttir::createTTIRLayout());
-  if (options.gridSetPassEnabled) {
-    pm.addPass(mlir::tt::ttir::createTTIRGridSet());
-  }
-
-  pm.addPass(createTTNNOpenDevice());
-  pm.addPass(createConvertTTIRToTTNN());
-}
-
 } // namespace mlir::tt::ttnn

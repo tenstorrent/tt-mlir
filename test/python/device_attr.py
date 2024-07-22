@@ -118,7 +118,7 @@ print("", createDeviceAttr([3, 2, 8, 8]))
 # ------------------------------------------------------------------------------
 
 print("\n=== Data parallel batch on single device ===")
-# CHECK: tt.device<#tt.grid<2x4x8, (d0, d1, d2) -> (0, d0 * 4 + d1, d2)>, [0, 1]>
+# CHECK: tt.device<#tt.grid<2x4x8, (d0, d1, d2) -> (0, d0 * 4 + d1, d2)>, [0]>
 print(
     "divide batch by 2, top 4 rows get batch 0, bottom 4 rows get batch 1\n",
     createDeviceAttr([2, 4, 8], affMap=amap(3, [c0, d0 * 4 + d1, d2])),

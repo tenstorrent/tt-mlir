@@ -40,7 +40,7 @@ The device attribute strives to achieve the following goals:
 
 ## Examples
 
-All of the follow examples will assume the physical hardware has an 8x8 physical
+All of the following examples will assume the physical hardware has an 8x8 physical
 grid of cores.  We will use notation `[N, 8x8]` to represent a `N` chip system,
 each with an 8x8 physical grid.
 
@@ -187,7 +187,7 @@ will group sections of the module's operations into groups to form pipeline regi
 and will be covered in a separate spec.
 
 What we can demonstrate here is how we can take multiple non-overlapping views
-of the system descriptor to form distict virtual devices.
+of the system descriptor to form distinct virtual devices.
 
 Given an 8 chip system `[8, 8x8]`, we can form two virtual devices that each
 take 4 chips and interpret them differently (though they could take the same
