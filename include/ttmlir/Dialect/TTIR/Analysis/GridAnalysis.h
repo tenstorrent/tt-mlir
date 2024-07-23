@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_GRIDANALYSIS_H
 
 #include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
+#include "llvm/ADT/StringMap.h"
 
 namespace mlir::tt::ttir {
 
@@ -17,16 +18,22 @@ struct GridAnalysisResult {
 struct GridAnalysisInput {
   int max_supported_rows;
   int max_supported_columns;
+  llvm::StringMap<SmallVector<int, 2>> *grid_size_overrides;
 
-  GridAnalysisInput() : max_supported_rows(1), max_supported_columns(1) {}
+  GridAnalysisInput()
+      : max_supported_rows(1), max_supported_columns(1),
+        grid_size_overrides(nullptr) {}
 
-  GridAnalysisInput(int max_supported_rows, int max_supported_columns)
+  GridAnalysisInput(int max_supported_rows, int max_supported_columns,
+                    llvm::StringMap<SmallVector<int, 2>> *grid_size_overrides)
       : max_supported_rows(max_supported_rows),
-        max_supported_columns(max_supported_columns) {}
+        max_supported_columns(max_supported_columns),
+        grid_size_overrides(grid_size_overrides) {}
 
   bool operator==(const GridAnalysisInput &rhs) const {
     return max_supported_rows == rhs.max_supported_rows &&
-           max_supported_columns == rhs.max_supported_columns;
+           max_supported_columns == rhs.max_supported_columns &&
+           grid_size_overrides == rhs.grid_size_overrides;
   }
 
   bool operator!=(const GridAnalysisInput &rhs) const {
@@ -41,6 +48,7 @@ class GridAnalysis
 
 private:
   void analysisImplementation() override;
+  bool applyOverrides() override;
 
 public:
   GridAnalysis(Operation *op) : TTIRAnalysis(op) {}

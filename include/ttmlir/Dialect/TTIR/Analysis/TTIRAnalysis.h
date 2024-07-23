@@ -24,6 +24,12 @@ protected:
   //
   virtual void analysisImplementation() = 0;
 
+  // Load overrides if they exist.
+  // Must be implemented by every analysis type.
+  // Returns true if analysis should be skipped.
+  //
+  virtual bool applyOverrides() = 0;
+
 public:
   virtual ~TTIRAnalysis() {};
 
@@ -52,7 +58,14 @@ private:
     // Skip the analysis if it was already run and input params haven't changed.
     //
     if (!is_valid) {
-      analysisImplementation();
+      // Apply overrides if needed.
+      //
+      bool skip_analysis = applyOverrides();
+
+      if (!skip_analysis) {
+        analysisImplementation();
+      }
+
       is_valid = true;
     }
   }

@@ -748,8 +748,9 @@ public:
 
         // Initialize the grid analysis with the max grid size.
         //
-        grid_analysis.init(
-            GridAnalysisInput(max_grid.getShape()[0], max_grid.getShape()[1]));
+        grid_analysis.init(GridAnalysisInput(max_grid.getShape()[0],
+                                             max_grid.getShape()[1],
+                                             &overrideGridSizes));
 
         // Run the grid analysis and get the result.
         //
