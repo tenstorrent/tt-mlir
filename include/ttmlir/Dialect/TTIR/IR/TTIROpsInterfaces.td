@@ -24,4 +24,12 @@ def TTIROpInterface : OpInterface<"TTIROpInterface"> {
   ];
 }
 
+def TTIR_ElementwiseOpInterface : OpInterface<"TTIR_ElementwiseOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+
+  let verify = [{
+    return detail::verifyElementwiseOp($_op);
+  }];
+}
+
 #endif
