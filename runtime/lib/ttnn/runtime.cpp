@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/utils.h"
 #include "utils.h"
+#include <numeric>
 
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -31,39 +31,42 @@ static ::tt::target::Dim2d toFlatbuffer(CoreCoord coreCoord) {
 }
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
-  auto &device = ::ttnn::open_device(0);
-  std::vector<int> chipIds = {
-      device.id(),
-  };
+  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  std::vector<int> chipIds;
+  std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
+  std::vector<uint32_t> chipDescIndices;
+  std::vector<::tt::target::ChipCapability> chipCapabilities;
+  std::vector<::tt::target::ChipCoord> chipCoords;
   ::flatbuffers::FlatBufferBuilder fbb;
+  for (size_t deviceId = 0; deviceId < numDevices; deviceId++) {
+    auto &device = ::ttnn::open_device(deviceId);
+    chipIds.push_back(device.id());
+    ::tt::target::Dim2d deviceGrid = toFlatbuffer(device.logical_grid_size());
+    chipDescs.emplace_back(::tt::target::CreateChipDesc(
+        fbb, toFlatbuffer(device.arch()), &deviceGrid,
+        device.l1_size_per_core(), device.num_dram_channels(),
+        device.dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
+        DRAM_ALIGNMENT));
+    chipDescIndices.push_back(deviceId);
+    ::tt::target::ChipCapability chipCapability =
+        ::tt::target::ChipCapability::NONE;
+    if (device.is_mmio_capable()) {
+      chipCapability = chipCapability | ::tt::target::ChipCapability::PCIE |
+                       ::tt::target::ChipCapability::HostMMIO;
+    }
+    chipCapabilities.push_back(chipCapability);
+    int x, y, rack, shelf;
+    std::tie(x, y, rack, shelf) = device.get_chip_location();
+    chipCoords.emplace_back(::tt::target::ChipCoord(rack, shelf, y, x));
+    ::ttnn::close_device(device);
+  }
+  std::vector<::tt::target::ChipChannel> chipChannel;
+  auto systemDesc = ::tt::target::CreateSystemDescDirect(
+      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoords,
+      &chipChannel);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
-  ::tt::target::Dim2d deviceGrid =
-      toFlatbuffer(device.compute_with_storage_grid_size());
-  std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs = {
-      ::tt::target::CreateChipDesc(
-          fbb, toFlatbuffer(device.arch()), &deviceGrid, (1 << 20), 12,
-          (1 << 20), L1_ALIGNMENT, PCIE_ALIGNMENT, DRAM_ALIGNMENT),
-  };
-  std::vector<uint32_t> chipDescIndices = {
-      0,
-  };
-  ::tt::target::ChipCapability chipCapability =
-      ::tt::target::ChipCapability::PCIE;
-  if (device.is_mmio_capable()) {
-    chipCapability = chipCapability | ::tt::target::ChipCapability::HostMMIO;
-  }
-  std::vector<::tt::target::ChipCapability> chipCapabilities = {
-      chipCapability,
-  };
-  std::vector<::tt::target::ChipCoord> chipCoord = {
-      ::tt::target::ChipCoord(0, 0, 0, 0),
-  };
-  std::vector<::tt::target::ChipChannel> chipChannel;
-  auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoord,
-      &chipChannel);
   auto root = ::tt::target::CreateSystemDescRootDirect(
       fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
@@ -75,7 +78,6 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   auto size = fbb.GetSize();
   auto handle = ::tt::runtime::utils::malloc_shared(size);
   std::memcpy(handle.get(), buf, size);
-  ::ttnn::close_device(device);
   return std::make_pair(SystemDesc(handle), chipIds);
 }
 
