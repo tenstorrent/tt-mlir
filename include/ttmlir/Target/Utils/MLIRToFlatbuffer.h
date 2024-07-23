@@ -273,10 +273,11 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
-layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr) {
+layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
+                       ArrayRef<int64_t> logicalShape) {
   assert(attr.isa<LayoutAttr>() && "expected a tensor type");
   auto layoutAttr = attr.cast<LayoutAttr>();
-  auto strideInt64 = layoutAttr.getStride();
+  auto strideInt64 = layoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto gridAttr = layoutAttr.getGrid();
   auto gridShape = gridAttr.getShape();
@@ -296,7 +297,8 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type) {
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   return ::tt::target::CreateTensorDescDirect(
       *cache.fbb, &shape,
-      cache.getOrCreate(tensorType.getEncoding(), layoutAttrToFlatbuffer));
+      cache.getOrCreate(tensorType.getEncoding(), layoutAttrToFlatbuffer,
+                        shapeInt64));
 }
 
 inline flatbuffers::Offset<::tt::target::TensorRef>

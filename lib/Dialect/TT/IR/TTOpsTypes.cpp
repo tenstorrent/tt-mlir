@@ -171,8 +171,75 @@ LayoutAttr LayoutAttr::get(
              collapseIntervals, oobVal);
 }
 
-llvm::SmallVector<int64_t> LayoutAttr::getStride() const {
-  return llvm::SmallVector<int64_t>();
+// From the logical shape of the tensor and the affine map of the layout,
+// compute the physical shape of the tensor, i.e the shape of the tensor
+// after the dimensions have been collapsed onto a grid.
+llvm::SmallVector<int64_t>
+LayoutAttr::getPhysicalShape(ArrayRef<int64_t> logicalShape) const {
+  llvm::SmallVector<int64_t> physicalShape(getGrid().getShape().size());
+  SmallVector<AffineExpr> logicalShapeExprs(
+      llvm::map_range(logicalShape, [context = getContext()](std::int64_t e) {
+        return getAffineConstantExpr(e - 1, context);
+      }));
+
+  for (size_t i = 0; i < physicalShape.size(); i++) {
+    AffineExpr expr = getLinear().getResult(i);
+    AffineExpr constantExpr = expr.replaceDims(logicalShapeExprs);
+    std::int64_t constant =
+        llvm::cast<AffineConstantExpr>(constantExpr).getValue() + 1;
+    physicalShape[i] = constant;
+  }
+
+  return physicalShape;
+}
+
+llvm::SmallVector<int64_t>
+LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
+
+  llvm::SmallVector<int64_t> stride(logicalShape.size());
+
+  auto physicalShape = getPhysicalShape(logicalShape);
+
+  // Origin point in the logical space (0, 0, ...)
+  SmallVector<AffineExpr> originPoint(logicalShape.size(),
+                                      getAffineConstantExpr(0, getContext()));
+
+  auto linearMap = getLinear();
+  size_t prevDimElems = 1;
+
+  // Iterates through physical dimensions (starting from the inner one).
+  for (int i = linearMap.getNumResults() - 1; i >= 0; i--) {
+    AffineExpr expr = linearMap.getResult(i);
+
+    // Get coordinate of the i-th dimension (in physical space) of the origin
+    // (in logical space).
+    AffineExpr constantExpr = expr.replaceDims(originPoint);
+    std::int64_t valueAtZero =
+        llvm::cast<AffineConstantExpr>(constantExpr).getValue();
+
+    for (size_t j = 0; j < logicalShape.size(); j++) {
+      if (!expr.isFunctionOfDim(j)) {
+        continue;
+      }
+
+      // Move from the origin point by one in the j-th dimension,
+      // and get the coordinate of the i-th dimension (in physical space).
+      auto newPoint = originPoint;
+      newPoint[j] = getAffineConstantExpr(1, getContext());
+      constantExpr = expr.replaceDims(newPoint);
+      std::int64_t valueAtOne =
+          llvm::cast<AffineConstantExpr>(constantExpr).getValue();
+
+      // One step in the j-th dimension, jumps delta * prevDimElems elements in
+      // the physical space.
+      int64_t delta = valueAtOne - valueAtZero;
+      stride[j] = prevDimElems * delta;
+    }
+
+    prevDimElems *= physicalShape[i];
+  }
+
+  return stride;
 }
 
 llvm::SmallVector<int64_t> LayoutAttr::getShardShape() const {
