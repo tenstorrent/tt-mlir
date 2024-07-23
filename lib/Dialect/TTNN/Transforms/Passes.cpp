@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MLProgram/IR/MLProgram.h"
@@ -15,14 +15,14 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNOPENDEVICE
 #define GEN_PASS_DEF_CONVERTTTIRTOTTNN
-#include "ttmlir/Dialect/TTNN/Passes.h.inc"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 static Value findDevice(Operation *op) {
   Block *block = op->getBlock();
@@ -177,19 +177,4 @@ public:
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
   }
 };
-
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(mlir::tt::ttir::createTTIRLayout());
-
-  if (options.gridSetPassEnabled) {
-    ttir::TTIRGridSetOptions gridSetOptions;
-    gridSetOptions.overrideGridSizes = options.overrideGridSizes;
-    pm.addPass(mlir::tt::ttir::createTTIRGridSet(gridSetOptions));
-  }
-
-  pm.addPass(createTTNNOpenDevice());
-  pm.addPass(createConvertTTIRToTTNN());
-}
-
 } // namespace mlir::tt::ttnn

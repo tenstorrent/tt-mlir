@@ -11,7 +11,7 @@
 #include "ttmlir-c/Dialects.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace py = pybind11;
 

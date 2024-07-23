@@ -11,11 +11,12 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTMetal/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/Passes.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry
@@ -43,9 +44,5 @@ void mlir::tt::registerAllPasses() {
       "Pipeline lowering ttir to ttmetal backend.",
       mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
 
-  mlir::PassPipelineRegistration<
-      mlir::tt::ttnn::TTIRToTTNNBackendPipelineOptions>(
-      "ttir-to-ttnn-backend-pipeline",
-      "Pipeline lowering ttir to ttmetal backend.",
-      mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
+  mlir::tt::ttnn::registerTTNNPipelines();
 }

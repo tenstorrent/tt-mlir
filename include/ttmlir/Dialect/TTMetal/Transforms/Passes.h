@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTMETAL_PASSES_H
-#define TTMLIR_DIALECT_TTMETAL_PASSES_H
+#ifndef TTMLIR_DIALECT_TTMETAL_TRANSFORMS_PASSES_H
+#define TTMLIR_DIALECT_TTMETAL_TRANSFORMS_PASSES_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
@@ -13,10 +13,10 @@
 
 namespace mlir::tt::ttmetal {
 #define GEN_PASS_DECL
-#include "ttmlir/Dialect/TTMetal/Passes.h.inc"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
-#include "ttmlir/Dialect/TTMetal/Passes.h.inc"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
 void createTTIRToTTMetalBackendPipeline(OpPassManager &pm);
 } // namespace mlir::tt::ttmetal
