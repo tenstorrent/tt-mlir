@@ -111,8 +111,10 @@ struct ChipCoord {
 }
 
 struct ChipChannel {
-  endpoint0: uint32;
-  endpoint1: uint32;
+  device_id0: uint32;
+  ethernet_core_coord0: Dim2d;
+  device_id1: uint32;
+  ethernet_core_coord1: Dim2d;
 }
 
 table SystemDesc {

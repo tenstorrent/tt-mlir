@@ -135,8 +135,13 @@ inline ::tt::target::ChipCoord toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline ::tt::target::ChipChannel toFlatbuffer(FlatbufferObjectCache &cache,
                                               ChipChannelAttr chipChannel) {
-  return ::tt::target::ChipChannel(chipChannel.getEndpoint0(),
-                                   chipChannel.getEndpoint1());
+  return ::tt::target::ChipChannel(
+      chipChannel.getDeviceId0(),
+      ::tt::target::Dim2d(chipChannel.getEthernetCoreCoord0()[0],
+                          chipChannel.getEthernetCoreCoord0()[1]),
+      chipChannel.getDeviceId1(),
+      ::tt::target::Dim2d(chipChannel.getEthernetCoreCoord1()[0],
+                          chipChannel.getEthernetCoreCoord1()[1]));
 }
 
 inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,

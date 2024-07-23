@@ -128,11 +128,14 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::ChipChannelAttr>(m, "ChipChannelAttr")
-      .def_static("get",
-                  [](MlirContext ctx, unsigned endpoint0, unsigned endpoint1) {
-                    return wrap(tt::ChipChannelAttr::get(unwrap(ctx), endpoint0,
-                                                         endpoint1));
-                  });
+      .def_static("get", [](MlirContext ctx, unsigned deviceId0,
+                            std::vector<int64_t> ethernetCoreCoord0,
+                            unsigned deviceId1,
+                            std::vector<int64_t> ethernetCoreCoord1) {
+        return wrap(tt::ChipChannelAttr::get(unwrap(ctx), deviceId0,
+                                             ethernetCoreCoord0, deviceId1,
+                                             ethernetCoreCoord1));
+      });
 
   py::class_<tt::SystemDescAttr>(m, "SystemDescAttr")
       .def_static("get", [](MlirContext ctx,

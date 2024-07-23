@@ -1,1 +1,2 @@
 add_runtime_gtest(subtract_test test_subtract.cpp)
+add_runtime_gtest(sys_desc_sanity test_generate_sys_desc.cpp)

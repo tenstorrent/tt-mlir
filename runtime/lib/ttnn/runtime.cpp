@@ -2,15 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "tt/runtime/runtime.h"
+#include "hostdevcommon/common_values.hpp"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/utils.h"
 #include "utils.h"
 #include <numeric>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wsign-compare"
+#include "ttnn/multi_device.hpp"
+#pragma clang diagnostic pop
+
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+#include <numeric>
 
 namespace tt::runtime::ttnn {
+
 static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   switch (arch) {
   case ::tt::ARCH::GRAYSKULL:
@@ -26,44 +35,92 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   throw std::runtime_error("Unsupported arch");
 }
 
-static ::tt::target::Dim2d toFlatbuffer(CoreCoord coreCoord) {
+static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
   return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
 }
 
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  std::vector<int> chipIds;
+static std::vector<::tt::target::ChipChannel>
+getAllDeviceConnections(const vector<::ttnn::Device *> &devices) {
+  std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
+      connectionSet;
+
+  auto addConnection = [&connectionSet](
+                           chip_id_t deviceId0, CoreCoord ethCoreCoord0,
+                           chip_id_t deviceId1, CoreCoord ethCoreCoord1) {
+    if (deviceId0 > deviceId1) {
+      std::swap(deviceId0, deviceId1);
+      std::swap(ethCoreCoord0, ethCoreCoord1);
+    }
+    connectionSet.emplace(deviceId0, ethCoreCoord0, deviceId1, ethCoreCoord1);
+  };
+
+  for (const ::ttnn::Device *device : devices) {
+    std::unordered_set<CoreCoord> activeEthernetCores =
+        device->get_active_ethernet_cores(true);
+    for (const CoreCoord &ethernetCore : activeEthernetCores) {
+      std::tuple<chip_id_t, CoreCoord> connectedDevice =
+          device->get_connected_ethernet_core(ethernetCore);
+      addConnection(device->id(), ethernetCore, std::get<0>(connectedDevice),
+                    std::get<1>(connectedDevice));
+    }
+  }
+
+  std::vector<::tt::target::ChipChannel> allConnections;
+  allConnections.resize(connectionSet.size());
+
+  std::transform(
+      connectionSet.begin(), connectionSet.end(), allConnections.begin(),
+      [](const std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>
+             &connection) {
+        return ::tt::target::ChipChannel(
+            std::get<0>(connection), toFlatbuffer(std::get<1>(connection)),
+            std::get<2>(connection), toFlatbuffer(std::get<3>(connection)));
+      });
+
+  return allConnections;
+}
+
+static std::unique_ptr<SystemDesc>
+getCurrentSystemDescImpl(const ::ttnn::multi_device::DeviceMesh &deviceMesh) {
+  std::vector<::ttnn::Device *> devices = deviceMesh.get_devices();
+  std::sort(devices.begin(), devices.end(),
+            [](const ::ttnn::Device *a, const ::ttnn::Device *b) {
+              return a->id() < b->id();
+            });
+
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices;
   std::vector<::tt::target::ChipCapability> chipCapabilities;
+  // Ignore for now
   std::vector<::tt::target::ChipCoord> chipCoords;
   ::flatbuffers::FlatBufferBuilder fbb;
-  for (size_t deviceId = 0; deviceId < numDevices; deviceId++) {
-    auto &device = ::ttnn::open_device(deviceId);
-    chipIds.push_back(device.id());
-    ::tt::target::Dim2d deviceGrid = toFlatbuffer(device.logical_grid_size());
-    chipDescs.emplace_back(::tt::target::CreateChipDesc(
-        fbb, toFlatbuffer(device.arch()), &deviceGrid,
-        device.l1_size_per_core(), device.num_dram_channels(),
-        device.dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
+
+  for (const ::ttnn::Device *device : devices) {
+    // Construct chip descriptor
+    ::tt::target::Dim2d deviceGrid =
+        toFlatbuffer(device->compute_with_storage_grid_size());
+    chipDescs.push_back(::tt::target::CreateChipDesc(
+        fbb, toFlatbuffer(device->arch()), &deviceGrid,
+        device->l1_size_per_core(), device->num_dram_channels(),
+        device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
         DRAM_ALIGNMENT));
-    chipDescIndices.push_back(deviceId);
+    chipDescIndices.push_back(device->id());
+    // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
         ::tt::target::ChipCapability::NONE;
-    if (device.is_mmio_capable()) {
+    if (device->is_mmio_capable()) {
       chipCapability = chipCapability | ::tt::target::ChipCapability::PCIE |
                        ::tt::target::ChipCapability::HostMMIO;
     }
     chipCapabilities.push_back(chipCapability);
-    int x, y, rack, shelf;
-    std::tie(x, y, rack, shelf) = device.get_chip_location();
-    chipCoords.emplace_back(::tt::target::ChipCoord(rack, shelf, y, x));
-    ::ttnn::close_device(device);
   }
-  std::vector<::tt::target::ChipChannel> chipChannel;
+  // Extract chip connected channels
+  std::vector<::tt::target::ChipChannel> allConnections =
+      getAllDeviceConnections(devices);
+  // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
       fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoords,
-      &chipChannel);
+      &allConnections);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
@@ -78,7 +135,33 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   auto size = fbb.GetSize();
   auto handle = ::tt::runtime::utils::malloc_shared(size);
   std::memcpy(handle.get(), buf, size);
-  return std::make_pair(SystemDesc(handle), chipIds);
+  return std::make_unique<SystemDesc>(handle);
+}
+
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
+  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  size_t numPciDevices = ::tt::tt_metal::GetNumPCIeDevices();
+  TT_FATAL(numDevices % numPciDevices == 0,
+           "Unexpected non-rectangular grid of devices");
+  std::vector<chip_id_t> deviceIds(numDevices);
+  std::iota(deviceIds.begin(), deviceIds.end(), 0);
+  ::ttnn::multi_device::DeviceGrid deviceGrid(numDevices / numPciDevices,
+                                              numPciDevices);
+  ::ttnn::multi_device::DeviceMesh deviceMesh =
+      ::ttnn::multi_device::open_device_mesh(deviceGrid, deviceIds,
+                                             DEFAULT_L1_SMALL_SIZE);
+  std::exception_ptr eptr = nullptr;
+  std::unique_ptr<SystemDesc> desc;
+  try {
+    desc = getCurrentSystemDescImpl(deviceMesh);
+  } catch (...) {
+    eptr = std::current_exception();
+  }
+  deviceMesh.close_devices();
+  if (eptr) {
+    std::rethrow_exception(eptr);
+  }
+  return std::make_pair(*desc, deviceIds);
 }
 
 template <typename T>
