@@ -215,11 +215,11 @@ to a program called `flatc` which generates C++ code (or any language for that
 matter) for serializing and deserializing the schema. This generated code can be
 found in `build/include/ttmlir/Target/TTNN/program_generated.h`.
 
-Let's head over to `lib/Dialect/TTNN/Transforms/TTNNToSerializedBinary.cpp` to define
+Let's head over to `lib/Target/TTNN/TTNNToFlatbuffer.cpp` to define
 a `createOp` overloaded function that does the conversion from MLIR to flatbuffer:
 
 ```cpp
-{{#include ../../../lib/Dialect/TTNN/Transforms/TTNNToSerializedBinary.cpp:adding_an_op_matmul_serialize_to_binary}}
+{{#include ../../../lib/Target/TTNN/TTNNToFlatbuffer.cpp:adding_an_op_matmul_serialize_to_binary}}
 ```
 
 Lots of things are happening here, let's break it down:
@@ -241,7 +241,7 @@ Lots of things are happening here, let's break it down:
 
 We can finally generate a binary with our new Op!  We can use the following command:
 ```bash
-./build/bin/ttmlir-opt --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn --ttnn-serialize-to-binary="output=out.ttnn" test/ttmlir/Dialect/TTNN/simple_matmul.mlir
+./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
 ```
 
 And we can inspect the with [`ttrt`](./ttrt.md):
