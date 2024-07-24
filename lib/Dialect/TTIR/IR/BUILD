@@ -5,6 +5,7 @@ cc_library(
   srcs = [
     "TTIRDialect.cpp",
     "TTIROps.cpp",
+    "TTIROpsInterfaces.cpp",
   ],
   deps = [
     "//include:headers",

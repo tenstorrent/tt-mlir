@@ -1,10 +1,9 @@
 load("//include:macros.bzl", "all_inc_gen")
 
 cc_library(
-  name = "MLIRTTNNTransforms",
+  name = "MLIRTTNNPipelines",
   srcs = [
-    "Passes.cpp",
-    "TTNNToCpp.cpp",
+    "TTNNPipelines.cpp",
   ],
   deps = [
     "//include:headers",

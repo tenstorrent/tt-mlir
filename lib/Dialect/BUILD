@@ -12,6 +12,7 @@ cc_library(
     "//lib/Dialect/TTMetal/Transforms:MLIRTTMetalTransforms",
     "//lib/Dialect/TTNN/IR:MLIRTTNNDialect",
     "//lib/Dialect/TTNN/Transforms:MLIRTTNNTransforms",
+    "//lib/Dialect/TTNN/Pipelines:MLIRTTNNPipelines",
     "@llvm-project//mlir:AllPassesAndDialects",
     "@llvm-project//llvm:Support",
     "@llvm-project//mlir:Dialect",
