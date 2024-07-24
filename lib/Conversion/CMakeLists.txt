@@ -1,1 +1,2 @@
 add_subdirectory(TTNNToEmitC)
+add_subdirectory(TTIRToTTNN)

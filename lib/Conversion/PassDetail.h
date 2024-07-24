@@ -5,6 +5,7 @@
 #ifndef TTMLIR_LIB_CONVERSION_PASSDETAIL_H
 #define TTMLIR_LIB_CONVERSION_PASSDETAIL_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"

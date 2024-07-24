@@ -14,11 +14,4 @@ def TTNNOpenDevice: Pass<"ttnn-open-device", "::mlir::ModuleOp"> {
   }];
 }
 
-def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    todo
-  }];
-}
-
 #endif

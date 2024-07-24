@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -24,7 +25,7 @@ void createTTIRToTTNNBackendPipeline(
   }
 
   pm.addPass(createTTNNOpenDevice());
-  pm.addPass(createConvertTTIRToTTNN());
+  pm.addPass(createConvertTTIRToTTNNPass());
 }
 
 //===----------------------------------------------------------------------===//

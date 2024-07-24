@@ -1,0 +1,15 @@
+add_mlir_library(TTMLIRTTIRToTTNN
+  TTIRToTTNN.cpp
+  TTIRToTTNNPass.cpp
+
+  ADDITIONAL_HEADER_DIRS
+  ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToTTNN
+
+  DEPENDS
+  TTMLIRConversionPassIncGen
+
+  LINK_LIBS PUBLIC
+  MLIRIR
+  MLIRPass
+  MLIRTransformUtils
+)
