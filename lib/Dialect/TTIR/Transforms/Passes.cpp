@@ -19,7 +19,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/Analysis/GridAnalysis.h"
-#include "ttmlir/Dialect/TTIR/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_CONVERTTOSATOTTIR
@@ -28,7 +28,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRGRIDSET
-#include "ttmlir/Dialect/TTIR/Passes.h.inc"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 template <typename TosaOp, typename TTIROp,
           OperandConstraint operandConstraints>

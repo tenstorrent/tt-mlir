@@ -18,7 +18,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 namespace mlir::tt::ttmetal {
 

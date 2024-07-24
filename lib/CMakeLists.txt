@@ -14,4 +14,5 @@ add_mlir_library(TTMLIR STATIC RegisterAll.cpp
     MLIRTTKernelDialect
     MLIRTTMetalDialect
     MLIRTTMetalTransforms
+    MLIRTTNNPipelines
 )

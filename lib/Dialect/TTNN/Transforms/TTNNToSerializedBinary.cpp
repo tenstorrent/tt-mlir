@@ -15,7 +15,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToSerializedBinary.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -27,7 +27,7 @@
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
-#include "ttmlir/Dialect/TTNN/Passes.h.inc"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 ::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   auto offset = coreRange.getOffset();

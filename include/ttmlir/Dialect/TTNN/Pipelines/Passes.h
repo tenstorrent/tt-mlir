@@ -2,22 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_PASSES_H
-#define TTMLIR_DIALECT_TTNN_PASSES_H
+#ifndef TTMLIR_DIALECT_TTNN_PIPELINES_PASSES_H
+#define TTMLIR_DIALECT_TTNN_PIPELINES_PASSES_H
 
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "mlir/Pass/PassOptions.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DECL
-#include "ttmlir/Dialect/TTNN/Passes.h.inc"
-
-#define GEN_PASS_REGISTRATION
-#include "ttmlir/Dialect/TTNN/Passes.h.inc"
-
 struct GridSizeOverrideParser
     : public llvm::cl::parser<llvm::StringMap<SmallVector<int, 2>>> {
 public:
@@ -100,6 +90,10 @@ struct TTIRToTTNNBackendPipelineOptions
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+/// Registers all pipelines for the `bufferization` dialect. Currently,
+/// this includes only the "ttir-to-ttnn-backend-pipeline".
+void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
 
 #endif
