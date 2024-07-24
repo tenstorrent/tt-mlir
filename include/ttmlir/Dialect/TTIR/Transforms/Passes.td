@@ -7,6 +7,14 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
+  let summary = "Create an implicit device";
+  let description = [{
+    This pass will take a view of the system descriptor and create an implicit
+    device around it.
+  }];
+}
+
 def ConvertTosaToTTIR: Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

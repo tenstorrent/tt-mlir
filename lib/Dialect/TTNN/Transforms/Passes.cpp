@@ -57,7 +57,7 @@ public:
       builder.setInsertionPoint(block, opRange.begin());
       auto openDevice = builder.create<OpenDeviceOp>(
           func.getLoc(), builder.getType<tt::DeviceType>(
-                             builder.getAttr<tt::GridAttr>(), chipDescIndices));
+                             builder.getAttr<tt::DeviceAttr>(systemDesc)));
 
       builder.setInsertionPoint(block, opRange.end());
       builder.create<CloseDeviceOp>(func.getLoc(), openDevice.getResult());
@@ -177,4 +177,5 @@ public:
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
   }
 };
+
 } // namespace mlir::tt::ttnn
