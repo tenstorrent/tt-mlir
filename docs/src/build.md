@@ -104,10 +104,11 @@ For more information visit [pre-commit](https://pre-commit.com/)
 ```bash
 source env/activate
 cmake --build build -- docs
-mdbook serve build/docs/book
+mdbook serve build/docs
 ```
 
 > - `mdbook` can be installed with the system's package manager.
+> - `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
 ## Dependencies
 
