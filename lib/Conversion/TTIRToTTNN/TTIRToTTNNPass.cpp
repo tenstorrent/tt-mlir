@@ -16,10 +16,17 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+namespace mlir::tt::ttir {
+
+#define GEN_PASS_DEF_CONVERTTTIRTOTTNN
+#include "ttmlir/Conversion/Passes.h.inc"
+
+} // namespace mlir::tt::ttir
+
 namespace {
 
 struct ConvertTTIRToTTNNPass
-    : public ttnn::ConvertTTIRToTTNNBase<ConvertTTIRToTTNNPass> {
+    : public ttir::impl::ConvertTTIRToTTNNBase<ConvertTTIRToTTNNPass> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttnn::TTNNDialect>();

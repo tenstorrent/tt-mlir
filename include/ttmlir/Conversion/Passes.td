@@ -19,4 +19,10 @@ def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTosaToTTIR : Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Convert TOSA dialect to TTIR dialect.";
+  let constructor = "createConvertTosaToTTIRPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif // TTMLIR_CONVERSION_PASSES

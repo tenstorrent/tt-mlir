@@ -18,7 +18,7 @@ class EmitCDialect;
 
 namespace mlir::tt::ttnn {
 
-#define GEN_PASS_CLASSES
+#define GEN_PASS_DEF_CONVERTTTNNTOEMITC
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttnn

@@ -63,7 +63,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 }
 
 struct ConvertTTNNToEmitCPass
-    : public ttnn::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
+    : public ttnn::impl::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
   void runOnOperation() override {
     mlir::ConversionTarget target(getContext());
 
