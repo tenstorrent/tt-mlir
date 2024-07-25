@@ -18,6 +18,7 @@ runs:
         echo $DEPENDENCIES
         sudo apt update
         sudo apt install -y $DEPENDENCIES
+        sudo apt install bazel-6.5.0 -y
     - name: Install Clang-17
       if: startsWith(inputs.os, 'ubuntu')
       shell: bash

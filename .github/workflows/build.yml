@@ -85,3 +85,22 @@ jobs:
       with:
         report_paths: build/test/report.xml
         check_name: ${{ matrix.build.runs-on }} MLIR Tests
+
+  bazel_build:
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {runs-on: ubuntu-20.04, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: ON},
+        ]
+    runs-on: ${{ matrix.build.runs-on }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0 # Fetch all history and tags
+
+    - name: Build
+      shell: bash
+      run: |
+        bazel build //...
+        
