@@ -60,10 +60,10 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let regions = (region AnyRegion:$region);
 }
 
-def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
-    let summary = "Layout op.";
+def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface]> {
+    let summary = "ToLayout op.";
     let description = [{
-      Layout operation, transition tensors from one layout to another.  Some examples include:
+      ToLayout operation, transition tensors from one layout to another.  Some examples include:
         - Transitioning between different memory spaces, e.g. DRAM to L1.
         - Transitioning between different data types, e.g. f32 to f16.
         - Transitioning between different tile sizes, e.g. 1x16 to 32x32
@@ -73,7 +73,7 @@ def TTIR_LayoutOp : TTIR_Op<"layout", [DestinationStyleOpInterface]> {
       ```llvm
       #layout = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
       #layout1 = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "ttir.layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
 

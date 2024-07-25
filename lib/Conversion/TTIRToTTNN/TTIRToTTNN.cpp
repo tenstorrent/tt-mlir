@@ -43,12 +43,13 @@ public:
   }
 };
 
-class LayoutOpConversionPattern : public OpConversionPattern<ttir::LayoutOp> {
+class ToLayoutOpConversionPattern
+    : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
-  using OpConversionPattern<ttir::LayoutOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::LayoutOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -136,7 +137,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // ANCHOR: adding_an_op_matmul_rewrite_pattern_set
   patterns
       .add<TensorEmptyToFullConversionPattern,
-           LayoutOpConversionPattern,
+           ToLayoutOpConversionPattern,
            ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
            ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
