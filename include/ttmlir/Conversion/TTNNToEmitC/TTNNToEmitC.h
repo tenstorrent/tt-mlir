@@ -5,13 +5,15 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITC_TTNNTOEMITC_H
 #define TTMLIR_CONVERSION_TTNNTOEMITC_TTNNTOEMITC_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<func::FuncOp>> createConvertTTNNToEmitCPass();
+void populateTTNNToEmitCPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                TypeConverter &typeConverter);
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToEmitCPass();
 
 } // namespace mlir::tt
 
