@@ -11,7 +11,7 @@
 namespace mlir::tt {
 
 void populateTTNNToEmitCPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                                TypeConverter &typeConverter);
+                                 TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToEmitCPass();
 
