@@ -5,6 +5,8 @@ if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
   message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
 endif()
 
+option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
+
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")

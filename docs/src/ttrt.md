@@ -16,34 +16,54 @@ ttrt --help
 
 See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate a flatbuffer file.
 
-## Read sections from the flatbuffer
-
+## APIs
 ```bash
-ttrt read --section version out.ttnn
-ttrt read --section system-desc out.ttnn
-ttrt read out.ttnn # Dump the whole thing as json
-ttrt read --help
+ttrt --help
 ```
 
-## Query information about the current system
+### read
+```bash
+ttrt read --help
+ttrt read --section mlir out.ttnn
+ttrt read --section cpp out.ttnn
+ttrt read --section version out.ttnn
+ttrt read --section system-desc out.ttnn
+ttrt read --section inputs out.ttnn
+ttrt read --section outputs out.ttnn
+ttrt read --section all out.ttnn
+```
 
+### run
 Note: It's required to be on a system with silicon and to have a runtime enabled
 build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 
 ```bash
+ttrt run --help
+ttrt run out.ttnn
+ttrt run --program-index 0 out.ttnn
+```
+
+### query
+Note: It's required to be on a system with silicon and to have a runtime enabled
+build `-DTTMLIR_ENABLE_RUNTIME=ON`.
+
+```bash
+ttrt query --help
 ttrt query --system-desc
+ttrt query --system-desc-as-json
+ttrt query --system-desc-as-dict
 ttrt query --save-system-desc n300.ttsys
 ```
 
-## Execute flatbuffer files
-
-Note:
-- It's required to be on a system with silicon and to have a runtime enabled
-build `-DTTMLIR_ENABLE_RUNTIME=ON`.
-- It's required to have installed `torch` in your python environment.
+### perf
+Note: It's required to be on a system with silicon and to have a runtime enabled
+build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 
 ```bash
-ttrt run out.ttnn
+ttrt perf --help
+ttrt perf out.ttnn
+ttrt perf --program-index 0 out.ttnn
+ttrt perf --generate-params --perf-csv trace.csv # Generate params dict of all model attributes
 ```
 
 ## ttrt is written as a python library, so it can be used in custom python scripts
