@@ -13,4 +13,10 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::func::FuncOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR dialect to TTNN dialect.";
+  let constructor = "createConvertTTIRToTTNNPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
+}
+
 #endif // TTMLIR_CONVERSION_PASSES

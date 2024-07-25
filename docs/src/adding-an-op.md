@@ -7,13 +7,19 @@ reference the diff alongside this guide to see the changes in full.
 
 This guide will cover the following steps:
 
-1. [Define the Op in the TTIR frontend dialect](#1-define-the-op-in-the-ttir-frontend-dialect)
-2. [Define the Op in the TTNN backend dialect](#2-define-the-op-in-the-ttnn-backend-dialect)
-3. [Convert / Implement the Op in the TTNN passes](#3-convert--implement-the-op-in-the-ttnn-passes)
-4. [Add a unit test for the Op](#4-add-a-unit-test-for-the-op)
-5. [Define flatbuffer schema for the Op](#5-define-flatbuffer-schema-for-the-op)
-6. [Serialize the Op in the flatbuffer format](#6-serialize-the-op-in-the-flatbuffer-format)
-7. [Add runtime support for the Op](#7-add-runtime-support-for-the-op)
+- [Adding an Op](#adding-an-op)
+  - [1. Define the Op in the TTIR frontend dialect](#1-define-the-op-in-the-ttir-frontend-dialect)
+  - [2. Define the Op in the TTNN backend dialect](#2-define-the-op-in-the-ttnn-backend-dialect)
+      - [`TTNNOps.td`](#ttnnopstd)
+      - [`TTNNOps.cpp`](#ttnnopscpp)
+  - [3. Convert / Implement the Op in the TTNN passes](#3-convert--implement-the-op-in-the-ttnn-passes)
+  - [4. Add a unit test for the Op](#4-add-a-unit-test-for-the-op)
+      - [`test/ttmlir/Dialect/TTNN/simple_matmul.mlir`](#testttmlirdialectttnnsimple_matmulmlir)
+  - [5. Define flatbuffer schema for the Op](#5-define-flatbuffer-schema-for-the-op)
+      - [`include/ttmlir/Target/TTNN/program.fbs`](#includettmlirtargetttnnprogramfbs)
+  - [6. Serialize the Op in the flatbuffer format](#6-serialize-the-op-in-the-flatbuffer-format)
+  - [7. Add runtime support for the Op](#7-add-runtime-support-for-the-op)
+      - [`runtime/lib/ttnn/program.cpp`](#runtimelibttnnprogramcpp)
 
 ## 1. Define the Op in the TTIR frontend dialect
 
@@ -99,13 +105,13 @@ section for details, the process is the same.
 Next we will implement the conversion from the TTIR `matmul` Op to the TTNN `matmul` Op.
 This is a trivial conversion, as the Ops are identical in their semantics, so
 the changeset isn't going to be very instructive, but will at least point to the
-files involved. The conversion is implemented in the `ConvertTTIRToTNN` pass in
-file `lib/Dialect/TTNN/Transforms/Passes.cpp`.
+files involved. The conversion is implemented in the `ConvertTTIRToTTNNPass` pass in
+file `lib/Conversion/TTIRToTTNN/TTIRToTTNNPass.cpp`.
 
-Zooming into `class ConvertTTIRToTNN` we can see we implement the pass interface
+Zooming into `class ConvertTTIRToTTNNPass` we can see we implement the pass interface
 via member function `void runOnOperation() final`.  This function will be called
 for every operation matching the type specified in the pass tablegen file. A
-quick look at `include/ttmlir/Dialect/TTNN/Passes.td` we can see:
+quick look at `include/ttmlir/Conversion/Passes.td` we can see:
 
 ```
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
@@ -121,22 +127,21 @@ can match much more complicated patterns (nested inside of the `ModuleOp`'s
 than just a single operation.
 
 ```cpp
-{{#include ../../../lib/Dialect/TTNN/Transforms/Passes.cpp:adding_an_op_matmul_rewrite_pattern_set}}
+{{#include ../../../lib/Conversion/TTIRToTTNN/TTIRToTTNN.cpp:adding_an_op_matmul_rewrite_pattern_set}}
 ```
 
-> More information on rewrite patterns and their capabilities can be found in the [MLIR
-> documentation](https://mlir.llvm.org/docs/PatternRewriter/).
+> More information on rewrite patterns and their capabilities can be found in the MLIR documentation [here](https://mlir.llvm.org/docs/PatternRewriter/) and [here](https://mlir.llvm.org/docs/DialectConversion/).
 
-For matmul, we defined a new pattern rewriter that's generic to all binary ops
+For matmul, we defined a new conversion pattern that's generic to all binary ops
 with arguments named `a` and `b`:
 
 ```cpp
-{{#include ../../../lib/Dialect/TTNN/Transforms/Passes.cpp:adding_an_op_matmul_op_rewriter}}
+{{#include ../../../lib/Conversion/TTIRToTTNN/TTIRToTTNN.cpp:adding_an_op_matmul_op_rewriter}}
 ```
 
 Invoked as part of the rewrite set:
 ```cpp
-TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>
+MatmulOpConversionPattern
 ```
 
 We also need to add this op to the C++ emitter,
@@ -149,7 +154,7 @@ So far we have defined the Op in the TTIR and TTNN dialects,
 implemented verifiers, and have conversion passes.  Now we need to add a unit
 test to ensure that the pass is working correctly.  The unit tests are located
 in `test/ttmlir/Dialect` area.  In this case we'll add a test under the `TTNN`
-subdirectory since we are testing the `ConvertTTIRToTTNN` pass.
+subdirectory since we are testing the `ConvertTTIRToTTNNPass`.
 
 #### `test/ttmlir/Dialect/TTNN/simple_matmul.mlir`
 
