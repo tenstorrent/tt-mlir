@@ -54,15 +54,15 @@ public:
   }
 };
 
-template <typename TosaOp, typename TTIROp,
+template <typename TosaOpTy, typename TTIROpTy,
           OperandConstraint operandConstraints>
-class TosaToTTIREltwiseBinaryRewriter : public OpRewritePattern<TosaOp> {
+class TosaToTTIREltwiseBinaryRewriter : public OpRewritePattern<TosaOpTy> {
 public:
-  using OpRewritePattern<TosaOp>::OpRewritePattern;
+  using OpRewritePattern<TosaOpTy>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TosaOp op,
+  LogicalResult matchAndRewrite(TosaOpTy op,
                                 PatternRewriter &rewriter) const final {
-    if constexpr (std::is_same<TosaOp, tosa::MulOp>::value) {
+    if constexpr (std::is_same<TosaOpTy, tosa::MulOp>::value) {
       assert(op.getShift() == 0);
     }
 
@@ -71,7 +71,7 @@ public:
         op.getResult().getType().template cast<RankedTensorType>();
     auto output = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<TTIROp>(
+    rewriter.replaceOpWithNewOp<TTIROpTy>(
         op, TypeRange(output.getType()), op.getOperands(), ValueRange(output),
         rewriter.getArrayAttr(SmallVector<Attribute>(
             op.getNumOperands() + 1, // +1 for output operand
@@ -124,28 +124,28 @@ public:
   }
 };
 
-template <typename TTIROp>
-class TTIRNamedToKernelRewriter : public OpRewritePattern<TTIROp> {
+template <typename TTIROpTy>
+class TTIRNamedToKernelRewriter : public OpRewritePattern<TTIROpTy> {
 public:
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
+  using OpRewritePattern<TTIROpTy>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TTIROp op,
+  LogicalResult matchAndRewrite(TTIROpTy op,
                                 PatternRewriter &rewriter) const final {
     StringRef kernelName;
     StringRef kernelKind;
-    if constexpr (std::is_same<TTIROp, ttir::MultiplyOp>::value) {
+    if constexpr (std::is_same<TTIROpTy, ttir::MultiplyOp>::value) {
       kernelName = "mulitply";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::AddOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::AddOp>::value) {
       kernelName = "add";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::SubtractOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::SubtractOp>::value) {
       kernelName = "subtract";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::GreaterEqualOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::GreaterEqualOp>::value) {
       kernelName = "ge";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::ReluOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::ReluOp>::value) {
       kernelName = "relu";
       kernelKind = "eltwise";
     } else {
@@ -501,14 +501,14 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       ->getResult(0);
 }
 
-template <typename TTIROp>
-class TTIRLayoutOperandsRewriter : public OpRewritePattern<TTIROp> {
+template <typename TTIROpTy>
+class TTIRLayoutOperandsRewriter : public OpRewritePattern<TTIROpTy> {
 public:
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
+  using OpRewritePattern<TTIROpTy>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TTIROp op,
+  LogicalResult matchAndRewrite(TTIROpTy op,
                                 PatternRewriter &rewriter) const final {
-    assert(op->template hasTrait<TTIROpInterface::Trait>());
+    assert(op->template hasTrait<TTIROp::Trait>());
     auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
