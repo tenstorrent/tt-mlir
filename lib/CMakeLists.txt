@@ -9,6 +9,7 @@ add_mlir_library(TTMLIR STATIC RegisterAll.cpp
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTIRTransforms
+    TTMLIRConversions
     MLIRTTIRAnalysis
     MLIRTTNNDialect
     MLIRTTNNTransforms

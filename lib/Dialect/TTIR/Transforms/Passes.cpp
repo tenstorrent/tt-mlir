@@ -22,7 +22,6 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_CONVERTTOSATOTTIR
 #define GEN_PASS_DEF_TTIRGENERIC
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
@@ -49,66 +48,6 @@ public:
     }
   }
 
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-  }
-};
-
-template <typename TosaOpTy, typename TTIROpTy,
-          OperandConstraint operandConstraints>
-class TosaToTTIREltwiseBinaryRewriter : public OpRewritePattern<TosaOpTy> {
-public:
-  using OpRewritePattern<TosaOpTy>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(TosaOpTy op,
-                                PatternRewriter &rewriter) const final {
-    if constexpr (std::is_same<TosaOpTy, tosa::MulOp>::value) {
-      assert(op.getShift() == 0);
-    }
-
-    // Create empty output tensor for destination passing style (DPS)
-    auto outputType =
-        op.getResult().getType().template cast<RankedTensorType>();
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<TTIROpTy>(
-        op, TypeRange(output.getType()), op.getOperands(), ValueRange(output),
-        rewriter.getArrayAttr(SmallVector<Attribute>(
-            op.getNumOperands() + 1, // +1 for output operand
-            rewriter.getAttr<OperandConstraintAttr>(operandConstraints))));
-
-    return success();
-  }
-};
-
-class ConvertTosaToTTIR
-    : public impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR> {
-public:
-  using impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR>::ConvertTosaToTTIRBase;
-  void runOnOperation() final {
-    ModuleOp module = getOperation();
-
-    if (not module->hasAttr(tt::SystemDescAttr::name)) {
-      module->setAttr(tt::SystemDescAttr::name,
-                      tt::SystemDescAttr::getDefault(&getContext()));
-    }
-
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp,
-                                                 OperandConstraint::AnyDevice>,
-                 TosaToTTIREltwiseBinaryRewriter<tosa::MulOp, ttir::MultiplyOp,
-                                                 OperandConstraint::AnyDevice>,
-                 TosaToTTIREltwiseBinaryRewriter<tosa::SubOp, ttir::SubtractOp,
-                                                 OperandConstraint::AnyDevice>,
-                 TosaToTTIREltwiseBinaryRewriter<tosa::GreaterEqualOp,
-                                                 ttir::GreaterEqualOp,
-                                                 OperandConstraint::AnyDevice>>(
-        &getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-      signalPassFailure();
-    }
-  }
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
   }

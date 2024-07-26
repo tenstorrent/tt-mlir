@@ -15,13 +15,6 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   }];
 }
 
-def ConvertTosaToTTIR: Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    Convert TOSA ops to TTIR ops.
-  }];
-}
-
 def TTIRGeneric: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
