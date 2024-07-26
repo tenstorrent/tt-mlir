@@ -4,14 +4,13 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
-#include "../PassDetail.h"
-
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 using namespace mlir;
 using namespace mlir::tt;

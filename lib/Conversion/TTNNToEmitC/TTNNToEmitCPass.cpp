@@ -4,8 +4,6 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
-#include "../PassDetail.h"
-
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -19,6 +17,13 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+
+namespace mlir::tt::ttnn {
+
+#define GEN_PASS_DEF_CONVERTTTNNTOEMITC
+#include "ttmlir/Conversion/Passes.h.inc"
+
+} // namespace mlir::tt::ttnn
 
 namespace {
 

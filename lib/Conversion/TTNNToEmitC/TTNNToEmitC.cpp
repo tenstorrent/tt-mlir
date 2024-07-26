@@ -4,8 +4,6 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
-#include "../PassDetail.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
