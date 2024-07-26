@@ -14,3 +14,6 @@ jobs:
         uses: actions/setup-python@v5
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
+      - name: Use the Command Line Tools
+        run: |
+          sudo xcode-select -s /Library/Developer/CommandLineTools
