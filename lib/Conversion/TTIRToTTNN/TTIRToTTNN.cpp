@@ -57,15 +57,15 @@ public:
   }
 };
 
-template <typename TTIROp, typename TTNNOp,
-          typename OpAdaptor = typename TTIROp::Adaptor>
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseBinaryOpConversionPattern
-    : public OpConversionPattern<TTIROp> {
+    : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<TTIROp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(TTIROp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     SmallVector<Type> resultTypes;
     if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
@@ -73,22 +73,22 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<TTNNOp>(op, resultTypes, adaptor.getInputs(),
-                                        adaptor.getOutputs());
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, adaptor.getInputs(),
+                                          adaptor.getOutputs());
     return success();
   }
 };
 
-template <typename TTIROp, typename TTNNOp,
-          typename OpAdaptor = typename TTIROp::Adaptor>
-class ReductionOpConversionPattern : public OpConversionPattern<TTIROp> {
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
-  using OpConversionPattern<TTIROp>::OpConversionPattern;
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(TTIROp op, OpAdaptor adaptor,
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<TTNNOp>(
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getOutput(), adaptor.getKeepDim(),
         adaptor.getDimArg().value_or(nullptr));

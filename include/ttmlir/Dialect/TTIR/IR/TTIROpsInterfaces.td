@@ -8,7 +8,7 @@
 include "mlir/IR/OpBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 
-def TTIROpInterface : OpInterface<"TTIROpInterface"> {
+def TTIROpInterface : OpInterface<"TTIROp"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [
     InterfaceMethod<
