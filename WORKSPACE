@@ -1,6 +1,7 @@
 workspace(name = "tt-mlir")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
 LLVM_COMMIT = "9ddfe62f5c11e3f65f444209f514029ded2d58b9"
 
@@ -52,4 +53,36 @@ http_archive(
     urls = ["https://github.com/google/flatbuffers/archive/{commit}.zip".format(commit = FLATBUFFERS_COMMIT)],
     strip_prefix = "flatbuffers-" + FLATBUFFERS_COMMIT,
     # build_file_content = "# empty",
+)
+
+# Add rules_foreign_cc for cmake_external
+RULES_FOREIGN_CC_TAG = "0.11.1"
+http_archive(
+    name = "rules_foreign_cc",
+    strip_prefix = "rules_foreign_cc-" + RULES_FOREIGN_CC_TAG,
+    urls = ["https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/{tag}.zip".format(tag = RULES_FOREIGN_CC_TAG)],
+)
+load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+rules_foreign_cc_dependencies()
+
+
+_ALL_CONTENT = """\
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+"""
+
+TT_METAL_TAG = "v0.49.0"
+git_repository(
+    name = "tt-metal",
+    tag = TT_METAL_TAG,
+    build_file_content = _ALL_CONTENT,
+    recursive_init_submodules = True,
+    remote = "https://github.com/tenstorrent/tt-metal.git",
+    patch_cmds = [
+        "rm tt_metal/hw/inc/wormhole/BUILD.bazel",
+        "rm tt_metal/hw/toolchain/BUILD",
+    ]
 )
