@@ -19,6 +19,11 @@ jobs:
       with:
           fetch-depth: 0 # Fetch all history and tags
 
+    - name: Use the Command Line Tools for Mac OS
+      if: matrix.build.runs-on == 'macos-latest'
+      run: |
+        sudo xcode-select -s /Library/Developer/CommandLineTools
+
     - name: Install build dependencies
       uses: ./.github/actions/install-deps
       with:
