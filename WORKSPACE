@@ -72,6 +72,23 @@ filegroup(
     srcs = glob(["**"]),
     visibility = ["//visibility:public"],
 )
+cc_library(
+    name = "headers",
+    hdrs = glob(["**"]),
+    visibility = ["//visibility:public"],
+    includes = [
+        "ttnn/cpp",
+        ".",
+        "tt_metal",
+        "tt_metal/third_party/umd",
+        "tt_metal/third_party/fmt",
+        "tt_metal/hw/inc",
+        "tt_metal/hw/inc/wormhole",
+        "tt_metal/hw/inc/wormhole/wormhole_b0_defines",
+        "tt_metal/third_party/umd/src/firmware/riscv/wormhole",
+        "tt_eager",
+    ]
+)
 """
 
 TT_METAL_TAG = "v0.49.0"

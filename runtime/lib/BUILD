@@ -64,8 +64,12 @@ cc_library(
       "//conditions:default": ["@platforms//:incompatible"],
   }),
   deps = [
+    "//include/ttmlir/Target/TTNN:fbs_lib",
+    "//include/ttmlir/Target/TTMetal:fbs_lib",
+    "//include/ttmlir/Target/Common:fbs_lib",
     "//include:headers",
     "//runtime/include:headers",
     "//third_party:tt-metal",
+    "@tt-metal//:headers"
   ]
 )

@@ -46,3 +46,9 @@ cmake(
             "-Wno-logical-op-parentheses",
     ],
 )
+
+# cc_library(
+#     name = "headers",
+#     srcs = glob(["**"]),
+#     visibility = ["//visibility:public"],
+# )
