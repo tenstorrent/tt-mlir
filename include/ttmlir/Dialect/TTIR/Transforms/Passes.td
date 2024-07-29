@@ -51,8 +51,8 @@ def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
   }];
   let options = [
     Option<"overrideGridSizes", "override-grid-sizes",
-          "llvm::StringMap<SmallVector<int, 2>>",
-          /*default=*/"llvm::StringMap<SmallVector<int, 2>>()",
+          "llvm::StringMap<SmallVector<int64_t, 2>>",
+          /*default=*/"llvm::StringMap<SmallVector<int64_t, 2>>()",
            "Override grid sizes for specific ops.">,
   ];
 }
