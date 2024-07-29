@@ -30,11 +30,11 @@ namespace mlir::tt::ttmetal {
 #define GEN_PASS_DEF_CONVERTTTIRTOTTMETAL
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
-class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::LayoutOp> {
+class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::ToLayoutOp> {
 public:
-  using OpRewritePattern<ttir::LayoutOp>::OpRewritePattern;
+  using OpRewritePattern<ttir::ToLayoutOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttir::LayoutOp op,
+  LogicalResult matchAndRewrite(ttir::ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
     auto inputTy = op.getInput().getType().template cast<RankedTensorType>();
     auto outputTy = op.getType().template cast<RankedTensorType>();

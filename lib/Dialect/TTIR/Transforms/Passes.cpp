@@ -418,8 +418,8 @@ public:
 };
 
 static std::optional<Value>
-createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-               OperandConstraint operandConstraint) {
+createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                 OperandConstraint operandConstraint) {
   auto ty = input.getType().cast<RankedTensorType>();
   auto currLayout = ty.getEncoding().cast<LayoutAttr>();
   auto currMemorySpace = currLayout.getMemorySpace();
@@ -437,7 +437,8 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
     rewriter.replaceOp(exising_empty, output);
     return output.getResult();
   }
-  return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output)
+  return rewriter
+      .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
       ->getResult(0);
 }
 
@@ -465,8 +466,8 @@ public:
           op.getOperandConstraints()[operand.getOperandNumber()]
               .template cast<OperandConstraintAttr>()
               .getValue();
-      auto desiredLayout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                          operandConstraint);
+      auto desiredLayout = createToLayoutOp(rewriter, op.getLoc(),
+                                            operand.get(), operandConstraint);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -504,8 +505,8 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
-      if (auto layout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                       OperandConstraint::System);
+      if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
+                                         OperandConstraint::System);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -571,18 +572,14 @@ inline uint64_t getMemrefSizeBytes(MemRefType ty) {
   return size;
 }
 
-inline uint64_t getLayoutSizeBytes(LayoutAttr layout) {
-  auto gridShape = layout.getGrid().getShape();
-  auto gridVolume = std::accumulate(gridShape.begin(), gridShape.end(), 1,
-                                    std::multiplies<uint64_t>());
-  assert(gridVolume == 1 && "Only support grid shape of 1 for now");
+inline uint64_t getLayoutMemrefSizeBytes(LayoutAttr layout) {
   return getMemrefSizeBytes(layout.getMemref());
 }
 
-inline uint64_t getTensorSizeBytes(RankedTensorType ty) {
+inline uint64_t getTensorMemrefSizeBytes(RankedTensorType ty) {
   assert(ty.getEncoding());
   auto layout = ty.getEncoding().template cast<LayoutAttr>();
-  return getLayoutSizeBytes(layout);
+  return getLayoutMemrefSizeBytes(layout);
 }
 
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
@@ -659,7 +656,7 @@ public:
 
         // Replace empty with allocate
         auto memorySpace = getMemorySpace(resultTy);
-        auto sizeBytes = getTensorSizeBytes(resultTy);
+        auto sizeBytes = getTensorMemrefSizeBytes(resultTy);
         auto address = allocator.allocate(sizeBytes, memorySpace);
         rewriter.setInsertionPoint(startOp);
         auto alloc = rewriter.create<AllocOp>(startOp->getLoc(), resultTy,

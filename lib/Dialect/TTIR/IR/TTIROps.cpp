@@ -10,7 +10,7 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
-::mlir::LogicalResult mlir::tt::ttir::LayoutOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
