@@ -82,7 +82,6 @@ void populateTTModule(py::module &m) {
       .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
       .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape);
 
-
   py::class_<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> shape) {
@@ -106,16 +105,15 @@ void populateTTModule(py::module &m) {
 
   py::class_<tt::ChipDescAttr>(m, "ChipDescAttr")
       .def_static("get", [](MlirContext ctx, MlirAttribute arch,
-                            MlirAttribute grid, unsigned l1Size,
+                            std::vector<int64_t> grid, unsigned l1Size,
                             unsigned numDramChannels, unsigned dramChannelSize,
                             unsigned nocL1AddressAlignBytes,
                             unsigned pcieAddressAlignBytes,
                             unsigned nocDRAMAddressAlignBytes) {
         return wrap(tt::ChipDescAttr::get(
-            unwrap(ctx), unwrap(arch).cast<tt::ArchAttr>(),
-            unwrap(grid).cast<tt::GridAttr>(), l1Size, numDramChannels,
-            dramChannelSize, nocL1AddressAlignBytes, pcieAddressAlignBytes,
-            nocDRAMAddressAlignBytes));
+            unwrap(ctx), unwrap(arch).cast<tt::ArchAttr>(), grid, l1Size,
+            numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
+            pcieAddressAlignBytes, nocDRAMAddressAlignBytes));
       });
 
   py::class_<tt::ChipCoordAttr>(m, "ChipCoordAttr")
@@ -190,11 +188,10 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::DeviceType>(m, "DeviceType")
-      .def_static("get", [](MlirContext ctx, MlirAttribute grid,
-                            unsigned chipIds, size_t chipIdsSize) {
-        llvm::ArrayRef<unsigned> chipIdsRef(&chipIds, chipIds + chipIdsSize);
+      .def_static("get", [](MlirContext ctx, MlirAttribute deviceAttr) {
         return wrap(tt::DeviceType::get(
-            unwrap(ctx), unwrap(grid).cast<tt::GridAttr>(), chipIdsRef));
+            unwrap(ctx), unwrap(deviceAttr).cast<tt::DeviceAttr>()));
+      });
 
   py::class_<tt::DeviceAttr>(m, "DeviceAttr")
       .def_static(

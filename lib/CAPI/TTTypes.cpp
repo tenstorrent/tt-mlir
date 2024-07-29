@@ -16,11 +16,9 @@ MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
                             static_cast<tt::DataType>(dataType)));
 }
 
-MlirType ttmlirTTDeviceTypeGet(MlirContext ctx, MlirAttribute grid,
-                               unsigned *chipIds, size_t chipIdsSize) {
-  llvm::ArrayRef<unsigned> chipIdsRef(chipIds, chipIds + chipIdsSize);
-  return wrap(DeviceType::get(unwrap(ctx), unwrap(grid).cast<tt::GridAttr>(),
-                              chipIdsRef));
+MlirType ttmlirTTDeviceTypeGet(MlirContext ctx, MlirAttribute deviceAttr) {
+  return wrap(
+      DeviceType::get(unwrap(ctx), unwrap(deviceAttr).cast<tt::DeviceAttr>()));
 }
 
 } // namespace mlir::tt

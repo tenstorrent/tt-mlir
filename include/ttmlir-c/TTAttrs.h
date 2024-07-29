@@ -23,8 +23,8 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTArchAttrGet(MlirContext ctx,
                                                      uint32_t arch);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
-    MlirContext ctx, MlirAttribute arch, MlirAttribute grid, unsigned l1Size,
-    unsigned numDramChannels, unsigned dramChannelSize,
+    MlirContext ctx, MlirAttribute arch, int64_t *grid, size_t gridSize,
+    unsigned l1Size, unsigned numDramChannels, unsigned dramChannelSize,
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes);
 
