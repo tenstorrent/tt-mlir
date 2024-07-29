@@ -15,15 +15,16 @@ void populateTTModule(py::module &m) {
   py::class_<tt::LayoutAttr>(m, "LayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, MlirType rankedTensorType,
-                     tt::MemorySpace memorySpace, MlirAttribute grid,
+                     uint32_t memorySpaceValue, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals,
-                     tt::OOBVal oobVal) {
+                     uint32_t oobValValue) {
                     return wrap(tt::LayoutAttr::get(
                         unwrap(ctx),
                         unwrap(rankedTensorType).cast<RankedTensorType>(),
-                        memorySpace, unwrap(grid).cast<tt::GridAttr>(),
-                        collapseIntervals, oobVal));
+                        static_cast<tt::MemorySpace>(memorySpaceValue),
+                        unwrap(grid).cast<tt::GridAttr>(), collapseIntervals,
+                        static_cast<tt::OOBVal>(oobValValue)));
                   })
       .def_static("with_grid",
                   [](MlirContext ctx, MlirAttribute self,
