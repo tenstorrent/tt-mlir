@@ -9,13 +9,13 @@
 
 namespace mlir::tt::ttnn {
 struct GridSizeOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<SmallVector<int, 2>>> {
+    : public llvm::cl::parser<llvm::StringMap<SmallVector<int64_t, 2>>> {
 public:
   GridSizeOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<SmallVector<int, 2>>>(opt) {}
+      : llvm::cl::parser<llvm::StringMap<SmallVector<int64_t, 2>>>(opt) {}
 
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<SmallVector<int, 2>> &value) {
+             llvm::StringMap<SmallVector<int64_t, 2>> &value) {
     SmallVector<StringRef> overrideList;
     constexpr size_t kvPairSize = 2;
     constexpr size_t kMaxGridSize = 2;
@@ -29,11 +29,11 @@ public:
         opt.error("Invalid format for override grid sizes: " + override);
         return true;
       }
-      SmallVector<int, kMaxGridSize> grid;
+      SmallVector<int64_t, kMaxGridSize> grid;
       SmallVector<StringRef, kMaxGridSize> gridParts;
       kv[iGrid].split(gridParts, 'x');
       for (const StringRef gridPart : gridParts) {
-        int gridValue;
+        int64_t gridValue;
         if (gridPart.getAsInteger(10 /*Radix*/, gridValue)) {
           opt.error("Invalid grid size: " + gridPart);
           return true;
@@ -46,7 +46,7 @@ public:
   }
 
   static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<SmallVector<int, 2>> &value) {
+                    const llvm::StringMap<SmallVector<int64_t, 2>> &value) {
     os << "override-grid-sizes=";
     size_t count = 0;
     for (const auto &entry : value) {
@@ -82,10 +82,11 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Note: This option is only valid if gridSetPassEnabled is true.
   //
-  Option<llvm::StringMap<SmallVector<int, 2>>, GridSizeOverrideParser>
-      overrideGridSizes{*this, "override-grid-sizes",
-                        llvm::cl::desc("Override grid sizes for specific ops."),
-                        llvm::cl::init(llvm::StringMap<SmallVector<int, 2>>())};
+  Option<llvm::StringMap<SmallVector<int64_t, 2>>, GridSizeOverrideParser>
+      overrideGridSizes{
+          *this, "override-grid-sizes",
+          llvm::cl::desc("Override grid sizes for specific ops."),
+          llvm::cl::init(llvm::StringMap<SmallVector<int64_t, 2>>())};
 };
 
 void createTTIRToTTNNBackendPipeline(

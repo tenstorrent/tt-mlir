@@ -18,7 +18,8 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/GridAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
@@ -686,15 +687,43 @@ public:
     // - Constraint checking, whether the grid size is supported by the current
     // OP based on inputs and op type.
     //
-    ModuleOp module_op = getOperation();
+    ModuleOp moduleOp = getOperation();
 
     // Get the max grid size from the system description.
     //
-    assert(module_op->hasAttr(tt::DeviceAttr::name));
-    GridAttr max_grid = module_op->getAttr(tt::DeviceAttr::name)
+    assert(moduleOp->hasAttr(tt::DeviceAttr::name));
+    GridAttr max_grid = moduleOp->getAttr(tt::DeviceAttr::name)
                             .cast<tt::DeviceAttr>()
                             .getGrid();
-    module_op->walk([&](func::FuncOp func) {
+
+    SystemDescAttr systemDesc =
+        moduleOp->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>();
+    ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    llvm::DenseMap<Operation *, std::vector<GridAttr>> legalGrids;
+
+    moduleOp->walk([&](Operation *op) {
+      if (op->getNumResults() == 0) {
+        return;
+      }
+
+      RankedTensorType tensorType =
+          op->getResult(0).getType().template cast<RankedTensorType>();
+      LegalGridAnalysis legalGridAnalysis =
+          getChildAnalysis<LegalGridAnalysis>(op);
+      legalGridAnalysis.init(LegalGridAnalysisInput(
+          chipDesc, max_grid, tensorType, &overrideGridSizes));
+      legalGrids[op] = legalGridAnalysis.getResult();
+    });
+
+    OptimalTargetGridAnalysis optimalTargetGridAnalysis =
+        getAnalysis<OptimalTargetGridAnalysis>();
+    optimalTargetGridAnalysis.init(
+        OptimalTargetGridAnalysisInput(std::move(legalGrids)));
+
+    // Pure application of determined grid sizes to the operations.
+    // No further analysis.
+    //
+    moduleOp->walk([&](func::FuncOp func) {
       SmallVector<Type> funcResultTypes;
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
@@ -706,41 +735,26 @@ public:
           return;
         }
 
-        GridAnalysis &grid_analysis = getChildAnalysis<GridAnalysis>(op);
-
-        // Initialize the grid analysis with the max grid size.
-        //
-        grid_analysis.init(GridAnalysisInput(max_grid.getShape()[0],
-                                             max_grid.getShape()[1],
-                                             &overrideGridSizes));
-
-        // Run the grid analysis and get the result.
-        //
-        GridAnalysisResult grid_analysis_result = grid_analysis.getResult();
-
-        RankedTensorType tensor_type =
+        RankedTensorType tensorType =
             op->getResult(0).getType().template cast<RankedTensorType>();
         LayoutAttr layout =
-            tensor_type.getEncoding().template cast<LayoutAttr>();
-        llvm::ArrayRef<int64_t> tensor_shape = tensor_type.getShape();
+            tensorType.getEncoding().template cast<LayoutAttr>();
+        llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
         // Update the output layout attribute with the new grid size.
         //
         op->getResult(0).setType(RankedTensorType::get(
-            tensor_shape, tensor_type.getElementType(),
-            layout.withGrid(
-                &getContext(), tensor_shape,
-                GridAttr::get(&getContext(),
-                              {grid_analysis_result.target_rows,
-                               grid_analysis_result.target_columns}))));
+            tensorShape, tensorType.getElementType(),
+            layout.withGrid(&getContext(), tensorShape,
+                            optimalTargetGridAnalysis.getResult().at(op))));
       });
 
       // Update the function type to reflect the updated return operation's
       // result types.
       //
-      FunctionType func_type = func.getFunctionType();
+      FunctionType funcType = func.getFunctionType();
       FunctionType newFuncType = FunctionType::get(
-          func.getContext(), func_type.getInputs(), funcResultTypes);
+          func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
   }
