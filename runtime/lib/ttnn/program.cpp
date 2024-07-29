@@ -12,6 +12,13 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wignored-qualifiers"
+// Including this in ttnn.h causes multiple definition linker error
+// due to non-inlined function definitions
+#include "ttnn/operations/unary.hpp"
+#pragma clang diagnostic pop
+
 // It seems like `ttnn::to_layout` cannot be called inside of the
 // `tt::runtime::ttnn` namespace.  TTNN uses a lot of metaprogramming and for
 // some reason a static_assert fails when this is called from within our
@@ -68,6 +75,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   switch (op->type()) {
+  /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
     assert(op->ins()->size() == 2 && "Unsupported number of inputs");
     auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
@@ -100,8 +108,14 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     break;
   }
-  default:
-    throw std::runtime_error("Unsupported elementwise operation type");
+  /* Eltwise Unary */
+  case ::tt::target::ttnn::EltwiseOpType::Relu: {
+    assert(op->ins()->size() == 1 && "Unsupported number of inputs");
+    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
+    tensorPool.push_back(::ttnn::relu(in));
+    liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   }
 }
 
