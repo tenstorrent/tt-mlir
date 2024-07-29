@@ -76,7 +76,7 @@ setup(
     long_description="",
     ext_modules=ext_modules,
     cmdclass={"build_ext": build_ext},
-    packages=["ttrt", "ttrt.binary", "ttrt.runtime"],
+    packages=["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"],
     install_requires=["pybind11"],
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
