@@ -1,6 +1,7 @@
 .local
 build
 third_party/tt-metal
+third_party/onnx-mlir
 .DS_STORE
 .vscode/*
 .cache

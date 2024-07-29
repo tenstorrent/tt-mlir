@@ -1,0 +1,20 @@
+include(ExternalProject)
+
+set(ONNX_MLIR_VERSION "v0.4.2.0")
+
+ExternalProject_Add(
+    onnx-mlir
+    PREFIX ${TTMLIR_SOURCE_DIR}/third_party/onnx-mlir
+    CMAKE_GENERATOR Ninja
+    CMAKE_ARGS
+      -DCMAKE_BUILD_TYPE=Release
+      -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+      -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
+      #-DSTABLEHLO_BUILD_EMBEDDED=ON
+      -DMLIR_DIR=${TTMLIR_TOOLCHAIN_DIR}/lib/cmake/mlir
+    GIT_REPOSITORY https://github.com/onnx/onnx-mlir
+    GIT_TAG ${ONNX_MLIR_VERSION}
+    GIT_PROGRESS ON
+)

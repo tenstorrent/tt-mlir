@@ -63,3 +63,10 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${lib_path})
   add_dependencies(${lib_name} tt-metal)
 endforeach()
+
+option(TTMLIR_ENABLE_ONNX_MLIR "Enable ONNX MLIR support" OFF)
+
+include(tt-metal.cmake)
+if (TTMLIR_ENABLE_ONNX_MLIR)
+include(onnx-mlir.cmake)
+endif()
