@@ -225,7 +225,7 @@ def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32Attr:$dimension,
+                         SI32Attr:$dimension,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
