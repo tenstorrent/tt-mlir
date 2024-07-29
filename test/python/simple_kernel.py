@@ -225,7 +225,7 @@ class Tensor:
 
 def to_data_type(dtype):
     if dtype == "float32":
-        return tt.ir.DataType.Float32
+        return tt.DataType.Float32
     else:
         raise NotImplementedError(f"to_data_type {dtype} not implemented")
 
