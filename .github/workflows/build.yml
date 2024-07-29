@@ -22,7 +22,9 @@ jobs:
     - name: Use the Command Line Tools for Mac OS
       if: matrix.build.runs-on == 'macos-latest'
       run: |
-        sudo xcode-select -s /Library/Developer/CommandLineTools
+        xcrun --show-sdk-path
+        xcrun --show-sdk-version
+        xcode-select -p
 
     - name: Install build dependencies
       uses: ./.github/actions/install-deps
