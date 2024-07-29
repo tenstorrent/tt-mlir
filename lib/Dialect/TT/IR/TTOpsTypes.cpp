@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <numeric>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
@@ -25,9 +27,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       // Chip Descriptors
       {
           tt::ChipDescAttr::get(
-              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
-              tt::GridAttr::get(context, {8, 8}), (1 << 20), 12, (1 << 20), 16,
-              32, 32),
+              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0), {8, 8},
+              (1 << 20), 12, (1 << 20), 16, 32, 32),
       },
       // Chip Descriptor Indices
       {
@@ -171,8 +172,75 @@ LayoutAttr LayoutAttr::get(
              collapseIntervals, oobVal);
 }
 
-llvm::SmallVector<int64_t> LayoutAttr::getStride() const {
-  return llvm::SmallVector<int64_t>();
+// From the logical shape of the tensor and the affine map of the layout,
+// compute the physical shape of the tensor, i.e the shape of the tensor
+// after the dimensions have been collapsed onto a grid.
+llvm::SmallVector<int64_t>
+LayoutAttr::getPhysicalShape(ArrayRef<int64_t> logicalShape) const {
+  llvm::SmallVector<int64_t> physicalShape(getGrid().getShape().size());
+  SmallVector<AffineExpr> logicalShapeExprs(
+      llvm::map_range(logicalShape, [context = getContext()](std::int64_t e) {
+        return getAffineConstantExpr(e - 1, context);
+      }));
+
+  for (size_t i = 0; i < physicalShape.size(); i++) {
+    AffineExpr expr = getLinear().getResult(i);
+    AffineExpr constantExpr = expr.replaceDims(logicalShapeExprs);
+    std::int64_t constant =
+        llvm::cast<AffineConstantExpr>(constantExpr).getValue() + 1;
+    physicalShape[i] = constant;
+  }
+
+  return physicalShape;
+}
+
+llvm::SmallVector<int64_t>
+LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
+
+  llvm::SmallVector<int64_t> stride(logicalShape.size());
+
+  auto physicalShape = getPhysicalShape(logicalShape);
+
+  // Origin point in the logical space (0, 0, ...)
+  SmallVector<AffineExpr> originPoint(logicalShape.size(),
+                                      getAffineConstantExpr(0, getContext()));
+
+  auto linearMap = getLinear();
+  size_t prevDimElems = 1;
+
+  // Iterates through physical dimensions (starting from the inner one).
+  for (int i = linearMap.getNumResults() - 1; i >= 0; i--) {
+    AffineExpr expr = linearMap.getResult(i);
+
+    // Get coordinate of the i-th dimension (in physical space) of the origin
+    // (in logical space).
+    AffineExpr constantExpr = expr.replaceDims(originPoint);
+    std::int64_t valueAtZero =
+        llvm::cast<AffineConstantExpr>(constantExpr).getValue();
+
+    for (size_t j = 0; j < logicalShape.size(); j++) {
+      if (!expr.isFunctionOfDim(j)) {
+        continue;
+      }
+
+      // Move from the origin point by one in the j-th dimension,
+      // and get the coordinate of the i-th dimension (in physical space).
+      auto newPoint = originPoint;
+      newPoint[j] = getAffineConstantExpr(1, getContext());
+      constantExpr = expr.replaceDims(newPoint);
+      std::int64_t valueAtOne =
+          llvm::cast<AffineConstantExpr>(constantExpr).getValue();
+
+      // One step in the j-th dimension, jumps delta * prevDimElems elements in
+      // the physical space.
+      int64_t delta = valueAtOne - valueAtZero;
+      stride[j] = prevDimElems * delta;
+    }
+
+    prevDimElems *= physicalShape[i];
+  }
+
+  return stride;
 }
 
 llvm::SmallVector<int64_t> LayoutAttr::getShardShape() const {
@@ -214,6 +282,72 @@ MemorySpace LayoutAttr::getMemorySpace() const {
       .getMemorySpace()
       .template cast<mlir::tt::MemorySpaceAttr>()
       .getValue();
+}
+
+DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
+                           SystemDescAttr systemDesc,
+                           ArrayRef<unsigned> chipIds) {
+  assert(not chipIds.empty() && "expected at least one chip");
+  assert(chipIds.size() == 1 && "only single chip supported for now");
+  ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
+  ArrayRef<int64_t> physicalGrid(chipDesc.getGrid());
+  assert(physicalGrid.size() == 2 && "expected 2D grid");
+  for (unsigned chipId : chipIds) {
+    ChipDescAttr chip = systemDesc.getChipDescs()[chipId];
+    if (chip.getGrid() != physicalGrid) {
+      llvm::report_fatal_error("all chips must have the same grid shape");
+    }
+  }
+
+  SmallVector<int64_t> virtualGrid(physicalGrid);
+  if (chipIds.size() > 1) {
+    virtualGrid.insert(virtualGrid.begin(), chipIds.size());
+  }
+  assert(virtualGrid.size() >= 2 && "expected at least 2D grid");
+
+  // auto c0 = getAffineConstantExpr(physicalGrid[0], context);
+  // auto c1 = getAffineConstantExpr(physicalGrid[1], context);
+  auto dZ = getAffineConstantExpr(0, context);
+  auto dY = getAffineDimExpr(virtualGrid.size() - 2, context);
+  auto dX = getAffineDimExpr(virtualGrid.size() - 1, context);
+
+  SmallVector<AffineExpr> gridExprs = {dZ, dY, dX};
+  auto gridMap = AffineMap::get(virtualGrid.size(), 0, gridExprs, context);
+
+  return get(context, GridAttr::get(context, virtualGrid, gridMap), chipIds);
+}
+
+DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
+                           SystemDescAttr systemDesc) {
+  SmallVector<unsigned> chipIds(systemDesc.getChipDescIndices().size());
+  std::iota(chipIds.begin(), chipIds.end(), 0);
+  return get(context, systemDesc, chipIds);
+}
+
+::mlir::LogicalResult
+DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                   ::mlir::tt::GridAttr grid,
+                   ::llvm::ArrayRef<unsigned> chipIds) {
+  if (chipIds.empty()) {
+    emitError() << "expected at least one chip";
+    return ::mlir::failure();
+  }
+
+  auto gridShape = grid.getShape();
+  for (auto dim : gridShape) {
+    if (dim <= 0) {
+      emitError() << "expected positive grid dimensions";
+      return ::mlir::failure();
+    }
+  }
+
+  auto physicalGridMapping = grid.getPhysicalGridMapping();
+  if (physicalGridMapping.getNumResults() != 3) {
+    emitError() << "expected physical grid mapping to have 3 results";
+    return ::mlir::failure();
+  }
+
+  return ::mlir::success();
 }
 
 llvm::SmallVector<int64_t>

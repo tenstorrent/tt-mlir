@@ -1,0 +1,19 @@
+name: On PR and push to main
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  pre-commit:
+    uses: ./.github/workflows/pre-commit.yml
+    secrets: inherit
+  spdx:
+    uses: ./.github/workflows/spdx.yml
+    secrets: inherit
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit

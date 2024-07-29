@@ -116,12 +116,28 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [Elementwise, AttrSizedOperandSegments])> {
+    TTIR_DPSOp<mnemonic, !listconcat(traits, [Elementwise, AttrSizedOperandSegments, TTIR_ElementwiseOpInterface])> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
     let results = (outs Variadic<AnyRankedTensor>:$results);
+}
+
+class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise unary op.";
+    let description = [{
+      Eltwise unary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $in, "Value": $out, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, in, out, operand_constraints);
+      }]>
+    ];
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
@@ -130,6 +146,14 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     let description = [{
       Eltwise binary op.
     }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out, operand_constraints);
+      }]>
+    ];
 }
 
 def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
@@ -150,6 +174,20 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
+    }];
+}
+
+def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
+    let summary = "Eltwise greater than or equal to.";
+    let description = [{
+      Eltwise greater than or equal to operation.
+    }];
+}
+
+def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
+    let summary = "Eltwise ReLU.";
+    let description = [{
+      Eltwise ReLU operation.
     }];
 }
 
@@ -176,13 +214,6 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     let summary = "Sum reduction op.";
     let description = [{
       Sum reduction op.
-    }];
-}
-
-def TTIR_ReluOp : TTIR_ElementwiseOp<"relu"> {
-    let summary = "Eltwise ReLU.";
-    let description = [{
-      Eltwise ReLU operation.
     }];
 }
 

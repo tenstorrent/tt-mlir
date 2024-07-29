@@ -13,6 +13,7 @@
   - [tt-explorer](./tt-explorer.md)
 - [Flatbuffers](./flatbuffers.md)
 - [Additional Reading](./additional-reading.md)
+- [Code of Conduct](./code-of-conduct.md)
 
 # Code Documentation
 
@@ -24,3 +25,4 @@
   - [Runtime Stitching](./specs/runtime-stitching.md)
   - [Tensor Layout](./specs/tensor-layout.md)
     - [TTNN Interactive Visualizer](./specs/tensor-layout-interactive.md)
+  - [Device](./specs/device.md)

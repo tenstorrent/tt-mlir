@@ -7,10 +7,11 @@
 
 include "mlir/Pass/PassBase.td"
 
-def ConvertTosaToTTIR: Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
-  let summary = "";
+def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
+  let summary = "Create an implicit device";
   let description = [{
-    Convert TOSA ops to TTIR ops.
+    This pass will take a view of the system descriptor and create an implicit
+    device around it.
   }];
 }
 
@@ -48,6 +49,12 @@ def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
     Go through the ops, set grid size for each op based on grid analysis,
     by updating layout attribute of each op.
   }];
+  let options = [
+    Option<"overrideGridSizes", "override-grid-sizes",
+          "llvm::StringMap<SmallVector<int64_t, 2>>",
+          /*default=*/"llvm::StringMap<SmallVector<int64_t, 2>>()",
+           "Override grid sizes for specific ops.">,
+  ];
 }
 
 #endif

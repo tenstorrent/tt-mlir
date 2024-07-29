@@ -4,10 +4,6 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
-#include "../PassDetail.h"
-#include "PopulatePatterns.h"
-#include "TypeConverter.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -28,6 +24,60 @@ using namespace mlir::tt;
 
 namespace {
 
+// Default op conversion pattern, used to convert most ops
+//
+template <typename SrcOp, typename Adaptor = typename SrcOp::Adaptor>
+class DefaultOpConversionPattern : public OpConversionPattern<SrcOp> {
+  using OpConversionPattern<SrcOp>::OpConversionPattern;
+
+public:
+  DefaultOpConversionPattern(const TypeConverter &typeConverter,
+                             MLIRContext *context, PatternBenefit benefit = 1)
+      : OpConversionPattern<SrcOp>(typeConverter, context, benefit) {}
+
+  // Converts op name by removing the dialect prefix ("ttnn.") and replacing
+  // with namespace prefix ("ttnn::")
+  //
+  std::string convertOpName(SrcOp op) const {
+    auto name = op.getOperationName();
+    assert(
+        name.starts_with("ttnn.") &&
+        "DefaultOpConversionPattern only supports ops from the TTNN dialect");
+
+    return name.str().replace(0, 5, "ttnn::");
+  }
+
+  LogicalResult
+  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    int numReturnTypes = srcOp->getResultTypes().size();
+    assert(numReturnTypes <= 1 &&
+           "DefaultOpConversionPattern does not support multiple return types");
+
+    // If srcOp has a return type, cast it before converting
+    //
+    if (numReturnTypes == 1) {
+      auto resultTy = cast<emitc::OpaqueType>(
+          this->getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          srcOp, resultTy, convertOpName(srcOp), nullptr, nullptr,
+          adaptor.getOperands());
+    } else {
+      // No return type, only convert the op
+      //
+      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+          srcOp, srcOp->getResultTypes(), convertOpName(srcOp), nullptr,
+          nullptr, adaptor.getOperands());
+    }
+
+    return success();
+  }
+};
+
+} // namespace
+
+namespace mlir::tt {
+
 void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  mlir::RewritePatternSet &patterns,
                                  TypeConverter &typeConverter) {
@@ -47,95 +97,28 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::FullOp>>(typeConverter, ctx);
 
-  // Math ops
+  // Eltwise unary ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::ReluOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
+
+  // Eltwise binary ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AddOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::SubtractOp>>(typeConverter,
                                                              ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::SumOp>>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MultiplyOp>>(typeConverter,
                                                              ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::GreaterEqualOp>>(typeConverter,
+                                                                 ctx);
+
+  // Matmul ops
+  //
   patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::ReluOp>>(typeConverter, ctx);
-}
 
-struct ConvertTTNNToEmitCPass
-    : public ttnn::ConvertTTNNToEmitCBase<ConvertTTNNToEmitCPass> {
-  void runOnOperation() override {
-    mlir::ConversionTarget target(getContext());
-
-    target.addLegalDialect<func::FuncDialect>();
-    target.addLegalDialect<emitc::EmitCDialect>();
-    target.addIllegalDialect<ttnn::TTNNDialect>();
-
-    // Add header imports to front of module
-    //
-    {
-      auto module = getOperation();
-      OpBuilder builder(module);
-
-      builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn/device.h",
-                                       /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(), "ttnn/operations/eltwise/binary/binary.hpp",
-          /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(), "ttnn/operations/core.hpp", /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(module.getLoc(),
-                                       "ttnn/operations/creation.hpp",
-                                       /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(),
-          "ttnn/operations/reduction/generic/generic_reductions.hpp",
-          /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(module.getLoc(),
-                                       "ttnn/operations/normalization.hpp",
-                                       /*isStandard=*/false);
-    }
-
-    // TTNN -> EmitC
-    //
-    {
-      TTNNToEmitCTypeConverter typeConverter(&getContext());
-      RewritePatternSet patterns(&getContext());
-
-      // Func dialect handling
-      //
-      populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
-          patterns, typeConverter);
-      target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-        return typeConverter.isSignatureLegal(op.getFunctionType()) &&
-               typeConverter.isLegal(&op.getBody());
-      });
-      populateReturnOpTypeConversionPattern(patterns, typeConverter);
-      target.addDynamicallyLegalOp<func::ReturnOp>(
-          [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
-      populateCallOpTypeConversionPattern(patterns, typeConverter);
-      target.addDynamicallyLegalOp<func::CallOp>(
-          [&](func::CallOp op) { return typeConverter.isLegal(op); });
-
-      // TTNN -> EmitC patterns
-      //
-      populateTTNNToEmitCPatterns(&getContext(), patterns, typeConverter);
-
-      // Apply conversion
-      //
-      if (failed(applyFullConversion(getOperation(), target,
-                                     std::move(patterns)))) {
-        signalPassFailure();
-        return;
-      }
-    }
-  };
-};
-
-} // namespace
-
-namespace mlir::tt {
-
-std::unique_ptr<OperationPass<func::FuncOp>> createConvertTTNNToEmitCPass() {
-  return std::make_unique<ConvertTTNNToEmitCPass>();
+  // Reduction ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::SumOp>>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

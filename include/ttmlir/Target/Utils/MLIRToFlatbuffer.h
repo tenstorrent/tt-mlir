@@ -126,17 +126,6 @@ T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
 }
 
-inline flatbuffers::Offset<::tt::target::ChipDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
-  auto grid = toFlatbuffer(cache, chipDesc.getGrid());
-  return ::tt::target::CreateChipDesc(
-      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
-      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
-      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
-      chipDesc.getPcieAddressAlignBytes(),
-      chipDesc.getNocDRAMAddressAlignBytes());
-}
-
 template <typename T>
 using ToFlatbufferReturnType = decltype(toFlatbuffer(
     std::declval<FlatbufferObjectCache &>(), std::declval<T>()));
@@ -172,6 +161,18 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return cache.fbb->CreateVector<ToFlatbufferReturnType<T>>(
       arr.size(),
       [&cache, arr](size_t i) { return toFlatbuffer(cache, arr[i]); });
+}
+
+inline flatbuffers::Offset<::tt::target::ChipDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
+  assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
+  auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
+  return ::tt::target::CreateChipDesc(
+      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
+      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
+      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
+      chipDesc.getPcieAddressAlignBytes(),
+      chipDesc.getNocDRAMAddressAlignBytes());
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>
@@ -273,10 +274,11 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
-layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr) {
+layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
+                       ArrayRef<int64_t> logicalShape) {
   assert(attr.isa<LayoutAttr>() && "expected a tensor type");
   auto layoutAttr = attr.cast<LayoutAttr>();
-  auto strideInt64 = layoutAttr.getStride();
+  auto strideInt64 = layoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto gridAttr = layoutAttr.getGrid();
   auto gridShape = gridAttr.getShape();
@@ -296,7 +298,8 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type) {
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   return ::tt::target::CreateTensorDescDirect(
       *cache.fbb, &shape,
-      cache.getOrCreate(tensorType.getEncoding(), layoutAttrToFlatbuffer));
+      cache.getOrCreate(tensorType.getEncoding(), layoutAttrToFlatbuffer,
+                        shapeInt64));
 }
 
 inline flatbuffers::Offset<::tt::target::TensorRef>

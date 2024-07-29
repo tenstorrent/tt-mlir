@@ -1,10 +1,8 @@
 name: pre-commit
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
   pre-commit:
@@ -13,6 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1

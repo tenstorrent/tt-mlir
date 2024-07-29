@@ -15,8 +15,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/Passes.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/KernelsToCpp.h"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -25,7 +25,7 @@
 namespace mlir::tt::ttmetal {
 
 #define GEN_PASS_DEF_TTMETALSERIALIZETOBINARY
-#include "ttmlir/Dialect/TTMetal/Passes.h.inc"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
 struct CQBuilder {
   ::flatbuffers::FlatBufferBuilder *fbb;

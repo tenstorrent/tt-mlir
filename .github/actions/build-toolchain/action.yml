@@ -4,6 +4,10 @@ inputs:
   os:
     description: 'Operating System'
     required: true
+  sdk:
+    description: 'MacOS SDK, if applicable'
+    required: true
+    default: '0'
 runs:
   using: 'composite'
   steps:
@@ -15,10 +19,10 @@ runs:
 
     - name: 'Cache ttmlir-toolchain'
       id: cache-toolchain
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: /opt/ttmlir-toolchain
-        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}
+        key: ${{ inputs.os }}-ttmlir-toolchain-${{ hashFiles('env/**') }}-${{ inputs.sdk }}
 
     - name: 'Build ttmlir-toolchain'
       if: steps.cache-toolchain.outputs.cache-hit != 'true'

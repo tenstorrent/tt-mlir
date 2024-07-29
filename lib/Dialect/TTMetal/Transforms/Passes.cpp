@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTMetal/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -18,7 +18,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -28,7 +28,7 @@
 namespace mlir::tt::ttmetal {
 
 #define GEN_PASS_DEF_CONVERTTTIRTOTTMETAL
-#include "ttmlir/Dialect/TTMetal/Passes.h.inc"
+#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
 class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::LayoutOp> {
 public:

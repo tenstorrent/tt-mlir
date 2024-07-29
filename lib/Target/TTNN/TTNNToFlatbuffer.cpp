@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <fstream>
+#include <llvm/Support/Casting.h>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -14,11 +15,13 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
-#include "ttmlir/Dialect/TTNN/Transforms/TTNNToSerializedBinary.h"
+#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -27,7 +30,7 @@
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
-#include "ttmlir/Dialect/TTNN/Passes.h.inc"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 ::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   auto offset = coreRange.getOffset();
@@ -54,10 +57,11 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 createOp(FlatbufferObjectCache &cache, OpenDeviceOp op) {
   auto result = op.getResult();
   auto resultType = result.getType().cast<DeviceType>();
-  ::tt::target::Dim2d mesh = toFlatbuffer(cache, resultType.getMesh());
-  auto chipIds = toFlatbuffer(cache, resultType.getChipIds());
+  ::tt::target::Dim2d grid =
+      toFlatbuffer(cache, resultType.getDesc().getGrid());
+  auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
-  return ::tt::target::ttnn::CreateOpenDeviceOp(*cache.fbb, &mesh, chipIds,
+  return ::tt::target::ttnn::CreateOpenDeviceOp(*cache.fbb, &grid, chipIds,
                                                 out);
 }
 
@@ -113,6 +117,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
   } else if constexpr (std::is_same_v<EltwiseOp, SubtractOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Subtract;
+  } else if constexpr (std::is_same_v<EltwiseOp, GreaterEqualOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::GreaterEqual;
   } else if constexpr (std::is_same_v<EltwiseOp, ReluOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Relu;
   } else {
@@ -191,6 +197,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, subtractOp),
                            debugString);
   }
+  if (auto geOp = dyn_cast<GreaterEqualOp>(op); geOp) {
+    return createOperation(cache, createEltwiseOp(cache, geOp), debugString);
+  }
   if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {
     return createOperation(cache, createEltwiseOp(cache, reluOp), debugString);
   }
@@ -208,95 +217,63 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 
-class TTNNSerializeToBinary
-    : public impl::TTNNSerializeToBinaryBase<TTNNSerializeToBinary> {
-public:
-  using impl::TTNNSerializeToBinaryBase<
-      TTNNSerializeToBinary>::TTNNSerializeToBinaryBase;
+std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
+  ModuleOp module = dyn_cast<ModuleOp>(op);
+  assert(module && "Expected ModuleOp as top level operation");
 
-  void runOnOperation() final {
-    ::flatbuffers::FlatBufferBuilder fbb;
-    FlatbufferObjectCache cache(&fbb);
+  ::flatbuffers::FlatBufferBuilder fbb;
+  FlatbufferObjectCache cache(&fbb);
 
-    ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
-    ::tt::target::Version binaryVersion(
-        ttmlirVersion.major, ttmlirVersion.minor, ttmlirVersion.patch);
+  ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
+  ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
+                                      ttmlirVersion.patch);
 
-    ModuleOp module = getOperation();
-    auto systemDesc = toFlatbuffer(
-        cache,
-        module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>());
+  auto systemDesc = toFlatbuffer(
+      cache,
+      module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>());
 
-    func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
-    assert(entry && "expected an entry function");
-    Program<::tt::target::ttnn::Operation> program =
-        funcOpToProgram<::tt::target::ttnn::Operation>(cache, entry,
-                                                       emitTTNNOperation);
+  func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
+  assert(entry && "Expected an entry function");
+  Program<::tt::target::ttnn::Operation> program =
+      funcOpToProgram<::tt::target::ttnn::Operation>(cache, entry,
+                                                     emitTTNNOperation);
 
-    auto mlir = toDebugInfo(fbb, "ttnn", module);
-    std::string cpp;
-    llvm::raw_string_ostream os(cpp);
-    auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
-    (void)result;
+  auto mlir = toDebugInfo(fbb, "ttnn", module);
+  std::string cpp;
+  llvm::raw_string_ostream os(cpp);
+  auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
+  (void)result;
 
-    auto debugInfo =
-        ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
-    auto programOffset = ::tt::target::ttnn::CreateProgramDirect(
-        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        debugInfo);
-    std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs = {
-        programOffset,
-    };
-    auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
-        fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
+  auto debugInfo = ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
+  auto programOffset = ::tt::target::ttnn::CreateProgramDirect(
+      fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+      debugInfo);
 
-    ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
-    ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-    ::tt::target::ttnn::VerifySizePrefixedTTNNBinaryBuffer(verifier);
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs = {
+      programOffset,
+  };
 
-    uint8_t *buf = fbb.GetBufferPointer();
-    auto size = fbb.GetSize();
+  auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
+      fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
 
-    serializedBinary = std::shared_ptr<void>(std::malloc(size), std::free);
-    std::memcpy(serializedBinary.get(), buf, size);
+  ::tt::target::ttnn::FinishSizePrefixedTTNNBinaryBuffer(fbb, binary);
+  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
+  ::tt::target::ttnn::VerifySizePrefixedTTNNBinaryBuffer(verifier);
 
-    if (not output.empty()) {
-      std::ofstream ttnn(output, std::ios::out | std::ios::binary);
-      ttnn.write(reinterpret_cast<char const *>(buf), size);
-      ttnn.close();
-    }
-  }
+  uint8_t *buf = fbb.GetBufferPointer();
+  std::size_t size = fbb.GetSize();
 
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttnn::TTNNDialect>();
-    registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
-    registry.insert<mlir::func::FuncDialect>();
-    registry.insert<mlir::emitc::EmitCDialect>();
-  }
-
-  std::shared_ptr<void> getBinary() const { return serializedBinary; }
-
-private:
-  std::shared_ptr<void> serializedBinary;
-};
-
-std::shared_ptr<void> emitTTNNAsFlatbuffer(OwningOpRef<ModuleOp> &moduleOp) {
-  auto pm = PassManager::on<ModuleOp>(moduleOp.get().getContext());
-  auto pass = createTTNNSerializeToBinary();
-  Pass *basePass = pass.get();
-  pm.addPass(std::move(pass));
-
-  // Run the pass manager.
-  if (failed(pm.run(moduleOp.get()))) {
-    return nullptr;
-  }
-
-  auto *derivedPass = llvm::dyn_cast<TTNNSerializeToBinary>(basePass);
-  if (!derivedPass) {
-    return nullptr;
-  }
-
-  return derivedPass->getBinary();
+  std::shared_ptr<void> bufferPtr =
+      std::shared_ptr<void>(std::malloc(size), std::free);
+  std::memcpy(bufferPtr.get(), buf, size);
+  return bufferPtr;
 }
 
+LogicalResult translateTTNNToFlatbuffer(Operation *op, llvm::raw_ostream &os) {
+  std::shared_ptr<void> data = ttnnToFlatbuffer(op);
+  std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
+      static_cast<const uint8_t *>(data.get()));
+  os.write(reinterpret_cast<char const *>(data.get()), size);
+  return success();
+}
 } // namespace mlir::tt::ttnn

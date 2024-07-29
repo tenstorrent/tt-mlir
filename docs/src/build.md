@@ -104,10 +104,11 @@ For more information visit [pre-commit](https://pre-commit.com/)
 ```bash
 source env/activate
 cmake --build build -- docs
-mdbook serve build/docs/book
+mdbook serve build/docs
 ```
 
 > - `mdbook` can be installed with the system's package manager.
+> - `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
 ## Dependencies
 
@@ -220,3 +221,35 @@ git submodule foreach 'git lfs fetch --all && git lfs pull’
 ```
 
 Then, try to build again.
+
+## Common Runtime Errors
+
+### Debugging python on macOS
+
+When debugging python on macOS via lldb you may see an error like:
+```
+(lldb) r
+error: process exited with status -1 (attach failed (Not allowed to attach to process.  Look in the console messages (Console.app), near the debugserver entries, when the attach failed.  The subsystem that denied t
+he attach permission will likely have logged an informative message about why it was denied.))
+```
+
+For preinstalled macOS binaries you must manually codesign with debug entitlements.
+
+Create file `debuggee-entitlement.xml`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+        <key>com.apple.security.cs.disable-library-validation</key>
+        <true/>
+        <key>com.apple.security.get-task-allow</key>
+        <true/>
+</dict>
+</plist>
+```
+
+Sign the binary:
+```bash
+sudo codesign -f -s - --entitlements debuggee-entitlement.xml /opt/ttmlir-toolchain/venv/bin/python
+```

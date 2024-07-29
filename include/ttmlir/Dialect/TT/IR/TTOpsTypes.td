@@ -61,8 +61,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
     TT chip_desc attribute
   }];
 
-  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize, "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes, "unsigned":$nocDRAMAddressAlignBytes);
-  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` $grid `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `,` `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,` `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,` `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes `}`";
+  let parameters = (ins "ArchAttr":$arch, ArrayRefParameter<"int64_t">:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize, "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes, "unsigned":$nocDRAMAddressAlignBytes);
+  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` custom<DimensionList>($grid) `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `,` `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,` `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,` `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes `}`";
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
@@ -189,7 +189,8 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
       Type getElementType() const;
-      llvm::SmallVector<int64_t> getStride() const;
+      llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
+      llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,
@@ -198,6 +199,24 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                           ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
   }];
+}
+
+def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
+  let summary = "Device attribute in TT dialect";
+  let description = [{
+  }];
+  let parameters = (ins TT_GridAttr:$grid, ArrayRefParameter<"unsigned">:$chipIds);
+  let assemblyFormat = "`<` qualified($grid) `,` `[` $chipIds `]` `>`";
+
+  let extraClassDeclaration = [{
+      static DeviceAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap physicalGridMapping, ArrayRef<unsigned> chipIds) {
+        return DeviceAttr::get(context, GridAttr::get(context, shape, physicalGridMapping), chipIds);
+      }
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<unsigned> chipIds);
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc);
+  }];
+
+  let genVerifyDecl = 1;
 }
 
 def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {
@@ -244,8 +263,8 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
 def TT_Device : TT_Type<"Device", "device", []> {
     let summary = "TT device";
     let description = "Device type in TT dialect";
-    let parameters = (ins TT_GridAttr:$mesh, ArrayRefParameter<"unsigned">:$chipIds);
-    let assemblyFormat = "`<` qualified($mesh) `,` `[` $chipIds `]` `>`";
+    let parameters = (ins TT_DeviceAttr:$desc);
+    let assemblyFormat = "`<` $desc `>`";
 }
 
 #endif

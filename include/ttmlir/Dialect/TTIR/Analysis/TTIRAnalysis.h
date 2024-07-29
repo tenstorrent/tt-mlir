@@ -13,9 +13,9 @@ namespace mlir::tt::ttir {
 template <class I, class R> class TTIRAnalysis {
 protected:
   Operation *op;
-  bool is_valid = false;
-  R analysis_result;
-  I analysis_input;
+  bool isValid = false;
+  R analysisResult;
+  I analysisInput;
 
   TTIRAnalysis(Operation *op) : op(op) {}
 
@@ -23,6 +23,12 @@ protected:
   // Must be implemented by every analysis type.
   //
   virtual void analysisImplementation() = 0;
+
+  // Load overrides if they exist.
+  // Must be implemented by every analysis type.
+  // Returns true if analysis should be skipped.
+  //
+  virtual bool applyOverrides() = 0;
 
 public:
   virtual ~TTIRAnalysis() {};
@@ -32,9 +38,9 @@ public:
   void init(const I &input) {
     // Analysis can be cached and reused. Check that input remained the same.
     //
-    if (analysis_input != input) {
-      analysis_input = input;
-      is_valid = false;
+    if (analysisInput != input) {
+      analysisInput = input;
+      isValid = false;
     }
   }
 
@@ -42,7 +48,7 @@ public:
   //
   const R &getResult() {
     runAnalysis();
-    return analysis_result;
+    return analysisResult;
   }
 
 private:
@@ -51,9 +57,16 @@ private:
   void runAnalysis() {
     // Skip the analysis if it was already run and input params haven't changed.
     //
-    if (!is_valid) {
-      analysisImplementation();
-      is_valid = true;
+    if (!isValid) {
+      // Apply overrides if needed.
+      //
+      bool skipAnalysis = applyOverrides();
+
+      if (!skipAnalysis) {
+        analysisImplementation();
+      }
+
+      isValid = true;
     }
   }
 };

@@ -1,17 +1,15 @@
 name: spdx
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
   check-spdx-headers:
     runs-on: ubuntu-latest
     steps:
     - name: checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - uses: enarx/spdx@master
       with:
         licenses: Apache-2.0

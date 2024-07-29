@@ -8,8 +8,18 @@
 
 using namespace mlir;
 
+namespace mlir::tt::ttnn {
+void registerTTNNToFlatbuffer();
+} // namespace mlir::tt::ttnn
+
 // Place to register all the custom translations
-static void registerCustomTranslations() {}
+static void registerCustomTranslations() {
+  static bool initOnce = []() {
+    mlir::tt::ttnn::registerTTNNToFlatbuffer();
+    return true;
+  }();
+  (void)initOnce;
+}
 
 int main(int argc, char **argv) {
   registerAllTranslations();

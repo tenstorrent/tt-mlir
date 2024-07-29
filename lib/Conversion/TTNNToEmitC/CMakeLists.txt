@@ -1,5 +1,6 @@
 add_mlir_library(TTMLIRTTNNToEmitC
   TTNNToEmitC.cpp
+  TTNNToEmitCPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTNNToEmitC
@@ -8,7 +9,5 @@ add_mlir_library(TTMLIRTTNNToEmitC
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRIR
-  MLIRPass
-  MLIRTransformUtils
+  MLIR
 )

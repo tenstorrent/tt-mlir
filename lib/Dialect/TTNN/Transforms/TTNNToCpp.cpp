@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
-#include "ttmlir/Dialect/TTNN/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Support/LogicalResult.h"
@@ -20,7 +20,7 @@ LogicalResult emitTTNNAsCpp(ModuleOp origOp, llvm::raw_ostream &os) {
   auto cleanupDispatchClone = llvm::make_scope_exit([&op] { op->erase(); });
 
   auto pm = PassManager::on<ModuleOp>(op.getContext());
-  pm.addNestedPass<func::FuncOp>(createConvertTTNNToEmitCPass());
+  pm.addPass(createConvertTTNNToEmitCPass());
 
   if (pm.run(op).failed()) {
     return failure();
