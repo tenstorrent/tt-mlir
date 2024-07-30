@@ -3,6 +3,7 @@ add_library(TTRuntimeTTNN
   runtime.cpp
   program.cpp
 )
+target_compile_options(TTRuntimeTTNN PRIVATE -mavx -mavx2)
 target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
