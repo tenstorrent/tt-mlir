@@ -139,7 +139,7 @@ def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32Attr: $dimension);
+                         SI32Attr: $dimension);
 
     let results = (outs AnyRankedTensor:$result);
 
