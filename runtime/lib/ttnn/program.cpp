@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <iostream>
 #include <list>
 #include <optional>
 #include <unordered_map>
@@ -38,6 +39,7 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
       ::tt::target::MemorySpace::System) {
     auto &inputTensor = *liveTensors.at(op->in0()->global_id());
     auto cpu = inputTensor.cpu();
+
     ::ttnn::Tensor untilized;
     if (op->out()->desc()->layout()->memory_desc()->data_type() ==
         ::tt::target::DataType::Float32) {
@@ -50,24 +52,35 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     } else {
       throw std::runtime_error("Unsupported data type");
     }
+
     auto &outputTensor = *liveTensors.at(op->out()->global_id());
+
     void *src = ::tt::tt_metal::get_raw_host_data_ptr(untilized);
     void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
-    std::uint32_t size = untilized.volume() * untilized.element_size();
+
+    assert(outputTensor.element_size() == untilized.element_size() &&
+           "Element size mismatch");
+    assert(outputTensor.volume() <= untilized.volume() &&
+           "Output tensor is larger than input tensor");
+
+    std::uint32_t size = outputTensor.volume() * outputTensor.element_size();
     std::memcpy(dst, src, size);
+
     return;
   }
+
   bool isL1 = op->in0()->desc()->layout()->memory_desc()->memory_space() ==
               ::tt::target::MemorySpace::DeviceL1;
   const auto memoryConfig =
       isL1 ? ::ttnn::L1_MEMORY_CONFIG : ::ttnn::DRAM_MEMORY_CONFIG;
+
   auto &inputTensor = *liveTensors.at(op->in0()->global_id());
   ::ttnn::Tensor tilized = ::tilize(inputTensor);
+
   auto deviceTensor = ::ttnn::to_device(tilized, &device, memoryConfig);
+
   tensorPool.push_back(deviceTensor);
-  // auto [iter, inserted] =
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
-  // assert(inserted && "Duplicate output tensor");
 }
 
 static void
@@ -229,6 +242,10 @@ void runProgram(::ttnn::Device &device,
 
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
     run(op, device, liveTensors, tensorPool);
+  }
+
+  for (::ttnn::Tensor *tensor : outputs) {
+    tensor->print();
   }
 }
 } // namespace tt::runtime::ttnn
