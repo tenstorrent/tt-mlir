@@ -31,6 +31,8 @@ ttrt read --section system-desc out.ttnn
 ttrt read --section inputs out.ttnn
 ttrt read --section outputs out.ttnn
 ttrt read --section all out.ttnn
+ttrt read --section all out.ttnn --clean-artifacts
+ttrt read --section all /dir/of/flatbuffers
 ```
 
 ### run
@@ -40,7 +42,11 @@ build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 ```bash
 ttrt run --help
 ttrt run out.ttnn
+ttrt run out.ttnn --clean-artifacts
+ttrt run out.ttnn --loops 10
 ttrt run --program-index 0 out.ttnn
+ttrt run /dir/of/flatbuffers
+ttrt run /dir/of/flatbuffers --loops 10
 ```
 
 ### query
@@ -53,6 +59,7 @@ ttrt query --system-desc
 ttrt query --system-desc-as-json
 ttrt query --system-desc-as-dict
 ttrt query --save-system-desc n300.ttsys
+ttrt query --save-system-desc n300.ttsys --clean-artifacts
 ```
 
 ### perf
@@ -62,8 +69,12 @@ build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_E
 ```bash
 ttrt perf --help
 ttrt perf out.ttnn
+ttrt perf out.ttnn --clean-artifacts
+ttrt perf out.ttnn --loops 10
 ttrt perf --program-index 0 out.ttnn
 ttrt perf --generate-params --perf-csv trace.csv # Generate params dict of all model attributes
+ttrt perf /dir/of/flatbuffers
+ttrt perf /dir/of/flatbuffers --loops 10
 ```
 
 ## ttrt is written as a python library, so it can be used in custom python scripts

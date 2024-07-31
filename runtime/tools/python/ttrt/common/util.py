@@ -16,6 +16,7 @@ import socket
 from pkg_resources import get_distribution
 import sys
 import shutil
+import torch
 
 from tt_metal.tools.profiler.common import (
     PROFILER_LOGS_DIR,
@@ -49,9 +50,9 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
 #######################################################################################
 #######################################**UTILS**#######################################
 #######################################################################################
-def ttrt_cleanup():
+def clean_artifacts():
     subprocess.run(
-        f"rm -rf {TTRT_ARTIFACTS}; mkdir -p {TTRT_ARTIFACTS}; mkdir -p {TTRT_PERF_ARTIFACTS}",
+        f"rm -rf {TTRT_ARTIFACTS}",
         shell=True,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -59,18 +60,55 @@ def ttrt_cleanup():
     )
 
 
-def copy_file_into_ttrt_artifact(file_path):
+def setup_artifacts(binaries=[]):
+    if not os.path.exists(TTRT_ARTIFACTS):
+        subprocess.run(
+            f"mkdir -p {TTRT_ARTIFACTS}; mkdir -p {TTRT_PERF_ARTIFACTS}",
+            shell=True,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    for binary in binaries:
+        name = os.path.splitext(os.path.basename(binary))[0]
+        subprocess.run(
+            f"mkdir -p {TTRT_ARTIFACTS}/{name}; mkdir -p {TTRT_ARTIFACTS}/{name}/perf",
+            shell=True,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
+def copy_ttnn_binary_into_artifact(file_path):
     try:
         if not os.path.isfile(file_path):
             raise FileNotFoundError(f"Source file '{file_path}' does not exist.")
 
-        if not os.path.isdir(TTRT_ARTIFACTS):
-            raise NotADirectoryError(
-                f"Destination '{TTRT_ARTIFACTS}' is not a directory."
-            )
+        name = os.path.splitext(os.path.basename(file_path))[0]
+        shutil.copy(file_path, f"{TTRT_ARTIFACTS}/{name}")
+        print(f"File '{file_path}' copied to '{TTRT_ARTIFACTS}/{name}' successfully.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
-        shutil.copy(file_path, TTRT_ARTIFACTS)
-        print(f"File '{file_path}' copied to '{TTRT_ARTIFACTS}' successfully.")
+
+def save_torch_tensor_into_ttrt_artifacts(torch_tensor, file_path):
+    try:
+        torch.save(torch_tensor, f"{TTRT_ARTIFACTS}/{file_path}")
+        print(
+            f"File '{file_path}' saved to '{TTRT_ARTIFACTS}/{file_path}' successfully."
+        )
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+
+def save_system_desc_into_ttrt_artifacts(system_desc, file_path):
+    try:
+        system_desc.store(f"{TTRT_ARTIFACTS}/{file_path}")
+        print(
+            f"File '{file_path}' saved to '{TTRT_ARTIFACTS}/{file_path}' successfully."
+        )
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
@@ -155,3 +193,44 @@ read_actions = {
     "inputs": program_inputs,
     "outputs": program_outputs,
 }
+
+
+def find_ttnn_files(directory):
+    ttnn_files = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".ttnn"):
+                ttnn_files.append(os.path.join(root, file))
+    return ttnn_files
+
+
+def toDataType(dtype):
+    if dtype == torch.float32:
+        return ttrt.runtime.DataType.Float32
+    if dtype == torch.float16:
+        return ttrt.runtime.DataType.Float16
+    if dtype == torch.bfloat16:
+        return ttrt.runtime.DataType.BFloat16
+    if dtype == torch.uint32:
+        return ttrt.runtime.DataType.UInt32
+    if dtype == torch.uint16:
+        return ttrt.runtime.DataType.UInt16
+    if dtype == torch.uint8:
+        return ttrt.runtime.DataType.UInt8
+    raise ValueError(f"unsupported dtype: {dtype}")
+
+
+def fromDataType(dtype):
+    if dtype == "Float32":
+        return torch.float32
+    if dtype == "Float16":
+        return torch.float16
+    if dtype == "BFloat16":
+        return torch.bfloat16
+    if dtype == "UInt32":
+        return torch.uint32
+    if dtype == "UInt16":
+        return torch.uint16
+    if dtype == "UInt8":
+        return torch.uint8
+    raise ValueError(f"unsupported dtype: {dtype}")
