@@ -47,8 +47,7 @@ public:
       assert(srcOp.getShift() == 0);
     }
 
-    auto outputType =
-        srcOp.getResult().getType().template cast<RankedTensorType>();
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<DestOp>(
@@ -78,7 +77,7 @@ struct ConvertTosaToTTIRPass
     // For now keep the same type assuming tosa ops operate on builtin tensor.
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) {
-      assert(type.isa<RankedTensorType>() &&
+      assert(isa<RankedTensorType>(type) &&
              "only ranked tensor type supported");
       return type;
     });

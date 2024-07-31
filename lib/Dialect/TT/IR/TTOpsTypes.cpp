@@ -53,9 +53,9 @@ static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
                                     ::llvm::ArrayRef<int64_t> shardShape,
                                     ::mlir::Type elementType,
                                     MemorySpace memorySpace) {
-  if (elementType.isa<TileType>()) {
-    shardShape = elementType.cast<TileType>().getTiledShape(
-        ::llvm::SmallVector<int64_t>(shardShape));
+  if (mlir::isa<TileType>(elementType)) {
+    shardShape = mlir::cast<TileType>(elementType)
+                     .getTiledShape(::llvm::SmallVector<int64_t>(shardShape));
   }
   return mlir::MemRefType::get(
       shardShape, elementType,
@@ -246,8 +246,8 @@ LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
 llvm::SmallVector<int64_t> LayoutAttr::getShardShape() const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
   auto elementType = getElementType();
-  if (elementType.isa<TileType>()) {
-    return elementType.cast<TileType>().getScalarShape(shardShape);
+  if (mlir::isa<TileType>(elementType)) {
+    return mlir::cast<TileType>(elementType).getScalarShape(shardShape);
   }
   return shardShape;
 }
@@ -278,9 +278,7 @@ LayoutAttr LayoutAttr::withElementType(::mlir::MLIRContext *context,
 }
 
 MemorySpace LayoutAttr::getMemorySpace() const {
-  return getMemref()
-      .getMemorySpace()
-      .template cast<mlir::tt::MemorySpaceAttr>()
+  return mlir::cast<mlir::tt::MemorySpaceAttr>(getMemref().getMemorySpace())
       .getValue();
 }
 

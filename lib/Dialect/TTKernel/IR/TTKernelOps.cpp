@@ -46,7 +46,7 @@ static ttkernel::ThreadType getRegionThreadType(mlir::Region *region) {
   } else {
     assert(false && "Unexpected parent op in getRegionThreadType");
   }
-  return threadType.cast<ttkernel::ThreadTypeAttr>().getValue();
+  return mlir::cast<ttkernel::ThreadTypeAttr>(threadType).getValue();
 }
 
 static bool insideThread(mlir::Operation *op, ttkernel::ThreadType threadType) {

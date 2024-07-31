@@ -111,8 +111,8 @@ public:
     CQBuilder cqBuilder(&fbb);
 
     ModuleOp module = getOperation();
-    auto systemDesc =
-        module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>();
+    auto systemDesc = mlir::cast<tt::SystemDescAttr>(
+        module->getAttr(tt::SystemDescAttr::name));
     func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
     assert(entry && "expected an entry function");
     cqBuilder.name = entry.getSymName().data();
@@ -142,12 +142,12 @@ public:
           assert(succeeded(result) &&
                  "failed to emit dispatch op region as cpp");
           auto threadType =
-              dispatchOp.getThreadTypes()[region.getRegionNumber()]
-                  .cast<ttkernel::ThreadTypeAttr>()
+              mlir::cast<ttkernel::ThreadTypeAttr>(
+                  dispatchOp.getThreadTypes()[region.getRegionNumber()])
                   .getValue();
           ::tt::target::Dim2dRange core_range =
-              toFlatbuffer(dispatchOp.getCoreRanges()[region.getRegionNumber()]
-                               .cast<CoreRangeAttr>());
+              toFlatbuffer(mlir::cast<CoreRangeAttr>(
+                  dispatchOp.getCoreRanges()[region.getRegionNumber()]));
           ::tt::target::Dim2dRange(::tt::target::Dim2d(0, 0),
                                    ::tt::target::Dim2d(0, 0));
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;

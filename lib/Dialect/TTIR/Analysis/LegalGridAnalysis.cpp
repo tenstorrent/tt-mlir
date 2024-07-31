@@ -10,8 +10,8 @@ bool LegalGridAnalysis::applyOverrides() {
   // Lookup grid size overrides based on location information for current
   // operation.
   //
-  if (analysisInput.gridSizeOverrides && op->getLoc().isa<NameLoc>()) {
-    StringRef loc_str_op_name = op->getLoc().cast<NameLoc>().getName();
+  if (analysisInput.gridSizeOverrides && isa<NameLoc>(op->getLoc())) {
+    StringRef loc_str_op_name = mlir::cast<NameLoc>(op->getLoc()).getName();
     auto gridOverride = analysisInput.gridSizeOverrides->find(loc_str_op_name);
     if (gridOverride != analysisInput.gridSizeOverrides->end()) {
       analysisResult.push_back(GridAttr::get(

@@ -18,12 +18,12 @@ namespace mlir::tt::ttmetal {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
-      inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
   auto outputLayout =
-      outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
@@ -40,12 +40,12 @@ namespace mlir::tt::ttmetal {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
-      inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
   auto outputLayout =
-      outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
@@ -59,10 +59,8 @@ namespace mlir::tt::ttmetal {
 }
 
 ::mlir::LogicalResult AllocOp::verify() {
-  auto layout = getResult()
-                    .getType()
-                    .getEncoding()
-                    .template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+  auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+      getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
   }
@@ -72,9 +70,8 @@ namespace mlir::tt::ttmetal {
   }
 
   auto memref = layout.getMemref();
-  auto memspace = memref.getMemorySpace()
-                      .template cast<mlir::tt::MemorySpaceAttr>()
-                      .getValue();
+  auto memspace =
+      mlir::cast<mlir::tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
   if (memspace != getMemorySpace()) {
     return emitOpError(
         "Input tensor layout memory space must match alloc memory space");
@@ -97,10 +94,8 @@ namespace mlir::tt::ttmetal {
 ::mlir::LogicalResult DispatchOp::verify() {
   // Assert inputs/outputs device memspace
   for (auto operand : getOperands()) {
-    auto layout = operand.getType()
-                      .cast<mlir::RankedTensorType>()
-                      .getEncoding()
-                      .template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+    auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+        mlir::cast<mlir::RankedTensorType>(operand.getType()).getEncoding());
     if (not layout) {
       return emitOpError("Input tensor missing layout attribute");
     }
@@ -112,7 +107,7 @@ namespace mlir::tt::ttmetal {
   // Assert block inputs are CBs
   for (auto &region : getRegions()) {
     for (auto arg : region.getArguments()) {
-      if (not arg.getType().isa<ttkernel::CBType>()) {
+      if (not mlir::isa<ttkernel::CBType>(arg.getType())) {
         return emitOpError("Block inputs must be CBType");
       }
     }

@@ -98,7 +98,7 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
   OpBuilder builder(op.getOperation());
 
   auto threadTypeAttr =
-      op.getThreadTypes()[regionNumber].cast<ttkernel::ThreadTypeAttr>();
+      mlir::cast<ttkernel::ThreadTypeAttr>(op.getThreadTypes()[regionNumber]);
 
   // Replace the original block with a the new block containing a module op
   auto module = builder.create<mlir::ModuleOp>(
