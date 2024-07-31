@@ -22,9 +22,10 @@ void populateTTModule(py::module &m) {
                      uint32_t oobValValue) {
                     return wrap(tt::LayoutAttr::get(
                         unwrap(ctx),
-                        unwrap(rankedTensorType).cast<RankedTensorType>(),
+                        mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
                         static_cast<tt::MemorySpace>(memorySpaceValue),
-                        unwrap(grid).cast<tt::GridAttr>(), collapseIntervals,
+                        mlir::cast<tt::GridAttr>(unwrap(grid)),
+                        collapseIntervals,
                         static_cast<tt::OOBVal>(oobValValue)));
                   })
       .def_static("with_grid",
@@ -32,41 +33,45 @@ void populateTTModule(py::module &m) {
                      std::vector<std::int64_t> tensorShape, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals) {
-                    return wrap(unwrap(self).cast<tt::LayoutAttr>().withGrid(
-                        unwrap(ctx), tensorShape,
-                        unwrap(grid).cast<tt::GridAttr>(), collapseIntervals));
+                    return wrap(
+                        mlir::cast<tt::LayoutAttr>(unwrap(self))
+                            .withGrid(unwrap(ctx), tensorShape,
+                                      mlir::cast<tt::GridAttr>(unwrap(grid)),
+                                      collapseIntervals));
                   })
       .def_static("with_grid_",
                   [](MlirContext ctx, MlirAttribute self,
                      std::vector<std::int64_t> tensorShape, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals) {
-                    return unwrap(self).cast<tt::LayoutAttr>().withGrid(
-                        unwrap(ctx), tensorShape,
-                        unwrap(grid).cast<tt::GridAttr>(), collapseIntervals);
+                    return mlir::cast<tt::LayoutAttr>(unwrap(self))
+                        .withGrid(unwrap(ctx), tensorShape,
+                                  mlir::cast<tt::GridAttr>(unwrap(grid)),
+                                  collapseIntervals);
                   })
       .def_static(
           "with_element_type",
           [](MlirContext ctx, MlirAttribute self, MlirType elementType) {
-            return wrap(unwrap(self).cast<tt::LayoutAttr>().withElementType(
-                unwrap(ctx), unwrap(elementType)));
+            return wrap(mlir::cast<tt::LayoutAttr>(unwrap(self))
+                            .withElementType(unwrap(ctx), unwrap(elementType)));
           })
       .def_static(
           "with_element_type_",
           [](MlirContext ctx, MlirAttribute self, MlirType elementType) {
-            return unwrap(self).cast<tt::LayoutAttr>().withElementType(
-                unwrap(ctx), unwrap(elementType));
+            return mlir::cast<tt::LayoutAttr>(unwrap(self))
+                .withElementType(unwrap(ctx), unwrap(elementType));
           })
       .def("getLayout",
            [](MlirType &type) {
              assert(isa<RankedTensorType>(
                  unwrap(type))); // Make sure that this is operating on a
                                  // RankedTensorType object
-             RankedTensorType tensor = unwrap(type).cast<RankedTensorType>();
+             RankedTensorType tensor =
+                 mlir::cast<RankedTensorType>(unwrap(type));
              assert(tensor.getEncoding()); // Make sure that this Tensor has an
                                            // encoding value
              tt::LayoutAttr layout =
-                 tensor.getEncoding().template cast<tt::LayoutAttr>();
+                 mlir::cast<tt::LayoutAttr>(tensor.getEncoding());
              return layout;
            })
       .def("wrapped", [](tt::LayoutAttr const &self) { return wrap(self); })
@@ -111,7 +116,7 @@ void populateTTModule(py::module &m) {
                             unsigned pcieAddressAlignBytes,
                             unsigned nocDRAMAddressAlignBytes) {
         return wrap(tt::ChipDescAttr::get(
-            unwrap(ctx), unwrap(arch).cast<tt::ArchAttr>(), grid, l1Size,
+            unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid, l1Size,
             numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
             pcieAddressAlignBytes, nocDRAMAddressAlignBytes));
       });
@@ -139,22 +144,22 @@ void populateTTModule(py::module &m) {
         std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
         for (auto chipDesc : chipDescs) {
           chipDescsUnwrapped.push_back(
-              unwrap(chipDesc).cast<tt::ChipDescAttr>());
+              mlir::cast<tt::ChipDescAttr>(unwrap(chipDesc)));
         }
         std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
         for (auto chipCapability : chipCapabilities) {
           chipCapabilitiesUnwrapped.push_back(
-              unwrap(chipCapability).cast<tt::ChipCapabilityAttr>());
+              mlir::cast<tt::ChipCapabilityAttr>(unwrap(chipCapability)));
         }
         std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
         for (auto chipCoord : chipCoords) {
           chipCoordsUnwrapped.push_back(
-              unwrap(chipCoord).cast<tt::ChipCoordAttr>());
+              mlir::cast<tt::ChipCoordAttr>(unwrap(chipCoord)));
         }
         std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
         for (auto chipChannel : chipChannels) {
           chipChannelsUnwrapped.push_back(
-              unwrap(chipChannel).cast<tt::ChipChannelAttr>());
+              mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
         }
         return wrap(tt::SystemDescAttr::get(
             unwrap(ctx), chipDescsUnwrapped, chipDescIndices,
@@ -190,7 +195,7 @@ void populateTTModule(py::module &m) {
   py::class_<tt::DeviceType>(m, "DeviceType")
       .def_static("get", [](MlirContext ctx, MlirAttribute deviceAttr) {
         return wrap(tt::DeviceType::get(
-            unwrap(ctx), unwrap(deviceAttr).cast<tt::DeviceAttr>()));
+            unwrap(ctx), mlir::cast<tt::DeviceAttr>(unwrap(deviceAttr))));
       });
 
   py::class_<tt::DeviceAttr>(m, "DeviceAttr")
@@ -202,7 +207,7 @@ void populateTTModule(py::module &m) {
                 unwrap(ctx), shape, unwrap(physicalGridMapping), chipIds));
           })
       .def("unwrap", [](MlirAttribute const &self) {
-        return unwrap(self).cast<tt::DeviceAttr>();
+        return mlir::cast<tt::DeviceAttr>(unwrap(self));
       });
 
   py::class_<tt::TileType>(m, "TileType")

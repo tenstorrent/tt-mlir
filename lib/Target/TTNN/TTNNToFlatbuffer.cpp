@@ -56,7 +56,7 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 ::flatbuffers::Offset<::tt::target::ttnn::OpenDeviceOp>
 createOp(FlatbufferObjectCache &cache, OpenDeviceOp op) {
   auto result = op.getResult();
-  auto resultType = result.getType().cast<DeviceType>();
+  auto resultType = mlir::cast<DeviceType>(result.getType());
   ::tt::target::Dim2d grid =
       toFlatbuffer(cache, resultType.getDesc().getGrid());
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
@@ -228,10 +228,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                       ttmlirVersion.patch);
 
-  auto systemDesc = toFlatbuffer(
-      cache,
-      module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>());
-
+  auto systemDesc =
+      toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
+                              module->getAttr(tt::SystemDescAttr::name)));
   func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
   assert(entry && "Expected an entry function");
   Program<::tt::target::ttnn::Operation> program =

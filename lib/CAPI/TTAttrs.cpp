@@ -35,7 +35,7 @@ MlirAttribute ttmlirTTChipDescAttrGet(MlirContext ctx, MlirAttribute arch,
                                       unsigned nocDRAMAddressAlignBytes) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   return wrap(ChipDescAttr::get(
-      unwrap(ctx), unwrap(arch).dyn_cast<ArchAttr>(), gridVec, l1Size,
+      unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec, l1Size,
       numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
       pcieAddressAlignBytes, nocDRAMAddressAlignBytes));
 }
@@ -66,24 +66,24 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
   // Unwrap all of the MlirAttributes
   std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
   for (auto chipDesc : chipDescsRef) {
-    chipDescsUnwrapped.push_back(unwrap(chipDesc).cast<ChipDescAttr>());
+    chipDescsUnwrapped.push_back(mlir::cast<ChipDescAttr>(unwrap(chipDesc)));
   }
 
   std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
   for (auto chipCapability : chipCapabilitiesRef) {
     chipCapabilitiesUnwrapped.push_back(
-        unwrap(chipCapability).cast<ChipCapabilityAttr>());
+        mlir::cast<ChipCapabilityAttr>(unwrap(chipCapability)));
   }
 
   std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
   for (auto chipCoord : chipCoordsRef) {
-    chipCoordsUnwrapped.push_back(unwrap(chipCoord).cast<ChipCoordAttr>());
+    chipCoordsUnwrapped.push_back(mlir::cast<ChipCoordAttr>(unwrap(chipCoord)));
   }
 
   std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
   for (auto chipChannel : chipChannelsRef) {
     chipChannelsUnwrapped.push_back(
-        unwrap(chipChannel).cast<ChipChannelAttr>());
+        mlir::cast<ChipChannelAttr>(unwrap(chipChannel)));
   }
 
   return wrap(SystemDescAttr::get(unwrap(ctx), chipDescsUnwrapped,
@@ -95,9 +95,10 @@ MlirAttribute ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                                     unsigned oobVal, MlirAttribute grid,
                                     MlirType memref) {
   mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
-  return wrap(LayoutAttr::get(
-      unwrap(ctx), affineMap, static_cast<OOBVal>(oobVal),
-      unwrap(grid).cast<GridAttr>(), unwrap(memref).cast<MemRefType>()));
+  return wrap(LayoutAttr::get(unwrap(ctx), affineMap,
+                              static_cast<OOBVal>(oobVal),
+                              mlir::cast<GridAttr>(unwrap(grid)),
+                              mlir::cast<MemRefType>(unwrap(memref))));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,

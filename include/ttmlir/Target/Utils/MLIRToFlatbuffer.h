@@ -190,7 +190,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
 inline DataType elementTypeToDataType(Type elementType) {
   DataType dtype = DataType::Float32;
   if (isa<FloatType>(elementType)) {
-    auto floatType = elementType.cast<FloatType>();
+    auto floatType = mlir::cast<FloatType>(elementType);
     if (floatType.isF32()) {
       dtype = DataType::Float32;
     } else if (floatType.isF16()) {
@@ -201,7 +201,7 @@ inline DataType elementTypeToDataType(Type elementType) {
       assert(false && "unsupported float type");
     }
   } else if (isa<IntegerType>(elementType)) {
-    auto intType = elementType.cast<IntegerType>();
+    auto intType = mlir::cast<IntegerType>(elementType);
     if (intType.getWidth() == 32) {
       dtype = DataType::UInt32;
     } else if (intType.getWidth() == 16) {
@@ -260,7 +260,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
   ::tt::target::Dim2d tileShape(0, 0);
   Type elementType = memref.getElementType();
   if (isa<TileType>(elementType)) {
-    auto tileType = elementType.cast<TileType>();
+    auto tileType = mlir::cast<TileType>(elementType);
     dtype = tileType.getDataType();
     tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
   } else {
@@ -269,15 +269,16 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
 
   return ::tt::target::CreateMemoryDescDirect(
       *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
-      toFlatbuffer(cache,
-                   memref.getMemorySpace().cast<MemorySpaceAttr>().getValue()));
+      toFlatbuffer(
+          cache,
+          mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()));
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
 layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
                        ArrayRef<int64_t> logicalShape) {
-  assert(attr.isa<LayoutAttr>() && "expected a tensor type");
-  auto layoutAttr = attr.cast<LayoutAttr>();
+  assert(isa<LayoutAttr>(attr) && "expected a tensor type");
+  auto layoutAttr = mlir::cast<LayoutAttr>(attr);
   auto strideInt64 = layoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto gridAttr = layoutAttr.getGrid();
@@ -293,7 +294,7 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>
 tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type) {
-  auto tensorType = type.cast<RankedTensorType>();
+  auto tensorType = mlir::cast<RankedTensorType>(type);
   auto shapeInt64 = tensorType.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   return ::tt::target::CreateTensorDescDirect(
@@ -305,7 +306,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type) {
 inline flatbuffers::Offset<::tt::target::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t address, uint64_t size) {
-  auto tensorType = value.getType().cast<RankedTensorType>();
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
   auto tensorDesc = cache.getOrCreate(tensorType, tensorTypeToFlatbuffer);
   return ::tt::target::CreateTensorRef(*cache.fbb, cache.global_id++, address,
                                        size, tensorDesc);

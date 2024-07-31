@@ -36,15 +36,15 @@ public:
 
   LogicalResult matchAndRewrite(ttir::ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto inputTy = op.getInput().getType().template cast<RankedTensorType>();
-    auto outputTy = op.getType().template cast<RankedTensorType>();
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
     if (not inputTy.getEncoding() || not outputTy.getEncoding()) {
       return failure();
     }
-    assert(inputTy.getEncoding().isa<tt::LayoutAttr>());
-    assert(outputTy.getEncoding().isa<tt::LayoutAttr>());
-    auto inputLayout = inputTy.getEncoding().template cast<tt::LayoutAttr>();
-    auto outputLayout = outputTy.getEncoding().template cast<tt::LayoutAttr>();
+    assert(mlir::isa<tt::LayoutAttr>(inputTy.getEncoding()));
+    assert(mlir::isa<tt::LayoutAttr>(outputTy.getEncoding()));
+    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
     if (inputLayout.isSystemMemorySpace()) {
       assert(outputLayout.isDeviceMemorySpace());
       rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
@@ -121,10 +121,10 @@ public:
     SmallVector<Type> rewrittenBlockArgumentTypes;
     for (auto arg : blockArguments) {
       auto address = lookupAddress(arg);
-      auto port = operand_cb_port_mapping[arg.getArgNumber()]
-                      .cast<IntegerAttr>()
-                      .getInt();
-      auto memref = arg.getType().cast<MemRefType>();
+      auto port =
+          mlir::cast<IntegerAttr>(operand_cb_port_mapping[arg.getArgNumber()])
+              .getInt();
+      auto memref = mlir::cast<MemRefType>(arg.getType());
       rewrittenBlockArgumentTypes.push_back(
           rewriter.getType<ttkernel::CBType>(address, port, memref));
     }

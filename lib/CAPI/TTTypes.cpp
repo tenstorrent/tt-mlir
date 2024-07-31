@@ -17,8 +17,8 @@ MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
 }
 
 MlirType ttmlirTTDeviceTypeGet(MlirContext ctx, MlirAttribute deviceAttr) {
-  return wrap(
-      DeviceType::get(unwrap(ctx), unwrap(deviceAttr).cast<tt::DeviceAttr>()));
+  return wrap(DeviceType::get(unwrap(ctx),
+                              mlir::cast<tt::DeviceAttr>(unwrap(deviceAttr))));
 }
 
 } // namespace mlir::tt
