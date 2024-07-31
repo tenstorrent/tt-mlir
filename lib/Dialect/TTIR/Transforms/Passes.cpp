@@ -540,7 +540,9 @@ public:
           TTIRLayoutOperandsRewriter<MultiplyOp>,
           TTIRLayoutOperandsRewriter<SubtractOp>,
           TTIRLayoutOperandsRewriter<GreaterEqualOp>,
-          TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
+          TTIRLayoutOperandsRewriter<ReluOp>,
+          TTIRLayoutOperandsRewriter<SumOp>,
+          TTIRLayoutOperandsRewriter<AvgOp>,
           TTIRLayoutOperandsRewriter<SoftmaxOp>,
           TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
           &getContext());
