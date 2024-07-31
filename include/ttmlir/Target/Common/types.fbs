@@ -62,7 +62,7 @@ table MemoryDesc {
 table LayoutDesc {
   stride: [int];
   oob_val: OOBVal;
-  grid: Dim2dRange;
+  core_range_set: [Dim2dRange];
   memory_desc: MemoryDesc;
 }
 
@@ -87,8 +87,8 @@ table TensorRef {
 
 table CBRef {
   global_id: uint32;
+  associated_tensor_global_id: uint32;
   address: uint64;
-  size: uint64;
   desc: CBDesc;
 }
 
@@ -124,5 +124,9 @@ table SystemDesc {
 }
 
 table DeviceRef {
+  global_id: uint32;
+}
+
+table EventRef {
   global_id: uint32;
 }

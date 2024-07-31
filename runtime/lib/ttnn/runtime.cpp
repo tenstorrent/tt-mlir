@@ -134,8 +134,10 @@ Tensor createTensor(std::shared_ptr<void> data,
   return Tensor(tensor, data);
 }
 
-Device openDevice(std::vector<int> deviceIds) {
+Device openDevice(std::vector<int> const &deviceIds,
+                  std::vector<std::uint8_t> const &numHWCQs) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
+  assert(numHWCQs.empty() && "HWCQs are not supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front());
   return Device::borrow(device);
 }
@@ -175,6 +177,8 @@ Event submit(Device deviceHandle, Binary executableHandle,
   return Event(nullptr);
 }
 
-void wait(Event) { throw std::runtime_error("Not implemented"); }
+void wait(Event) {
+  // Not implemented
+}
 
 } // namespace tt::runtime::ttnn

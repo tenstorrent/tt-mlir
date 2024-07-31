@@ -4,13 +4,24 @@ include "command.fbs";
 
 namespace tt.target.metal;
 
+table DeviceProgram {
+  command_queues: [CommandQueue];
+}
+
+table Program {
+  name: string;
+  inputs: [TensorRef];
+  outputs: [TensorRef];
+  device_programs: [DeviceProgram];
+}
+
 table TTMetalBinary {
   version: Version;
   ttmlir_git_hash: string;
   system_desc: SystemDesc;
-  command_queues: [CommandQueue];
+  programs: [Program];
 }
 
 root_type TTMetalBinary;
-file_identifier "TTB0";
-file_extension "ttb";
+file_identifier "TTM0";
+file_extension "ttm";

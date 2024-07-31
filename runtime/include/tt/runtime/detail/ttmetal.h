@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_DETAIL_TTNN_H
-#define TT_RUNTIME_DETAIL_TTNN_H
+#ifndef TT_RUNTIME_DETAIL_TTMETAL_H
+#define TT_RUNTIME_DETAIL_TTMETAL_H
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-qual"
@@ -31,20 +31,15 @@
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wpessimizing-move"
+#pragma clang diagnostic ignored "-Wparentheses"
 #define FMT_HEADER_ONLY
-#include "ttnn/device.hpp"
-#include "ttnn/operations/binary.hpp"
-#include "ttnn/operations/core.hpp"
-#include "ttnn/operations/creation.hpp"
-#include "ttnn/operations/matmul.hpp"
-#include "ttnn/operations/normalization.hpp"
-#include "ttnn/operations/reduction/generic/generic_reductions.hpp"
+#include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
-#include "ttmlir/Target/TTNN/Target.h"
+#include "ttmlir/Target/TTMetal/Target.h"
 
-namespace tt::runtime::ttnn {
+namespace tt::runtime::ttmetal {
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
@@ -59,7 +54,7 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
 }
 
 Device openDevice(std::vector<int> const &deviceIds = {0},
-                  std::vector<std::uint8_t> const &numHWCQs = {});
+                  std::vector<uint8_t> const &numHWCQs = {});
 
 void closeDevice(Device device);
 
@@ -69,11 +64,16 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
-void runProgram(::ttnn::Device &device,
-                ::tt::target::ttnn::Program const *program,
-                std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs);
+std::shared_ptr<::tt::tt_metal::Event> executeCommandQueue(
+    ::tt::tt_metal::Device *device, ::tt::target::metal::CommandQueue const *cq,
+    std::size_t cq_id,
+    std::vector<
+        std::pair<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>> const
+        &inputs,
+    std::vector<
+        std::pair<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>> const
+        &outputs);
 
-} // namespace tt::runtime::ttnn
+} // namespace tt::runtime::ttmetal
 
 #endif

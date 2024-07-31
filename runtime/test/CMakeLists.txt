@@ -34,6 +34,7 @@ target_include_directories(TTRuntimeTEST INTERFACE
 target_link_libraries(TTRuntimeTEST INTERFACE
     TTEAGER_LIBRARY
     TTMETAL_LIBRARY
+    TTBinary
     TTRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
