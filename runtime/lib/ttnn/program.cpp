@@ -55,19 +55,22 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
   }
 }
 
+/* TODO: Blocked by issue #272, ideal flow is to determine tilize/untilize with
+ * tile_shape */
 static ::ttnn::Tensor
 updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
                         const ::ttnn::DataType targetDataType,
-                        const ::tt::target::Dim2d *targetTileShape) {
+                        const bool shouldTilize, const bool shouldUntilize) {
   ::ttnn::Tensor outputTensor = inputTensor;
   const bool shouldConvertDataType = inputTensor.get_dtype() != targetDataType;
-  const int targetTileX = targetTileShape->x();
-  const int targetTileY = targetTileShape->y();
-  const bool shouldTilize =
-      targetTileX == 32 and targetTileY == 32 and
-      inputTensor.get_layout() == ::ttnn::ROW_MAJOR_LAYOUT;
-  const bool shouldUntilize = (targetTileX != 32 or targetTileY != 32) and
-                              inputTensor.get_layout() == ::ttnn::TILE_LAYOUT;
+  // const int targetTileX = targetTileShape->x();
+  // const int targetTileY = targetTileShape->y();
+  // const bool shouldTilize =
+  //     targetTileX == 32 and targetTileY == 32 and
+  //     inputTensor.get_layout() == ::ttnn::ROW_MAJOR_LAYOUT;
+  // const bool shouldUntilize = (targetTileX != 32 or targetTileY != 32) and
+  //                             inputTensor.get_layout() ==
+  //                             ::ttnn::TILE_LAYOUT;
   if (shouldTilize) {
     outputTensor = ::tilize(outputTensor);
   } else if (shouldUntilize) {
@@ -79,6 +82,8 @@ updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
   return outputTensor;
 }
 
+// TODO: right now hardcoding tilize/untilize, should determine with tile shape
+// blocked by issue #272
 static void
 run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
@@ -105,12 +110,12 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
   case ::tt::target::MemorySpace::SystemMMIO: {
     ::ttnn::Tensor result;
     if (inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
-      result = updateLayoutAndDataType(inputTensor, targetDataTypeTTNN,
-                                       targetTileShape);
+      result =
+          updateLayoutAndDataType(inputTensor, targetDataTypeTTNN, false, true);
     } else if (inputTensor.storage_type() ==
                ::tt::tt_metal::StorageType::DEVICE) {
       result = updateLayoutAndDataType(inputTensor.cpu(), targetDataTypeTTNN,
-                                       targetTileShape);
+                                       false, true);
     }
     ::ttnn::Tensor &outputTensor = *liveTensors.at(op->out()->global_id());
     void *src = ::tt::tt_metal::get_raw_host_data_ptr(result);
@@ -123,19 +128,21 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     ::tt::tt_metal::MemoryConfig memConfig = ::ttnn::DRAM_MEMORY_CONFIG;
     if (inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
       ::ttnn::Tensor result = inputTensor;
+      bool shouldTilize = true;
       // device tilize requires BFLOAT16, if not then tilize on host
       if (result.get_dtype() != ::ttnn::DataType::BFLOAT16) {
         result = ::tilize(result);
+        shouldTilize = false;
       }
       result = ::ttnn::to_device(result, &device, memConfig);
-      result =
-          updateLayoutAndDataType(result, targetDataTypeTTNN, targetTileShape);
+      result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
+                                       false);
       tensorPool.push_back(result);
       liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     } else if (inputTensor.storage_type() ==
                ::tt::tt_metal::StorageType::DEVICE) {
       ::ttnn::Tensor result = updateLayoutAndDataType(
-          inputTensor, targetDataTypeTTNN, targetTileShape);
+          inputTensor, targetDataTypeTTNN, false, false);
       result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
       tensorPool.push_back(result);
       liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
@@ -148,19 +155,21 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     ::tt::tt_metal::MemoryConfig memConfig = ::ttnn::L1_MEMORY_CONFIG;
     if (inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
       ::ttnn::Tensor result = inputTensor;
+      bool shouldTilize = true;
       // device tilize requires BFLOAT16, if not then tilize on host
       if (result.get_dtype() != ::ttnn::DataType::BFLOAT16) {
         result = ::tilize(result);
+        shouldTilize = false;
       }
       result = ::ttnn::to_device(result, &device, memConfig);
-      result =
-          updateLayoutAndDataType(result, targetDataTypeTTNN, targetTileShape);
+      result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
+                                       false);
       tensorPool.push_back(result);
       liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     } else if (inputTensor.storage_type() ==
                ::tt::tt_metal::StorageType::DEVICE) {
       ::ttnn::Tensor result = updateLayoutAndDataType(
-          inputTensor, targetDataTypeTTNN, targetTileShape);
+          inputTensor, targetDataTypeTTNN, false, false);
       result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
       tensorPool.push_back(result);
       liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
