@@ -1,10 +1,11 @@
-# We supply empty.cpp because CMake does not allow creating a library without sources.
-add_library(TTMLIR SHARED empty.cpp)
+# Runtime libs from tt-mlir
+set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN)
 
-add_library(ttnn SHARED IMPORTED)
-set_property(TARGET ttnn PROPERTY IMPORTED_LOCATION "${TTMETAL_LIBRARY_DIR}/_ttnn.so")
+# Dependency libs from tt-metal/ttnn project for ttnn runtime
+set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTEAGER_LIBRARY TTNN_LIBRARY)
 
-add_dependencies(TTMLIR
+# Libs from tt-mlir project
+set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
     MLIRTTDialect
     MLIRTTIRDialect
@@ -17,44 +18,31 @@ add_dependencies(TTMLIR
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
     TTMLIRTTNNToEmitC
-    TTRuntime
-    TTRuntimeTTNN)
+)
+
+# We supply empty.cpp because CMake does not allow creating a library without sources.
+add_library(TTMLIR SHARED empty.cpp)
+
+add_dependencies(TTMLIR
+    ${TTMLIR_LIBS}
+    ${TTNN_RUNTIME_LIBS}
+    ${TTNN_LIBS}
+)
 
 target_link_libraries(TTMLIR PRIVATE
-    # LLVM
     LLVM
     MLIR
 
     # Forces the inclusion of all symbols in the shared object
     # This is necessary because the JIT will not be able to find the symbols otherwise
     -Wl,--whole-archive
-    # MLIR libraries
-    TTNNTargetFlatbuffer
-    MLIRTTDialect
-    MLIRTTIRDialect
-    MLIRTTNNDialect
-    MLIRTTKernelDialect
-    TTMLIRTTIRToTTNN
-    MLIRTTMetalDialect
-    MLIRTTIRTransforms
-    MLIRTTNNTransforms
-    MLIRTTIRAnalysis
-    MLIRTTNNPipelines
-    TTMLIRTTNNToEmitC
-    TTRuntime
-    TTRuntimeTTNN
-    # MLIR libraries
+    ${TTMLIR_LIBS}
+    ${TTNN_RUNTIME_LIBS}
     -Wl,--no-whole-archive
 
-    # Metal
-    tt_metal
-    device
-    tt_eager
-    ttnn
+    ${TTNN_LIBS}
 
-    # Other
-    flatbuffers)
+    flatbuffers
+)
 
-target_link_directories(TTMLIR PRIVATE
-    ${TTMLIR_TOOLCHAIN_DIR}/lib
-    ${TTMETAL_LIBRARY_DIR})
+target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
