@@ -16,31 +16,14 @@ import socket
 from pkg_resources import get_distribution
 import sys
 import shutil
-import torch
-
-from tt_metal.tools.profiler.common import (
-    PROFILER_LOGS_DIR,
-    TRACY_FILE_NAME,
-    TRACY_OPS_TIMES_FILE_NAME,
-    TRACY_OPS_DATA_FILE_NAME,
-)
 
 #######################################################################################
 ######################################**GLOBALS**######################################
 #######################################################################################
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", f"{os.getcwd()}")
 TTMLIR_VENV_DIR = os.environ.get("TTMLIR_VENV_DIR", "/opt/ttmlir-toolchain/venv")
-
+TT_METAL_HOME = os.environ.get("TT_METAL_HOME", "third_party/tt-metal/src/tt-metal")
 TTRT_ARTIFACTS = f"{TT_MLIR_HOME}/ttrt-artifacts"
-TTRT_PERF_ARTIFACTS = f"{TTRT_ARTIFACTS}/ttrt-perf-artifacts"
-
-os.makedirs(PROFILER_LOGS_DIR, exist_ok=True)
-TRACY_OUT_FILE = os.path.join(PROFILER_LOGS_DIR, TRACY_FILE_NAME)
-TRACY_OPS_FILE = os.path.join(PROFILER_LOGS_DIR, TRACY_OPS_TIMES_FILE_NAME)
-TRACY_DATA_FILE = os.path.join(PROFILER_LOGS_DIR, TRACY_OPS_DATA_FILE_NAME)
-TRACY_CAPTURE_TOOL = f"{TT_MLIR_HOME}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
-TRACY_CSVEXPROT_TOOL = f"{TT_MLIR_HOME}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
-TRACY_PARAMS_JSON = f"{TTRT_PERF_ARTIFACTS}/tracy_params.json"
 
 if "LOGGER_LEVEL" not in os.environ:
     os.environ["LOGGER_LEVEL"] = "FATAL"
@@ -63,7 +46,7 @@ def clean_artifacts():
 def setup_artifacts(binaries=[]):
     if not os.path.exists(TTRT_ARTIFACTS):
         subprocess.run(
-            f"mkdir -p {TTRT_ARTIFACTS}; mkdir -p {TTRT_PERF_ARTIFACTS}",
+            f"mkdir -p {TTRT_ARTIFACTS}",
             shell=True,
             check=True,
             stdout=subprocess.DEVNULL,
@@ -94,6 +77,8 @@ def copy_ttnn_binary_into_artifact(file_path):
 
 
 def save_torch_tensor_into_ttrt_artifacts(torch_tensor, file_path):
+    import torch
+
     try:
         torch.save(torch_tensor, f"{TTRT_ARTIFACTS}/{file_path}")
         print(
@@ -206,6 +191,8 @@ def find_ttnn_files(directory):
 
 
 def toDataType(dtype):
+    import torch
+
     if dtype == torch.float32:
         return ttrt.runtime.DataType.Float32
     if dtype == torch.float16:
@@ -222,6 +209,8 @@ def toDataType(dtype):
 
 
 def fromDataType(dtype):
+    import torch
+
     if dtype == "Float32":
         return torch.float32
     if dtype == "Float16":

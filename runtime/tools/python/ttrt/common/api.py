@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import ttrt.binary
 import os
 import json
 import importlib.machinery
@@ -18,14 +17,8 @@ import sys
 import shutil
 import atexit
 
+import ttrt.binary
 from ttrt.common.util import *
-
-try:
-    from ttrt.common.perf_trace import *
-
-    perf_trace = True
-except:
-    perf_trace = False
 
 #######################################################################################
 ########################################**API**########################################
@@ -45,6 +38,7 @@ def read(args):
     arg_binary = args.binary
     arg_clean_artifacts = args.clean_artifacts
     arg_save_artifacts = args.save_artifacts
+    arg_section = arg.section
 
     # preprocessing
     if os.path.isdir(arg_binary):
@@ -72,7 +66,7 @@ def read(args):
     # execution
     print("executing action for all provided flatbuffers")
     for fbb in fbb_list:
-        read_actions[args.section](fbb)
+        read_actions[arg_section](fbb)
 
     # save artifacts
     if arg_save_artifacts:
@@ -89,6 +83,7 @@ API: run
 
 def run(args):
     import ttrt.runtime
+    import torch
 
     # initialization
     binaries = []
@@ -268,6 +263,8 @@ API: perf
 
 
 def perf(args):
+    import ttrt.common.perf_trace as perf_trace
+
     # initialization
     binaries = []
 
@@ -297,11 +294,6 @@ def perf(args):
         setup_artifacts(binaries)
 
     # constraint checking
-    print("executing constraint for all provided flatbuffers")
-    if not perf_trace:
-        print("Perf mode is not enabled. Please rebuild tt-mlir with perf mode")
-        sys.exit(1)
-
     if arg_generate_params:
         check_file_exists(arg_perf_csv)
 
@@ -309,13 +301,12 @@ def perf(args):
         check_file_exists(binary)
 
     # execution
-    print("executing action for all provided flatbuffers")
     if arg_generate_params:
-        generate_params_dict(arg_perf_csv)
+        perf_trace.generate_params_dict(arg_perf_csv)
     else:
         for binary in binaries:
             # get available port for tracy client and server to communicate on
-            port = get_available_port()
+            port = perf_trace.get_available_port()
 
             if not port:
                 print("No available port found")
@@ -331,7 +322,7 @@ def perf(args):
                 envVars["TT_METAL_DEVICE_PROFILER"] = "1"
 
             # run perf artifact setup
-            captureProcess = run_perf_artifact_setup(port)
+            captureProcess = perf_trace.run_perf_artifact_setup(port)
 
             # generate test command to execute
             testCommandOptions = ""
@@ -356,9 +347,12 @@ def perf(args):
 
             testProcess.communicate()
 
+            binary_name = os.path.splitext(os.path.basename(binary))[0]
+            binary_perf_folder = f"{TTRT_ARTIFACTS}/{binary_name}/perf"
+
             try:
                 captureProcess.communicate(timeout=15)
-                generate_report()
+                perf_trace.generate_report(binary_perf_folder)
             except subprocess.TimeoutExpired as e:
                 captureProcess.terminate()
                 captureProcess.communicate()
@@ -366,3 +360,6 @@ def perf(args):
                     f"No profiling data could be captured. Please make sure you are on the correct build. Use scripts/build_scripts/build_with_profiler_opt.sh to build if you are not sure."
                 )
                 sys.exit(1)
+
+            # save artifacts
+            perf_trace.save_perf_artifacts(binary_perf_folder)
