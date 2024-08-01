@@ -44,20 +44,23 @@ ext_modules = [
     ),
 ]
 
+dylibs = []
+linklibs = []
 if enable_ttnn:
-    dylib = "_ttnn.so"
+    dylibs = ["_ttnn.so"]
     linklibs = ["TTRuntimeTTNN", ":_ttnn.so"]
-else:
+elif enable_ttmetal:
     assert enable_ttmetal
-    dylib = "libtt_metal.so"
+    dylibs = ["libtt_metal.so"]
     linklibs = ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
-    shutil.copy(
-        f"{metallibdir}/{dylib}", f"{src_dir}/build/runtime/tools/python/ttrt/runtime"
-    )
+    for dylib in dylibs:
+        shutil.copy(
+            f"{metallibdir}/{dylib}", f"{src_dir}/build/runtime/tools/python/ttrt/runtime"
+        )
     ext_modules.append(
         Pybind11Extension(
             "ttrt.runtime._C",
@@ -95,7 +98,7 @@ setup(
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
     },
-    package_data={"ttrt.runtime": [dylib]},
+    package_data={"ttrt.runtime": dylibs},
     zip_safe=False,
     python_requires=">=3.7",
 )
