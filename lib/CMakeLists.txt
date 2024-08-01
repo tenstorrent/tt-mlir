@@ -4,7 +4,7 @@ add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(SharedLib)
 
-add_mlir_library(TTMLIR STATIC RegisterAll.cpp
+add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp
   LINK_LIBS PUBLIC
     MLIR
     MLIRTTDialect
