@@ -5,7 +5,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/utils.h"
-#include "ttnn/runtime/utils.h"
+#include "utils.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
