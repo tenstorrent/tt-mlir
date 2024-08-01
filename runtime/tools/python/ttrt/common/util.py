@@ -196,6 +196,7 @@ read_actions = {
 
 
 def find_ttnn_files(directory):
+    print("finding all ttnn files")
     ttnn_files = []
     for root, _, files in os.walk(directory):
         for file in files:

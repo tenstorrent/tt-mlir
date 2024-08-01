@@ -48,6 +48,11 @@ def main():
         action="store_true",
         help="clean all artifacts from previous runs",
     )
+    read_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
+    )
     read_parser.add_argument("binary", help="flatbuffer binary file")
     read_parser.set_defaults(func=read)
 
@@ -69,6 +74,11 @@ def main():
         "--loops",
         default=1,
         help="number of loops",
+    )
+    run_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
     )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
@@ -95,15 +105,14 @@ def main():
         help="print the system desc as python dict",
     )
     query_parser.add_argument(
-        "--save-system-desc",
-        nargs="?",
-        default="system_desc.ttsys",
-        help="serialize a system desc for the current system to a file",
-    )
-    query_parser.add_argument(
         "--clean-artifacts",
         action="store_true",
         help="clean all artifacts from previous runs",
+    )
+    query_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
     )
     query_parser.set_defaults(func=query)
 
@@ -142,6 +151,11 @@ def main():
         "--loops",
         default=1,
         help="number of loops",
+    )
+    perf_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
     )
     perf_parser.add_argument("binary", help="flatbuffer binary file")
     perf_parser.set_defaults(func=perf)
