@@ -24,4 +24,4 @@ add_lit_testsuite(check-ttmlir "Running the ttmlir regression tests"
         )
 set_target_properties(check-ttmlir PROPERTIES FOLDER "Tests")
 
-add_lit_testsuites(TTMLIR ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
+add_lit_testsuites(TTMLIRStatic ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
