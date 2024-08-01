@@ -59,7 +59,8 @@ if enable_runtime:
 
     for dylib in dylibs:
         shutil.copy(
-            f"{metallibdir}/{dylib}", f"{src_dir}/build/runtime/tools/python/ttrt/runtime"
+            f"{metallibdir}/{dylib}",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
         )
     ext_modules.append(
         Pybind11Extension(
