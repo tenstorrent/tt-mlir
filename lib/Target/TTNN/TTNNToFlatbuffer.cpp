@@ -142,8 +142,6 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
   ::tt::target::ttnn::ReductionOpType type;
   if constexpr (std::is_same_v<ReductionOp, SumOp>) {
     type = ::tt::target::ttnn::ReductionOpType::Sum;
-  } else if constexpr (std::is_same_v<ReductionOp, AvgOp>) {
-    type = ::tt::target::ttnn::ReductionOpType::Avg;
   } else {
     llvm_unreachable("unhandled ReductionOp");
   }
@@ -210,9 +208,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
     return createOperation(cache, createReductionOp(cache, sumOp), debugString);
-  }
-  if (auto avgOp = dyn_cast<AvgOp>(op); avgOp) {
-    return createOperation(cache, createReductionOp(cache, avgOp), debugString);
   }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),

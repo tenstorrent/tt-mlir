@@ -40,7 +40,6 @@ table EltwiseOp {
 
 enum ReductionOpType: uint32 {
   Sum = 0,
-  Avg = 1,
 }
 
 table ReductionOp {
