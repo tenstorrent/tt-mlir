@@ -217,13 +217,6 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     }];
 }
 
-def TTIR_AvgOp : TTIR_ReductionOp<"avg"> {
-  let summary = "Average reduction op.";
-  let description = [{
-    Average reduction op.
-  }];
-}
-
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
