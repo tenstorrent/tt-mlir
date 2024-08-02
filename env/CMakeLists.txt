@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "9ddfe62f5c11e3f65f444209f514029ded2d58b9")
+set(LLVM_PROJECT_VERSION "0913547d0e3939cc420e88ecd037240f33736820")
 
 include(ExternalProject)
 
@@ -45,6 +45,8 @@ ExternalProject_Add(
     -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
     -DLLVM_ENABLE_PROJECTS=mlir
+    -DLLVM_TARGETS_TO_BUILD=host
+    -DLLVM_ENABLE_RTTI=ON
     -DLLVM_INSTALL_UTILS=ON
     # Build shared libraries
     # ======================
