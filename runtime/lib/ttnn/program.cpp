@@ -138,6 +138,20 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
     liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
     break;
   }
+  case ::tt::target::ttnn::ReductionOpType::Mean: {
+    auto &in = *liveTensors.at(op->in()->global_id());
+
+    const auto *dim_arg_fb_ptr = op->dim_arg();
+    std::optional<vector<int>> dim_arg =
+        dim_arg_fb_ptr ? std::make_optional(std::vector<int>(
+                             dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
+                       : std::nullopt;
+
+    tensorPool.push_back(::ttnn::mean(in, dim_arg, op->keep_dim()));
+
+    liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   }
 }
 
