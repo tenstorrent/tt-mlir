@@ -125,7 +125,6 @@ def run(args):
         check_file_exists(binary)
         fbb = ttrt.binary.load_binary_from_path(binary)
         check_version(fbb.version)
-        assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
         fbb_dict = ttrt.binary.as_dict(fbb)
         fbb_list.append((os.path.splitext(os.path.basename(binary))[0], fbb, fbb_dict))
         program_index = arg_program_index

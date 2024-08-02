@@ -45,6 +45,7 @@ PYBIND11_MODULE(_C, m) {
       "Create a tensor with borrowed memory");
   m.def("open_device", &tt::runtime::openDevice,
         py::arg("device_ids") = std::vector<int>{0},
+        py::arg("num_hw_cqs") = std::vector<std::uint8_t>{},
         "Open a device for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a device");
   m.def("submit", &tt::runtime::submit, py::arg("device"),

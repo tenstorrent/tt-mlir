@@ -25,7 +25,8 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
                       desc.dataType);
 }
 
-Device openDevice(std::vector<int> deviceIds = {0});
+Device openDevice(std::vector<int> const &deviceIds = {0},
+                  std::vector<std::uint8_t> const &numHWCQs = {});
 
 void closeDevice(Device device);
 

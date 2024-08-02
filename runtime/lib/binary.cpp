@@ -10,6 +10,8 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
 #include "ttmlir/Target/Common/system_desc_generated.h"
+#include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/binary_bfbs_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_bfbs_generated.h"
 
@@ -102,6 +104,74 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
 
 } // namespace ttnn
 
+namespace metal {
+
+::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
+  bool isTTMetal =
+      ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          binary.handle.get());
+  if (not isTTMetal) {
+    throw std::runtime_error("Unsupported binary format");
+  }
+  return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
+}
+
+std::string getVersion(Flatbuffer binary) {
+  auto const *version = getBinary(binary)->version();
+  return std::to_string(version->major()) + "." +
+         std::to_string(version->minor()) + "." +
+         std::to_string(version->patch());
+}
+
+std::string_view getTTMLIRGitHash(Flatbuffer binary) {
+  return getBinary(binary)->ttmlir_git_hash()->c_str();
+}
+
+std::string asJson(Flatbuffer binary) {
+  return ::tt::runtime::asJson(
+      binary.handle.get(),
+      ::tt::target::metal::TTMetalBinaryBinarySchema::data(),
+      ::tt::target::metal::TTMetalBinaryBinarySchema::size());
+}
+
+std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
+                                         std::uint32_t programIndex) {
+  std::vector<TensorDesc> inputs;
+  auto const *program = getBinary(binary)->programs()->Get(programIndex);
+  for (auto const *input : *program->inputs()) {
+    TensorDesc desc;
+    desc.shape = {input->desc()->shape()->begin(),
+                  input->desc()->shape()->end()};
+    desc.stride = {input->desc()->layout()->stride()->begin(),
+                   input->desc()->layout()->stride()->end()};
+    desc.itemsize = utils::dataTypeElementSize(
+        input->desc()->layout()->memory_desc()->data_type());
+    desc.dataType = input->desc()->layout()->memory_desc()->data_type();
+    inputs.push_back(desc);
+  }
+  return inputs;
+}
+
+std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
+                                          std::uint32_t programIndex) {
+  std::vector<TensorDesc> outputs;
+  auto const *program = getBinary(binary)->programs()->Get(programIndex);
+  for (auto const *output : *program->outputs()) {
+    TensorDesc desc;
+    desc.shape = {output->desc()->shape()->begin(),
+                  output->desc()->shape()->end()};
+    desc.stride = {output->desc()->layout()->stride()->begin(),
+                   output->desc()->layout()->stride()->end()};
+    desc.itemsize = utils::dataTypeElementSize(
+        output->desc()->layout()->memory_desc()->data_type());
+    desc.dataType = output->desc()->layout()->memory_desc()->data_type();
+    outputs.push_back(desc);
+  }
+  return outputs;
+}
+
+} // namespace metal
+
 namespace system_desc {
 
 ::tt::target::SystemDescRoot const *getBinary(Flatbuffer binary) {
@@ -159,6 +229,11 @@ std::string_view Flatbuffer::getFileIdentifier() const {
     return ::tt::target::ttnn::TTNNBinaryIdentifier();
   }
 
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ::tt::target::metal::TTMetalBinaryIdentifier();
+  }
+
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           handle.get())) {
     return ::tt::target::SystemDescRootIdentifier();
@@ -171,6 +246,11 @@ std::string Flatbuffer::getVersion() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getVersion(*this);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getVersion(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
@@ -187,6 +267,11 @@ std::string_view Flatbuffer::getTTMLIRGitHash() const {
     return ttnn::getTTMLIRGitHash(*this);
   }
 
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getTTMLIRGitHash(*this);
+  }
+
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           handle.get())) {
     return system_desc::getTTMLIRGitHash(*this);
@@ -199,6 +284,11 @@ std::string Flatbuffer::asJson() const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::asJson(*this);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::asJson(*this);
   }
 
   if (::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
@@ -224,6 +314,11 @@ Binary::getProgramInputs(std::uint32_t programIndex) const {
     return ttnn::getProgramInputs(*this, programIndex);
   }
 
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getProgramInputs(*this, programIndex);
+  }
+
   throw std::runtime_error("Unsupported binary format");
 }
 
@@ -232,6 +327,11 @@ Binary::getProgramOutputs(std::uint32_t programIndex) const {
   if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
           handle.get())) {
     return ttnn::getProgramOutputs(*this, programIndex);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getProgramOutputs(*this, programIndex);
   }
 
   throw std::runtime_error("Unsupported binary format");

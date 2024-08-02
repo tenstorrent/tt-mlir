@@ -21,6 +21,16 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/""
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the device of the current scope.
+      }],
+      /*retTy=*/"::mlir::tt::DeviceAttr",
+      /*methodName=*/"getDevice",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeDevice($_op);"
+    >,
   ];
 }
 
