@@ -22,6 +22,21 @@ import tracy
 import tracy_state
 from tt_metal.tools.profiler.process_ops_logs import process_ops
 
+from tt_metal.tools.profiler.common import (
+    PROFILER_LOGS_DIR,
+    TRACY_FILE_NAME,
+    TRACY_OPS_TIMES_FILE_NAME,
+    TRACY_OPS_DATA_FILE_NAME,
+    PROFILER_DEVICE_SIDE_LOG,
+    PROFILER_HOST_DEVICE_SYNC_INFO,
+)
+
+#######################################################################################
+######################################**GLOBALS**######################################
+#######################################################################################
+TRACY_CAPTURE_TOOL = f"{TT_MLIR_HOME}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
+TRACY_CSVEXPROT_TOOL = f"{TT_MLIR_HOME}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
+
 #######################################################################################
 #####################################**PERF-UTILS**####################################
 #######################################################################################
@@ -41,53 +56,69 @@ def get_available_port():
 
 
 def run_perf_artifact_setup(port):
+    subprocess.run(
+        f"rm -rf {PROFILER_LOGS_DIR}; mkdir -p {PROFILER_LOGS_DIR}",
+        shell=True,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
     print("Verifying tracy profiling tools")
     check_file_exists(TRACY_CAPTURE_TOOL)
     check_file_exists(TRACY_CSVEXPROT_TOOL)
 
     captureProcess = None
-    captureCommand = f"{TRACY_CAPTURE_TOOL} -o {TRACY_OUT_FILE} -f -p {port}"
+    captureCommand = (
+        f"{TRACY_CAPTURE_TOOL} -o {PROFILER_LOGS_DIR / TRACY_FILE_NAME} -f -p {port}"
+    )
     print(f"Capture command: {captureCommand}")
     captureProcess = subprocess.Popen(captureCommand, shell=True)
 
     return captureProcess
 
 
-def generate_report():
+def generate_report(binary_perf_folder):
     child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
     timeOut = 15
     timeCount = 0
-    while not os.path.exists(TRACY_OUT_FILE):
+    while not os.path.exists(PROFILER_LOGS_DIR / TRACY_FILE_NAME):
         print(f"tracy capture out not found, will try again in 1 second")
         if timeCount > timeOut:
-            print(f"tracy capture output file {TRACY_OUT_FILE} was not generated")
+            print(
+                f"tracy capture output file {PROFILER_LOGS_DIR / TRACY_FILE_NAME} was not generated"
+            )
             sys.exit(1)
         timeCount += 1
         time.sleep(1)
 
-    with open(TRACY_OPS_FILE, "w") as csvFile:
+    with open(PROFILER_LOGS_DIR / TRACY_OPS_TIMES_FILE_NAME, "w") as csvFile:
         child_call_str = f"-x {','.join(child_calls)}"
         subprocess.run(
-            f"{TRACY_CSVEXPROT_TOOL} -u -p TT_DNN {child_call_str} {TRACY_OUT_FILE}",
+            f"{TRACY_CSVEXPROT_TOOL} -u -p TT_DNN {child_call_str} {PROFILER_LOGS_DIR / TRACY_FILE_NAME}",
             shell=True,
             check=True,
             stdout=csvFile,
             stderr=subprocess.DEVNULL,
         )
 
-    print(f"Host side ops time report generated at {TRACY_OPS_FILE}")
+    print(
+        f"Host side ops time report generated at {PROFILER_LOGS_DIR / TRACY_OPS_TIMES_FILE_NAME}"
+    )
 
-    with open(TRACY_DATA_FILE, "w") as csvFile:
+    with open(PROFILER_LOGS_DIR / TRACY_OPS_DATA_FILE_NAME, "w") as csvFile:
         subprocess.run(
-            f'{TRACY_CSVEXPROT_TOOL} -m -s ";" {TRACY_OUT_FILE}',
+            f'{TRACY_CSVEXPROT_TOOL} -m -s ";" {PROFILER_LOGS_DIR / TRACY_FILE_NAME}',
             shell=True,
             check=True,
             stdout=csvFile,
             stderr=subprocess.DEVNULL,
         )
 
-    print(f"Host side ops data report generated at {TRACY_DATA_FILE}")
-    process_ops(TTRT_PERF_ARTIFACTS, "", True)
+    print(
+        f"Host side ops data report generated at {PROFILER_LOGS_DIR / TRACY_OPS_DATA_FILE_NAME}"
+    )
+    process_ops(binary_perf_folder, "", True)
 
 
 def generate_params_dict(perf_csv_file):
@@ -104,3 +135,55 @@ def generate_params_dict(perf_csv_file):
     # Print or process the JSON strings
     for json_str in json_rows:
         print(json_str)
+
+
+def save_perf_artifacts(perf_folder):
+    profiler_device_side_log_file = (
+        f"{TT_METAL_HOME}/generated/profiler/.logs/{PROFILER_DEVICE_SIDE_LOG}"
+    )
+    profiler_host_device_sync_info_file = (
+        f"{TT_METAL_HOME}/generated/profiler/.logs/{PROFILER_HOST_DEVICE_SYNC_INFO}"
+    )
+    profiler_log_location_record_file = (
+        f"{TT_METAL_HOME}/generated/profiler/.logs/.locations.log"
+    )
+    tracy_ops_times_file = (
+        f"{TT_METAL_HOME}/generated/profiler/.logs/{TRACY_OPS_TIMES_FILE_NAME}"
+    )
+    tracy_ops_data_file = (
+        f"{TT_METAL_HOME}/generated/profiler/.logs/{TRACY_OPS_DATA_FILE_NAME}"
+    )
+    tracy_file = f"{TT_METAL_HOME}/generated/profiler/.logs/{TRACY_FILE_NAME}"
+
+    try:
+        # check_file_exists(profiler_device_side_log_file)
+        # check_file_exists(profiler_host_device_sync_info_file)
+        # check_file_exists(profiler_log_location_record_file)
+        check_file_exists(tracy_ops_times_file)
+        check_file_exists(tracy_ops_data_file)
+        check_file_exists(tracy_file)
+
+        # shutil.copy(profiler_device_side_log_file, os.path.join(perf_folder, "profiler_device_side_log_file.csv"))
+        # print(f"File '{profiler_device_side_log_file}' copied to '{perf_folder}' successfully.")
+
+        # shutil.copy(profiler_host_device_sync_info_file, os.path.join(perf_folder, "profiler_host_device_sync_info_file.csv"))
+        # print(f"File '{profiler_host_device_sync_info_file}' copied to '{perf_folder}' successfully.")
+
+        # shutil.copy(profiler_log_location_record_file, os.path.join(perf_folder, "profiler_log_location_record_file.log"))
+        # print(f"File '{profiler_log_location_record_file}' copied to '{perf_folder}' successfully.")
+
+        shutil.copy(
+            tracy_ops_times_file, os.path.join(perf_folder, "tracy_ops_times_file.csv")
+        )
+        print(f"File '{tracy_ops_times_file}' copied to '{perf_folder}' successfully.")
+
+        shutil.copy(
+            tracy_ops_data_file, os.path.join(perf_folder, "tracy_ops_times_file.csv")
+        )
+        print(f"File '{tracy_ops_data_file}' copied to '{perf_folder}' successfully.")
+
+        shutil.copy(tracy_file, os.path.join(perf_folder, "tracy_file.tracy"))
+        print(f"File '{tracy_file}' copied to '{perf_folder}' successfully.")
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
