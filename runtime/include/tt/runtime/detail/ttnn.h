@@ -35,6 +35,7 @@
 #define FMT_HEADER_ONLY
 #include "ttnn/device.hpp"
 #include "ttnn/operations/binary.hpp"
+#include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core.hpp"
 #include "ttnn/operations/creation.hpp"
 #include "ttnn/operations/matmul.hpp"

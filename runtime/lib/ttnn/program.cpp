@@ -8,6 +8,7 @@
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
+#include "utils.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -24,50 +25,158 @@
 // some reason a static_assert fails when this is called from within our
 // namespace.
 ttnn::Tensor tilize(ttnn::Tensor const &input) {
-  ttnn::Tensor unsqueezeTensor = ttnn::unsqueeze_to_4D(input);
-  return ttnn::to_layout(unsqueezeTensor, ttnn::TILE_LAYOUT, std::nullopt,
+  return ttnn::to_layout(input, ::ttnn::TILE_LAYOUT, std::nullopt, std::nullopt,
+                         (Device *)nullptr);
+}
+
+ttnn::Tensor untilize(ttnn::Tensor const &input) {
+  return ttnn::to_layout(input, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
                          std::nullopt, (Device *)nullptr);
 }
 
 namespace tt::runtime::ttnn {
+
+static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
+                                      const ::ttnn::DataType &targetDataType) {
+  const ::ttnn::StorageType storageType = input.storage_type();
+  if (storageType == ::tt::tt_metal::StorageType::BORROWED) {
+    return ::ttnn::to_dtype(input, targetDataType);
+  } else if (storageType == ::tt::tt_metal::StorageType::DEVICE) {
+    if (input.get_layout() != ::ttnn::TILE_LAYOUT) {
+      // typecast op requires tilized tensor
+      ::ttnn::Tensor converted =
+          ::ttnn::typecast(::tilize(input), targetDataType);
+      // untilize and return
+      return ::untilize(converted);
+    }
+    return ::ttnn::typecast(input, targetDataType);
+  } else {
+    throw runtime_error("Unsupported storage type");
+  }
+}
+
+/* TODO: Blocked by issue #272, ideal flow is to determine tilize/untilize with
+ * tile_shape */
+static ::ttnn::Tensor
+updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
+                        const ::ttnn::DataType targetDataType,
+                        const bool shouldTilize, const bool shouldUntilize) {
+  ::ttnn::Tensor outputTensor = inputTensor;
+  const bool shouldConvertDataType = inputTensor.get_dtype() != targetDataType;
+  // const int targetTileX = targetTileShape->x();
+  // const int targetTileY = targetTileShape->y();
+  // const bool shouldTilize =
+  //     targetTileX == 32 and targetTileY == 32 and
+  //     inputTensor.get_layout() == ::ttnn::ROW_MAJOR_LAYOUT;
+  // const bool shouldUntilize = (targetTileX != 32 or targetTileY != 32) and
+  //                             inputTensor.get_layout() ==
+  //                             ::ttnn::TILE_LAYOUT;
+  if (shouldTilize) {
+    outputTensor = ::tilize(outputTensor);
+  } else if (shouldUntilize) {
+    outputTensor = ::untilize(outputTensor);
+  }
+  if (shouldConvertDataType) {
+    outputTensor = convertDataType(outputTensor, targetDataType);
+  }
+  return outputTensor;
+}
+
+// TODO: right now hardcoding tilize/untilize, should determine with tile shape
+// blocked by issue #272
 static void
 run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
-  if (op->out()->desc()->layout()->memory_desc()->memory_space() ==
-      ::tt::target::MemorySpace::System) {
-    auto &inputTensor = *liveTensors.at(op->in0()->global_id());
-    auto cpu = inputTensor.cpu();
-    ::ttnn::Tensor untilized;
-    if (op->out()->desc()->layout()->memory_desc()->data_type() ==
-        ::tt::target::DataType::Float32) {
-      untilized = ::tt::tt_metal::tensor_impl::to_layout<float>(
-          cpu, ::ttnn::ROW_MAJOR_LAYOUT);
-    } else if (op->out()->desc()->layout()->memory_desc()->data_type() ==
-               ::tt::target::DataType::BFloat16) {
-      untilized = ::tt::tt_metal::tensor_impl::to_layout<bfloat16>(
-          cpu, ::ttnn::ROW_MAJOR_LAYOUT);
-    } else {
-      throw std::runtime_error("Unsupported data type");
+  const ::ttnn::Tensor &inputTensor = *liveTensors.at(op->in0()->global_id());
+  assert(inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED or
+         inputTensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE);
+
+  const ::tt::target::Dim2d *targetTileShape =
+      op->out()->desc()->layout()->memory_desc()->tile_shape();
+  TT_FATAL(utils::isValidTileShape(targetTileShape),
+           "Invalid tile shape ({}, {})", targetTileShape->x(),
+           targetTileShape->y());
+
+  ::tt::target::DataType targetDataType =
+      op->out()->desc()->layout()->memory_desc()->data_type();
+  ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(targetDataType);
+
+  const ::tt::target::MemorySpace targetMemorySpace =
+      op->out()->desc()->layout()->memory_desc()->memory_space();
+
+  switch (targetMemorySpace) {
+  case ::tt::target::MemorySpace::System:
+  case ::tt::target::MemorySpace::SystemMMIO: {
+    ::ttnn::Tensor result;
+    if (inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+      result =
+          updateLayoutAndDataType(inputTensor, targetDataTypeTTNN, false, true);
+    } else if (inputTensor.storage_type() ==
+               ::tt::tt_metal::StorageType::DEVICE) {
+      result = updateLayoutAndDataType(inputTensor.cpu(), targetDataTypeTTNN,
+                                       false, true);
     }
-    auto &outputTensor = *liveTensors.at(op->out()->global_id());
-    void *src = ::tt::tt_metal::get_raw_host_data_ptr(untilized);
+    ::ttnn::Tensor &outputTensor = *liveTensors.at(op->out()->global_id());
+    void *src = ::tt::tt_metal::get_raw_host_data_ptr(result);
     void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
-    std::uint32_t size = untilized.volume() * untilized.element_size();
+    std::uint32_t size = result.volume() * result.element_size();
     std::memcpy(dst, src, size);
-    return;
+    break;
   }
-  bool isL1 = op->in0()->desc()->layout()->memory_desc()->memory_space() ==
-              ::tt::target::MemorySpace::DeviceL1;
-  const auto memoryConfig =
-      isL1 ? ::ttnn::L1_MEMORY_CONFIG : ::ttnn::DRAM_MEMORY_CONFIG;
-  auto &inputTensor = *liveTensors.at(op->in0()->global_id());
-  ::ttnn::Tensor tilized = ::tilize(inputTensor);
-  auto deviceTensor = ::ttnn::to_device(tilized, &device, memoryConfig);
-  tensorPool.push_back(deviceTensor);
-  // auto [iter, inserted] =
-  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
-  // assert(inserted && "Duplicate output tensor");
+  case ::tt::target::MemorySpace::DeviceDRAM: {
+    ::tt::tt_metal::MemoryConfig memConfig = ::ttnn::DRAM_MEMORY_CONFIG;
+    if (inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+      ::ttnn::Tensor result = inputTensor;
+      bool shouldTilize = true;
+      // device tilize requires BFLOAT16, if not then tilize on host
+      if (result.get_dtype() != ::ttnn::DataType::BFLOAT16) {
+        result = ::tilize(result);
+        shouldTilize = false;
+      }
+      result = ::ttnn::to_device(result, &device, memConfig);
+      result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
+                                       false);
+      tensorPool.push_back(result);
+      liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    } else if (inputTensor.storage_type() ==
+               ::tt::tt_metal::StorageType::DEVICE) {
+      ::ttnn::Tensor result = updateLayoutAndDataType(
+          inputTensor, targetDataTypeTTNN, false, false);
+      result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
+      tensorPool.push_back(result);
+      liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    }
+    break;
+  }
+  // Currently similar to ::tt::target::MemorySpace::DeviceDRAM
+  // But will need it's own code path when we add support for sharding
+  case ::tt::target::MemorySpace::DeviceL1: {
+    ::tt::tt_metal::MemoryConfig memConfig = ::ttnn::L1_MEMORY_CONFIG;
+    if (inputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+      ::ttnn::Tensor result = inputTensor;
+      bool shouldTilize = true;
+      // device tilize requires BFLOAT16, if not then tilize on host
+      if (result.get_dtype() != ::ttnn::DataType::BFLOAT16) {
+        result = ::tilize(result);
+        shouldTilize = false;
+      }
+      result = ::ttnn::to_device(result, &device, memConfig);
+      result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
+                                       false);
+      tensorPool.push_back(result);
+      liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    } else if (inputTensor.storage_type() ==
+               ::tt::tt_metal::StorageType::DEVICE) {
+      ::ttnn::Tensor result = updateLayoutAndDataType(
+          inputTensor, targetDataTypeTTNN, false, false);
+      result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
+      tensorPool.push_back(result);
+      liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+    }
+    break;
+  }
+  }
 }
 
 static void

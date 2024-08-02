@@ -76,7 +76,7 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                   input->desc()->shape()->end()};
     desc.stride = {input->desc()->layout()->stride()->begin(),
                    input->desc()->layout()->stride()->end()};
-    desc.itemsize = utils::dataTypeElementSize(
+    desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         input->desc()->layout()->memory_desc()->data_type());
     desc.dataType = input->desc()->layout()->memory_desc()->data_type();
     inputs.push_back(desc);
@@ -94,7 +94,7 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                   output->desc()->shape()->end()};
     desc.stride = {output->desc()->layout()->stride()->begin(),
                    output->desc()->layout()->stride()->end()};
-    desc.itemsize = utils::dataTypeElementSize(
+    desc.itemsize = ::tt::runtime::utils::dataTypeElementSize(
         output->desc()->layout()->memory_desc()->data_type());
     desc.dataType = output->desc()->layout()->memory_desc()->data_type();
     outputs.push_back(desc);
@@ -210,7 +210,7 @@ Flatbuffer Flatbuffer::loadFromPath(char const *path) {
 
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
-  auto buffer = utils::malloc_shared(size);
+  auto buffer = ::tt::runtime::utils::malloc_shared(size);
   fbb.read(static_cast<char *>(buffer.get()), size);
   return Flatbuffer(buffer);
 }

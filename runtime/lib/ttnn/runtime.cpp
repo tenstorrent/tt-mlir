@@ -5,6 +5,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/utils.h"
+#include "utils.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -71,7 +72,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
   }
   uint8_t *buf = fbb.GetBufferPointer();
   auto size = fbb.GetSize();
-  auto handle = utils::malloc_shared(size);
+  auto handle = ::tt::runtime::utils::malloc_shared(size);
   std::memcpy(handle.get(), buf, size);
   ::ttnn::close_device(device);
   return std::make_pair(SystemDesc(handle), chipIds);
@@ -104,25 +105,6 @@ static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements,
   }
 }
 
-static ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
-  switch (dataType) {
-  case ::tt::target::DataType::Float32:
-    return ::ttnn::DataType::FLOAT32;
-  // case ::tt::target::DataType::Float16:
-  //   return ::ttnn::DataType::FLOAT16;
-  case ::tt::target::DataType::BFloat16:
-    return ::ttnn::DataType::BFLOAT16;
-  case ::tt::target::DataType::UInt32:
-    return ::ttnn::DataType::UINT32;
-  case ::tt::target::DataType::UInt16:
-    return ::ttnn::DataType::UINT16;
-  // case ::tt::target::DataType::UInt8:
-  //   return ::ttnn::DataType::UINT8;
-  default:
-    throw std::runtime_error("Unsupported data type");
-  }
-}
-
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
@@ -130,7 +112,7 @@ Tensor createTensor(std::shared_ptr<void> data,
   std::uint32_t numElements = shape[0] * stride[0];
   auto tensor = std::make_shared<::ttnn::Tensor>(
       createStorage(data.get(), numElements, dataType), shape,
-      toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
+      utils::toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
   return Tensor(tensor, data);
 }
 
