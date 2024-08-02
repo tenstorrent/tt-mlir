@@ -119,7 +119,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Reduction ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::SumOp>>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::AvgOp>>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

@@ -45,7 +45,6 @@ ExternalProject_Add(
     -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
     -DLLVM_ENABLE_PROJECTS=mlir
-    -DLLVM_TARGETS_TO_BUILD=host
     -DLLVM_ENABLE_RTTI=ON
     -DLLVM_INSTALL_UTILS=ON
     # Build shared libraries
