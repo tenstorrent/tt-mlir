@@ -33,7 +33,7 @@ cmake --build build
 ```
 
 > - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
-> - To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`
+> - To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` and `export ENABLE_TRACY=1` to environment before building
 > - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
 > - To accelerate builds further, if python bindings aren't needed, `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`. For some reason the python bindings link step is very slow.
 > - TTNN build is automatically integrated / handled by tt-mlir cmake build system.  For debugging and further information regarding the TTNN backend build step, please refer to [TTNN Documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html).
@@ -46,11 +46,11 @@ cmake --build build
 >   For more information, please refer to
 >   [TT-NN and TT-Metailium installation documentation](https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/installing.html#step-4-install-and-start-using-tt-nn-and-tt-metalium).
 
-| OS | Offline Compiler Only | Runtime Enabled Build |
-|----|-----------------------|-----------------------|
-| Ubuntu 22.04  | ✅ | ❌ |
-| Ubuntu 20.04  | ✅ | ✅ |
-| MacOS         | ✅ | ❌ |
+| OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
+|----|-----------------------|-----------------------| -----------------------------|
+| Ubuntu 22.04  | ✅ | ❌ | ❌ |
+| Ubuntu 20.04  | ✅ | ✅ | ✅ |
+| MacOS         | ✅ | ❌ | ❌ |
 
 ## Test
 

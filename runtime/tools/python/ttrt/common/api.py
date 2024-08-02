@@ -44,19 +44,25 @@ def read(args):
     # acquire parameters
     arg_binary = args.binary
     arg_clean_artifacts = args.clean_artifacts
+    arg_save_artifacts = args.save_artifacts
 
     # preprocessing
     if os.path.isdir(arg_binary):
+        print("provided directory of flatbuffers")
         binaries = find_ttnn_files(arg_binary)
     else:
         binaries.append(arg_binary)
 
     if arg_clean_artifacts:
+        print("cleaning artifacts")
         clean_artifacts()
 
-    setup_artifacts(binaries)
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts(binaries)
 
     # constraint checking
+    print("executing constraint for all provided flatbuffers")
     for binary in binaries:
         check_file_exists(binary)
         fbb = ttrt.binary.load_from_path(binary)
@@ -64,12 +70,15 @@ def read(args):
         fbb_list.append(fbb)
 
     # execution
+    print("executing action for all provided flatbuffers")
     for fbb in fbb_list:
         read_actions[args.section](fbb)
 
     # save artifacts
-    for binary in binaries:
-        copy_ttnn_binary_into_artifact(binary)
+    if arg_save_artifacts:
+        print("saving artifacts")
+        for binary in binaries:
+            copy_ttnn_binary_into_artifact(binary)
 
 
 """
@@ -90,22 +99,28 @@ def run(args):
 
     # acquire parameters
     arg_binary = args.binary
-    arg_program_index = args.program_index
+    arg_program_index = int(args.program_index)
     arg_clean_artifacts = args.clean_artifacts
     arg_loops = int(args.loops)
+    arg_save_artifacts = args.save_artifacts
 
     # preprocessing
     if os.path.isdir(arg_binary):
+        print("provided directory of flatbuffers")
         binaries = find_ttnn_files(arg_binary)
     else:
         binaries.append(arg_binary)
 
     if arg_clean_artifacts:
+        print("cleaning artifacts")
         clean_artifacts()
 
-    setup_artifacts(binaries)
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts(binaries)
 
     # constraint checking
+    print("executing constraint for all provided flatbuffers")
     for binary in binaries:
         check_file_exists(binary)
         fbb = ttrt.binary.load_binary_from_path(binary)
@@ -113,12 +128,13 @@ def run(args):
         assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
         fbb_dict = ttrt.binary.as_dict(fbb)
         fbb_list.append((os.path.splitext(os.path.basename(binary))[0], fbb, fbb_dict))
-        program_index = int(arg_program_index)
+        program_index = arg_program_index
         assert program_index <= len(
             fbb_dict["programs"]
         ), "args.program_index out of range"
 
     # execution
+    print("executing action for all provided flatbuffers")
     for (binary_name, fbb, fbb_dict) in fbb_list:
         torch_inputs[binary_name] = []
         torch_outputs[binary_name] = []
@@ -179,23 +195,27 @@ def run(args):
         print("outputs:\n", torch_outputs)
 
     # save artifacts
-    for binary in binaries:
-        copy_ttnn_binary_into_artifact(binary)
-        binary_name = os.path.splitext(os.path.basename(binary))[0]
-        torch_input_tensors = torch_inputs[binary_name]
-        torch_output_tensors = torch_outputs[binary_name]
+    if arg_save_artifacts:
+        print("saving artifacts")
+        for binary in binaries:
+            copy_ttnn_binary_into_artifact(binary)
+            binary_name = os.path.splitext(os.path.basename(binary))[0]
+            torch_input_tensors = torch_inputs[binary_name]
+            torch_output_tensors = torch_outputs[binary_name]
 
-        for i, input in enumerate(torch_input_tensors):
-            save_torch_tensor_into_ttrt_artifacts(input, f"{binary_name}/input_{i}.pt")
+            for i, input in enumerate(torch_input_tensors):
+                save_torch_tensor_into_ttrt_artifacts(
+                    input, f"{binary_name}/input_{i}.pt"
+                )
 
-        for i, output in enumerate(torch_output_tensors):
-            save_torch_tensor_into_ttrt_artifacts(
-                output, f"{binary_name}/output_{i}.pt"
+            for i, output in enumerate(torch_output_tensors):
+                save_torch_tensor_into_ttrt_artifacts(
+                    output, f"{binary_name}/output_{i}.pt"
+                )
+
+            save_system_desc_into_ttrt_artifacts(
+                system_desc, f"{binary_name}/system_desc.ttsys"
             )
-
-        save_system_desc_into_ttrt_artifacts(
-            system_desc, f"{binary_name}/system_desc.ttsys"
-        )
 
 
 """
@@ -214,16 +234,20 @@ def query(args):
     arg_system_desc = args.system_desc
     arg_system_desc_as_json = args.system_desc_as_json
     arg_system_desc_as_dict = args.system_desc_as_dict
-    args_save_system_desc = args.save_system_desc
     arg_clean_artifacts = args.clean_artifacts
+    arg_save_artifacts = args.save_artifacts
 
     # preprocessing
     if arg_clean_artifacts:
+        print("cleaning artifacts")
         clean_artifacts()
 
-    setup_artifacts()
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts()
 
     # execution
+    print("executing action to get system desc")
     system_desc = ttrt.runtime.get_current_system_desc()[0]
 
     if arg_system_desc or arg_system_desc_as_json:
@@ -232,7 +256,9 @@ def query(args):
         print(system_desc_as_dict(system_desc))
 
     # save artifacts
-    save_system_desc_into_ttrt_artifacts(system_desc, args_save_system_desc)
+    if arg_save_artifacts:
+        print("saving artifacts")
+        save_system_desc_into_ttrt_artifacts(system_desc, "system_desc.ttsys")
 
 
 """
@@ -247,34 +273,44 @@ def perf(args):
 
     # acquire parameters
     arg_binary = args.binary
-    arg_perf_csv = args.perf_csv
+    arg_program_index = int(args.program_index)
     arg_clean_artifacts = args.clean_artifacts
+    arg_perf_csv = args.perf_csv
     arg_loops = int(args.loops)
+    arg_save_artifacts = args.save_artifacts
+    arg_device = args.device
+    arg_generate_params = args.generate_params
 
     # preprocessing
     if os.path.isdir(arg_binary):
+        print("provided directory of flatbuffers")
         binaries = find_ttnn_files(arg_binary)
     else:
         binaries.append(arg_binary)
 
     if arg_clean_artifacts:
+        print("cleaning artifacts")
         clean_artifacts()
 
-    setup_artifacts(binaries)
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts(binaries)
 
     # constraint checking
+    print("executing constraint for all provided flatbuffers")
     if not perf_trace:
         print("Perf mode is not enabled. Please rebuild tt-mlir with perf mode")
         sys.exit(1)
 
-    if args.generate_params:
+    if arg_generate_params:
         check_file_exists(arg_perf_csv)
 
     for binary in binaries:
         check_file_exists(binary)
 
     # execution
-    if args.generate_params:
+    print("executing action for all provided flatbuffers")
+    if arg_generate_params:
         generate_params_dict(arg_perf_csv)
     else:
         for binary in binaries:
@@ -291,17 +327,18 @@ def perf(args):
             envVars["TRACY_PORT"] = port
             envVars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
-            if args.device:
+            if arg_device:
                 envVars["TT_METAL_DEVICE_PROFILER"] = "1"
-            else:
-                if "TT_METAL_DEVICE_PROFILER" in envVars.keys():
-                    del envVars["TT_METAL_DEVICE_PROFILER"]
 
             # run perf artifact setup
             captureProcess = run_perf_artifact_setup(port)
 
             # generate test command to execute
-            testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops}"
+            testCommandOptions = ""
+            if arg_save_artifacts:
+                testCommandOptions += f"--save-artifacts "
+
+            testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops} --program-index {arg_program_index} {testCommandOptions}"
             testProcess = subprocess.Popen(
                 [testCommand], shell=True, env=envVars, preexec_fn=os.setsid
             )
