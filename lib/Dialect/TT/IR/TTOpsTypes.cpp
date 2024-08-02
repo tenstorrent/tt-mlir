@@ -53,13 +53,14 @@ static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
                                     ::llvm::ArrayRef<int64_t> shardShape,
                                     ::mlir::Type elementType,
                                     MemorySpace memorySpace) {
+  ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
   if (mlir::isa<TileType>(elementType)) {
-    shardShape = mlir::cast<TileType>(elementType)
-                     .getTiledShape(::llvm::SmallVector<int64_t>(shardShape));
+    scalarShardShape =
+        mlir::cast<TileType>(elementType).getTiledShape(scalarShardShape);
   }
   return mlir::MemRefType::get(
-      shardShape, elementType,
-      mlir::AffineMap::getMultiDimIdentityMap(shardShape.size(), context),
+      scalarShardShape, elementType,
+      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
       MemorySpaceAttr::get(context, memorySpace));
 }
 
@@ -339,7 +340,7 @@ DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     }
   }
 
-  auto physicalGridMapping = grid.getPhysicalGridMapping();
+  auto physicalGridMapping = grid.getMapping();
   if (physicalGridMapping.getNumResults() != 3) {
     emitError() << "expected physical grid mapping to have 3 results";
     return ::mlir::failure();
@@ -364,6 +365,51 @@ TileType::getTiledShape(SmallVector<int64_t> scalarShape) const {
   scalarShape[scalarShape.size() - 1] =
       (scalarShape[scalarShape.size() - 1] + getWidth() - 1) / getWidth();
   return scalarShape;
+}
+
+uint64_t TileType::getSizeBytes() const {
+  switch (getDataType()) {
+  case DataType::Float32:
+    return getHeight() * getWidth() * 4;
+  case DataType::Float16:
+    return getHeight() * getWidth() * 2;
+  case DataType::BFloat16:
+    return getHeight() * getWidth() * 2;
+  case DataType::BFP_Float8:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 1024;
+  case DataType::BFP_BFloat8:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 1024;
+  case DataType::BFP_Float4:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 512;
+  case DataType::BFP_BFloat4:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 512;
+  case DataType::BFP_Float2:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 256;
+  case DataType::BFP_BFloat2:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 256;
+  case DataType::UInt32:
+    return getHeight() * getWidth() * 4;
+  case DataType::UInt16:
+    return getHeight() * getWidth() * 2;
+  case DataType::UInt8:
+    return getHeight() * getWidth();
+  }
+}
+
+DeviceAttr mlir::tt::getCurrentScopeDevice(mlir::Operation *op) {
+  while (op) {
+    if (auto device = op->getAttrOfType<DeviceAttr>(DeviceAttr::name)) {
+      return device;
+    }
+    op = op->getParentOp();
+  }
+  return nullptr;
 }
 
 void TTDialect::registerTypes() {

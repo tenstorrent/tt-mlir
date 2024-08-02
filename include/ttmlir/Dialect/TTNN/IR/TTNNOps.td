@@ -124,6 +124,13 @@ def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
     }];
 }
 
+def TTNN_AvgOp : TTNN_ReductionOp<"avg"> {
+  let summary = "Average reduction op.";
+  let description = [{
+    Average reduction op.
+  }];
+}
+
 def TTNN_ReluOp : TTNN_ElementwiseOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{

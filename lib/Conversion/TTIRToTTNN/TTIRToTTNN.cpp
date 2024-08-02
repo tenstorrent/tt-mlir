@@ -144,6 +144,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
            ElementwiseBinaryOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
+           ReductionOpConversionPattern<ttir::AvgOp, ttnn::AvgOp>,
            SoftmaxOpConversionPattern,
            MatmulOpConversionPattern
            >(typeConverter, ctx);

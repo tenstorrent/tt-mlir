@@ -3,39 +3,64 @@ include "program.fbs";
 namespace tt.target.metal;
 
 
-table DispatchCommand {
+table EnqueueProgramCommand {
   operands: [TensorRef];
-  programs: [DispatchProgram];
+  program: ProgramDesc;
 }
 
-table HostWriteCommand {
+table EnqueueWriteBufferCommand {
   src: TensorRef;
   dst: TensorRef;
 }
 
-table HostReadCommand {
+table EnqueueReadBufferCommand {
   src: TensorRef;
   dst: TensorRef;
 }
 
-table HostAllocCommand {
-  src: TensorRef;
+table CreateBufferCommand {
+  ref: TensorRef;
 }
 
-table HostDeallocCommand {
-  src: TensorRef;
+table DeallocateBufferCommand {
+  ref: TensorRef;
+}
+
+table CreateEventCommand {
+  ref: EventRef;
+}
+
+table EnqueueRecordEventCommand {
+  ref: EventRef;
+}
+
+table EnqueueWaitForEventCommand {
+  ref: EventRef;
+}
+
+table EventSynchronizeCommand {
+  ref: EventRef;
+}
+
+table EventQueryCommand {
+  ref: EventRef;
 }
 
 table FinishCommand {
 }
 
 union CommandType {
-  dispatch: DispatchCommand,
-  host_write: HostWriteCommand,
-  host_read: HostReadCommand,
-  host_alloc: HostAllocCommand,
-  host_dealloc: HostDeallocCommand,
-  finish: FinishCommand,
+  EnqueueProgramCommand,
+  EnqueueWriteBufferCommand,
+  EnqueueReadBufferCommand,
+  CreateBufferCommand,
+  DeallocateBufferCommand,
+  CreateEventCommand,
+  EnqueueRecordEventCommand,
+  EnqueueWaitForEventCommand,
+  EventSynchronizeCommand,
+  EventQueryCommand,
+  FinishCommand,
 }
 
 table Command {
@@ -45,7 +70,5 @@ table Command {
 
 table CommandQueue {
   name: string;
-  inputs: [TensorRef];
-  outputs: [TensorRef];
   commands: [Command];
 }
