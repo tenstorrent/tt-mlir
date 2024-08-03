@@ -16,6 +16,7 @@ namespace mlir::tt {
 void registerAllDialects(mlir::DialectRegistry &registry);
 void registerAllPasses();
 
+void HelloWorld();
 } // namespace mlir::tt
 
 #endif

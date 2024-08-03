@@ -46,3 +46,8 @@ void mlir::tt::registerAllPasses() {
 
   mlir::tt::ttnn::registerTTNNPipelines();
 }
+
+#include <iostream>
+void mlir::tt::HelloWorld() {
+  std::cout << "Hello World" << std::endl;
+}
