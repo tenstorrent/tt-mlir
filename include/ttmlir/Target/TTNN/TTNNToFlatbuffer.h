@@ -17,6 +17,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op);
 // This function signature is required in order to register the conversion in
 // mlir translation framework
 LogicalResult translateTTNNToFlatbuffer(Operation *op, llvm::raw_ostream &os);
+
+
 } // namespace mlir::tt::ttnn
+void HelloWorld();
 
 #endif

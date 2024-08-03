@@ -275,4 +275,11 @@ LogicalResult translateTTNNToFlatbuffer(Operation *op, llvm::raw_ostream &os) {
   os.write(reinterpret_cast<char const *>(data.get()), size);
   return success();
 }
+
+
 } // namespace mlir::tt::ttnn
+
+#include <iostream>
+void HelloWorld() {
+  std::cout << "Hello World" << std::endl;
+}
