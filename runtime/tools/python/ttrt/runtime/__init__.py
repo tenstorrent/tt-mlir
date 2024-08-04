@@ -13,6 +13,7 @@ try:
         close_device,
         submit,
         create_tensor,
+        wait,
     )
 except ModuleNotFoundError:
     raise ImportError(

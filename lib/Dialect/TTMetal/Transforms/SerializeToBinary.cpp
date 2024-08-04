@@ -222,7 +222,8 @@ public:
 
     std::vector<::flatbuffers::Offset<::tt::target::metal::DeviceProgram>>
         devicePrograms = {
-            ::tt::target::metal::CreateDeviceProgramDirect(fbb, &commandQueues),
+            ::tt::target::metal::CreateDeviceProgramDirect(
+                fbb, &cqBuilder.inputs, &cqBuilder.outputs, &commandQueues),
         };
 
     std::vector<::flatbuffers::Offset<::tt::target::metal::Program>> programs =
