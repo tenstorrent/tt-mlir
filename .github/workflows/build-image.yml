@@ -1,10 +1,13 @@
 name: Build and Publish Docker Image
 
 on:
-  # push:
-  #   paths:
-  #     - '.github/Dockerfile'
+  push:
+    paths:
+      - '.github/Dockerfile'
   workflow_dispatch:
+  workflow_call:
+    paths:
+      - '.github/Dockerfile'
 
 jobs:
   build:
