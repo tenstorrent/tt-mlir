@@ -237,11 +237,6 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
-  func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
-  assert(entry && "Expected an entry function");
-  Program<::tt::target::ttnn::Operation> program =
-      funcOpToProgram<::tt::target::ttnn::Operation>(cache, entry,
-                                                     emitTTNNOperation);
 
   auto mlir = toDebugInfo(fbb, "ttnn", module);
   std::string cpp;
@@ -250,13 +245,16 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   (void)result;
 
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
-  auto programOffset = ::tt::target::ttnn::CreateProgramDirect(
-      fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-      debugInfo);
 
-  std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs = {
-      programOffset,
-  };
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
+  module->walk([&](func::FuncOp func) {
+    Program<::tt::target::ttnn::Operation> program =
+        funcOpToProgram<::tt::target::ttnn::Operation>(cache, func,
+                                                       emitTTNNOperation);
+    programs.push_back(::tt::target::ttnn::CreateProgramDirect(
+        fbb, program.name, &program.inputs, &program.outputs, &program.ops,
+        debugInfo));
+  });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
       fbb, &binaryVersion, ::ttmlir::getGitHash(), systemDesc, &programs);
