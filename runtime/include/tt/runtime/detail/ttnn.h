@@ -32,6 +32,7 @@
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wpessimizing-move"
+#pragma clang diagnostic ignored "-Wparentheses"
 #define FMT_HEADER_ONLY
 #include "ttnn/device.hpp"
 #include "ttnn/operations/binary.hpp"
