@@ -70,6 +70,11 @@ def main():
         default=1,
         help="number of loops",
     )
+    run_parser.add_argument(
+        "--golden",
+        action="store_true",
+        help="run golden pytorch backend",
+    )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
 

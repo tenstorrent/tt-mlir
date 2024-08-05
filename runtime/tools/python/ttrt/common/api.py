@@ -19,6 +19,7 @@ import shutil
 import atexit
 
 from ttrt.common.util import *
+from ttrt.common.golden import *
 
 try:
     from ttrt.common.perf_trace import *
@@ -177,6 +178,10 @@ def run(args):
             ttrt.runtime.submit(device, fbb, 0, total_inputs[loop], total_outputs[loop])
             print(f"finished loop={loop}")
         print("outputs:\n", torch_outputs)
+
+        golden_outputs = []
+        for loop in range(arg_loops):
+            golden_outputs.append(run_golden(total_inputs[loop], fbb_dict, program_index))
 
     # save artifacts
     for binary in binaries:
