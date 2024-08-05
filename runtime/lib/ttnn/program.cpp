@@ -275,8 +275,8 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
     std::list<::ttnn::Tensor> &tensorPool) {
   auto &lhs = *liveTensors.at(op->in0()->global_id());
   auto &rhs = *liveTensors.at(op->in1()->global_id());
-  tensorPool.push_back(
-      ::ttnn::operations::matmul::matmul(lhs, rhs, std::nullopt, ::tt::operations::primary::Matmul{}));
+  tensorPool.push_back(::ttnn::operations::matmul::matmul(
+      lhs, rhs, std::nullopt, ::tt::operations::primary::Matmul{}));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 // ANCHOR_END: adding_an_op_matmul_runtime
