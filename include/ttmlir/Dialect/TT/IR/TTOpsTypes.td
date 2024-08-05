@@ -100,6 +100,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
+    static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
   }];
 }
 
