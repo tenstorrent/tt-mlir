@@ -80,6 +80,11 @@ def main():
         action="store_true",
         help="save all artifacts during run",
     )
+    run_parser.add_argument(
+        "--seed",
+        default=0,
+        help="Seed for random number generator",
+    )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
 
