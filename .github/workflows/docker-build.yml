@@ -51,8 +51,8 @@ jobs:
         source env/activate
         cmake -G Ninja \
         -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=clang++ \
-        -DCMAKE_C_COMPILER=clang \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
         -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
