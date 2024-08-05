@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include <mlir/IR/BuiltinTypes.h>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -114,4 +115,48 @@
   }
 
   return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::ConstantOp::verify() {
+    // // Check if the result is a tensor type
+    // auto tensorType = mlir::dyn_cast_or_null<RankedTensorType>(getResult().getType());
+    // if (!tensorType) {
+    //     return emitError("Result must be of ranked tensor type");
+    // }
+
+    // // Ensure the tensor is not empty.
+    // if (mlir::isa<mlir::NoneType>(tensorType.getElementType())) {
+    //     return emitError("Result tensor cannot have NoneType element type");
+    // }
+
+    // // Get the value attribute
+    // auto valueAttr = getValue();
+    // if (!valueAttr) {
+    //     return emitError("value attribute must be specified");
+    // }
+
+    // // Check if valueAttr is an integer or float
+    // if (valueAttr.isa<IntegerAttr>()) {
+    //     auto intAttr = valueAttr.cast<IntegerAttr>();
+    //     auto elementType = tensorType.getElementType().dyn_cast<IntegerType>();
+    //     if (!elementType) {
+    //         return emitError("result tensor must have integer element type for integer constants");
+    //     }
+    //     if (intAttr.getType() != elementType) {
+    //         return emitError("value type does not match tensor element type for integer constants");
+    //     }
+    // } else if (valueAttr.isa<FloatAttr>()) {
+    //     auto floatAttr = valueAttr.cast<FloatAttr>();
+    //     auto elementType = tensorType.getElementType().dyn_cast<FloatType>();
+    //     if (!elementType) {
+    //         return emitError("result tensor must have float element type for float constants");
+    //     }
+    //     if (floatAttr.getType() != elementType) {
+    //         return emitError("value type does not match tensor element type for float constants");
+    //     }
+    // } else {
+    //     return emitError("value attribute must be either an integer or float");
+    // }
+
+    return success();
 }

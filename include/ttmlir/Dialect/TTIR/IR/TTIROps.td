@@ -13,6 +13,8 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/BuiltinAttributes.td"
+include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
@@ -258,6 +260,33 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let hasVerifier = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
+
+def TTIR_ConstantOp : TTIR_Op<"constant"> {
+    let summary = "Constant-value filled tensor.";
+    
+    let description = [{
+      An operation that represents a constant tensor that is initialized with scalar integer or
+      float value, where the result tensor is filled with this scalar value.
+
+      It is expected that the `value` type matches the type of elements of `result` tensor.
+
+      Example:
+
+      ```mlir
+      // Integer constant example.
+      %1 = "ttir.constant"() {value = 42 : i32} : () -> tensor<2x3xi32>
+
+      // Float constant example.
+      %2 = "ttir.constant"() {value = 3.14 : f32} : () -> tensor<2x3xf32>
+      ```
+    }];
+
+    let arguments = (ins TypedAttrInterface:$value);
+
+    let results = (outs AnyRankedTensor:$result); 
+
+    let hasVerifier = 1;
+}
 
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)
