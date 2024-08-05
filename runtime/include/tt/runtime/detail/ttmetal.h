@@ -38,6 +38,7 @@
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
+#pragma clang diagnostic ignored "-Wdeprecated-this-capture"
 #define FMT_HEADER_ONLY
 #include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop

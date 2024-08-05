@@ -12,7 +12,8 @@ namespace mlir::tt {
 
 MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
                              uint32_t dataType) {
-  return wrap(TileType::get(unwrap(ctx), height, width,
+  return wrap(TileType::get(unwrap(ctx),
+                            SmallVector<std::int64_t>{height, width},
                             static_cast<tt::DataType>(dataType)));
 }
 

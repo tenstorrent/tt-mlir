@@ -13,6 +13,75 @@
 
 namespace mlir::ttmlir::python {
 void populateTTModule(py::module &m) {
+  py::enum_<tt::DataType>(m, "DataType")
+      .value("Float32", tt::DataType::Float32)
+      .value("Float16", tt::DataType::Float16)
+      .value("BFloat16", tt::DataType::BFloat16)
+      .value("BFP_Float8", tt::DataType::BFP_Float8)
+      .value("BFP_BFloat8", tt::DataType::BFP_BFloat8)
+      .value("BFP_Float4", tt::DataType::BFP_Float4)
+      .value("BFP_BFloat4", tt::DataType::BFP_BFloat4)
+      .value("BFP_Float2", tt::DataType::BFP_Float2)
+      .value("BFP_BFloat2", tt::DataType::BFP_BFloat2)
+      .value("UInt32", tt::DataType::UInt32)
+      .value("UInt16", tt::DataType::UInt16)
+      .value("UInt8", tt::DataType::UInt8);
+
+  py::enum_<tt::MemorySpace>(m, "MemorySpace")
+      .value("System", tt::MemorySpace::System)
+      .value("SystemMMIO", tt::MemorySpace::SystemMMIO)
+      .value("DeviceDRAM", tt::MemorySpace::DeviceDRAM)
+      .value("DeviceL1", tt::MemorySpace::DeviceL1)
+      .value("MIN", tt::MemorySpace::System)
+      .value(
+          "MAX",
+          tt::MemorySpace::DeviceL1); // Referenced from Generated MemorySpace
+
+  py::enum_<tt::OOBVal>(m, "OOBVal")
+      .value("Zero", tt::OOBVal::Zero)
+      .value("One", tt::OOBVal::One)
+      .value("Undef", tt::OOBVal::Undef)
+      .value("Inf", tt::OOBVal::Inf)
+      .value("NegInf", tt::OOBVal::NegInf)
+      .value("MIN", tt::OOBVal::Undef)
+      .value("MAX",
+             tt::OOBVal::NegInf); // Referenced from types_generated.h as well
+
+  py::class_<llvm::ArrayRef<int64_t>>(m, "ArrayRefInt64")
+      .def(py::init<const int64_t *, size_t>())
+      .def("__getitem__",
+           [](const llvm::ArrayRef<int64_t> &arr, size_t index) {
+             if (index >= arr.size()) {
+               throw py::index_error("Index out of range");
+             }
+             return arr[index];
+           })
+      .def("__len__", &llvm::ArrayRef<int64_t>::size);
+
+  py::class_<tt::GridAttr>(m, "GridAttr")
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> shape) {
+                    return wrap(tt::GridAttr::get(unwrap(ctx), shape));
+                  })
+      .def_property_readonly("name",
+                             [](tt::GridAttr const &ga) { return ga.name; })
+      .def_property_readonly("shape", &tt::GridAttr::getShape)
+      .def_property_readonly("physical_grid_mapping",
+                             &tt::GridAttr::getMapping);
+
+  py::class_<MemRefType>(m, "MemRefType")
+      .def_property_readonly("shape", &MemRefType::getShape)
+      .def_property_readonly(
+          "element_type",
+          &MemRefType::getElementType) // mlir::Type not supported
+      .def_property_readonly("name",
+                             [](MemRefType const &mt) {
+                               return mt.name;
+                             }) // llvm::StringLiteral not supported
+      .def_property_readonly(
+          "memory_space",
+          &MemRefType::getMemorySpace); // mlir::Attribute not supported
+
   py::class_<tt::LayoutAttr>(m, "LayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, MlirType rankedTensorType,
@@ -214,9 +283,9 @@ void populateTTModule(py::module &m) {
       .def_static("get",
                   [](MlirContext ctx, unsigned height, unsigned width,
                      uint32_t dataType) {
-                    return wrap(
-                        tt::TileType::get(unwrap(ctx), height, width,
-                                          static_cast<tt::DataType>(dataType)));
+                    return wrap(tt::TileType::get(
+                        unwrap(ctx), SmallVector<std::int64_t>{height, width},
+                        static_cast<tt::DataType>(dataType)));
                   })
       .def_property_readonly("data_type", &tt::TileType::getDataType)
       .def_property_readonly("shape", [](tt::TileType const &tile) {
