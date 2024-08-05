@@ -20,7 +20,7 @@ def TTNN_OpenDeviceOp : TTNN_Op<"open_device"> {
     let description = [{
     }];
 
-    let arguments = (ins);
+    let arguments = (ins I64ArrayAttr:$device_ids);
     let results = (outs TT_Device:$device);
 }
 

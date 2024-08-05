@@ -74,6 +74,45 @@ public:
   }
 };
 
+class OpenDeviceOpConversionPattern
+    : public OpConversionPattern<ttnn::OpenDeviceOp> {
+  using OpConversionPattern<ttnn::OpenDeviceOp>::OpConversionPattern;
+
+public:
+  OpenDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                                MLIRContext *context,
+                                PatternBenefit benefit = 1)
+      : OpConversionPattern<ttnn::OpenDeviceOp>(typeConverter, context,
+                                                benefit) {}
+
+  // Converts op name by removing the dialect prefix ("ttnn.") and replacing
+  // with namespace prefix ("ttnn::")
+  //
+  std::string convertOpName(ttnn::OpenDeviceOp op) const {
+    auto name = op.getOperationName();
+    assert(name.starts_with("ttnn.") && "OpenDeviceOpConversionPattern only "
+                                        "supports ops from the TTNN dialect");
+
+    return name.str().replace(0, 5, "ttnn::");
+  }
+
+  LogicalResult
+  matchAndRewrite(ttnn::OpenDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    int numReturnTypes = srcOp->getResultTypes().size();
+    assert(numReturnTypes <= 1 &&
+           "DefaultOpConversionPattern does not support multiple return types");
+
+    auto resultTy = cast<emitc::OpaqueType>(
+        this->getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultTy, convertOpName(srcOp), srcOp.getDeviceIdsAttr(),
+        nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -83,8 +122,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  TypeConverter &typeConverter) {
   // Device ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::OpenDeviceOp>>(typeConverter,
-                                                               ctx, true);
+  patterns.add<OpenDeviceOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::CloseDeviceOp>>(typeConverter,
                                                                 ctx);
 
