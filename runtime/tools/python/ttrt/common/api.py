@@ -133,6 +133,8 @@ def run(args):
     device = ttrt.runtime.open_device(device_ids)
     atexit.register(lambda: ttrt.runtime.close_device(device))
 
+    torch.manual_seed(args.seed)
+
     for (binary_name, fbb, fbb_dict) in fbb_list:
         torch_inputs[binary_name] = []
         torch_outputs[binary_name] = []
