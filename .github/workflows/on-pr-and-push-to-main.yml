@@ -14,7 +14,7 @@ jobs:
   spdx:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
-  build-imgage:
+  build-image:
     uses: ./.github/workflows/build-image.yml
     secrets: inherit
   docker-build:

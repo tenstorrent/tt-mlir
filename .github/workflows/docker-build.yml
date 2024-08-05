@@ -27,6 +27,12 @@ jobs:
       run: |
         echo "Current working directory: $(pwd)"
         echo "GitHub workspace: ${{ github.workspace }}"
+        ccache -show-config || true
+        ccache -show-stats || true
+        which cmake++-17 || true
+        which cmake++ || true
+        which cmake-17 || true
+        which cmake || true
 
     - name: Set reusable strings
       id: strings

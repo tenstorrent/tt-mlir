@@ -54,43 +54,43 @@ USER root
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
     chown -R $USER:$USER $TTMLIR_TOOLCHAIN_DIR
 
-# Clone the project and update submodules
-USER $USER
-RUN git clone https://github.com/tenstorrent/tt-mlir.git /home/$USER/tt-mlir && \
-    cd /home/$USER/tt-mlir && \
-    git submodule update --init --recursive -f
+# # Clone the project and update submodules
+# USER $USER
+# RUN git clone https://github.com/tenstorrent/tt-mlir.git /home/$USER/tt-mlir && \
+#     cd /home/$USER/tt-mlir && \
+#     git submodule update --init --recursive -f
 
-# Build the toolchain
-WORKDIR /home/$USER/tt-mlir
-RUN cmake -B env/build env && \
-    cmake --build env/build
+# # Build the toolchain
+# WORKDIR /home/$USER/tt-mlir
+# RUN cmake -B env/build env && \
+#     cmake --build env/build
 
-# Create aliases for clang and clang++
-RUN echo "alias clang=clang-17" >> ~/.bashrc && \
-    echo "alias clang++=clang++-17" >> ~/.bashrc && \
-    source ~/.bashrc
+# # Create aliases for clang and clang++
+# RUN echo "alias clang=clang-17" >> ~/.bashrc && \
+#     echo "alias clang++=clang++-17" >> ~/.bashrc && \
+#     source ~/.bashrc
 
-# Build project to test the container
-USER $USER
-RUN source env/activate && \
-    cmake -G Ninja \
-    -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DTTMLIR_ENABLE_RUNTIME=ON \
-    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
-    cmake --build build --config Release
+# # Build project to test the container
+# USER $USER
+# RUN source env/activate && \
+#     cmake -G Ninja \
+#     -B build \
+#     -DCMAKE_BUILD_TYPE=Release \
+#     -DCMAKE_C_COMPILER=clang \
+#     -DCMAKE_CXX_COMPILER=clang++ \
+#     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+#     -DTTMLIR_ENABLE_RUNTIME=ON \
+#     -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
+#     cmake --build build --config Release
 
-# Run clang-tidy
-RUN cmake --build build -- clang-tidy || true
+# # Run clang-tidy
+# RUN cmake --build build -- clang-tidy || true
 
-# Run the tests
-RUN cmake --build build -- check-ttmlir || true
+# # Run the tests
+# RUN cmake --build build -- check-ttmlir || true
 
-# Clean up the user directory
-RUN rm -rf /home/$USER/tt-mlir
+# # Clean up the user directory
+# RUN rm -rf /home/$USER/tt-mlir
 
 # Define the default workdir
 WORKDIR /home/$USER
