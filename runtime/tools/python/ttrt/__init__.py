@@ -62,7 +62,7 @@ def main():
     run_parser = subparsers.add_parser("run", help="run a flatbuffer binary")
     run_parser.add_argument(
         "--program-index",
-        default=0,
+        default="all",
         help="the program inside the fbb to run",
     )
     run_parser.add_argument(
@@ -129,7 +129,7 @@ def main():
     )
     perf_parser.add_argument(
         "--program-index",
-        default=0,
+        default="all",
         help="the program inside the fbb to run",
     )
     perf_parser.add_argument(

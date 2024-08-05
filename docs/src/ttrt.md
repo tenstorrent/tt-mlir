@@ -46,6 +46,7 @@ ttrt run out.ttnn
 ttrt run out.ttnn --clean-artifacts
 ttrt run out.ttnn --save-artifacts
 ttrt run out.ttnn --loops 10
+ttrt run --program-index all out.ttnn
 ttrt run --program-index 0 out.ttnn
 ttrt run /dir/of/flatbuffers
 ttrt run /dir/of/flatbuffers --loops 10
@@ -74,6 +75,7 @@ ttrt perf out.ttnn
 ttrt perf out.ttnn --clean-artifacts
 ttrt perf out.ttnn --save-artifacts
 ttrt perf out.ttnn --loops 10
+ttrt perf --program-index all out.ttnn
 ttrt perf --program-index 0 out.ttnn
 ttrt perf --device out.ttnn
 ttrt perf --generate-params --perf-csv trace.csv
