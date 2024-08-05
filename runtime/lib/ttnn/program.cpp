@@ -12,6 +12,10 @@
 #include "tt/runtime/runtime.h"
 #include "utils.h"
 
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+namespace py = pybind11;
+
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
@@ -210,8 +214,108 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     assert(op->ins()->size() == 2 && "Unsupported number of inputs");
     auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
-    tensorPool.push_back(::ttnn::subtract(lhs, rhs));
-    liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+
+    {
+      ::ttnn::Tensor lhs_golden_device;
+      ::ttnn::Tensor lhs_golden_host;
+      ::ttnn::Tensor rhs_golden_device;
+      ::ttnn::Tensor rhs_golden_host;
+
+      if (lhs.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+        lhs_golden_device = ::untilize(lhs);
+      } 
+      else if (lhs.storage_type() == ::tt::tt_metal::StorageType::DEVICE) {
+        lhs_golden_device = ::untilize(lhs.cpu());
+      }
+
+      std::uint32_t lhs_size = lhs_golden_device.volume() * lhs_golden_device.element_size();
+      void *lhs_src = ::tt::tt_metal::get_raw_host_data_ptr(lhs_golden_device);
+      void* lhs_dst = malloc(lhs_size);
+      std::memcpy(lhs_dst, lhs_src, lhs_size);
+
+      if (rhs.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+        rhs_golden_device = ::untilize(rhs);
+      } 
+      else if (rhs.storage_type() == ::tt::tt_metal::StorageType::DEVICE) {
+        rhs_golden_device = ::untilize(rhs.cpu());
+      }
+
+      std::uint32_t rhs_size = rhs_golden_device.volume() * rhs_golden_device.element_size();
+      void *rhs_src = ::tt::tt_metal::get_raw_host_data_ptr(rhs_golden_device);
+      void* rhs_dst = malloc(rhs_size);
+      std::memcpy(rhs_dst, rhs_src, rhs_size);
+
+
+      auto lhs_type = lhs_golden_device.get_dtype();
+      auto rhs_type = rhs_golden_device.get_dtype();
+
+      std::cout << "lhs_type=" << static_cast<int>(lhs_type) << std::endl;
+      std::cout << "rhs_type=" << static_cast<int>(rhs_type) << std::endl;
+
+    /*
+      enum class DataType {
+    BFLOAT16 = 0,
+    FLOAT32 = 1,
+    UINT32 = 2,
+    BFLOAT8_B = 3,
+    BFLOAT4_B = 4,
+    UINT16 = 6,
+    INT32 = 7,
+    INVALID = 8,
+};
+  */
+
+
+      std::vector<float> lhs_vec(static_cast<float*>(lhs_dst), static_cast<float*>(lhs_dst) + lhs_golden_device.volume());
+      std::vector<float> rhs_vec(static_cast<float*>(rhs_dst), static_cast<float*>(rhs_dst) + rhs_golden_device.volume());
+
+      std::cout << lhs_vec[0] << std::endl;
+
+      // taps
+      py::module sys = py::module::import("sys");
+      sys.attr("path").attr("append")("/code/tt-mlir/runtime/tools/python/ttrt");
+      sys.attr("path").attr("append")("/code/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn");
+      auto golden = py::module::import("common.golden");
+
+
+
+      tensorPool.push_back(::ttnn::subtract(lhs, rhs));
+      liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+
+
+      ::ttnn::Tensor golden_taps_some;
+      ::ttnn::Tensor &outputTensor = *liveTensors.at(op->out()->global_id());
+      if (outputTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+        golden_taps_some = ::untilize(outputTensor);
+      } 
+      else if (outputTensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE) {
+        golden_taps_some = ::untilize(outputTensor.cpu());
+      }
+
+      
+      std::uint32_t taps_size = golden_taps_some.volume() * golden_taps_some.element_size();
+      void *taps_src = ::tt::tt_metal::get_raw_host_data_ptr(golden_taps_some);
+      void* taps_golden = malloc(taps_size);
+
+
+      std::memcpy(taps_golden, taps_src, taps_size);
+      std::vector<float> taps_vec(static_cast<float*>(taps_golden), static_cast<float*>(taps_golden) + golden_taps_some.volume());
+
+
+
+      auto resultobj = golden.attr("subtract")(lhs_vec, rhs_vec, taps_vec);
+      double result = resultobj.cast<double>();
+      std::cout << "result=" << result << std::endl;
+
+      if (lhs_dst != nullptr) {
+        free(lhs_dst);
+      }
+
+      if(rhs_dst != nullptr) {
+        free(rhs_dst);
+      }
+    }
+
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
@@ -333,6 +437,8 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     // Skip for now, we need an empty op
+    
+
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {

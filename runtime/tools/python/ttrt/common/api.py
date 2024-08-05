@@ -123,6 +123,7 @@ def run(args):
     arg_clean_artifacts = args.clean_artifacts
     arg_loops = int(args.loops)
     arg_save_artifacts = args.save_artifacts
+    arg_golden = args.golden
 
     # preprocessing
     if os.path.isdir(arg_binary):
@@ -358,6 +359,7 @@ def perf(args):
     arg_save_artifacts = args.save_artifacts
     arg_device = args.device
     arg_generate_params = args.generate_params
+    arg_golden = args.golden
 
     # preprocessing
     if os.path.isdir(arg_binary):
@@ -409,6 +411,8 @@ def perf(args):
             testCommandOptions = ""
             if arg_save_artifacts:
                 testCommandOptions += f"--save-artifacts "
+            if arg_golden:
+                testCommandOptions += f"--golden "
 
             testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops} --program-index {arg_program_index} {testCommandOptions}"
             testProcess = subprocess.Popen(

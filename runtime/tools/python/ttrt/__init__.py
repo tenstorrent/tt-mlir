@@ -96,6 +96,11 @@ def main():
         default=0,
         help="Seed for random number generator",
     )
+    run_parser.add_argument(
+        "--golden",
+        action="store_true",
+        help="run golden pytorch backend",
+    )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
 
@@ -172,6 +177,11 @@ def main():
         "--save-artifacts",
         action="store_true",
         help="save all artifacts during run",
+    )
+    perf_parser.add_argument(
+        "--golden",
+        action="store_true",
+        help="run golden pytorch backend",
     )
     perf_parser.add_argument("binary", help="flatbuffer binary file")
     perf_parser.set_defaults(func=perf)
