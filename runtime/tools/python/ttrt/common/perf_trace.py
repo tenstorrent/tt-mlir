@@ -16,6 +16,7 @@ import socket
 from pkg_resources import get_distribution
 import sys
 import shutil
+import csv
 
 from ttrt.common.util import *
 import tracy
@@ -138,15 +139,6 @@ def generate_params_dict(perf_csv_file):
 
 
 def save_perf_artifacts(perf_folder):
-    profiler_device_side_log_file = (
-        f"{TT_METAL_HOME}/generated/profiler/.logs/{PROFILER_DEVICE_SIDE_LOG}"
-    )
-    profiler_host_device_sync_info_file = (
-        f"{TT_METAL_HOME}/generated/profiler/.logs/{PROFILER_HOST_DEVICE_SYNC_INFO}"
-    )
-    profiler_log_location_record_file = (
-        f"{TT_METAL_HOME}/generated/profiler/.logs/.locations.log"
-    )
     tracy_ops_times_file = (
         f"{TT_METAL_HOME}/generated/profiler/.logs/{TRACY_OPS_TIMES_FILE_NAME}"
     )
@@ -156,21 +148,9 @@ def save_perf_artifacts(perf_folder):
     tracy_file = f"{TT_METAL_HOME}/generated/profiler/.logs/{TRACY_FILE_NAME}"
 
     try:
-        # check_file_exists(profiler_device_side_log_file)
-        # check_file_exists(profiler_host_device_sync_info_file)
-        # check_file_exists(profiler_log_location_record_file)
         check_file_exists(tracy_ops_times_file)
         check_file_exists(tracy_ops_data_file)
         check_file_exists(tracy_file)
-
-        # shutil.copy(profiler_device_side_log_file, os.path.join(perf_folder, "profiler_device_side_log_file.csv"))
-        # print(f"File '{profiler_device_side_log_file}' copied to '{perf_folder}' successfully.")
-
-        # shutil.copy(profiler_host_device_sync_info_file, os.path.join(perf_folder, "profiler_host_device_sync_info_file.csv"))
-        # print(f"File '{profiler_host_device_sync_info_file}' copied to '{perf_folder}' successfully.")
-
-        # shutil.copy(profiler_log_location_record_file, os.path.join(perf_folder, "profiler_log_location_record_file.log"))
-        # print(f"File '{profiler_log_location_record_file}' copied to '{perf_folder}' successfully.")
 
         shutil.copy(
             tracy_ops_times_file, os.path.join(perf_folder, "tracy_ops_times_file.csv")
@@ -187,3 +167,66 @@ def save_perf_artifacts(perf_folder):
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
+    # Copy datetime folder files into root perf directory
+    for root, dirs, files in os.walk(perf_folder, topdown=False):
+        if root == perf_folder:
+            continue
+        
+        for file_name in files:
+            # Full path of the file
+            file_path = os.path.join(root, file_name)
+            # Destination path in the parent folder
+            dest_path = os.path.join(perf_folder, file_name)
+            
+            # Move the file
+            shutil.move(file_path, dest_path)
+            print(f"Moved {file_path} to {dest_path}")
+
+        # Remove the subfolder after moving the files
+        if not os.listdir(root):  # Check if the directory is empty
+            os.rmdir(root)
+
+def generate_json_params(binary, binary_perf_folder, arg_program_index):
+    # Get perf file and respective parameters
+    csv_file = None
+    for file_name in os.listdir(binary_perf_folder):
+        if 'ops_perf_results' in file_name and file_name.endswith('.csv'):
+            csv_file = os.path.join(binary_perf_folder, file_name)
+            break
+
+    if not csv_file:
+        raise FileNotFoundError(f"No CSV file with 'op_perf_results' found in={binary_perf_folder}")
+    
+    # Read the CSV file and convert it to JSON
+    json_data_perf_list = []
+    with open(csv_file, mode='r', newline='') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            json_data_perf_list.append(row)
+
+    # Get binary file and respective parameters
+    fbb = ttrt.binary.load_binary_from_path(binary)
+    fbb_dict = ttrt.binary.as_dict(fbb)
+    program = fbb_dict["programs"][arg_program_index]
+    ignore_ops = ["OpenDeviceOp", "FullOp", "ToMemoryConfigOp", "CloseDeviceOp"]
+    json_data_binary_list = []
+
+    for op_dict in fbb_dict["programs"][arg_program_index]["operations"]:
+        if op_dict["type_type"] in ignore_ops:
+            continue
+        json_data_binary_list.append(op_dict)
+
+    # Merge results for both paths
+    assert len(json_data_perf_list) == len(json_data_binary_list), f"Mismatch between number of ops found in perf csv={len(json_data_perf_list)} and binary file={len(json_data_binary_list)}!"
+    merged_json_list = []
+    for perf_json in json_data_perf_list:
+        for binary_json in json_data_binary_list:
+            combined_json = {**perf_json, **binary_json}
+            merged_json_list.append(combined_json)
+    
+    with open(f"{binary_perf_folder}/merged_binary_perf.json", 'w') as file:
+        json.dump(merged_json_list, file, indent=4)
+        print(
+            f"File 'merged_binary_perf.json' saved to '{binary_perf_folder}/merged_binary_perf.json' successfully."
+        )

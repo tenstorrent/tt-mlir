@@ -138,16 +138,6 @@ def main():
         help="collect performance trace on both host and device",
     )
     perf_parser.add_argument(
-        "--generate-params",
-        action="store_true",
-        help="generate json file of model parameters based off of perf csv file",
-    )
-    perf_parser.add_argument(
-        "--perf-csv",
-        default="",
-        help="perf csv file generated from performance run",
-    )
-    perf_parser.add_argument(
         "--clean-artifacts",
         action="store_true",
         help="clean all artifacts from previous runs",

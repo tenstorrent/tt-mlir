@@ -277,11 +277,9 @@ def perf(args):
     arg_binary = args.binary
     arg_program_index = int(args.program_index)
     arg_clean_artifacts = args.clean_artifacts
-    arg_perf_csv = args.perf_csv
     arg_loops = int(args.loops)
     arg_save_artifacts = args.save_artifacts
     arg_device = args.device
-    arg_generate_params = args.generate_params
 
     # preprocessing
     if os.path.isdir(arg_binary):
@@ -299,72 +297,69 @@ def perf(args):
         setup_artifacts(binaries)
 
     # constraint checking
-    if arg_generate_params:
-        check_file_exists(arg_perf_csv)
-
     for binary in binaries:
         check_file_exists(binary)
 
     # execution
-    if arg_generate_params:
-        perf_trace.generate_params_dict(arg_perf_csv)
-    else:
-        for binary in binaries:
-            # get available port for tracy client and server to communicate on
-            port = perf_trace.get_available_port()
+    for binary in binaries:
+        # get available port for tracy client and server to communicate on
+        port = perf_trace.get_available_port()
 
-            if not port:
-                print("No available port found")
-                sys.exit(1)
-            print(f"Using port {port}")
+        if not port:
+            print("No available port found")
+            sys.exit(1)
+        print(f"Using port {port}")
 
-            # setup environment flags
-            envVars = dict(os.environ)
-            envVars["TRACY_PORT"] = port
-            envVars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+        # setup environment flags
+        envVars = dict(os.environ)
+        envVars["TRACY_PORT"] = port
+        envVars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
-            if arg_device:
-                envVars["TT_METAL_DEVICE_PROFILER"] = "1"
+        if arg_device:
+            envVars["TT_METAL_DEVICE_PROFILER"] = "1"
 
-            # run perf artifact setup
-            captureProcess = perf_trace.run_perf_artifact_setup(port)
+        # run perf artifact setup
+        captureProcess = perf_trace.run_perf_artifact_setup(port)
 
-            # generate test command to execute
-            testCommandOptions = ""
-            if arg_save_artifacts:
-                testCommandOptions += f"--save-artifacts "
+        # generate test command to execute
+        testCommandOptions = ""
+        if arg_save_artifacts:
+            testCommandOptions += f"--save-artifacts "
 
-            testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops} --program-index {arg_program_index} {testCommandOptions}"
-            testProcess = subprocess.Popen(
-                [testCommand], shell=True, env=envVars, preexec_fn=os.setsid
+        testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops} --program-index {arg_program_index} {testCommandOptions}"
+        testProcess = subprocess.Popen(
+            [testCommand], shell=True, env=envVars, preexec_fn=os.setsid
+        )
+        print(f"Test process started")
+
+        # setup multiprocess signal handler
+        def signal_handler(sig, frame):
+            os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
+            captureProcess.terminate()
+            captureProcess.communicate()
+            sys.exit(3)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        testProcess.communicate()
+
+        binary_name = os.path.splitext(os.path.basename(binary))[0]
+        binary_perf_folder = f"{TTRT_ARTIFACTS}/{binary_name}/perf"
+
+        try:
+            captureProcess.communicate(timeout=15)
+            perf_trace.generate_report(binary_perf_folder)
+        except subprocess.TimeoutExpired as e:
+            captureProcess.terminate()
+            captureProcess.communicate()
+            print(
+                f"No profiling data could be captured. Please make sure you are on the correct build. Use scripts/build_scripts/build_with_profiler_opt.sh to build if you are not sure."
             )
-            print(f"Test process started")
+            sys.exit(1)
 
-            # setup multiprocess signal handler
-            def signal_handler(sig, frame):
-                os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
-                captureProcess.terminate()
-                captureProcess.communicate()
-                sys.exit(3)
+        # save artifacts
+        perf_trace.save_perf_artifacts(binary_perf_folder)
 
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-
-            testProcess.communicate()
-
-            binary_name = os.path.splitext(os.path.basename(binary))[0]
-            binary_perf_folder = f"{TTRT_ARTIFACTS}/{binary_name}/perf"
-
-            try:
-                captureProcess.communicate(timeout=15)
-                perf_trace.generate_report(binary_perf_folder)
-            except subprocess.TimeoutExpired as e:
-                captureProcess.terminate()
-                captureProcess.communicate()
-                print(
-                    f"No profiling data could be captured. Please make sure you are on the correct build. Use scripts/build_scripts/build_with_profiler_opt.sh to build if you are not sure."
-                )
-                sys.exit(1)
-
-            # save artifacts
-            perf_trace.save_perf_artifacts(binary_perf_folder)
+        if arg_save_artifacts:
+            perf_trace.generate_json_params(binary, binary_perf_folder, arg_program_index)
