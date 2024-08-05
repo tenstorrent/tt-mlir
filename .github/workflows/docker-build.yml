@@ -17,7 +17,7 @@ jobs:
       matrix:
         build: [
           {build_type: Release, enable_runtime: OFF},
-          {build_type: Release, enable_runtime: ON},
+          # {build_type: Release, enable_runtime: ON},
         ]
 
     runs-on: ubuntu-latest
