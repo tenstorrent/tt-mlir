@@ -42,6 +42,7 @@ jobs:
       id: strings
       shell: bash
       run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
 
     - name: Configure CMake
@@ -55,7 +56,7 @@ jobs:
         -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
         -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
-        -S ${{ github.workspace }}
+        -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
       shell: bash
