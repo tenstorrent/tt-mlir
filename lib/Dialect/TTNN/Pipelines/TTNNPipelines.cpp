@@ -15,6 +15,7 @@ namespace mlir::tt::ttnn {
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
 

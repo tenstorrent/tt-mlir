@@ -116,11 +116,15 @@ def run(args):
 
     # constraint checking
     print("executing constraint for all provided flatbuffers")
+    system_desc, device_ids = ttrt.runtime.get_current_system_desc()
     for binary in binaries:
         check_file_exists(binary)
         fbb = ttrt.binary.load_binary_from_path(binary)
         check_version(fbb.version)
         fbb_dict = ttrt.binary.as_dict(fbb)
+        assert (
+            fbb_dict["system_desc"] == system_desc_as_dict(system_desc)["system_desc"]
+        ), f"system descriptor for binary and system mismatch!"
         fbb_list.append((os.path.splitext(os.path.basename(binary))[0], fbb, fbb_dict))
         program_index = arg_program_index
         assert program_index <= len(
@@ -129,7 +133,6 @@ def run(args):
 
     # execution
     print("executing action for all provided flatbuffers")
-    system_desc, device_ids = ttrt.runtime.get_current_system_desc()
     device = ttrt.runtime.open_device(device_ids)
     atexit.register(lambda: ttrt.runtime.close_device(device))
 

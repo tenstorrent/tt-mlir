@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-to-ttnn-backend-pipeline="override-grid-sizes=add_1_0=4x4,add_2_0=4x4" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="override-grid-sizes=add_1_0=4x4,add_2_0=4x4" %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #loc = loc("test_ops.py:17_0_0":0:0)
 module @pybuda_graph attributes {} {
