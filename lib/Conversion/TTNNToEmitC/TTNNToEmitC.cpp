@@ -107,7 +107,9 @@ public:
 
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn."; }
-  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
+  std::string getPrefixSwapPattern() const override {
+    return "&ttnn::device::";
+  }
 
 public:
   LogicalResult

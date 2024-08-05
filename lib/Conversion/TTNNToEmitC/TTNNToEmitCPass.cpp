@@ -31,10 +31,11 @@ class TTNNToEmitCTypeConverter : public TypeConverter {
 public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](tt::DeviceType type) -> emitc::OpaqueType {
-      return emitc::OpaqueType::get(ctx, "ttnn::device::Device&");
+    addConversion([ctx](mlir::tt::DeviceType type) -> mlir::emitc::PointerType {
+      return emitc::PointerType::get(
+          emitc::OpaqueType::get(ctx, "ttnn::device::Device"));
     });
-    addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
+    addConversion([ctx](TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
     });
   }
