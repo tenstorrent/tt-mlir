@@ -3,6 +3,10 @@ name: Build
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
 
@@ -18,7 +22,7 @@ jobs:
 
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-20-04:latest
 
     steps:
     - uses: actions/checkout@v4

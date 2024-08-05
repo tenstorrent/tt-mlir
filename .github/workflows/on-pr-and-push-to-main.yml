@@ -2,10 +2,6 @@ name: On PR and push to main
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   pre-commit:
