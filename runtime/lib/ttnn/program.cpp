@@ -15,16 +15,6 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wignored-qualifiers"
-// Including this in ttnn.h causes multiple definition linker error
-// due to non-inlined function definitions
-#include "ttnn/operations/unary.hpp"
-#pragma clang diagnostic ignored "-Wsign-compare"
-#pragma clang diagnostic ignored "-Wunused-variable"
-#include "ttnn/operations/data_movement.hpp"
-#pragma clang diagnostic pop
-
 // It seems like `ttnn::to_layout` cannot be called inside of the
 // `tt::runtime::ttnn` namespace.  TTNN uses a lot of metaprogramming and for
 // some reason a static_assert fails when this is called from within our
@@ -56,7 +46,7 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
     }
     return ::ttnn::typecast(input, targetDataType);
   } else {
-    throw runtime_error("Unsupported storage type");
+    throw std::runtime_error("Unsupported storage type");
   }
 }
 
@@ -288,7 +278,7 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
   int32_t dimension1 = op->dimension1();
   int32_t dimension2 = op->dimension2();
   auto input_rank = in.get_shape().rank();
-  std::vector<int> dimensionOrder(input_rank);
+  std::vector<std::int64_t> dimensionOrder(input_rank);
   std::iota(dimensionOrder.begin(), dimensionOrder.end(), 0);
   if (dimension1 < 0) {
     dimension1 += input_rank;
@@ -297,8 +287,7 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
     dimension2 += input_rank;
   }
   std::swap(dimensionOrder[dimension1], dimensionOrder[dimension2]);
-  tensorPool.push_back(
-      ::ttnn::operations::data_movement::permute(in, dimensionOrder));
+  tensorPool.push_back(::ttnn::permute(in, dimensionOrder));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 
@@ -309,8 +298,8 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
     std::list<::ttnn::Tensor> &tensorPool) {
   auto &lhs = *liveTensors.at(op->in0()->global_id());
   auto &rhs = *liveTensors.at(op->in1()->global_id());
-  tensorPool.push_back(
-      ::ttnn::operations::matmul::matmul(lhs, rhs, std::nullopt));
+  tensorPool.push_back(::ttnn::operations::matmul::matmul(
+      lhs, rhs, std::nullopt, ::tt::operations::primary::Matmul{}));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 // ANCHOR_END: adding_an_op_matmul_runtime
