@@ -3,8 +3,8 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   workflow_call:
-  # pull_request:
-  #   branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
     # paths:
     #   - '.github/Dockerfile'
     #   - '.github/Dockerfile-simple'
