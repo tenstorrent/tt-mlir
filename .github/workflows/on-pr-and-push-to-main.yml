@@ -2,6 +2,10 @@ name: On PR and push to main
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   pre-commit:
@@ -10,9 +14,6 @@ jobs:
   spdx:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
-  build-image:
-    uses: ./.github/workflows/build-image.yml
-    secrets: inherit
-  docker-build:
-    uses: ./.github/workflows/docker-build.yml
+  build:
+    uses: ./.github/workflows/build.yml
     secrets: inherit

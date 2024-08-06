@@ -1,4 +1,4 @@
-name: Build
+name: Build in Docker
 
 on:
   workflow_dispatch:
@@ -76,7 +76,7 @@ jobs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports
+        name: test-reports-${{ matrix.build.runs-on }}
         path: build/test/report.xml
 
     - name: Show Test Report
