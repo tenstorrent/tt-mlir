@@ -13,13 +13,6 @@
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wignored-qualifiers"
-// Including this in ttnn.h causes multiple definition linker error
-// due to non-inlined function definitions
-#include "ttnn/operations/unary.hpp"
-#pragma clang diagnostic pop
-
 // It seems like `ttnn::to_layout` cannot be called inside of the
 // `tt::runtime::ttnn` namespace.  TTNN uses a lot of metaprogramming and for
 // some reason a static_assert fails when this is called from within our
@@ -51,7 +44,7 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
     }
     return ::ttnn::typecast(input, targetDataType);
   } else {
-    throw runtime_error("Unsupported storage type");
+    throw std::runtime_error("Unsupported storage type");
   }
 }
 
@@ -283,7 +276,7 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
   auto &lhs = *liveTensors.at(op->in0()->global_id());
   auto &rhs = *liveTensors.at(op->in1()->global_id());
   tensorPool.push_back(
-      ::ttnn::operations::matmul::matmul(lhs, rhs, std::nullopt));
+      ::ttnn::operations::matmul::matmul(lhs, rhs, std::nullopt, ::tt::operations::primary::Matmul{}));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 // ANCHOR_END: adding_an_op_matmul_runtime

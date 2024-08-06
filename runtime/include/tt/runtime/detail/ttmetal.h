@@ -32,6 +32,12 @@
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wpessimizing-move"
 #pragma clang diagnostic ignored "-Wparentheses"
+#pragma clang diagnostic ignored "-Wdeprecated-volatile"
+#pragma clang diagnostic ignored "-Wdeprecated-this-capture"
+#pragma clang diagnostic ignored "-Wc++23-extensions"
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
+#pragma clang diagnostic ignored "-Wlogical-op-parentheses"
+#pragma clang diagnostic ignored "-Wundefined-inline"
 #define FMT_HEADER_ONLY
 #include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop
