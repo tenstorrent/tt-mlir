@@ -13,6 +13,20 @@
 
 namespace tt::runtime {
 
+namespace detail {
+static DeviceRuntime currentRuntime = DeviceRuntime::TTNN;
+} // namespace detail
+
+inline const DeviceRuntime &getCurrentRuntime() {
+  return detail::currentRuntime;
+}
+
+inline void setCurrentRuntime(const DeviceRuntime &runtime) {
+  detail::currentRuntime = runtime;
+}
+
+void setCompatibleRuntime(const Binary &binary);
+
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
 Tensor createTensor(std::shared_ptr<void> data,

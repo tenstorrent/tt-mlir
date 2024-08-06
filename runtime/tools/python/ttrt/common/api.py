@@ -184,9 +184,9 @@ def run(args):
     torch.manual_seed(args.seed)
 
     for (binary_name, fbb, fbb_dict, program_indices) in fbb_list:
+        ttrt.runtime.set_compatible_runtime(fbb)
         torch_inputs[binary_name] = {}
         torch_outputs[binary_name] = {}
-
         for program_index in program_indices:
             torch_inputs[binary_name][program_index] = []
             torch_outputs[binary_name][program_index] = []

@@ -27,6 +27,11 @@ struct ObjectImpl {
 };
 } // namespace detail
 
+enum class DeviceRuntime {
+  TTNN,
+  TTMetal,
+};
+
 struct TensorDesc {
   std::vector<std::uint32_t> shape;
   std::vector<std::uint32_t> stride;

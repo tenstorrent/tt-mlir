@@ -13,6 +13,7 @@ TEST(TTNNSubtract, Equal) {
   assert(fbPath && "Path to subtract flatbuffer must be provided");
   ::tt::runtime::Binary fbb = ::tt::runtime::Binary::loadFromPath(fbPath);
   EXPECT_EQ(fbb.getFileIdentifier(), "TTNN");
+  ::tt::runtime::setCompatibleRuntime(fbb);
   std::vector<::tt::runtime::TensorDesc> inputDescs = fbb.getProgramInputs(0);
   std::vector<::tt::runtime::TensorDesc> outputDescs = fbb.getProgramOutputs(0);
   std::vector<::tt::runtime::Tensor> inputTensors, outputTensors;
