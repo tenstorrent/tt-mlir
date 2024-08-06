@@ -16,13 +16,16 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {build_type: Release, enable_runtime: OFF},
+          {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
+          {runs-on: self-hosted, build_type: Release, enable_runtime: OFF},
           # {build_type: Release, enable_runtime: ON},
         ]
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.build.runs-on }}
+
     container:
       image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-20-04:latest
+      options: --user root
 
     steps:
     - uses: actions/checkout@v4
