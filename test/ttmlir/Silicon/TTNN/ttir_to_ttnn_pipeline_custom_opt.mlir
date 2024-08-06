@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-to-ttnn-backend-pipeline="enable-grid-set=false" %s  > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-grid-set=false" %s  > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 

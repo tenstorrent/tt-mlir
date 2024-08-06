@@ -66,7 +66,7 @@ ttrt query --clean-artifacts
 
 ### perf
 Note: It's required to be on a system with silicon and to have a runtime enabled
-build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
+build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` with `export ENABLE_TRACY=1`.
 
 ```bash
 ttrt perf --help
@@ -89,3 +89,6 @@ import ttrt.binary
 fbb = ttrt.binary.load_from_path("out.ttnn")
 d = ttrt.binary.as_dict(fbb)
 ```
+
+## bonus
+artifacts are saved in ttrt-artifacts directory if the option `--save-artifacts` is provided
