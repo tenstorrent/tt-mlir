@@ -20,6 +20,7 @@ endif()
 
 message(STATUS "TT_RUNTIME_ENABLE_TTNN: ${TT_RUNTIME_ENABLE_TTNN} ${TT_RUNTIME_ENABLE_TTMETAL}")
 add_library(TTRuntime STATIC runtime.cpp)
+set_property(TARGET TTRuntime PROPERTY CXX_STANDARD 20)
 if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN)
   target_compile_definitions(TTRuntime PUBLIC TT_RUNTIME_ENABLE_TTNN)
 endif()
