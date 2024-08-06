@@ -111,6 +111,17 @@ mdbook serve build/docs
 > - `mdbook` can be installed with the system's package manager.
 > - `mdbook serve` will by default create a local server at `http://localhost:3000`.
 
+**Note:** If you want to build the docs on MacOS, there are two extra dependencies:
+- [doxygen](https://www.doxygen.nl/)
+- [graphviz](https://graphviz.org/)
+
+Both can be installed using Homebrew by running the following commands:
+
+```bash
+brew install doxygen
+brew install graphviz
+```
+
 ## Dependencies
 
 ### Ubuntu Common
@@ -169,13 +180,11 @@ sudo apt install ninja-build
 
 ### MacOS
 
-On MacOS we need to install the latest version of [cmake](https://cmake.org/), [ninja](https://ninja-build.org/), [doxygen](https://www.doxygen.nl/) and [graphviz](https://graphviz.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh)
+On MacOS we need to install the latest version of [cmake](https://cmake.org/), and [ninja](https://ninja-build.org/) which can be done using Homebrew with (Docs for installing Homebrew: https://brew.sh).
 
 ```bash
 brew install cmake
 brew install ninja
-brew install doxygen
-brew install graphviz
 ```
 
 ## Common Build Errors
