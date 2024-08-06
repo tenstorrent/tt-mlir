@@ -35,11 +35,6 @@ jobs:
         echo "Current working directory: $(pwd)"
         echo "GitHub workspace: ${{ github.workspace }}"
         ccache -show-config || true
-        ccache -show-stats || true
-        which cmake++-17 || true
-        which cmake++ || true
-        which cmake-17 || true
-        which cmake || true
 
     - name: Set reusable strings
       id: strings
@@ -48,14 +43,17 @@ jobs:
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
 
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
     - name: Configure CMake
       shell: bash
       run: |
         source env/activate
         cmake -G Ninja \
         -B ${{ steps.strings.outputs.build-output-dir }} \
-        -DCMAKE_CXX_COMPILER=clang++-17 \
-        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER=clang \
         -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
         -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
