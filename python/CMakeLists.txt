@@ -49,6 +49,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTKernelModule.cpp
     Overrides.cpp
   EMBED_CAPI_LINK_LIBS
+    MLIRCAPITransforms
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
     LLVMSupport

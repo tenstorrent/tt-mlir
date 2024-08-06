@@ -217,6 +217,13 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
     }];
 }
 
+def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
+  let summary = "Mean reduction op.";
+  let description = [{
+    Mean reduction op.
+  }];
+}
+
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
@@ -225,7 +232,7 @@ def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32Attr:$dimension,
+                         SI32Attr:$dimension,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);

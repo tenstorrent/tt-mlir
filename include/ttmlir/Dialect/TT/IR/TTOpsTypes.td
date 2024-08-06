@@ -33,8 +33,8 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
   let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
-                          "$_builder.getEmptyAffineMap()">:$physical_grid_mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $physical_grid_mapping^)? `>`";
+                          "$_builder.getEmptyAffineMap()">:$mapping);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
@@ -100,6 +100,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
+    static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
   }];
 }
 
@@ -257,6 +258,7 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let extraClassDeclaration = [{
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
+      uint64_t getSizeBytes() const;
     }];
 }
 

@@ -17,6 +17,7 @@
 #pragma clang diagnostic ignored "-Wc++20-designator"
 #pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 #pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wunknown-warning-option"
 #pragma clang diagnostic ignored "-Wsuggest-override"
 #pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
 #pragma clang diagnostic ignored "-Wnested-anon-types"
@@ -32,13 +33,14 @@
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wpessimizing-move"
 #define FMT_HEADER_ONLY
-#include "ttnn//operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/binary.hpp"
+#include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core.hpp"
 #include "ttnn/operations/creation.hpp"
 #include "ttnn/operations/matmul.hpp"
 #include "ttnn/operations/normalization.hpp"
+#include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
@@ -58,7 +60,8 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
                       desc.dataType);
 }
 
-Device openDevice(std::vector<int> deviceIds = {0});
+Device openDevice(std::vector<int> const &deviceIds = {0},
+                  std::vector<std::uint8_t> const &numHWCQs = {});
 
 void closeDevice(Device device);
 

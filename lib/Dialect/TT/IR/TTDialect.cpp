@@ -24,15 +24,15 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
       return AliasResult::OverridableAlias;
     }
     if (llvm::isa<MemorySpaceAttr>(attr)) {
-      os << attr.template cast<MemorySpaceAttr>().getValue();
+      os << mlir::cast<MemorySpaceAttr>(attr).getValue();
       return AliasResult::OverridableAlias;
     }
     if (llvm::isa<IteratorTypeAttr>(attr)) {
-      os << attr.template cast<IteratorTypeAttr>().getValue();
+      os << mlir::cast<IteratorTypeAttr>(attr).getValue();
       return AliasResult::OverridableAlias;
     }
     if (llvm::isa<OperandConstraintAttr>(attr)) {
-      auto value = attr.template cast<OperandConstraintAttr>().getValue();
+      auto value = mlir::cast<OperandConstraintAttr>(attr).getValue();
       if (value == OperandConstraint::Any) {
         os << "any";
       } else if (value == OperandConstraint::AnyDevice) {

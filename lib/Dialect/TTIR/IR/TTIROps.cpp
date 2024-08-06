@@ -14,9 +14,9 @@
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto inputLayout =
-      inputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
   auto outputLayout =
-      outputTy.getEncoding().template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor type missing layout attribute");
   }
@@ -84,10 +84,8 @@
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
-  auto layout = getResult()
-                    .getType()
-                    .getEncoding()
-                    .template dyn_cast_or_null<mlir::tt::LayoutAttr>();
+  auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+      getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
   }
@@ -97,9 +95,8 @@
   }
 
   auto memref = layout.getMemref();
-  auto memspace = memref.getMemorySpace()
-                      .template cast<mlir::tt::MemorySpaceAttr>()
-                      .getValue();
+  auto memspace =
+      mlir::cast<mlir::tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
   if (memspace != getMemorySpace()) {
     return emitOpError(
         "Input tensor layout memory space must match alloc memory space");

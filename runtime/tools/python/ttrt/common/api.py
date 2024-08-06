@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import ttrt.binary
 import os
 import json
 import importlib.machinery
@@ -16,15 +15,10 @@ import socket
 from pkg_resources import get_distribution
 import sys
 import shutil
+import atexit
 
+import ttrt.binary
 from ttrt.common.util import *
-
-try:
-    from ttrt.common.perf_trace import *
-
-    perf_trace = True
-except:
-    perf_trace = False
 
 #######################################################################################
 ########################################**API**########################################
@@ -36,11 +30,49 @@ API: read
 
 
 def read(args):
-    check_file_exists(args.binary)
-    copy_file_into_ttrt_artifact(args.binary)
-    fbb = ttrt.binary.load_from_path(args.binary)
-    check_version(fbb.version)
-    read_actions[args.section](fbb)
+    # initialization
+    binaries = []
+    fbb_list = []
+
+    # acquire parameters
+    arg_binary = args.binary
+    arg_clean_artifacts = args.clean_artifacts
+    arg_save_artifacts = args.save_artifacts
+    arg_section = args.section
+
+    # preprocessing
+    if os.path.isdir(arg_binary):
+        print("provided directory of flatbuffers")
+        binaries = find_ttnn_files(arg_binary)
+    else:
+        binaries.append(arg_binary)
+
+    if arg_clean_artifacts:
+        print("cleaning artifacts")
+        clean_artifacts()
+
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts(binaries)
+
+    # constraint checking
+    print("executing constraint for all provided flatbuffers")
+    for binary in binaries:
+        check_file_exists(binary)
+        fbb = ttrt.binary.load_from_path(binary)
+        check_version(fbb.version)
+        fbb_list.append(fbb)
+
+    # execution
+    print("executing action for all provided flatbuffers")
+    for fbb in fbb_list:
+        read_actions[arg_section](fbb)
+
+    # save artifacts
+    if arg_save_artifacts:
+        print("saving artifacts")
+        for binary in binaries:
+            copy_ttnn_binary_into_artifact(binary)
 
 
 """
@@ -51,104 +83,142 @@ API: run
 
 def run(args):
     import ttrt.runtime
+    import torch
 
-    try:
-        import torch
-    except ModuleNotFoundError:
-        raise ImportError(
-            "Error: torch required for offline run, please `pip install torch`"
-        )
+    # initialization
+    binaries = []
+    fbb_list = []
+    torch_inputs = {}
+    torch_outputs = {}
+    system_desc = None
 
-    def toDataType(dtype):
-        if dtype == torch.float32:
-            return ttrt.runtime.DataType.Float32
-        if dtype == torch.float16:
-            return ttrt.runtime.DataType.Float16
-        if dtype == torch.bfloat16:
-            return ttrt.runtime.DataType.BFloat16
-        if dtype == torch.uint32:
-            return ttrt.runtime.DataType.UInt32
-        if dtype == torch.uint16:
-            return ttrt.runtime.DataType.UInt16
-        if dtype == torch.uint8:
-            return ttrt.runtime.DataType.UInt8
-        raise ValueError(f"unsupported dtype: {dtype}")
+    # acquire parameters
+    arg_binary = args.binary
+    arg_program_index = int(args.program_index)
+    arg_clean_artifacts = args.clean_artifacts
+    arg_loops = int(args.loops)
+    arg_save_artifacts = args.save_artifacts
 
-    def fromDataType(dtype):
-        if dtype == "Float32":
-            return torch.float32
-        if dtype == "Float16":
-            return torch.float16
-        if dtype == "BFloat16":
-            return torch.bfloat16
-        if dtype == "UInt32":
-            return torch.uint32
-        if dtype == "UInt16":
-            return torch.uint16
-        if dtype == "UInt8":
-            return torch.uint8
-        raise ValueError(f"unsupported dtype: {dtype}")
+    # preprocessing
+    if os.path.isdir(arg_binary):
+        print("provided directory of flatbuffers")
+        binaries = find_ttnn_files(arg_binary)
+    else:
+        binaries.append(arg_binary)
 
-    check_file_exists(args.binary)
-    copy_file_into_ttrt_artifact(args.binary)
-    fbb = ttrt.binary.load_binary_from_path(args.binary)
-    check_version(fbb.version)
-    assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
-    d = ttrt.binary.as_dict(fbb)
+    if arg_clean_artifacts:
+        print("cleaning artifacts")
+        clean_artifacts()
 
-    program_index = int(args.program_index)
-    assert program_index <= len(d["programs"]), "args.program_index out of range"
-    program = d["programs"][program_index]
-    print(f"running program[{program_index}]:", program["name"])
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts(binaries)
 
-    torch_inputs = []
-    torch_outputs = []
-    for i in program["inputs"]:
-        torch_inputs.append(
-            torch.randn(
-                i["desc"]["shape"],
-                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
-            )
-        )
-    for i in program["outputs"]:
-        torch_outputs.append(
-            torch.zeros(
-                i["desc"]["shape"],
-                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
-            )
-        )
-
-    print("inputs:\n", torch_inputs)
-
-    inputs = []
-    outputs = []
-    for i in torch_inputs:
-        inputs.append(
-            ttrt.runtime.create_tensor(
-                i.data_ptr(),
-                list(i.shape),
-                list(i.stride()),
-                i.element_size(),
-                toDataType(i.dtype),
-            )
-        )
-
-    for i in torch_outputs:
-        outputs.append(
-            ttrt.runtime.create_tensor(
-                i.data_ptr(),
-                list(i.shape),
-                list(i.stride()),
-                i.element_size(),
-                toDataType(i.dtype),
-            )
-        )
-
+    # constraint checking
+    print("executing constraint for all provided flatbuffers")
     system_desc, device_ids = ttrt.runtime.get_current_system_desc()
+    for binary in binaries:
+        check_file_exists(binary)
+        fbb = ttrt.binary.load_binary_from_path(binary)
+        check_version(fbb.version)
+        fbb_dict = ttrt.binary.as_dict(fbb)
+        assert (
+            fbb_dict["system_desc"] == system_desc_as_dict(system_desc)["system_desc"]
+        ), f"system descriptor for binary and system mismatch!"
+        fbb_list.append((os.path.splitext(os.path.basename(binary))[0], fbb, fbb_dict))
+        program_index = arg_program_index
+        assert program_index <= len(
+            fbb_dict["programs"]
+        ), "args.program_index out of range"
+
+    # execution
+    print("executing action for all provided flatbuffers")
     device = ttrt.runtime.open_device(device_ids)
-    ttrt.runtime.submit(device, fbb, 0, inputs, outputs)
-    print("outputs:\n", torch_outputs)
-    ttrt.runtime.close_device(device)
+    atexit.register(lambda: ttrt.runtime.close_device(device))
+
+    torch.manual_seed(args.seed)
+
+    for (binary_name, fbb, fbb_dict) in fbb_list:
+        torch_inputs[binary_name] = []
+        torch_outputs[binary_name] = []
+        program = fbb_dict["programs"][program_index]
+        print(
+            f"running binary={binary_name} with program[{program_index}]:",
+            program["name"],
+        )
+
+        for i in program["inputs"]:
+            torch_tensor = torch.randn(
+                i["desc"]["shape"],
+                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
+            )
+            torch_inputs[binary_name].append(torch_tensor)
+        for i in program["outputs"]:
+            torch_tensor = torch.zeros(
+                i["desc"]["shape"],
+                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
+            )
+            torch_outputs[binary_name].append(torch_tensor)
+
+        print("inputs:\n", torch_inputs)
+
+        total_inputs = []
+        total_outputs = []
+        for loop in range(arg_loops):
+            inputs = []
+            outputs = []
+            for i in torch_inputs[binary_name]:
+                inputs.append(
+                    ttrt.runtime.create_tensor(
+                        i.data_ptr(),
+                        list(i.shape),
+                        list(i.stride()),
+                        i.element_size(),
+                        toDataType(i.dtype),
+                    )
+                )
+
+            for i in torch_outputs[binary_name]:
+                outputs.append(
+                    ttrt.runtime.create_tensor(
+                        i.data_ptr(),
+                        list(i.shape),
+                        list(i.stride()),
+                        i.element_size(),
+                        toDataType(i.dtype),
+                    )
+                )
+
+            total_inputs.append(inputs)
+            total_outputs.append(outputs)
+
+        for loop in range(arg_loops):
+            ttrt.runtime.submit(device, fbb, 0, total_inputs[loop], total_outputs[loop])
+            print(f"finished loop={loop}")
+        print("outputs:\n", torch_outputs)
+
+    # save artifacts
+    if arg_save_artifacts:
+        print("saving artifacts")
+        for binary in binaries:
+            copy_ttnn_binary_into_artifact(binary)
+            binary_name = os.path.splitext(os.path.basename(binary))[0]
+            torch_input_tensors = torch_inputs[binary_name]
+            torch_output_tensors = torch_outputs[binary_name]
+
+            for i, input in enumerate(torch_input_tensors):
+                save_torch_tensor_into_ttrt_artifacts(
+                    input, f"{binary_name}/input_{i}.pt"
+                )
+
+            for i, output in enumerate(torch_output_tensors):
+                save_torch_tensor_into_ttrt_artifacts(
+                    output, f"{binary_name}/output_{i}.pt"
+                )
+
+            save_system_desc_into_ttrt_artifacts(
+                system_desc, f"{binary_name}/system_desc.ttsys"
+            )
 
 
 """
@@ -160,20 +230,38 @@ API: query
 def query(args):
     import ttrt.runtime
 
-    if args.system_desc or args.system_desc_as_json:
-        print(ttrt.runtime.get_current_system_desc()[0].as_json())
-    if args.system_desc_as_dict:
-        print(system_desc_as_dict(ttrt.runtime.get_current_system_desc()[0]))
-    if args.save_system_desc:
-        desc = ttrt.runtime.get_current_system_desc()[0]
-        if args.save_system_desc:
-            file_name = args.save_system_desc
-        else:
-            d = system_desc_as_dict(desc)
-            file_name = d["product_identifier"] + ".ttsys"
-        desc.store(file_name)
-        print("system desc saved to:", file_name)
-        copy_file_into_ttrt_artifact(file_name)
+    # initialization
+    system_desc = None
+
+    # acquire parameters
+    arg_system_desc = args.system_desc
+    arg_system_desc_as_json = args.system_desc_as_json
+    arg_system_desc_as_dict = args.system_desc_as_dict
+    arg_clean_artifacts = args.clean_artifacts
+    arg_save_artifacts = args.save_artifacts
+
+    # preprocessing
+    if arg_clean_artifacts:
+        print("cleaning artifacts")
+        clean_artifacts()
+
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts()
+
+    # execution
+    print("executing action to get system desc")
+    system_desc = ttrt.runtime.get_current_system_desc()[0]
+
+    if arg_system_desc or arg_system_desc_as_json:
+        print(system_desc.as_json())
+    if arg_system_desc_as_dict:
+        print(system_desc_as_dict(system_desc))
+
+    # save artifacts
+    if arg_save_artifacts:
+        print("saving artifacts")
+        save_system_desc_into_ttrt_artifacts(system_desc, "system_desc.ttsys")
 
 
 """
@@ -183,65 +271,103 @@ API: perf
 
 
 def perf(args):
-    if args.generate_params:
-        # generate consolidated model report
-        check_file_exists(args.perf_csv)
-        generate_params_dict(args.perf_csv)
+    import ttrt.common.perf_trace as perf_trace
+
+    # initialization
+    binaries = []
+
+    # acquire parameters
+    arg_binary = args.binary
+    arg_program_index = int(args.program_index)
+    arg_clean_artifacts = args.clean_artifacts
+    arg_perf_csv = args.perf_csv
+    arg_loops = int(args.loops)
+    arg_save_artifacts = args.save_artifacts
+    arg_device = args.device
+    arg_generate_params = args.generate_params
+
+    # preprocessing
+    if os.path.isdir(arg_binary):
+        print("provided directory of flatbuffers")
+        binaries = find_ttnn_files(arg_binary)
     else:
-        if not perf_trace:
-            print("Perf mode is not enabled. Please rebuild tt-mlir with perf mode")
-            sys.exit(1)
+        binaries.append(arg_binary)
 
-        # get available port for tracy client and server to communicate on
-        port = get_available_port()
+    if arg_clean_artifacts:
+        print("cleaning artifacts")
+        clean_artifacts()
 
-        if not port:
-            print("No available port found")
-            sys.exit(1)
-        print(f"Using port {port}")
+    if arg_save_artifacts:
+        print("setting up artifact directories")
+        setup_artifacts(binaries)
 
-        # setup environment flags
-        envVars = dict(os.environ)
-        envVars["TRACY_PORT"] = port
-        envVars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+    # constraint checking
+    if arg_generate_params:
+        check_file_exists(arg_perf_csv)
 
-        if args.device:
-            envVars["TT_METAL_DEVICE_PROFILER"] = "1"
-        else:
-            if "TT_METAL_DEVICE_PROFILER" in envVars.keys():
-                del envVars["TT_METAL_DEVICE_PROFILER"]
+    for binary in binaries:
+        check_file_exists(binary)
 
-        # run perf artifact setup
-        captureProcess = run_perf_artifact_setup(port)
+    # execution
+    if arg_generate_params:
+        perf_trace.generate_params_dict(arg_perf_csv)
+    else:
+        for binary in binaries:
+            # get available port for tracy client and server to communicate on
+            port = perf_trace.get_available_port()
 
-        # generate test command to execute
-        check_file_exists(args.binary)
-        copy_file_into_ttrt_artifact(args.binary)
-        testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {args.binary}"
-        testProcess = subprocess.Popen(
-            [testCommand], shell=True, env=envVars, preexec_fn=os.setsid
-        )
-        print(f"Test process started")
+            if not port:
+                print("No available port found")
+                sys.exit(1)
+            print(f"Using port {port}")
 
-        # setup multiprocess signal handler
-        def signal_handler(sig, frame):
-            os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
-            captureProcess.terminate()
-            captureProcess.communicate()
-            sys.exit(3)
+            # setup environment flags
+            envVars = dict(os.environ)
+            envVars["TRACY_PORT"] = port
+            envVars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+            if arg_device:
+                envVars["TT_METAL_DEVICE_PROFILER"] = "1"
 
-        testProcess.communicate()
+            # run perf artifact setup
+            captureProcess = perf_trace.run_perf_artifact_setup(port)
 
-        try:
-            captureProcess.communicate(timeout=15)
-            generate_report()
-        except subprocess.TimeoutExpired as e:
-            captureProcess.terminate()
-            captureProcess.communicate()
-            print(
-                f"No profiling data could be captured. Please make sure you are on the correct build. Use scripts/build_scripts/build_with_profiler_opt.sh to build if you are not sure."
+            # generate test command to execute
+            testCommandOptions = ""
+            if arg_save_artifacts:
+                testCommandOptions += f"--save-artifacts "
+
+            testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops} --program-index {arg_program_index} {testCommandOptions}"
+            testProcess = subprocess.Popen(
+                [testCommand], shell=True, env=envVars, preexec_fn=os.setsid
             )
-            sys.exit(1)
+            print(f"Test process started")
+
+            # setup multiprocess signal handler
+            def signal_handler(sig, frame):
+                os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
+                captureProcess.terminate()
+                captureProcess.communicate()
+                sys.exit(3)
+
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+
+            testProcess.communicate()
+
+            binary_name = os.path.splitext(os.path.basename(binary))[0]
+            binary_perf_folder = f"{TTRT_ARTIFACTS}/{binary_name}/perf"
+
+            try:
+                captureProcess.communicate(timeout=15)
+                perf_trace.generate_report(binary_perf_folder)
+            except subprocess.TimeoutExpired as e:
+                captureProcess.terminate()
+                captureProcess.communicate()
+                print(
+                    f"No profiling data could be captured. Please make sure you are on the correct build. Use scripts/build_scripts/build_with_profiler_opt.sh to build if you are not sure."
+                )
+                sys.exit(1)
+
+            # save artifacts
+            perf_trace.save_perf_artifacts(binary_perf_folder)

@@ -111,8 +111,8 @@ public:
     CQBuilder cqBuilder(&fbb);
 
     ModuleOp module = getOperation();
-    auto systemDesc =
-        module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>();
+    auto systemDesc = mlir::cast<tt::SystemDescAttr>(
+        module->getAttr(tt::SystemDescAttr::name));
     func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
     assert(entry && "expected an entry function");
     cqBuilder.name = entry.getSymName().data();
@@ -142,14 +142,13 @@ public:
           assert(succeeded(result) &&
                  "failed to emit dispatch op region as cpp");
           auto threadType =
-              dispatchOp.getThreadTypes()[region.getRegionNumber()]
-                  .cast<ttkernel::ThreadTypeAttr>()
+              mlir::cast<ttkernel::ThreadTypeAttr>(
+                  dispatchOp.getThreadTypes()[region.getRegionNumber()])
                   .getValue();
-          ::tt::target::Dim2dRange core_range =
-              toFlatbuffer(dispatchOp.getCoreRanges()[region.getRegionNumber()]
-                               .cast<CoreRangeAttr>());
-          ::tt::target::Dim2dRange(::tt::target::Dim2d(0, 0),
-                                   ::tt::target::Dim2d(0, 0));
+          std::vector<::tt::target::Dim2dRange> core_range = {
+              toFlatbuffer(mlir::cast<CoreRangeAttr>(
+                  dispatchOp.getCoreRanges()[region.getRegionNumber()])),
+          };
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
           kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
               fbb, ::tt::target::metal::Kernel::KernelSource,
@@ -158,19 +157,17 @@ public:
                   .Union(),
               &core_range, &cbs, nullptr /*TODO debug info*/));
         }
-        std::vector<::flatbuffers::Offset<::tt::target::metal::DispatchProgram>>
-            programs = {
-                ::tt::target::metal::CreateDispatchProgramDirect(fbb, &kernels),
-            };
+        ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
+            ::tt::target::metal::CreateProgramDescDirect(fbb, &kernels);
 
         cqBuilder.appendCommand(
-            ::tt::target::metal::CreateDispatchCommandDirect(fbb, &operands,
-                                                             &programs),
+            ::tt::target::metal::CreateEnqueueProgramCommandDirect(
+                fbb, &operands, program),
             op);
       } else if (auto allocOp = dyn_cast_or_null<tt::ttmetal::AllocOp>(op);
                  allocOp) {
         cqBuilder.appendCommand(
-            ::tt::target::metal::CreateHostAllocCommand(
+            ::tt::target::metal::CreateCreateBufferCommand(
                 fbb,
                 cache.getOrCreate(allocOp.getResult(), tensorValueToFlatbuffer,
                                   allocOp.getAddress(), allocOp.getSize())),
@@ -178,7 +175,7 @@ public:
       } else if (auto deallocOp = dyn_cast_or_null<tt::ttmetal::DeallocOp>(op);
                  deallocOp) {
         cqBuilder.appendCommand(
-            ::tt::target::metal::CreateHostDeallocCommand(
+            ::tt::target::metal::CreateDeallocateBufferCommand(
                 fbb, cache.at<::tt::target::TensorRef>(
                          getOperandThroughDPSOps(deallocOp.getInput()))),
             op);
@@ -186,7 +183,7 @@ public:
                      dyn_cast_or_null<tt::ttmetal::HostReadOp>(op);
                  hostReadOp) {
         cqBuilder.appendCommand(
-            ::tt::target::metal::CreateHostReadCommand(
+            ::tt::target::metal::CreateEnqueueReadBufferCommand(
                 fbb,
                 cache.at<::tt::target::TensorRef>(
                     getOperandThroughDPSOps(hostReadOp.getInput())),
@@ -197,7 +194,7 @@ public:
                      dyn_cast_or_null<tt::ttmetal::HostWriteOp>(op);
                  hostWriteOp) {
         cqBuilder.appendCommand(
-            ::tt::target::metal::CreateHostReadCommand(
+            ::tt::target::metal::CreateEnqueueWriteBufferCommand(
                 fbb,
                 cache.at<::tt::target::TensorRef>(
                     getOperandThroughDPSOps(hostWriteOp.getInput())),
@@ -219,13 +216,25 @@ public:
 
     std::vector<::flatbuffers::Offset<::tt::target::metal::CommandQueue>>
         commandQueues = {
-            ::tt::target::metal::CreateCommandQueueDirect(
-                fbb, cqBuilder.name, &cqBuilder.inputs, &cqBuilder.outputs,
-                &cqBuilder.commands),
+            ::tt::target::metal::CreateCommandQueueDirect(fbb, cqBuilder.name,
+                                                          &cqBuilder.commands),
         };
+
+    std::vector<::flatbuffers::Offset<::tt::target::metal::DeviceProgram>>
+        devicePrograms = {
+            ::tt::target::metal::CreateDeviceProgramDirect(fbb, &commandQueues),
+        };
+
+    std::vector<::flatbuffers::Offset<::tt::target::metal::Program>> programs =
+        {
+            ::tt::target::metal::CreateProgramDirect(
+                fbb, cqBuilder.name, &cqBuilder.inputs, &cqBuilder.outputs,
+                &devicePrograms),
+        };
+
     auto binary = ::tt::target::metal::CreateTTMetalBinaryDirect(
         fbb, &binaryVersion, ::ttmlir::getGitHash(),
-        toFlatbuffer(cache, systemDesc), &commandQueues);
+        toFlatbuffer(cache, systemDesc), &programs);
 
     FinishSizePrefixedTTMetalBinaryBuffer(fbb, binary);
     ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());

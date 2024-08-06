@@ -56,7 +56,7 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 ::flatbuffers::Offset<::tt::target::ttnn::OpenDeviceOp>
 createOp(FlatbufferObjectCache &cache, OpenDeviceOp op) {
   auto result = op.getResult();
-  auto resultType = result.getType().cast<DeviceType>();
+  auto resultType = mlir::cast<DeviceType>(result.getType());
   ::tt::target::Dim2d grid =
       toFlatbuffer(cache, resultType.getDesc().getGrid());
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
@@ -142,6 +142,8 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
   ::tt::target::ttnn::ReductionOpType type;
   if constexpr (std::is_same_v<ReductionOp, SumOp>) {
     type = ::tt::target::ttnn::ReductionOpType::Sum;
+  } else if constexpr (std::is_same_v<ReductionOp, MeanOp>) {
+    type = ::tt::target::ttnn::ReductionOpType::Mean;
   } else {
     llvm_unreachable("unhandled ReductionOp");
   }
@@ -209,6 +211,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
     return createOperation(cache, createReductionOp(cache, sumOp), debugString);
   }
+  if (auto meanOp = dyn_cast<MeanOp>(op); meanOp) {
+    return createOperation(cache, createReductionOp(cache, meanOp),
+                           debugString);
+  }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
                            debugString);
@@ -228,10 +234,9 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   ::tt::target::Version binaryVersion(ttmlirVersion.major, ttmlirVersion.minor,
                                       ttmlirVersion.patch);
 
-  auto systemDesc = toFlatbuffer(
-      cache,
-      module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>());
-
+  auto systemDesc =
+      toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
+                              module->getAttr(tt::SystemDescAttr::name)));
   func::FuncOp entry = dyn_cast<func::FuncOp>(*module.getRegion().op_begin());
   assert(entry && "Expected an entry function");
   Program<::tt::target::ttnn::Operation> program =

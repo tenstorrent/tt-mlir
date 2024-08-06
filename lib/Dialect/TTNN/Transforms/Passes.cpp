@@ -32,8 +32,8 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
     OpBuilder builder(module);
-    auto systemDesc =
-        module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>();
+    auto systemDesc = llvm::cast<tt::SystemDescAttr>(
+        module->getAttr(tt::SystemDescAttr::name));
     auto chipDescIndices = systemDesc.getChipDescIndices();
     assert(chipDescIndices.size() == 1 && "Multiple chips not supported yet");
 

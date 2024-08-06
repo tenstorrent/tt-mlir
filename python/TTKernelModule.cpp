@@ -20,9 +20,10 @@ void populateTTKernelModule(py::module &m) {
                     return ttmlirTTKernelCBTypeGet(ctx, address, port,
                                                    memrefType);
                   })
-      .def_static(
-          "cast",
-          [](MlirType &ty) { return unwrap(ty).cast<tt::ttkernel::CBType>(); })
+      .def_static("cast",
+                  [](MlirType &ty) {
+                    return mlir::cast<tt::ttkernel::CBType>(unwrap(ty));
+                  })
       .def_property_readonly("shape",
                              [](tt::ttkernel::CBType &cb) {
                                return std::vector<int64_t>(cb.getShape());
