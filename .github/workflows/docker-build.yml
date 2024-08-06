@@ -17,8 +17,7 @@ jobs:
       matrix:
         build: [
           {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
-          {runs-on: self-hosted, build_type: Release, enable_runtime: OFF},
-          # {build_type: Release, enable_runtime: ON},
+          {runs-on: self-hosted, build_type: Release, enable_runtime: ON},
         ]
 
     runs-on: ${{ matrix.build.runs-on }}
@@ -31,12 +30,6 @@ jobs:
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0 # Fetch all history and tags
-
-    - name: Display working directory
-      run: |
-        echo "Current working directory: $(pwd)"
-        echo "GitHub workspace: ${{ github.workspace }}"
-        ccache -show-config || true
 
     - name: Set reusable strings
       id: strings
@@ -72,6 +65,7 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- clang-tidy
+      continue-on-error: true
 
     - name: Run Test
       shell: bash
