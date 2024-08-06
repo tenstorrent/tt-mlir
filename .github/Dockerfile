@@ -27,6 +27,8 @@ RUN apt-get update && apt-get install -y \
     libgtest-dev \
     cmake \
     ccache \
+    doxygen \
+    graphviz \
     patchelf \
     libyaml-cpp-dev \
     libboost-all-dev
@@ -46,27 +48,23 @@ RUN pip install cmake
 RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && cd googletest && mkdir build && cd build && cmake .. -DBUILD_GMOCK=OFF && make && make install && cd ../.. && rm -rf googletest
 
 # Set the user for RUN commands
-ARG USER=builder
-RUN useradd -m -s /bin/bash $USER
+ARG BUILD_DIR=builder
+RUN mkdir -p $BUILD_DIR
 
 # Create and change ownership of toolchain dir
-USER root
-RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
-    chown -R $USER:$USER $TTMLIR_TOOLCHAIN_DIR
+RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
 # Clone the project and update submodules
-USER $USER
-RUN git clone https://github.com/tenstorrent/tt-mlir.git /home/$USER/tt-mlir && \
-    cd /home/$USER/tt-mlir && \
+RUN git clone https://github.com/tenstorrent/tt-mlir.git $BUILD_DIR/tt-mlir && \
+    cd $BUILD_DIR/tt-mlir && \
     git submodule update --init --recursive -f
 
 # Build the toolchain
-WORKDIR /home/$USER/tt-mlir
+WORKDIR $BUILD_DIR/tt-mlir
 RUN cmake -B env/build env && \
     cmake --build env/build
 
 # Build project to test the container
-USER $USER
 RUN source env/activate && \
     cmake -G Ninja \
     -B build \
@@ -84,9 +82,5 @@ RUN cmake --build build -- clang-tidy || true
 # Run the tests
 RUN cmake --build build -- check-ttmlir || true
 
-# Clean up the user directory
-RUN rm -rf /home/$USER/tt-mlir
-
-# Define the default workdir
-WORKDIR /home/$USER
-CMD ["bash"]
+# Clean up the build directory
+RUN rm -rf $BUILD_DIR/tt-mlir
