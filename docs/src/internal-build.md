@@ -8,58 +8,57 @@
   - mkdir /localdev/$USER/ttmlir-toolchain
   - When requesting an IRD use `--volumes /localdev/$USER/ttmlir-toolchain:/opt/ttmlir-toolchain`
 
-## Working with docker images
+## Working with Docker Images
 
-Components
+Components:
   - Dockerfile
-  - workflow for building docker image
-  - project build using docker image
+  - Workflow for building Docker image
+  - Project build using Docker image
 
-Overview
+Overview:
 
 The [Dockerfile](.github/Dockerfile) describes how to create an image for building the tt-mlir project file. It starts with a supported base image (Ubuntu 20.04) and installs the necessary packages. The purpose of the Docker build is to:
 
-  - Setup build dependencies
+  - Set up build dependencies
   - Prepare the tt-mlir toolchain
 
 During the Docker build, the project is built and tests are run to ensure that everything is set up correctly. If any dependencies are missing, the Docker build will fail.
 
 This process also prepopulates caches for Python packages and the ccache cache in the image, which should make subsequent builds faster.
 
-### Building the docker image using Github Action
+### Building the Docker Image using GitHub Actions
 
-Github action workflow [Build and Publish Docker Image](.github/workflows/build-image.yml) builds docker image and uploads it to Github parckages https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir. Image name is tt-mlir-ubuntu-20-04 and we uses git SHA we build from as tag.
+The GitHub Actions workflow [Build and Publish Docker Image](.github/workflows/build-image.yml) builds the Docker image and uploads it to GitHub Packages at https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir. The image name is tt-mlir-ubuntu-20-04, and we use the git SHA we build from as the tag.
 
-### Building the docker image locally
+### Building the Docker Image Locally
 
-To test the changes and build the image locally use command
+To test the changes and build the image locally, use the following command:
 ```bash
 docker build -f .github/Dockerfile -t tt-mlir-ubuntu-20-04:latest .
 ```
 
-### Pushing the Docker image to Github
+### Pushing the Docker Image to GitHub
 
-Images build locally can be pushed to Github. We first need to generate PAT token with enabled "write:packages" access
-Github -> Settings -> Developer settings -> Personal access tokens -> Generate new token
+Images built locally can be pushed to GitHub. First, we need to generate a PAT token with the "write:packages" access enabled. Go to GitHub -> Settings -> Developer settings -> Personal access tokens -> Generate new token.
 
-Authenticate with GitHub Container Registry
+Authenticate with GitHub Container Registry:
 ```bash
 echo "<my-github-pat>" | docker login ghcr.io -u <username> --password-stdin
 ```
 
-Add tag to built image
+Add a tag to the built image:
 ```bash
 docker tag tt-mlir-ubuntu-20-04:latest ghcr.io/tenstorrent/tt-mlir/tt-mlir-ubuntu-20-04:latest
 ```
 
-Push
+Push the image:
 ```bash
 docker push ghcr.io/tenstorrent/tt-mlir/tt-mlir-ubuntu-20-04:latest
 ```
 
-### Using the image in Github Action jobs
+### Using the Image in GitHub Actions Jobs
 
-Github Action workflow [Build in Docker](.github/workflows/docker-build.yml) uses docker container for building
+The GitHub Actions workflow [Build in Docker](.github/workflows/docker-build.yml) uses a Docker container for building:
 ```yaml
     container:
       image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-20-04:latest
