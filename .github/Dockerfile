@@ -29,15 +29,15 @@ RUN apt-get update && apt-get install -y \
     ccache \
     patchelf \
     libyaml-cpp-dev \
-    libboost-all-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libboost-all-dev
 
 # Install clang 17
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod u+x llvm.sh && \
     ./llvm.sh 17 && \
     apt install -y libc++-17-dev libc++abi-17-dev && \
-    rm -rf /var/lib/apt/lists/*
+    ln -s /usr/bin/clang-17 /usr/bin/clang && \
+    ln -s /usr/bin/clang++-17 /usr/bin/clang++
 
 # Install python packages
 RUN pip install cmake
@@ -64,11 +64,6 @@ RUN git clone https://github.com/tenstorrent/tt-mlir.git /home/$USER/tt-mlir && 
 WORKDIR /home/$USER/tt-mlir
 RUN cmake -B env/build env && \
     cmake --build env/build
-
-# Create aliases for clang and clang++
-RUN echo "alias clang=clang-17" >> ~/.bashrc && \
-    echo "alias clang++=clang++-17" >> ~/.bashrc && \
-    source ~/.bashrc
 
 # Build project to test the container
 USER $USER
