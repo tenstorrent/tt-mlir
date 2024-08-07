@@ -43,43 +43,43 @@ RUN wget https://apt.llvm.org/llvm.sh && \
 # Install python packages
 RUN pip install cmake
 
-# # Googletest latest version (which isn't in apt for 20.04)
-# RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && cd googletest && mkdir build && cd build && cmake .. -DBUILD_GMOCK=OFF && make && make install && cd ../.. && rm -rf googletest
+# Googletest latest version (which isn't in apt for 20.04)
+RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && cd googletest && mkdir build && cd build && cmake .. -DBUILD_GMOCK=OFF && make && make install && cd ../.. && rm -rf googletest
 
-# # Set the user for RUN commands
-# ARG BUILD_DIR=builder
-# RUN mkdir -p $BUILD_DIR
+# Set the user for RUN commands
+ARG BUILD_DIR=builder
+RUN mkdir -p $BUILD_DIR
 
-# # Create and change ownership of toolchain dir
-# RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR
+# Create and change ownership of toolchain dir
+RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
-# # Clone the project and update submodules
-# RUN git clone https://github.com/tenstorrent/tt-mlir.git $BUILD_DIR/tt-mlir && \
-#     cd $BUILD_DIR/tt-mlir && \
-#     git submodule update --init --recursive -f
+# Clone the project and update submodules
+RUN git clone https://github.com/tenstorrent/tt-mlir.git $BUILD_DIR/tt-mlir && \
+    cd $BUILD_DIR/tt-mlir && \
+    git submodule update --init --recursive -f
 
-# # Build the toolchain
-# WORKDIR $BUILD_DIR/tt-mlir
-# RUN cmake -B env/build env && \
-#     cmake --build env/build
+# Build the toolchain
+WORKDIR $BUILD_DIR/tt-mlir
+RUN cmake -B env/build env && \
+    cmake --build env/build
 
-# # Build project to test the container
-# RUN source env/activate && \
-#     cmake -G Ninja \
-#     -B build \
-#     -DCMAKE_BUILD_TYPE=Release \
-#     -DCMAKE_C_COMPILER=clang \
-#     -DCMAKE_CXX_COMPILER=clang++ \
-#     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-#     -DTTMLIR_ENABLE_RUNTIME=ON \
-#     -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
-#     cmake --build build --config Release
+# Build project to test the container
+RUN source env/activate && \
+    cmake -G Ninja \
+    -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DTTMLIR_ENABLE_RUNTIME=ON \
+    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
+    cmake --build build --config Release
 
-# # Run clang-tidy
-# RUN cmake --build build -- clang-tidy || true
+# Run clang-tidy
+RUN cmake --build build -- clang-tidy || true
 
-# # Run the tests
-# RUN cmake --build build -- check-ttmlir || true
+# Run the tests
+RUN cmake --build build -- check-ttmlir || true
 
-# # Clean up the build directory
-# RUN rm -rf $BUILD_DIR/tt-mlir
+# Clean up the build directory
+RUN rm -rf $BUILD_DIR/tt-mlir
