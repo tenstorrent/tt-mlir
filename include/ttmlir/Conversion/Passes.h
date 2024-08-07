@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_PASSES_H
 #define TTMLIR_CONVERSION_PASSES_H
 
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
