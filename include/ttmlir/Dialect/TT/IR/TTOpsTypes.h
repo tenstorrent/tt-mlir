@@ -29,6 +29,7 @@ inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
 namespace mlir::tt {
+SystemDescAttr getCurrentScopeSystemDesc(Operation *op);
 DeviceAttr getCurrentScopeDevice(Operation *op);
 } // namespace mlir::tt
 

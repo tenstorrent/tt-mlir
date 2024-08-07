@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
 #l1_ = #tt.memory_space<l1>
 #layout = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
 #layout1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x4>, memref<64x32xf32, #l1_>>

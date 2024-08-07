@@ -8,12 +8,15 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Target/Common/system_desc_generated.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+#include "ttmlir/Utils.h"
 
 using namespace mlir::tt;
 
@@ -124,6 +127,26 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
                               chip_capabilities_list, chip_coordinate_list, {});
 
   return system_desc_attr;
+}
+
+unsigned SystemDescAttr::getAddressAlignBytes(unsigned chipIndex) const {
+  return std::max(std::initializer_list<unsigned>{
+      getNocL1AddressAlignBytes(),
+      getNocDRAMAddressAlignBytes(),
+      getPcieAddressAlignBytes(),
+  });
+}
+
+unsigned SystemDescAttr::getNocL1AddressAlignBytes(unsigned chipIndex) const {
+  return getChipDescs()[chipIndex].getNocL1AddressAlignBytes();
+}
+
+unsigned SystemDescAttr::getNocDRAMAddressAlignBytes(unsigned chipIndex) const {
+  return getChipDescs()[chipIndex].getNocDRAMAddressAlignBytes();
+}
+
+unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
+  return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
 }
 
 static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
@@ -477,6 +500,21 @@ uint64_t TileType::getSizeBytes() const {
   case DataType::UInt8:
     return getHeight() * getWidth();
   }
+}
+
+SystemDescAttr mlir::tt::getCurrentScopeSystemDesc(mlir::Operation *op) {
+  // Walk up scope levels until we find the top level ModuleOp which carries the
+  // system desc
+  while (op) {
+    if (mlir::isa<mlir::ModuleOp>(op)) {
+      auto systemDesc = op->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
+      assert(systemDesc && "expected system desc to be present on the module");
+      return systemDesc;
+    }
+    op = op->getParentOp();
+  }
+  assert(false && "expected system desc to be present in the scope");
+  return nullptr;
 }
 
 DeviceAttr mlir::tt::getCurrentScopeDevice(mlir::Operation *op) {

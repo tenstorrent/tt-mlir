@@ -103,9 +103,6 @@ public:
   }
 
   void runOnOperation() final {
-    constexpr uint64_t kHostAllocatedAddress = 0;
-    constexpr uint64_t kHostAllocatedSize = 0;
-
     ::flatbuffers::FlatBufferBuilder fbb;
     FlatbufferObjectCache cache(&fbb);
     CQBuilder cqBuilder(&fbb);
@@ -117,10 +114,22 @@ public:
     assert(entry && "expected an entry function");
     cqBuilder.name = entry.getSymName().data();
 
+    auto argumentAllocations = mlir::cast<ArrayAttr>(
+        entry->getDiscardableAttr(ArgumentAllocationAttr::name));
+    assert(argumentAllocations && "expected tt.argument_allocations attribute");
     for (auto &input : entry.getBody().getArguments()) {
+      auto argAlloc = mlir::cast<tt::ArgumentAllocationAttr>(
+          argumentAllocations[input.getArgNumber()]);
+      assert(
+          argAlloc.getMemorySpace() ==
+              mlir::cast<tt::LayoutAttr>(
+                  mlir::cast<RankedTensorType>(input.getType()).getEncoding())
+                  .getMemorySpace() &&
+          "argument allocation memory space does not match tensor type memory "
+          "space");
       cqBuilder.inputs.push_back(
           cache.getOrCreate(input, tensorValueToFlatbuffer,
-                            kHostAllocatedAddress, kHostAllocatedSize));
+                            argAlloc.getAddress(), argAlloc.getSize()));
     }
 
     module->walk([&](mlir::Operation *op) {
@@ -145,17 +154,16 @@ public:
               mlir::cast<ttkernel::ThreadTypeAttr>(
                   dispatchOp.getThreadTypes()[region.getRegionNumber()])
                   .getValue();
-          std::vector<::tt::target::Dim2dRange> core_range = {
+          std::vector<::tt::target::Dim2dRange> coreRangeSet = {
               toFlatbuffer(mlir::cast<CoreRangeAttr>(
-                  dispatchOp.getCoreRanges()[region.getRegionNumber()])),
-          };
+                  dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
           kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
               fbb, ::tt::target::metal::Kernel::KernelSource,
               ::tt::target::metal::CreateKernelSourceDirect(
                   fbb, toFlatbuffer(threadType), source.c_str())
                   .Union(),
-              &core_range, &cbs, nullptr /*TODO debug info*/));
+              &coreRangeSet, &cbs, nullptr /*TODO debug info*/));
         }
         ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
             ::tt::target::metal::CreateProgramDescDirect(fbb, &kernels);
