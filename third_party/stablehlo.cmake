@@ -19,3 +19,11 @@ ExternalProject_Add(
     GIT_TAG ${STABLE_HLO_VERSION}
     GIT_PROGRESS ON
 )
+
+include(stablehlo_libs.cmake)
+foreach(lib_name lib_path IN ZIP_LISTS TTMLIR_STABLEHLO_LIBRARY_NAMES TTMLIR_STABLEHLO_LIBRARIES)
+  add_library(${lib_name} SHARED IMPORTED GLOBAL)
+  set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${lib_path})
+  add_dependencies(${lib_name} stablehlo)
+endforeach()
+

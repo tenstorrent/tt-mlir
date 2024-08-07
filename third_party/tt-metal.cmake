@@ -22,6 +22,7 @@ endif()
 
 set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/deprecated
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd
@@ -31,19 +32,17 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
   PARENT_SCOPE
 )
 
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib)
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
-set(TTEAGER_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_eager.so)
 
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
 set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_PATH} PARENT_SCOPE)
-set(TTEAGER_LIBRARY_PATH ${TTEAGER_LIBRARY_PATH} PARENT_SCOPE)
-
 
 ExternalProject_Add(
   tt-metal
@@ -56,15 +55,15 @@ ExternalProject_Add(
     -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
     -DTRACY_ENABLE=${TT_RUNTIME_ENABLE_PERF_TRACE}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
-  GIT_TAG v0.49.0
+  GIT_TAG f6a2e5cb2b857bf4c72401bea68adf98c25bbe47
   GIT_PROGRESS ON
-  BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TTEAGER_LIBRARY_PATH}
+  BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH}
 )
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
-list(APPEND library_names TTNN_LIBRARY TTEAGER_LIBRARY TTMETAL_LIBRARY)
-list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TTEAGER_LIBRARY_PATH})
+list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY)
+list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH})
 
 foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_library(${lib_name} SHARED IMPORTED GLOBAL)

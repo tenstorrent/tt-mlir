@@ -4,6 +4,13 @@ set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN TTBinary)
 # Dependency libs from tt-metal/ttnn project for ttnn runtime
 set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY)
 
+option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
+if (TTMLIR_ENABLE_STABLEHLO)
+include(../../third_party/stablehlo_libs.cmake)
+else()
+set(TTMLIR_STABLEHLO_LIBRARY_NAMES)
+endif()
+
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
@@ -27,6 +34,7 @@ add_dependencies(TTMLIR
     ${TTMLIR_LIBS}
     ${TTNN_RUNTIME_LIBS}
     ${TTNN_LIBS}
+    ${TTMLIR_STABLEHLO_LIBRARY_NAMES}
 )
 
 target_link_libraries(TTMLIR PRIVATE
@@ -38,6 +46,7 @@ target_link_libraries(TTMLIR PRIVATE
     -Wl,--whole-archive
     ${TTMLIR_LIBS}
     ${TTNN_RUNTIME_LIBS}
+    ${TTMLIR_STABLEHLO_LIBRARY_NAMES}
     -Wl,--no-whole-archive
 
     ${TTNN_LIBS}
