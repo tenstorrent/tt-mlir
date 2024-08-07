@@ -1,5 +1,5 @@
-# Use the official Ubuntu 20.04 as a parent image
-FROM ubuntu:20.04
+# Use the official Ubuntu 22.04 as a parent image
+FROM ubuntu:22.04
 SHELL ["/bin/bash", "-c"]
 
 # Set environment variables
@@ -9,11 +9,10 @@ ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 # Install dependencies
 RUN apt-get update && apt-get install -y \
     software-properties-common \
-    build-essential=12.8ubuntu1.1 \
-    python3-dev=3.8.2-0ubuntu2 \
-    python3.8-venv \
-    python3-pip \
+    build-essential \
     python3-dev \
+    python3-venv \
+    python3-pip \
     git \
     git-lfs \
     libhwloc-dev \

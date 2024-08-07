@@ -15,6 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        image: [ "ubuntu-22-04", "ubuntu-20-04" ]
         build: [
           {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
           {runs-on: self-hosted, build_type: Release, enable_runtime: ON},
@@ -23,7 +24,8 @@ jobs:
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-20-04:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-${{ matrix.image }}:latest
+      # image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
       options: --user root
 
     steps:

@@ -3,6 +3,8 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   workflow_call:
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -33,5 +35,5 @@ jobs:
           file: .github/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-20-04:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-20-04:latest
+            ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
