@@ -557,8 +557,12 @@ public:
 };
 
 inline uint64_t getElementSizeBytes(Type ty) {
-  assert(ty.isF32() && "Only support f32 for now");
-  return 4;
+  if (isa<TileType>(ty)) {
+    auto tileType = mlir::cast<TileType>(ty);
+    return tileType.getSizeBytes();
+  } else {
+    return ty.getIntOrFloatBitWidth() / 8;
+  }
 }
 
 inline uint64_t getMemrefSizeBytes(MemRefType ty) {

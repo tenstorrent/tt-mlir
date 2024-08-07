@@ -212,11 +212,11 @@ void populateTTModule(py::module &m) {
 
   py::class_<tt::TileType>(m, "TileType")
       .def_static("get",
-                  [](MlirContext ctx, unsigned height, unsigned width,
+                  [](MlirContext ctx, std::int64_t height, std::int64_t width,
                      uint32_t dataType) {
-                    return wrap(
-                        tt::TileType::get(unwrap(ctx), height, width,
-                                          static_cast<tt::DataType>(dataType)));
+                    return wrap(tt::TileType::get(
+                        unwrap(ctx), SmallVector<std::int64_t>{height, width},
+                        static_cast<tt::DataType>(dataType)));
                   })
       .def_property_readonly("data_type", &tt::TileType::getDataType)
       .def_property_readonly("shape", [](tt::TileType const &tile) {
