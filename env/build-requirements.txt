@@ -6,3 +6,6 @@ wheel
 setuptools
 black
 pre-commit
+numpy
+pybind11
+Torch
