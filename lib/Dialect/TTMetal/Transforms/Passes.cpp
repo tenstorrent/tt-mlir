@@ -174,6 +174,101 @@ public:
     return dst2srcMap;
   }
 
+  LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    assert(inputLayout.getMemorySpace() == outputLayout.getMemorySpace());
+    tt::DeviceAttr device = op.getDevice();
+    assert(device);
+    tt::SystemDescAttr systemDesc = op.getSystemDesc();
+    assert(systemDesc);
+    auto addressAlignment = systemDesc.getAddressAlignBytes(inputLayout.getMemorySpace());
+    assert(inputLayout.getPhysicalShape(inputTy.getShape()) ==
+               outputLayout.getPhysicalShape(outputTy.getShape()) &&
+           "Physical shapes must match for now");
+    AffineMap src =
+        inputLayout.projectOnto(inputTy.getShape(), device.getGrid());
+    AffineMap dst =
+        outputLayout.projectOnto(outputTy.getShape(), device.getGrid());
+    auto dm = calculateDataMovement(
+        inputTy.getShape(), inputLayout.getElementSizeBytes(), src, dst);
+
+    auto noc0Attr =
+        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);
+    SmallVector<Attribute> threadTypes(dm.size(), noc0Attr);
+    SmallVector<Attribute> operand_cb_port_mapping;
+    SmallVector<Attribute> coreRanges;
+    coreRanges.reserve(dm.size());
+    for (auto [dstCoord, srcs] : dm) {
+      SmallVector<int64_t> offset = {dstCoord.y, dstCoord.x};
+      SmallVector<int64_t> size = {1, 1};
+      coreRanges.push_back(
+          rewriter.getAttr<ttmetal::CoreRangeAttr>(offset, size));
+    };
+
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), SmallVector<Type>({outputTy}),
+        SmallVector<Value>({op.getInput()}),
+        SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr(threadTypes),
+        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+
+    int i = 0;
+    std::int64_t inputBaseAddress = lookupAddress(op.getInput());
+    std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
+    assert(inputBaseAddress);
+    assert(outputBaseAddress);
+    assert(inputBaseAddress % addressAlignment == 0);
+    assert(outputBaseAddress % addressAlignment == 0);
+    for (auto [dstCoord, srcs] : dm) {
+      Block *nocBlock = rewriter.createBlock(&metalDispatch.getRegion(i++));
+      OpBuilder nocBuilder(nocBlock, nocBlock->begin());
+      for (auto s : srcs) {
+        assert(s.srcOffset % addressAlignment == 0);
+        assert(s.dstOffset % addressAlignment == 0);
+        assert(s.size % addressAlignment == 0);
+        auto [yPhys, xPhys] = coordMapping[s.srcCoord.y][s.srcCoord.x];
+        auto y = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(yPhys));
+        auto x = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(xPhys));
+        auto srcOffset = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(inputBaseAddress + s.srcOffset));
+        auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrOp>(
+            op.getLoc(), x, y, srcOffset);
+        auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(outputBaseAddress + s.dstOffset));
+        auto size = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(s.size));
+        nocBuilder.create<ttkernel::NocAsyncReadOp>(
+            op.getLoc(), srcRemoteNocAddr, dstLocalL1Addr, size);
+      }
+      nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      nocBuilder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    }
+
+    rewriter.replaceOp(op, metalDispatch);
+
+    return success();
+  }
+
+  LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    (void)inputLayout;
+    (void)outputLayout;
+    return failure();
+  }
+
   LogicalResult matchAndRewrite(ttir::ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
@@ -186,87 +281,34 @@ public:
     assert(mlir::isa<tt::LayoutAttr>(outputTy.getEncoding()));
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
-    if (inputLayout.isSystemMemorySpace()) {
-      assert(outputLayout.isDeviceMemorySpace());
-      rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
-          op, outputTy, op.getInput(), op.getOutput());
-    } else if (outputLayout.isSystemMemorySpace()) {
-      assert(inputLayout.isDeviceMemorySpace());
-      rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
-          op, outputTy, op.getInput(), op.getOutput());
-    } else {
-      tt::DeviceAttr device = op.getDevice();
-      assert(inputLayout.getPhysicalShape(inputTy.getShape()) ==
-                 outputLayout.getPhysicalShape(outputTy.getShape()) &&
-             "Physical shapes must match for now");
-      assert(device);
-      AffineMap src =
-          inputLayout.projectOnto(inputTy.getShape(), device.getGrid());
-      AffineMap dst =
-          outputLayout.projectOnto(outputTy.getShape(), device.getGrid());
-      auto dm = calculateDataMovement(
-          inputTy.getShape(), inputLayout.getElementSizeBytes(), src, dst);
 
-      auto noc0Attr = rewriter.getAttr<ttkernel::ThreadTypeAttr>(
-          ttkernel::ThreadType::Noc0);
-      SmallVector<Attribute> threadTypes(dm.size(), noc0Attr);
-      SmallVector<Attribute> operand_cb_port_mapping;
-      SmallVector<Attribute> coreRanges;
-      coreRanges.reserve(dm.size());
-      for (auto [dstCoord, srcs] : dm) {
-        SmallVector<int64_t> offset = {dstCoord.y, dstCoord.x};
-        SmallVector<int64_t> size = {1, 1};
-        coreRanges.push_back(
-            rewriter.getAttr<ttmetal::CoreRangeAttr>(offset, size));
-      };
+    bool isMemorySpaceChange =
+        inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
+    bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
+    bool isFormatChange =
+        inputLayout.getElementType() != outputLayout.getElementType();
+    assert(isMemorySpaceChange ^ isLayoutChange ^ isFormatChange &&
+           "Only one change is allowed");
 
-      auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
-          op.getLoc(), SmallVector<Type>({outputTy}),
-          SmallVector<Value>({op.getInput()}),
-          SmallVector<Value>({op.getOutput()}),
-          rewriter.getArrayAttr(coreRanges), rewriter.getArrayAttr(threadTypes),
-          rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
-
-      int i = 0;
-      std::int64_t inputBaseAddress = lookupAddress(op.getInput());
-      std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
-      assert(inputBaseAddress);
-      assert(outputBaseAddress);
-      for (auto [dstCoord, srcs] : dm) {
-        Block *nocBlock = rewriter.createBlock(&metalDispatch.getRegion(i++));
-        OpBuilder nocBuilder(nocBlock, nocBlock->begin());
-        for (auto s : srcs) {
-          // TODO: ASSERT NOC ALIGNMENT
-          // TODO: ASSERT PCIE ALIGNMENT
-          // TODO: ASSERT DRAM ALIGNMENT
-          auto [yPhys, xPhys] = coordMapping[s.srcCoord.y][s.srcCoord.x];
-          auto y = nocBuilder.create<arith::ConstantOp>(
-              op.getLoc(), nocBuilder.getI32Type(),
-              nocBuilder.getI32IntegerAttr(yPhys));
-          auto x = nocBuilder.create<arith::ConstantOp>(
-              op.getLoc(), nocBuilder.getI32Type(),
-              nocBuilder.getI32IntegerAttr(xPhys));
-          auto srcOffset = nocBuilder.create<arith::ConstantOp>(
-              op.getLoc(), nocBuilder.getI32Type(),
-              nocBuilder.getI32IntegerAttr(inputBaseAddress + s.srcOffset));
-          auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrOp>(
-              op.getLoc(), x, y, srcOffset);
-          auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
-              op.getLoc(), nocBuilder.getI32Type(),
-              nocBuilder.getI32IntegerAttr(outputBaseAddress + s.dstOffset));
-          auto size = nocBuilder.create<arith::ConstantOp>(
-              op.getLoc(), nocBuilder.getI32Type(),
-              nocBuilder.getI32IntegerAttr(s.size));
-          nocBuilder.create<ttkernel::NocAsyncReadOp>(
-              op.getLoc(), srcRemoteNocAddr, dstLocalL1Addr, size);
-        }
-        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
-        nocBuilder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    if (isMemorySpaceChange) {
+      if (inputLayout.isSystemMemorySpace()) {
+        assert(outputLayout.isDeviceMemorySpace());
+        rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
+            op, outputTy, op.getInput(), op.getOutput());
+      } else if (outputLayout.isSystemMemorySpace()) {
+        assert(inputLayout.isDeviceMemorySpace());
+        rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
+            op, outputTy, op.getInput(), op.getOutput());
+      } else {
+        assert(false && "L1 <-> DRAM not supported yet");
       }
-
-      rewriter.replaceOp(op, metalDispatch);
+    } else if (isLayoutChange) {
+      return relayout(op, rewriter);
+    } else {
+      assert(isFormatChange);
+      return reformat(op, rewriter);
     }
-    return success();
+    return failure();
   }
 };
 

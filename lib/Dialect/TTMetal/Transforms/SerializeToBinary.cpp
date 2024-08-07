@@ -236,8 +236,8 @@ public:
                   fbb, &cqBuilder.inputs, &cqBuilder.outputs, &commandQueues),
           };
       programs.push_back(::tt::target::metal::CreateProgramDirect(
-                fbb, cqBuilder.name, &cqBuilder.inputs, &cqBuilder.outputs,
-                &devicePrograms));
+          fbb, cqBuilder.name, &cqBuilder.inputs, &cqBuilder.outputs,
+          &devicePrograms));
     });
 
     auto binary = ::tt::target::metal::CreateTTMetalBinaryDirect(
