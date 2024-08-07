@@ -28,6 +28,7 @@ struct ObjectImpl {
 } // namespace detail
 
 enum class DeviceRuntime {
+  Disabled,
   TTNN,
   TTMetal,
 };

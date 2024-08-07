@@ -30,6 +30,7 @@ PYBIND11_MODULE(_C, m) {
       .value("UInt16", ::tt::target::DataType::UInt16)
       .value("UInt8", ::tt::target::DataType::UInt8);
   py::enum_<::tt::runtime::DeviceRuntime>(m, "DeviceRuntime")
+      .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
 

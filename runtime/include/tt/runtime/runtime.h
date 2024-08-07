@@ -13,17 +13,9 @@
 
 namespace tt::runtime {
 
-namespace detail {
-static DeviceRuntime currentRuntime = DeviceRuntime::TTNN;
-} // namespace detail
+const DeviceRuntime &getCurrentRuntime();
 
-inline const DeviceRuntime &getCurrentRuntime() {
-  return detail::currentRuntime;
-}
-
-inline void setCurrentRuntime(const DeviceRuntime &runtime) {
-  detail::currentRuntime = runtime;
-}
+void setCurrentRuntime(const DeviceRuntime &runtime);
 
 void setCompatibleRuntime(const Binary &binary);
 

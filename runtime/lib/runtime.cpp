@@ -16,15 +16,53 @@
 
 namespace tt::runtime {
 
+namespace detail {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+DeviceRuntime currentRuntime = DeviceRuntime::TTNN;
+#elif defined(TT_RUNTIME_ENABLE_TTMETAL)
+DeviceRuntime currentRuntime = DeviceRuntime::TTMetal;
+#else
+DeviceRuntime currentRuntime = DeviceRuntime::Disabled;
+#endif
+
+} // namespace detail
+
+const DeviceRuntime &getCurrentRuntime() {
+#if !defined(TT_RUNTIME_ENABLE_TTNN)
+  assert(detail::currentRuntime != DeviceRuntime::TTNN);
+#endif
+#if !defined(TT_RUNTIME_ENABLE_TTMETAL)
+  assert(detail::currentRuntime != DeviceRuntime::TTMetal);
+#endif
+  return detail::currentRuntime;
+}
+
+void setCurrentRuntime(const DeviceRuntime &runtime) {
+#if !defined(TT_RUNTIME_ENABLE_TTNN)
+  assert(runtime != DeviceRuntime::TTNN);
+#endif
+#if !defined(TT_RUNTIME_ENABLE_TTMETAL)
+  assert(runtime != DeviceRuntime::TTMetal);
+#endif
+  detail::currentRuntime = runtime;
+}
+
 void setCompatibleRuntime(const Binary &binary) {
-  std::string_view fileIdentifier = binary.getFileIdentifier();
-  if (fileIdentifier == "TTNN") {
-    setCurrentRuntime(DeviceRuntime::TTNN);
-  } else if (fileIdentifier == "TTM0") {
-    setCurrentRuntime(DeviceRuntime::TTMetal);
-  } else {
-    throw std::runtime_error("Unsupported runtime binary file identifier");
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (binary.getFileIdentifier() ==
+      ::tt::target::ttnn::TTNNBinaryIdentifier()) {
+    return setCurrentRuntime(DeviceRuntime::TTNN);
   }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (binary.getFileIdentifier() ==
+      ::tt::target::metal::TTMetalBinaryIdentifier()) {
+    return setCurrentRuntime(DeviceRuntime::TTMetal);
+  }
+#endif
+  throw std::runtime_error(
+      "Unsupported binary file identifier or runtime not enabled");
 }
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
