@@ -1,5 +1,6 @@
 .local
 build
+third_party/stablehlo
 third_party/tt-metal
 .DS_STORE
 .vscode/*

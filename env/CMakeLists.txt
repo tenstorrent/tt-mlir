@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "9ddfe62f5c11e3f65f444209f514029ded2d58b9")
+set(LLVM_PROJECT_VERSION "a6d7828f4c50c1ec7b0b5f61fe59d7a768175dcc")
 
 include(ExternalProject)
 
