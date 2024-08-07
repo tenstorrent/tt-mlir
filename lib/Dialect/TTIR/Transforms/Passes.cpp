@@ -18,73 +18,38 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "ttmlir/Dialect/TTIR/Analysis/GridAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_CONVERTTOSATOTTIR
 #define GEN_PASS_DEF_TTIRGENERIC
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRGRIDSET
+#define GEN_PASS_DEF_TTIRIMPLICITDEVICE
+#define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-template <typename TosaOp, typename TTIROp,
-          OperandConstraint operandConstraints>
-class TosaToTTIREltwiseBinaryRewriter : public OpRewritePattern<TosaOp> {
+class TTIRImplicitDevice
+    : public impl::TTIRImplicitDeviceBase<TTIRImplicitDevice> {
 public:
-  using OpRewritePattern<TosaOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(TosaOp op,
-                                PatternRewriter &rewriter) const final {
-    if constexpr (std::is_same<TosaOp, tosa::MulOp>::value) {
-      assert(op.getShift() == 0);
-    }
-
-    // Create empty output tensor for destination passing style (DPS)
-    auto outputType =
-        op.getResult().getType().template cast<RankedTensorType>();
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<TTIROp>(
-        op, TypeRange(output.getType()), op.getOperands(), ValueRange(output),
-        rewriter.getArrayAttr(SmallVector<Attribute>(
-            op.getNumOperands() + 1, // +1 for output operand
-            rewriter.getAttr<OperandConstraintAttr>(operandConstraints))));
-
-    return success();
-  }
-};
-
-class ConvertTosaToTTIR
-    : public impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR> {
-public:
-  using impl::ConvertTosaToTTIRBase<ConvertTosaToTTIR>::ConvertTosaToTTIRBase;
+  using impl::TTIRImplicitDeviceBase<
+      TTIRImplicitDevice>::TTIRImplicitDeviceBase;
   void runOnOperation() final {
     ModuleOp module = getOperation();
 
-    if (not module->hasAttr(tt::SystemDescAttr::name)) {
-      module->setAttr(tt::SystemDescAttr::name,
-                      tt::SystemDescAttr::getDefault(&getContext()));
-    }
-
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TosaToTTIREltwiseBinaryRewriter<tosa::AddOp, ttir::AddOp,
-                                                 OperandConstraint::AnyDevice>,
-                 TosaToTTIREltwiseBinaryRewriter<tosa::MulOp, ttir::MultiplyOp,
-                                                 OperandConstraint::AnyDevice>,
-                 TosaToTTIREltwiseBinaryRewriter<tosa::SubOp, ttir::SubtractOp,
-                                                 OperandConstraint::AnyDevice>,
-                 TosaToTTIREltwiseBinaryRewriter<tosa::GreaterEqualOp,
-                                                 ttir::GreaterEqualOp,
-                                                 OperandConstraint::AnyDevice>>(
-        &getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-      signalPassFailure();
+    if (not module->hasAttr(tt::DeviceAttr::name)) {
+      assert(module->hasAttr(tt::SystemDescAttr::name));
+      auto systemDesc = module->getAttr(tt::SystemDescAttr::name);
+      module->setAttr(
+          tt::DeviceAttr::name,
+          tt::DeviceAttr::get(&getContext(),
+                              mlir::cast<tt::SystemDescAttr>(systemDesc)));
     }
   }
+
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
   }
@@ -100,28 +65,28 @@ public:
   }
 };
 
-template <typename TTIROp>
-class TTIRNamedToKernelRewriter : public OpRewritePattern<TTIROp> {
+template <typename TTIROpTy>
+class TTIRNamedToKernelRewriter : public OpRewritePattern<TTIROpTy> {
 public:
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
+  using OpRewritePattern<TTIROpTy>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TTIROp op,
+  LogicalResult matchAndRewrite(TTIROpTy op,
                                 PatternRewriter &rewriter) const final {
     StringRef kernelName;
     StringRef kernelKind;
-    if constexpr (std::is_same<TTIROp, ttir::MultiplyOp>::value) {
+    if constexpr (std::is_same<TTIROpTy, ttir::MultiplyOp>::value) {
       kernelName = "mulitply";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::AddOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::AddOp>::value) {
       kernelName = "add";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::SubtractOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::SubtractOp>::value) {
       kernelName = "subtract";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::GreaterEqualOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::GreaterEqualOp>::value) {
       kernelName = "ge";
       kernelKind = "eltwise";
-    } else if constexpr (std::is_same<TTIROp, ttir::ReluOp>::value) {
+    } else if constexpr (std::is_same<TTIROpTy, ttir::ReluOp>::value) {
       kernelName = "relu";
       kernelKind = "eltwise";
     } else {
@@ -148,9 +113,9 @@ public:
     if (operands.empty()) {
       return false;
     }
-    auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
+    auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
     for (auto operand : operands) {
-      if (operand.getType().cast<RankedTensorType>().getRank() != rank) {
+      if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
         return false;
       }
     }
@@ -162,7 +127,7 @@ public:
                             mlir::OperandRange operands) {
     assert(sameRank(operands) &&
            "For now all operands must have the same rank");
-    auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
+    auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
     SmallVector<AffineMap> indexingMaps(operands.size(),
                                         rewriter.getMultiDimIdentityMap(rank));
     SmallVector<Attribute> iteratorTypes(
@@ -176,7 +141,7 @@ public:
                            mlir::OperandRange operands) {
     assert(sameRank(operands) &&
            "For now all operands must have the same rank");
-    auto rank = operands[0].getType().cast<RankedTensorType>().getRank();
+    auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
     assert(rank >= 2 && "Matmul requires rank >= 2");
     auto rank_plus_inner_dim = rank + 1;
 
@@ -299,26 +264,22 @@ public:
                                 PatternRewriter &rewriter) const final {
     auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
     for (auto &operand : op->getOpOperands()) {
-      auto encoding = operand.get()
-                          .getType()
-                          .template cast<RankedTensorType>()
-                          .getEncoding();
+      auto encoding =
+          mlir::cast<RankedTensorType>(operand.get().getType()).getEncoding();
       if (not encoding) {
         return failure(); // Hasn't been type converted yet
       }
 
       auto blockArg = op.getRegion().getArgument(operand.getOperandNumber());
-      if (blockArg.getType().isa<MemRefType>()) {
+      if (mlir::isa<MemRefType>(blockArg.getType())) {
         return failure(); // Already lowered
       }
 
       // Rewire the operand to the layout op
       rewriter.modifyOpInPlace(op, [&]() {
-        auto layout = operand.get()
-                          .getType()
-                          .template cast<RankedTensorType>()
-                          .getEncoding()
-                          .template cast<LayoutAttr>();
+        auto layout = mlir::cast<LayoutAttr>(
+            mlir::cast<RankedTensorType>(operand.get().getType())
+                .getEncoding());
 
         blockArg.setType(layout.getMemref());
 
@@ -356,7 +317,7 @@ public:
 };
 
 inline MemorySpace getMemorySpace(MemRefType memref) {
-  return memref.getMemorySpace().template cast<MemorySpaceAttr>().getValue();
+  return mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue();
 }
 
 inline MemorySpace getMemorySpace(LayoutAttr layout) {
@@ -365,7 +326,7 @@ inline MemorySpace getMemorySpace(LayoutAttr layout) {
 
 inline MemorySpace getMemorySpace(RankedTensorType ty) {
   assert(ty.getEncoding());
-  auto layout = ty.getEncoding().template cast<LayoutAttr>();
+  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
   return getMemorySpace(layout);
 }
 
@@ -454,10 +415,10 @@ public:
 };
 
 static std::optional<Value>
-createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-               OperandConstraint operandConstraint) {
-  auto ty = input.getType().cast<RankedTensorType>();
-  auto currLayout = ty.getEncoding().cast<LayoutAttr>();
+createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                 OperandConstraint operandConstraint) {
+  auto ty = mlir::cast<RankedTensorType>(input.getType());
+  auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
   auto currMemorySpace = currLayout.getMemorySpace();
   auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
   if (currMemorySpace == desiredMemorySpace) {
@@ -473,36 +434,35 @@ createLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
     rewriter.replaceOp(exising_empty, output);
     return output.getResult();
   }
-  return rewriter.create<ttir::LayoutOp>(loc, output.getType(), input, output)
+  return rewriter
+      .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
       ->getResult(0);
 }
 
-template <typename TTIROp>
-class TTIRLayoutOperandsRewriter : public OpRewritePattern<TTIROp> {
+template <typename TTIROpTy>
+class TTIRLayoutOperandsRewriter : public OpRewritePattern<TTIROpTy> {
 public:
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
+  using OpRewritePattern<TTIROpTy>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TTIROp op,
+  LogicalResult matchAndRewrite(TTIROpTy op,
                                 PatternRewriter &rewriter) const final {
-    assert(op->template hasTrait<TTIROpInterface::Trait>());
+    assert(op->template hasTrait<TTIROp::Trait>());
     auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
       bool isResult = dpsInterface.isDpsInit(&operand);
-      auto encoding = operand.get()
-                          .getType()
-                          .template cast<RankedTensorType>()
-                          .getEncoding();
+      auto encoding =
+          mlir::cast<RankedTensorType>(operand.get().getType()).getEncoding();
       if (not encoding) {
         return failure(); // Hasn't been type converted yet
       }
 
       auto operandConstraint =
-          op.getOperandConstraints()[operand.getOperandNumber()]
-              .template cast<OperandConstraintAttr>()
+          mlir::cast<OperandConstraintAttr>(
+              op.getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
-      auto desiredLayout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                          operandConstraint);
+      auto desiredLayout = createToLayoutOp(rewriter, op.getLoc(),
+                                            operand.get(), operandConstraint);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -540,8 +500,8 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
-      if (auto layout = createLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                       OperandConstraint::System);
+      if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
+                                         OperandConstraint::System);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -576,6 +536,7 @@ public:
           TTIRLayoutOperandsRewriter<SubtractOp>,
           TTIRLayoutOperandsRewriter<GreaterEqualOp>,
           TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
+          TTIRLayoutOperandsRewriter<MeanOp>,
           TTIRLayoutOperandsRewriter<SoftmaxOp>,
           TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
           &getContext());
@@ -607,18 +568,14 @@ inline uint64_t getMemrefSizeBytes(MemRefType ty) {
   return size;
 }
 
-inline uint64_t getLayoutSizeBytes(LayoutAttr layout) {
-  auto gridShape = layout.getGrid().getShape();
-  auto gridVolume = std::accumulate(gridShape.begin(), gridShape.end(), 1,
-                                    std::multiplies<uint64_t>());
-  assert(gridVolume == 1 && "Only support grid shape of 1 for now");
+inline uint64_t getLayoutMemrefSizeBytes(LayoutAttr layout) {
   return getMemrefSizeBytes(layout.getMemref());
 }
 
-inline uint64_t getTensorSizeBytes(RankedTensorType ty) {
+inline uint64_t getTensorMemrefSizeBytes(RankedTensorType ty) {
   assert(ty.getEncoding());
-  auto layout = ty.getEncoding().template cast<LayoutAttr>();
-  return getLayoutSizeBytes(layout);
+  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
+  return getLayoutMemrefSizeBytes(layout);
 }
 
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
@@ -687,7 +644,7 @@ public:
           liveness.getLiveness(&func.getBody().front());
       func->walk([&](tensor::EmptyOp empty) {
         auto resultTy =
-            empty.getResult().getType().template cast<RankedTensorType>();
+            mlir::cast<RankedTensorType>(empty.getResult().getType());
         assert(resultTy.getEncoding());
 
         auto [startOp, endOp] =
@@ -695,7 +652,7 @@ public:
 
         // Replace empty with allocate
         auto memorySpace = getMemorySpace(resultTy);
-        auto sizeBytes = getTensorSizeBytes(resultTy);
+        auto sizeBytes = getTensorMemrefSizeBytes(resultTy);
         auto address = allocator.allocate(sizeBytes, memorySpace);
         rewriter.setInsertionPoint(startOp);
         auto alloc = rewriter.create<AllocOp>(startOp->getLoc(), resultTy,
@@ -723,16 +680,43 @@ public:
     // - Constraint checking, whether the grid size is supported by the current
     // OP based on inputs and op type.
     //
-    ModuleOp module_op = getOperation();
+    ModuleOp moduleOp = getOperation();
 
     // Get the max grid size from the system description.
     //
-    assert(module_op->hasAttr(tt::SystemDescAttr::name));
-    GridAttr max_grid = module_op->getAttr(tt::SystemDescAttr::name)
-                            .cast<tt::SystemDescAttr>()
-                            .getChipDescs()[0]
-                            .getGrid();
-    module_op->walk([&](func::FuncOp func) {
+    assert(moduleOp->hasAttr(tt::DeviceAttr::name));
+    GridAttr max_grid =
+        mlir::cast<tt::DeviceAttr>(moduleOp->getAttr(tt::DeviceAttr::name))
+            .getGrid();
+
+    SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
+        moduleOp->getAttr(tt::SystemDescAttr::name));
+    ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+    llvm::DenseMap<Operation *, std::vector<GridAttr>> legalGrids;
+
+    moduleOp->walk([&](Operation *op) {
+      if (op->getNumResults() == 0) {
+        return;
+      }
+
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(op->getResult(0).getType());
+      LegalGridAnalysis legalGridAnalysis =
+          getChildAnalysis<LegalGridAnalysis>(op);
+      legalGridAnalysis.init(LegalGridAnalysisInput(
+          chipDesc, max_grid, tensorType, &overrideGridSizes));
+      legalGrids[op] = legalGridAnalysis.getResult();
+    });
+
+    OptimalTargetGridAnalysis optimalTargetGridAnalysis =
+        getAnalysis<OptimalTargetGridAnalysis>();
+    optimalTargetGridAnalysis.init(
+        OptimalTargetGridAnalysisInput(std::move(legalGrids)));
+
+    // Pure application of determined grid sizes to the operations.
+    // No further analysis.
+    //
+    moduleOp->walk([&](func::FuncOp func) {
       SmallVector<Type> funcResultTypes;
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
@@ -744,43 +728,46 @@ public:
           return;
         }
 
-        GridAnalysis &grid_analysis = getChildAnalysis<GridAnalysis>(op);
-
-        // Initialize the grid analysis with the max grid size.
-        //
-        grid_analysis.init(GridAnalysisInput(max_grid.getShape()[0],
-                                             max_grid.getShape()[1],
-                                             &overrideGridSizes));
-
-        // Run the grid analysis and get the result.
-        //
-        GridAnalysisResult grid_analysis_result = grid_analysis.getResult();
-
-        RankedTensorType tensor_type =
-            op->getResult(0).getType().template cast<RankedTensorType>();
-        LayoutAttr layout =
-            tensor_type.getEncoding().template cast<LayoutAttr>();
-        llvm::ArrayRef<int64_t> tensor_shape = tensor_type.getShape();
+        RankedTensorType tensorType =
+            mlir::cast<RankedTensorType>(op->getResult(0).getType());
+        LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+        llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
         // Update the output layout attribute with the new grid size.
         //
         op->getResult(0).setType(RankedTensorType::get(
-            tensor_shape, tensor_type.getElementType(),
-            layout.withGrid(
-                &getContext(), tensor_shape,
-                GridAttr::get(&getContext(),
-                              {grid_analysis_result.target_rows,
-                               grid_analysis_result.target_columns}))));
+            tensorShape, tensorType.getElementType(),
+            layout.withGrid(&getContext(), tensorShape,
+                            optimalTargetGridAnalysis.getResult().at(op))));
       });
 
       // Update the function type to reflect the updated return operation's
       // result types.
       //
-      FunctionType func_type = func.getFunctionType();
+      FunctionType funcType = func.getFunctionType();
       FunctionType newFuncType = FunctionType::get(
-          func.getContext(), func_type.getInputs(), funcResultTypes);
+          func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+  }
+};
+
+class TTIRLoadSystemDesc
+    : public impl::TTIRLoadSystemDescBase<TTIRLoadSystemDesc> {
+public:
+  using impl::TTIRLoadSystemDescBase<
+      TTIRLoadSystemDesc>::TTIRLoadSystemDescBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+
+    if (not path.empty()) {
+      module->setAttr(tt::SystemDescAttr::name,
+                      tt::SystemDescAttr::getFromPath(&getContext(), path));
+    } else if (not module->hasAttr(tt::SystemDescAttr::name)) {
+      module->setAttr(tt::SystemDescAttr::name,
+                      tt::SystemDescAttr::getDefault(&getContext()));
+    }
   }
 };
 

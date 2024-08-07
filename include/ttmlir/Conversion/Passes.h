@@ -5,7 +5,10 @@
 #ifndef TTMLIR_CONVERSION_PASSES_H
 #define TTMLIR_CONVERSION_PASSES_H
 
+#include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
+#include "ttmlir/Conversion/TosaToTTIR/TosaToTTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"

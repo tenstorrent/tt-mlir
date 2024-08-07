@@ -25,3 +25,4 @@
   - [Runtime Stitching](./specs/runtime-stitching.md)
   - [Tensor Layout](./specs/tensor-layout.md)
     - [TTNN Interactive Visualizer](./specs/tensor-layout-interactive.md)
+  - [Device](./specs/device.md)

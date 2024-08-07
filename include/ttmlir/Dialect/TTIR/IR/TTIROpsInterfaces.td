@@ -8,7 +8,7 @@
 include "mlir/IR/OpBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 
-def TTIROpInterface : OpInterface<"TTIROpInterface"> {
+def TTIROpInterface : OpInterface<"TTIROp"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [
     InterfaceMethod<
@@ -20,6 +20,16 @@ def TTIROpInterface : OpInterface<"TTIROpInterface"> {
       /*args=*/(ins),
       /*methodBody=*/"",
       /*defaultImplementation=*/""
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the device of the current scope.
+      }],
+      /*retTy=*/"::mlir::tt::DeviceAttr",
+      /*methodName=*/"getDevice",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeDevice($_op);"
     >,
   ];
 }

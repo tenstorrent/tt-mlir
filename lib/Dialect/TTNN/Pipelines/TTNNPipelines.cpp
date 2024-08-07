@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -14,6 +15,8 @@ namespace mlir::tt::ttnn {
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
+  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
 
   if (options.gridSetPassEnabled) {
@@ -23,7 +26,7 @@ void createTTIRToTTNNBackendPipeline(
   }
 
   pm.addPass(createTTNNOpenDevice());
-  pm.addPass(createConvertTTIRToTTNN());
+  pm.addPass(createConvertTTIRToTTNNPass());
 }
 
 //===----------------------------------------------------------------------===//

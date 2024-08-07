@@ -2,210 +2,27 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import ttrt.binary
 import os
 import json
-
+import importlib.machinery
+import sys
+import signal
+import os
+import io
+import subprocess
+import time
+import socket
 from pkg_resources import get_distribution
+import sys
+import shutil
 
+import ttrt.binary
+from ttrt.common.api import read, run, query, perf
+from ttrt.common.util import read_actions
 
-def system_desc_as_dict(desc):
-    return json.loads(desc.as_json())
-
-
-if "LOGGER_LEVEL" not in os.environ:
-    os.environ["LOGGER_LEVEL"] = "FATAL"
-if "TT_METAL_LOGGER_LEVEL" not in os.environ:
-    os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
-
-
-def check_version(fb_version):
-    package_name = "ttrt"
-    try:
-        package_version = get_distribution(package_name).version
-    except Exception as e:
-        print(f"Error retrieving version: {e} for {package_name}")
-
-    assert (
-        package_version == fb_version
-    ), f"{package_name}=v{package_version} does not match flatbuffer=v{fb_version}"
-
-
-def mlir_sections(fbb):
-    d = ttrt.binary.as_dict(fbb)
-    for i, program in enumerate(d["programs"]):
-        if "debug_info" not in program:
-            print("// no debug info found for program:", program["name"])
-            continue
-        print(
-            f"// program[{i}]:",
-            program["name"],
-            "-",
-            program["debug_info"]["mlir"]["name"],
-        )
-        print(program["debug_info"]["mlir"]["source"], end="")
-
-
-def cpp_sections(fbb):
-    d = ttrt.binary.as_dict(fbb)
-    for i, program in enumerate(d["programs"]):
-        if "debug_info" not in program:
-            print("// no debug info found for program:", program["name"])
-            continue
-        print(f"// program[{i}]:", program["name"])
-        print(program["debug_info"]["cpp"], end="")
-
-
-def program_inputs(fbb):
-    d = ttrt.binary.as_dict(fbb)
-    for program in d["programs"]:
-        print("program:", program["name"])
-        print(json.dumps(program["inputs"], indent=2))
-
-
-def program_outputs(fbb):
-    d = ttrt.binary.as_dict(fbb)
-    for program in d["programs"]:
-        print("program:", program["name"])
-        print(json.dumps(program["outputs"], indent=2))
-
-
-read_actions = {
-    "all": lambda fbb: print(fbb.as_json()),
-    "version": lambda fbb: print(
-        f"Version: {fbb.version}\ntt-mlir git hash: {fbb.ttmlir_git_hash}"
-    ),
-    "system-desc": lambda fbb: print(
-        json.dumps(ttrt.binary.as_dict(fbb)["system_desc"], indent=2)
-    ),
-    "mlir": mlir_sections,
-    "cpp": cpp_sections,
-    "inputs": program_inputs,
-    "outputs": program_outputs,
-}
-
-
-def read(args):
-    fbb = ttrt.binary.load_from_path(args.binary)
-    check_version(fbb.version)
-    read_actions[args.section](fbb)
-
-
-def run(args):
-    import ttrt.runtime
-
-    try:
-        import torch
-    except ModuleNotFoundError:
-        raise ImportError(
-            "Error: torch required for offline run, please `pip install torch`"
-        )
-
-    def toDataType(dtype):
-        if dtype == torch.float32:
-            return ttrt.runtime.DataType.Float32
-        if dtype == torch.float16:
-            return ttrt.runtime.DataType.Float16
-        if dtype == torch.bfloat16:
-            return ttrt.runtime.DataType.BFloat16
-        if dtype == torch.uint32:
-            return ttrt.runtime.DataType.UInt32
-        if dtype == torch.uint16:
-            return ttrt.runtime.DataType.UInt16
-        if dtype == torch.uint8:
-            return ttrt.runtime.DataType.UInt8
-        raise ValueError(f"unsupported dtype: {dtype}")
-
-    def fromDataType(dtype):
-        if dtype == "Float32":
-            return torch.float32
-        if dtype == "Float16":
-            return torch.float16
-        if dtype == "BFloat16":
-            return torch.bfloat16
-        if dtype == "UInt32":
-            return torch.uint32
-        if dtype == "UInt16":
-            return torch.uint16
-        if dtype == "UInt8":
-            return torch.uint8
-        raise ValueError(f"unsupported dtype: {dtype}")
-
-    fbb = ttrt.binary.load_binary_from_path(args.binary)
-    check_version(fbb.version)
-    assert fbb.file_identifier == "TTNN", "Only TTNN binaries are supported"
-    d = ttrt.binary.as_dict(fbb)
-    assert args.program_index < len(d["programs"]), "args.program_index out of range"
-    program = d["programs"][args.program_index]
-    print(f"running program[{args.program_index}]:", program["name"])
-    torch_inputs = []
-    torch_outputs = []
-    for i in program["inputs"]:
-        torch_inputs.append(
-            torch.randn(
-                i["desc"]["shape"],
-                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
-            )
-        )
-    for i in program["outputs"]:
-        torch_outputs.append(
-            torch.zeros(
-                i["desc"]["shape"],
-                dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
-            )
-        )
-
-    print("inputs:\n", torch_inputs)
-
-    inputs = []
-    outputs = []
-    for i in torch_inputs:
-        inputs.append(
-            ttrt.runtime.create_tensor(
-                i.data_ptr(),
-                list(i.shape),
-                list(i.stride()),
-                i.element_size(),
-                toDataType(i.dtype),
-            )
-        )
-
-    for i in torch_outputs:
-        outputs.append(
-            ttrt.runtime.create_tensor(
-                i.data_ptr(),
-                list(i.shape),
-                list(i.stride()),
-                i.element_size(),
-                toDataType(i.dtype),
-            )
-        )
-
-    system_desc, device_ids = ttrt.runtime.get_current_system_desc()
-    device = ttrt.runtime.open_device(device_ids)
-    ttrt.runtime.submit(device, fbb, 0, inputs, outputs)
-    print("outputs:\n", torch_outputs)
-    ttrt.runtime.close_device(device)
-
-
-def query(args):
-    import ttrt.runtime
-
-    if args.system_desc or args.system_desc_as_json:
-        print(ttrt.runtime.get_current_system_desc()[0].as_json())
-    if args.system_desc_as_dict:
-        print(system_desc_as_dict(ttrt.runtime.get_current_system_desc()[0]))
-    if args.save_system_desc:
-        desc = ttrt.runtime.get_current_system_desc()[0]
-        if args.save_system_desc:
-            file_name = args.save_system_desc
-        else:
-            d = system_desc_as_dict(desc)
-            file_name = d["product_identifier"] + ".ttsys"
-        desc.store(file_name)
-        print("system desc saved to:", file_name)
-
-
+#######################################################################################
+#######################################**MAIN**########################################
+#######################################################################################
 def main():
     import argparse
 
@@ -214,29 +31,66 @@ def main():
     )
     subparsers = parser.add_subparsers(required=True)
 
+    """
+    API: read
+    """
     read_parser = subparsers.add_parser(
         "read", help="read information from flatbuffer binary"
     )
     read_parser.add_argument(
-        "-s",
         "--section",
         default="all",
         choices=sorted(list(read_actions.keys())),
         help="output sections of the fb",
     )
+    read_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
+    )
+    read_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
+    )
     read_parser.add_argument("binary", help="flatbuffer binary file")
     read_parser.set_defaults(func=read)
 
+    """
+    API: run
+    """
     run_parser = subparsers.add_parser("run", help="run a flatbuffer binary")
     run_parser.add_argument(
-        "-p",
         "--program-index",
-        default=0,
+        default="all",
         help="the program inside the fbb to run",
+    )
+    run_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
+    )
+    run_parser.add_argument(
+        "--loops",
+        default=1,
+        help="number of loops",
+    )
+    run_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
+    )
+    run_parser.add_argument(
+        "--seed",
+        default=0,
+        help="Seed for random number generator",
     )
     run_parser.add_argument("binary", help="flatbuffer binary file")
     run_parser.set_defaults(func=run)
 
+    """
+    API: query
+    """
     query_parser = subparsers.add_parser(
         "query", help="query information about the current system"
     )
@@ -256,16 +110,70 @@ def main():
         help="print the system desc as python dict",
     )
     query_parser.add_argument(
-        "--save-system-desc",
-        nargs="?",
-        default="",
-        help="serialize a system desc for the current system to a file",
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
+    )
+    query_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
     )
     query_parser.set_defaults(func=query)
+
+    """
+    API: perf
+    """
+    perf_parser = subparsers.add_parser(
+        "perf", help="run performance trace and collect performance data"
+    )
+    perf_parser.add_argument(
+        "--program-index",
+        default="all",
+        help="the program inside the fbb to run",
+    )
+    perf_parser.add_argument(
+        "--device",
+        action="store_true",
+        help="collect performance trace on both host and device",
+    )
+    perf_parser.add_argument(
+        "--generate-params",
+        action="store_true",
+        help="generate json file of model parameters based off of perf csv file",
+    )
+    perf_parser.add_argument(
+        "--perf-csv",
+        default="",
+        help="perf csv file generated from performance run",
+    )
+    perf_parser.add_argument(
+        "--clean-artifacts",
+        action="store_true",
+        help="clean all artifacts from previous runs",
+    )
+    perf_parser.add_argument(
+        "--loops",
+        default=1,
+        help="number of loops",
+    )
+    perf_parser.add_argument(
+        "--save-artifacts",
+        action="store_true",
+        help="save all artifacts during run",
+    )
+    perf_parser.add_argument("binary", help="flatbuffer binary file")
+    perf_parser.set_defaults(func=perf)
 
     try:
         args = parser.parse_args()
     except:
         parser.print_help()
         return
+
+    # run command
     args.func(args)
+
+
+if __name__ == "__main__":
+    main()

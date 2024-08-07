@@ -8,9 +8,11 @@
 #include <type_traits>
 
 #include "flatbuffers/flatbuffers.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Target/Common/debug_info_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt {
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
@@ -27,6 +29,28 @@ inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
   case OOBVal::NegInf:
     return ::tt::target::OOBVal::NegInf;
   }
+}
+
+inline std::uint64_t getElementSizeBytes(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return 4;
+  case DataType::Float16:
+    return 2;
+  case DataType::BFloat16:
+    return 2;
+  case DataType::UInt32:
+    return 4;
+  case DataType::UInt16:
+    return 2;
+  case DataType::UInt8:
+    return 1;
+  default:
+    assert(false && "unsupported data type");
+    break;
+  }
+  assert(false && "unsupported data type");
+  return 0;
 }
 
 inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
@@ -126,17 +150,6 @@ T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
 }
 
-inline flatbuffers::Offset<::tt::target::ChipDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
-  auto grid = toFlatbuffer(cache, chipDesc.getGrid());
-  return ::tt::target::CreateChipDesc(
-      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
-      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
-      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
-      chipDesc.getPcieAddressAlignBytes(),
-      chipDesc.getNocDRAMAddressAlignBytes());
-}
-
 template <typename T>
 using ToFlatbufferReturnType = decltype(toFlatbuffer(
     std::declval<FlatbufferObjectCache &>(), std::declval<T>()));
@@ -174,6 +187,18 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
       [&cache, arr](size_t i) { return toFlatbuffer(cache, arr[i]); });
 }
 
+inline flatbuffers::Offset<::tt::target::ChipDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
+  assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
+  auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
+  return ::tt::target::CreateChipDesc(
+      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
+      chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
+      chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
+      chipDesc.getPcieAddressAlignBytes(),
+      chipDesc.getNocDRAMAddressAlignBytes());
+}
+
 inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
@@ -186,10 +211,54 @@ toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
                                         chipChannels);
 }
 
+inline std::vector<::tt::target::Dim2dRange>
+toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
+             GridAttr deviceGrid) {
+  std::vector<::tt::target::Dim2dRange> coreRangeSet;
+  SmallVector<std::int64_t> tensorGridShape(tensorGrid.getShape());
+  AffineMap mapping = deviceGrid.getMapping();
+  ::ttmlir::utils::sample(
+      tensorGridShape, [&](SmallVector<std::int64_t> const &virtualCoreCoord) {
+        SmallVector<std::int64_t> coreCoord = mapping.compose(virtualCoreCoord);
+        assert(coreCoord.size() == 3 && "expected a 2D core");
+        assert(coreCoord[0] == 0 && "expected single device");
+        if (!coreRangeSet.empty() &&
+            ((coreRangeSet.back().loc().y() == coreCoord[1]) &&
+             (coreRangeSet.back().loc().x() + coreRangeSet.back().size().x()) ==
+                 coreCoord[2])) {
+          coreRangeSet.back() = ::tt::target::Dim2dRange(
+              coreRangeSet.back().loc(),
+              ::tt::target::Dim2d(coreRangeSet.back().size().y(),
+                                  coreRangeSet.back().size().x() + 1));
+        } else {
+          coreRangeSet.push_back(::tt::target::Dim2dRange(
+              ::tt::target::Dim2d(coreCoord[1], coreCoord[2]),
+              ::tt::target::Dim2d(1, 1)));
+        }
+        if (coreRangeSet.size() > 1 &&
+            (coreRangeSet[coreRangeSet.size() - 2].loc().x() ==
+             coreRangeSet.back().loc().x()) &&
+            (coreRangeSet[coreRangeSet.size() - 2].size().x() ==
+             coreRangeSet.back().size().x()) &&
+            ((coreRangeSet[coreRangeSet.size() - 2].loc().y() +
+              coreRangeSet[coreRangeSet.size() - 2].size().y()) ==
+             coreRangeSet.back().loc().y())) {
+          assert(coreRangeSet.back().size().y() == 1);
+          coreRangeSet[coreRangeSet.size() - 2] = ::tt::target::Dim2dRange(
+              coreRangeSet[coreRangeSet.size() - 2].loc(),
+              ::tt::target::Dim2d(
+                  coreRangeSet[coreRangeSet.size() - 2].size().y() + 1,
+                  coreRangeSet[coreRangeSet.size() - 2].size().x()));
+          coreRangeSet.pop_back();
+        }
+      });
+  return coreRangeSet;
+}
+
 inline DataType elementTypeToDataType(Type elementType) {
   DataType dtype = DataType::Float32;
   if (isa<FloatType>(elementType)) {
-    auto floatType = elementType.cast<FloatType>();
+    auto floatType = mlir::cast<FloatType>(elementType);
     if (floatType.isF32()) {
       dtype = DataType::Float32;
     } else if (floatType.isF16()) {
@@ -200,7 +269,7 @@ inline DataType elementTypeToDataType(Type elementType) {
       assert(false && "unsupported float type");
     }
   } else if (isa<IntegerType>(elementType)) {
-    auto intType = elementType.cast<IntegerType>();
+    auto intType = mlir::cast<IntegerType>(elementType);
     if (intType.getWidth() == 32) {
       dtype = DataType::UInt32;
     } else if (intType.getWidth() == 16) {
@@ -256,56 +325,67 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
-  ::tt::target::Dim2d tileShape(0, 0);
+  ::tt::target::Dim2d tileShape(1, 1);
   Type elementType = memref.getElementType();
+  std::uint64_t elementSize = 0;
   if (isa<TileType>(elementType)) {
-    auto tileType = elementType.cast<TileType>();
+    auto tileType = mlir::cast<TileType>(elementType);
     dtype = tileType.getDataType();
     tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementSize = tileType.getSizeBytes();
   } else {
     dtype = elementTypeToDataType(elementType);
+    elementSize = getElementSizeBytes(dtype);
+  }
+  std::uint64_t size = elementSize;
+  for (auto dim : shapeInt64) {
+    size *= dim;
   }
 
   return ::tt::target::CreateMemoryDescDirect(
       *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
-      toFlatbuffer(cache,
-                   memref.getMemorySpace().cast<MemorySpaceAttr>().getValue()));
+      toFlatbuffer(
+          cache,
+          mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
+      size);
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
 layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
-                       ArrayRef<int64_t> logicalShape) {
-  assert(attr.isa<LayoutAttr>() && "expected a tensor type");
-  auto layoutAttr = attr.cast<LayoutAttr>();
+                       ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  assert(isa<LayoutAttr>(attr) && "expected a tensor type");
+  auto layoutAttr = mlir::cast<LayoutAttr>(attr);
   auto strideInt64 = layoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
-  auto gridAttr = layoutAttr.getGrid();
-  auto gridShape = gridAttr.getShape();
-  assert(gridShape.size() == 2 && "expected a 2D grid");
-  ::tt::target::Dim2dRange grid(
-      ::tt::target::Dim2d(0, 0),
-      ::tt::target::Dim2d(gridShape[0], gridShape[1]));
+  auto coreRangeSet =
+      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getGrid());
   return ::tt::target::CreateLayoutDescDirect(
-      *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()), &grid,
+      *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
+      &coreRangeSet,
       cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer));
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>
-tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type) {
-  auto tensorType = type.cast<RankedTensorType>();
+tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
+                       DeviceAttr deviceAttr) {
+  auto tensorType = mlir::cast<RankedTensorType>(type);
   auto shapeInt64 = tensorType.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   return ::tt::target::CreateTensorDescDirect(
       *cache.fbb, &shape,
       cache.getOrCreate(tensorType.getEncoding(), layoutAttrToFlatbuffer,
-                        shapeInt64));
+                        shapeInt64, deviceAttr));
 }
 
 inline flatbuffers::Offset<::tt::target::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         uint64_t address, uint64_t size) {
-  auto tensorType = value.getType().cast<RankedTensorType>();
-  auto tensorDesc = cache.getOrCreate(tensorType, tensorTypeToFlatbuffer);
+  auto deviceAttr =
+      getCurrentScopeDevice(value.getParentBlock()->getParentOp());
+  assert(deviceAttr);
+  auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  auto tensorDesc =
+      cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
   return ::tt::target::CreateTensorRef(*cache.fbb, cache.global_id++, address,
                                        size, tensorDesc);
 }

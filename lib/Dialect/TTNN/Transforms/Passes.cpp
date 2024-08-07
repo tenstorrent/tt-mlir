@@ -11,6 +11,7 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -24,17 +25,6 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_CONVERTTTIRTOTTNN
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-static Value findDevice(Operation *op) {
-  Block *block = op->getBlock();
-  for (auto &op : block->getOperations()) {
-    if (auto deviceOp = dyn_cast<OpenDeviceOp>(op)) {
-      return deviceOp.getResult();
-    }
-  }
-  assert(false && "No device found");
-  return nullptr;
-}
-
 class TTNNOpenDevice : public impl::TTNNOpenDeviceBase<TTNNOpenDevice> {
 public:
   using impl::TTNNOpenDeviceBase<TTNNOpenDevice>::TTNNOpenDeviceBase;
@@ -42,8 +32,8 @@ public:
   void runOnOperation() final {
     ModuleOp module = getOperation();
     OpBuilder builder(module);
-    auto systemDesc =
-        module->getAttr(tt::SystemDescAttr::name).cast<tt::SystemDescAttr>();
+    auto systemDesc = llvm::cast<tt::SystemDescAttr>(
+        module->getAttr(tt::SystemDescAttr::name));
     auto chipDescIndices = systemDesc.getChipDescIndices();
     assert(chipDescIndices.size() == 1 && "Multiple chips not supported yet");
 
@@ -57,7 +47,7 @@ public:
       builder.setInsertionPoint(block, opRange.begin());
       auto openDevice = builder.create<OpenDeviceOp>(
           func.getLoc(), builder.getType<tt::DeviceType>(
-                             builder.getAttr<tt::GridAttr>(), chipDescIndices));
+                             builder.getAttr<tt::DeviceAttr>(systemDesc)));
 
       builder.setInsertionPoint(block, opRange.end());
       builder.create<CloseDeviceOp>(func.getLoc(), openDevice.getResult());
@@ -69,112 +59,4 @@ public:
   }
 };
 
-class TTIRToTTNNLayoutRewriter : public OpRewritePattern<ttir::LayoutOp> {
-public:
-  using OpRewritePattern<ttir::LayoutOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::LayoutOp op,
-                                PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ToMemoryConfigOp>(
-        op, op->getResultTypes(), op.getInput(), op.getOutput());
-    return success();
-  }
-};
-
-template <typename TTIROp, typename TTNNOp>
-class TTIRToTTNNOpRewriter : public OpRewritePattern<TTIROp> {
-public:
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(TTIROp op,
-                                PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<TTNNOp>(op, op.getResultTypes(), op.getInputs(),
-                                        op.getOutputs());
-    return success();
-  }
-};
-
-template <typename TTIROp, typename TTNNOp>
-class TTIRToTTNNReductionOpRewriter : public OpRewritePattern<TTIROp> {
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(TTIROp op,
-                                PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<TTNNOp>(
-        op, op.getResult().getType(), op.getInput(), op.getOutput(),
-        op.getKeepDim(), op.getDimArg().value_or(nullptr));
-    return success();
-  }
-};
-
-class TTIRToTTNNSoftmaxOpRewriter : public OpRewritePattern<ttir::SoftmaxOp> {
-  using OpRewritePattern<ttir::SoftmaxOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::SoftmaxOp op,
-                                PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<SoftmaxOp>(op, op.getResult().getType(),
-                                           op.getInput(), op.getOutput(),
-                                           op.getDimension());
-    return success();
-  }
-};
-
-// ANCHOR: adding_an_op_matmul_op_rewriter
-template <typename TTIROp, typename TTNNOp>
-class TTIRToTTNNBinaryOpRewriter : public OpRewritePattern<TTIROp> {
-public:
-  using OpRewritePattern<TTIROp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(TTIROp op,
-                                PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<TTNNOp>(op, op.getResult().getType(), op.getA(),
-                                        op.getB(), op.getOutput());
-    return success();
-  }
-};
-// ANCHOR_END: adding_an_op_matmul_op_rewriter
-
-class TensorEmptyToFullRewriter : public OpRewritePattern<tensor::EmptyOp> {
-public:
-  using OpRewritePattern<tensor::EmptyOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(tensor::EmptyOp op,
-                                PatternRewriter &rewriter) const final {
-    auto device = findDevice(op);
-    rewriter.replaceOpWithNewOp<FullOp>(op, op.getType(), device,
-                                        rewriter.getF32FloatAttr(0.0));
-    return success();
-  }
-};
-
-class ConvertTTIRToTTNN
-    : public impl::ConvertTTIRToTTNNBase<ConvertTTIRToTTNN> {
-public:
-  using impl::ConvertTTIRToTTNNBase<ConvertTTIRToTTNN>::ConvertTTIRToTTNNBase;
-
-  void runOnOperation() final {
-    // ANCHOR: adding_an_op_matmul_rewrite_pattern_set
-    RewritePatternSet patterns(&getContext());
-    patterns
-        .add<TTIRToTTNNLayoutRewriter, TTIRToTTNNOpRewriter<ttir::AddOp, AddOp>,
-             TTIRToTTNNOpRewriter<ttir::MultiplyOp, MultiplyOp>,
-             TTIRToTTNNOpRewriter<ttir::SubtractOp, SubtractOp>,
-             TTIRToTTNNOpRewriter<ttir::GreaterEqualOp, GreaterEqualOp>,
-             TTIRToTTNNOpRewriter<ttir::ReluOp, ReluOp>,
-             TTIRToTTNNBinaryOpRewriter<ttir::MatmulOp, MatmulOp>,
-             TTIRToTTNNReductionOpRewriter<ttir::SumOp, SumOp>,
-             TTIRToTTNNSoftmaxOpRewriter, TensorEmptyToFullRewriter>(
-            &getContext());
-    // ANCHOR_END: adding_an_op_matmul_rewrite_pattern_set
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-      signalPassFailure();
-    }
-  }
-
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::ttnn::TTNNDialect>();
-  }
-};
 } // namespace mlir::tt::ttnn

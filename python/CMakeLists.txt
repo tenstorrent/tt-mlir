@@ -18,6 +18,8 @@ declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTBinding.td
+  GEN_ENUM_BINDINGS ON
+  GEN_ENUM_TD_FILE dialects/TTEnumBindings.td
   SOURCES dialects/tt.py
   DIALECT_NAME tt
 )
@@ -47,6 +49,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTKernelModule.cpp
     Overrides.cpp
   EMBED_CAPI_LINK_LIBS
+    MLIRCAPITransforms
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
     LLVMSupport

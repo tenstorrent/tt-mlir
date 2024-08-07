@@ -14,22 +14,4 @@ def TTNNOpenDevice: Pass<"ttnn-open-device", "::mlir::ModuleOp"> {
   }];
 }
 
-def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    todo
-  }];
-}
-
-def TTNNSerializeToBinary: Pass<"ttnn-serialize-to-binary", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    todo
-  }];
-
-  list<Option> options = [
-    Option<"output", "output", "std::string", "", "Output binary path">,
-  ];
-}
-
 #endif

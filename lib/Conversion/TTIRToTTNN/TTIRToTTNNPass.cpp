@@ -1,0 +1,59 @@
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
+
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+
+using namespace mlir;
+using namespace mlir::tt;
+
+namespace mlir::tt::ttir {
+
+#define GEN_PASS_DEF_CONVERTTTIRTOTTNN
+#include "ttmlir/Conversion/Passes.h.inc"
+
+} // namespace mlir::tt::ttir
+
+namespace {
+
+struct ConvertTTIRToTTNNPass
+    : public ttir::impl::ConvertTTIRToTTNNBase<ConvertTTIRToTTNNPass> {
+  void runOnOperation() final {
+    mlir::ConversionTarget target(getContext());
+    target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addIllegalDialect<ttir::TTIRDialect>();
+
+    TypeConverter typeConverter;
+    // All types map 1:1.
+    typeConverter.addConversion([](Type type) { return type; });
+
+    RewritePatternSet patterns(&getContext());
+    populateTTIRToTTNNPatterns(&getContext(), patterns, typeConverter);
+
+    // Full conversion requires explicit handling of FuncOp and ModuleOp, which
+    // should be passed down unmodified so partial conversion is used.
+    if (failed(applyPartialConversion(getOperation(), target,
+                                      std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+  }
+};
+
+} // namespace
+
+namespace mlir::tt {
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToTTNNPass() {
+  return std::make_unique<ConvertTTIRToTTNNPass>();
+}
+
+} // namespace mlir::tt

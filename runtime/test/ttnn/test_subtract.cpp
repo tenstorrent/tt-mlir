@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #include <cstring>

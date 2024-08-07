@@ -2,11 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <fstream>
+#include <numeric>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Target/Common/system_desc_generated.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -25,9 +29,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       // Chip Descriptors
       {
           tt::ChipDescAttr::get(
-              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
-              tt::GridAttr::get(context, {8, 8}), (1 << 20), 12, (1 << 20), 16,
-              32, 32),
+              context, tt::ArchAttr::get(context, tt::Arch::WormholeB0), {8, 8},
+              (1 << 20), 12, (1 << 20), 16, 32, 32),
       },
       // Chip Descriptor Indices
       {
@@ -48,17 +51,93 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {});
 }
 
+mlir::tt::SystemDescAttr
+mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
+  // Check if file exists
+  assert(!path.empty() && "cluster desc path must not be empty!");
+  std::ifstream fbb(path, std::ios::binary | std::ios::ate);
+  assert(fbb.good() && "cluster desc does not exist!");
+  std::streampos size = fbb.tellg();
+  fbb.seekg(0, std::ios::beg);
+  auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
+  fbb.read(static_cast<char *>(buffer.get()), size);
+
+  // Read relevant information from binary
+  auto binary_system_desc =
+      ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
+  auto const *binary_chip_desc = binary_system_desc->chip_descs();
+  auto const *binary_chip_desc_indices =
+      binary_system_desc->chip_desc_indices();
+  auto const *chip_capabilities = binary_system_desc->chip_capabilities();
+  auto const *binary_chip_coords = binary_system_desc->chip_coords();
+
+  // Acquire chip descs
+  std::vector<tt::ChipDescAttr> chip_desc_list;
+  for (auto element : *binary_chip_desc) {
+    auto current_chip_desc_attr = tt::ChipDescAttr::get(
+        context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
+        {element->grid_size()->y(), element->grid_size()->x()},
+        element->l1_size(), element->num_dram_channels(),
+        element->dram_channel_size(), element->noc_l1_address_align_bytes(),
+        element->pcie_address_align_bytes(),
+        element->noc_dram_address_align_bytes());
+
+    chip_desc_list.push_back(current_chip_desc_attr);
+  }
+
+  // Acquire chip indices
+  std::vector<uint32_t> chip_indices_list;
+  for (auto element : *binary_chip_desc_indices) {
+    chip_indices_list.push_back(element);
+  }
+
+  // Acquire chip capabilities
+  std::vector<tt::ChipCapabilityAttr> chip_capabilities_list;
+  for (auto element : *chip_capabilities) {
+    static_assert(
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::mlir::tt::ChipCapability::PCIE) ==
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::tt::target::ChipCapability::PCIE));
+    static_assert(
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::mlir::tt::ChipCapability::HostMMIO) ==
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::tt::target::ChipCapability::HostMMIO));
+
+    auto chip_capabilities_attr = tt::ChipCapabilityAttr::get(
+        context, static_cast<::mlir::tt::ChipCapability>(element));
+    chip_capabilities_list.push_back(chip_capabilities_attr);
+  }
+
+  // Acquire chip coordinates
+  std::vector<tt::ChipCoordAttr> chip_coordinate_list;
+  for (auto element : *binary_chip_coords) {
+    auto chip_coordinate_attr = tt::ChipCoordAttr::get(
+        context, element->rack(), element->shelf(), element->y(), element->x());
+    chip_coordinate_list.push_back(chip_coordinate_attr);
+  }
+
+  // Generate system desc attribute
+  auto system_desc_attr =
+      tt::SystemDescAttr::get(context, chip_desc_list, chip_indices_list,
+                              chip_capabilities_list, chip_coordinate_list, {});
+
+  return system_desc_attr;
+}
+
 static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
                                     ::llvm::ArrayRef<int64_t> shardShape,
                                     ::mlir::Type elementType,
                                     MemorySpace memorySpace) {
-  if (elementType.isa<TileType>()) {
-    shardShape = elementType.cast<TileType>().getTiledShape(
-        ::llvm::SmallVector<int64_t>(shardShape));
+  ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
+  if (mlir::isa<TileType>(elementType)) {
+    scalarShardShape =
+        mlir::cast<TileType>(elementType).getTiledShape(scalarShardShape);
   }
   return mlir::MemRefType::get(
-      shardShape, elementType,
-      mlir::AffineMap::getMultiDimIdentityMap(shardShape.size(), context),
+      scalarShardShape, elementType,
+      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
       MemorySpaceAttr::get(context, memorySpace));
 }
 
@@ -245,8 +324,8 @@ LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
 llvm::SmallVector<int64_t> LayoutAttr::getShardShape() const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
   auto elementType = getElementType();
-  if (elementType.isa<TileType>()) {
-    return elementType.cast<TileType>().getScalarShape(shardShape);
+  if (mlir::isa<TileType>(elementType)) {
+    return mlir::cast<TileType>(elementType).getScalarShape(shardShape);
   }
   return shardShape;
 }
@@ -277,10 +356,74 @@ LayoutAttr LayoutAttr::withElementType(::mlir::MLIRContext *context,
 }
 
 MemorySpace LayoutAttr::getMemorySpace() const {
-  return getMemref()
-      .getMemorySpace()
-      .template cast<mlir::tt::MemorySpaceAttr>()
+  return mlir::cast<mlir::tt::MemorySpaceAttr>(getMemref().getMemorySpace())
       .getValue();
+}
+
+DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
+                           SystemDescAttr systemDesc,
+                           ArrayRef<unsigned> chipIds) {
+  assert(not chipIds.empty() && "expected at least one chip");
+  assert(chipIds.size() == 1 && "only single chip supported for now");
+  ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
+  ArrayRef<int64_t> physicalGrid(chipDesc.getGrid());
+  assert(physicalGrid.size() == 2 && "expected 2D grid");
+  for (unsigned chipId : chipIds) {
+    ChipDescAttr chip = systemDesc.getChipDescs()[chipId];
+    if (chip.getGrid() != physicalGrid) {
+      llvm::report_fatal_error("all chips must have the same grid shape");
+    }
+  }
+
+  SmallVector<int64_t> virtualGrid(physicalGrid);
+  if (chipIds.size() > 1) {
+    virtualGrid.insert(virtualGrid.begin(), chipIds.size());
+  }
+  assert(virtualGrid.size() >= 2 && "expected at least 2D grid");
+
+  // auto c0 = getAffineConstantExpr(physicalGrid[0], context);
+  // auto c1 = getAffineConstantExpr(physicalGrid[1], context);
+  auto dZ = getAffineConstantExpr(0, context);
+  auto dY = getAffineDimExpr(virtualGrid.size() - 2, context);
+  auto dX = getAffineDimExpr(virtualGrid.size() - 1, context);
+
+  SmallVector<AffineExpr> gridExprs = {dZ, dY, dX};
+  auto gridMap = AffineMap::get(virtualGrid.size(), 0, gridExprs, context);
+
+  return get(context, GridAttr::get(context, virtualGrid, gridMap), chipIds);
+}
+
+DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
+                           SystemDescAttr systemDesc) {
+  SmallVector<unsigned> chipIds(systemDesc.getChipDescIndices().size());
+  std::iota(chipIds.begin(), chipIds.end(), 0);
+  return get(context, systemDesc, chipIds);
+}
+
+::mlir::LogicalResult
+DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                   ::mlir::tt::GridAttr grid,
+                   ::llvm::ArrayRef<unsigned> chipIds) {
+  if (chipIds.empty()) {
+    emitError() << "expected at least one chip";
+    return ::mlir::failure();
+  }
+
+  auto gridShape = grid.getShape();
+  for (auto dim : gridShape) {
+    if (dim <= 0) {
+      emitError() << "expected positive grid dimensions";
+      return ::mlir::failure();
+    }
+  }
+
+  auto physicalGridMapping = grid.getMapping();
+  if (physicalGridMapping.getNumResults() != 3) {
+    emitError() << "expected physical grid mapping to have 3 results";
+    return ::mlir::failure();
+  }
+
+  return ::mlir::success();
 }
 
 llvm::SmallVector<int64_t>
@@ -299,6 +442,51 @@ TileType::getTiledShape(SmallVector<int64_t> scalarShape) const {
   scalarShape[scalarShape.size() - 1] =
       (scalarShape[scalarShape.size() - 1] + getWidth() - 1) / getWidth();
   return scalarShape;
+}
+
+uint64_t TileType::getSizeBytes() const {
+  switch (getDataType()) {
+  case DataType::Float32:
+    return getHeight() * getWidth() * 4;
+  case DataType::Float16:
+    return getHeight() * getWidth() * 2;
+  case DataType::BFloat16:
+    return getHeight() * getWidth() * 2;
+  case DataType::BFP_Float8:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 1024;
+  case DataType::BFP_BFloat8:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 1024;
+  case DataType::BFP_Float4:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 512;
+  case DataType::BFP_BFloat4:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 512;
+  case DataType::BFP_Float2:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 256;
+  case DataType::BFP_BFloat2:
+    assert(getHeight() == 32 && getWidth() == 32);
+    return 256;
+  case DataType::UInt32:
+    return getHeight() * getWidth() * 4;
+  case DataType::UInt16:
+    return getHeight() * getWidth() * 2;
+  case DataType::UInt8:
+    return getHeight() * getWidth();
+  }
+}
+
+DeviceAttr mlir::tt::getCurrentScopeDevice(mlir::Operation *op) {
+  while (op) {
+    if (auto device = op->getAttrOfType<DeviceAttr>(DeviceAttr::name)) {
+      return device;
+    }
+    op = op->getParentOp();
+  }
+  return nullptr;
 }
 
 void TTDialect::registerTypes() {

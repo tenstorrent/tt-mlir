@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   workflow_call:
 
+env:
+  SDK_VERSION: "0"
+
 jobs:
   build:
     strategy:
@@ -23,16 +26,23 @@ jobs:
       with:
         os: ${{ matrix.build.runs-on }}
 
+    - name: Get macos sdk version
+      if: startsWith(matrix.build.runs-on, 'macos')
+      shell: bash
+      run: |
+        echo "SDK_VERSION=$(xcrun --show-sdk-version)" >> $GITHUB_ENV
+
     - name: Build and cache ttmlir-toolchain
       uses: ./.github/actions/build-toolchain
       with:
         os: ${{ matrix.build.runs-on }}
+        sdk: ${{ env.SDK_VERSION }}
 
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}
+        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-${{ env.SDK_VERSION }}
 
     - name: Set reusable strings
       id: strings
@@ -71,6 +81,12 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
+
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- ttrt
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4

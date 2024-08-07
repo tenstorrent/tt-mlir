@@ -33,8 +33,8 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
   let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
-                          "$_builder.getEmptyAffineMap()">:$physical_grid_mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $physical_grid_mapping^)? `>`";
+                          "$_builder.getEmptyAffineMap()">:$mapping);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
@@ -61,8 +61,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
     TT chip_desc attribute
   }];
 
-  let parameters = (ins "ArchAttr":$arch, TT_GridAttr:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize, "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes, "unsigned":$nocDRAMAddressAlignBytes);
-  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` $grid `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `,` `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,` `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,` `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes `}`";
+  let parameters = (ins "ArchAttr":$arch, ArrayRefParameter<"int64_t">:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize, "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes, "unsigned":$nocDRAMAddressAlignBytes);
+  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` custom<DimensionList>($grid) `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `,` `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,` `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,` `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes `}`";
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
@@ -100,6 +100,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
+    static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
   }];
 }
 
@@ -201,6 +202,24 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   }];
 }
 
+def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
+  let summary = "Device attribute in TT dialect";
+  let description = [{
+  }];
+  let parameters = (ins TT_GridAttr:$grid, ArrayRefParameter<"unsigned">:$chipIds);
+  let assemblyFormat = "`<` qualified($grid) `,` `[` $chipIds `]` `>`";
+
+  let extraClassDeclaration = [{
+      static DeviceAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap physicalGridMapping, ArrayRef<unsigned> chipIds) {
+        return DeviceAttr::get(context, GridAttr::get(context, shape, physicalGridMapping), chipIds);
+      }
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<unsigned> chipIds);
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc);
+  }];
+
+  let genVerifyDecl = 1;
+}
+
 def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {
   let assemblyFormat = "`<` $value `>`";
 }
@@ -239,14 +258,15 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let extraClassDeclaration = [{
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
+      uint64_t getSizeBytes() const;
     }];
 }
 
 def TT_Device : TT_Type<"Device", "device", []> {
     let summary = "TT device";
     let description = "Device type in TT dialect";
-    let parameters = (ins TT_GridAttr:$mesh, ArrayRefParameter<"unsigned">:$chipIds);
-    let assemblyFormat = "`<` qualified($mesh) `,` `[` $chipIds `]` `>`";
+    let parameters = (ins TT_DeviceAttr:$desc);
+    let assemblyFormat = "`<` $desc `>`";
 }
 
 #endif
