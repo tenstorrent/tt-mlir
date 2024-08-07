@@ -137,6 +137,19 @@ unsigned SystemDescAttr::getAddressAlignBytes(unsigned chipIndex) const {
   });
 }
 
+unsigned SystemDescAttr::getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const {
+  switch (memorySpace) {
+  case MemorySpace::DeviceL1:
+    return getNocL1AddressAlignBytes(chipIndex);
+  case MemorySpace::DeviceDRAM:
+    return getNocDRAMAddressAlignBytes(chipIndex);
+  case MemorySpace::SystemMMIO:
+    return getPcieAddressAlignBytes(chipIndex);
+  default:
+    return 1;
+  }
+}
+
 unsigned SystemDescAttr::getNocL1AddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getNocL1AddressAlignBytes();
 }
