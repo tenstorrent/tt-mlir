@@ -657,7 +657,7 @@ public:
         argumentAllocations.push_back(rewriter.getAttr<ArgumentAllocationAttr>(
             address, sizeBytes, memorySpace));
       }
-      func->setDiscardableAttr("argument_allocations",
+      func->setDiscardableAttr(ArgumentAllocationAttr::name,
                                rewriter.getArrayAttr(argumentAllocations));
 
       func->walk([&](tensor::EmptyOp empty) {

@@ -503,13 +503,17 @@ uint64_t TileType::getSizeBytes() const {
 }
 
 SystemDescAttr mlir::tt::getCurrentScopeSystemDesc(mlir::Operation *op) {
+  // Walk up scope levels until we find the top level ModuleOp which carries the
+  // system desc
   while (op) {
-    if (auto systemDesc =
-            op->getAttrOfType<SystemDescAttr>(SystemDescAttr::name)) {
+    if (mlir::isa<mlir::ModuleOp>(op)) {
+      auto systemDesc = op->getAttrOfType<SystemDescAttr>(SystemDescAttr::name);
+      assert(systemDesc && "expected system desc to be present on the module");
       return systemDesc;
     }
     op = op->getParentOp();
   }
+  assert(false && "expected system desc to be present in the scope");
   return nullptr;
 }
 

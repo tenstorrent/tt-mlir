@@ -115,8 +115,8 @@ public:
     cqBuilder.name = entry.getSymName().data();
 
     auto argumentAllocations = mlir::cast<ArrayAttr>(
-        entry->getDiscardableAttr("argument_allocations"));
-    assert(argumentAllocations && "expected argument_allocations attribute");
+        entry->getDiscardableAttr(ArgumentAllocationAttr::name));
+    assert(argumentAllocations && "expected tt.argument_allocations attribute");
     for (auto &input : entry.getBody().getArguments()) {
       auto argAlloc = mlir::cast<tt::ArgumentAllocationAttr>(
           argumentAllocations[input.getArgNumber()]);
