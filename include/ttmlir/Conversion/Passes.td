@@ -7,6 +7,13 @@
 
 include "mlir/Pass/PassBase.td"
 
+def ConvertStableHLOToTTIR : Pass<"convert-stablehlo-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Convert StableHLO dialect to TTIR dialect.";
+  let constructor = "createConvertStableHLOToTTIRPass()";
+  // TODO(mrakita): Probably will need to add some include here for StableHLO dialect.
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::tt::ttir::TTIRDialect"];
+}
+
 def ConvertTosaToTTIR : Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
   let summary = "Convert TOSA dialect to TTIR dialect.";
   let constructor = "createConvertTosaToTTIRPass()";
