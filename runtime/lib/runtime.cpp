@@ -83,6 +83,14 @@ Event submit(Device deviceHandle, Binary executableHandle,
 #endif
 }
 
-void wait(Event) { throw std::runtime_error("Not implemented"); }
+void wait(Event event) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  return ::tt::runtime::ttnn::wait(event);
+#elif defined(TT_RUNTIME_ENABLE_TTMETAL)
+  return ::tt::runtime::ttmetal::wait(event);
+#else
+  throw std::runtime_error("runtime is not enabled");
+#endif
+}
 
 } // namespace tt::runtime

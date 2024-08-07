@@ -5,6 +5,8 @@ include "command.fbs";
 namespace tt.target.metal;
 
 table DeviceProgram {
+  inputs: [TensorRef];
+  outputs: [TensorRef];
   command_queues: [CommandQueue];
 }
 

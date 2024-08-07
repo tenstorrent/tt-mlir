@@ -51,4 +51,5 @@ PYBIND11_MODULE(_C, m) {
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
         py::arg("outputs"), "Submit a binary for execution");
+  m.def("wait", &tt::runtime::wait, py::arg("event"));
 }

@@ -217,11 +217,13 @@ def run(args):
                 total_inputs.append(inputs)
                 total_outputs.append(outputs)
 
+            event = None
             for loop in range(arg_loops):
-                ttrt.runtime.submit(
+                event = ttrt.runtime.submit(
                     device, fbb, program_index, total_inputs[loop], total_outputs[loop]
                 )
                 print(f"finished loop={loop}")
+            ttrt.runtime.wait(event)
             print("outputs:\n", torch_outputs)
 
     # save artifacts

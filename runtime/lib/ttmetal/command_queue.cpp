@@ -11,27 +11,20 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
 
-// Needed to construct ShardedBufferConfig
-#pragma clang diagnostic ignored "-Wc++20-designator"
-
 namespace tt::runtime::ttmetal {
 
 struct CQExecutor {
   ::tt::tt_metal::Device *device;
+  std::vector<std::shared_ptr<::tt::tt_metal::Event>> initEvents;
   std::unordered_map<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>
       buffers;
   std::unordered_map<std::uint32_t, std::shared_ptr<::tt::tt_metal::Event>>
       events;
   ::tt::tt_metal::CommandQueue *cq;
 
-  CQExecutor(
-      ::tt::tt_metal::Device *device, std::size_t cq_id,
-      std::vector<std::pair<std::uint32_t,
-                            std::shared_ptr<::tt::tt_metal::Buffer>>> const
-          &inputs,
-      std::vector<std::pair<std::uint32_t,
-                            std::shared_ptr<::tt::tt_metal::Buffer>>> const
-          &outputs);
+  CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
+             std::vector<InputBuffer> const &inputs,
+             std::vector<OutputBuffer> const &outputs);
 
   std::shared_ptr<::tt::tt_metal::Event>
   execute(::tt::target::metal::CommandQueue const *commandQueue);
@@ -49,21 +42,21 @@ struct CQExecutor {
   void execute(::tt::target::metal::FinishCommand const *command);
 };
 
-CQExecutor::CQExecutor(
-    ::tt::tt_metal::Device *device, std::size_t cq_id,
-    std::vector<
-        std::pair<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>> const
-        &inputs,
-    std::vector<
-        std::pair<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>> const
-        &outputs)
+CQExecutor::CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
+                       std::vector<InputBuffer> const &inputs,
+                       std::vector<OutputBuffer> const &outputs)
     : device(device) {
   for (std::size_t i = 0; i < inputs.size(); ++i) {
-    buffers[inputs[i].first] = inputs[i].second;
+    auto [global_id, buffer, event] = inputs[i];
+    buffers[global_id] = buffer;
+    if (event) {
+      initEvents.push_back(event);
+    }
   }
 
   for (std::size_t i = 0; i < outputs.size(); ++i) {
-    buffers[outputs[i].first] = outputs[i].second;
+    auto [global_id, buffer] = outputs[i];
+    buffers[global_id] = buffer;
   }
 
   cq = &device->command_queue(cq_id);
@@ -71,6 +64,11 @@ CQExecutor::CQExecutor(
 
 std::shared_ptr<::tt::tt_metal::Event>
 CQExecutor::execute(::tt::target::metal::CommandQueue const *commandQueue) {
+  for (auto const &event : initEvents) {
+    ::tt::tt_metal::EnqueueWaitForEvent(*cq, event);
+  }
+  initEvents.clear();
+
   for (::tt::target::metal::Command const *command :
        *commandQueue->commands()) {
     execute(command);
@@ -132,18 +130,6 @@ void CQExecutor::execute(::tt::target::metal::Command const *command) {
     throw std::runtime_error("Unsupported command type");
     break;
   }
-}
-
-static CoreRangeSet toCoreRangeSet(
-    ::flatbuffers::Vector<tt::target::Dim2dRange const *> const *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
-  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x(),
-                  coreRange->loc().y() + coreRange->size().y());
-    coreRanges.emplace(start, end);
-  }
-  return CoreRangeSet(coreRanges);
 }
 
 static void writeFile(std::string const &fileName, char const *data,
@@ -256,54 +242,8 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::CreateBufferCommand const *command) {
-  ::tt::target::LayoutDesc const *layout = command->ref()->desc()->layout();
-  CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
-  auto shardRank = layout->memory_desc()->shape()->size();
-  std::array<uint32_t, 2> shardShape;
-  shardShape[1] = layout->memory_desc()->shape()->Get(shardRank - 1) *
-                  layout->memory_desc()->tile_shape()->x();
-  shardShape[0] = layout->memory_desc()->tile_shape()->y();
-  for (unsigned i = 0; i < shardRank - 1; ++i) {
-    shardShape[0] *= layout->memory_desc()->shape()->Get(i);
-  }
-  ShardSpec shardSpec(coreRangeSet, shardShape);
-
-  auto tensorRank = layout->stride()->size();
-  std::array<uint32_t, 2> tensorShape;
-  assert(layout->stride()->size() >= 2);
-  tensorShape[1] = layout->stride()->Get(tensorRank - 2);
-  tensorShape[0] =
-      layout->stride()->Get(0) * command->ref()->desc()->shape()->Get(0);
-
-  auto pageShape = shardShape;
-  ShardSpecBuffer shardSpecBuffer(shardSpec, pageShape, tensorShape);
-
-  uint64_t gridVolume = 1;
-  for (auto dim2dRange : *layout->core_range_set()) {
-    gridVolume *= dim2dRange->size().x() * dim2dRange->size().y();
-  }
-
-  assert(layout->memory_desc()->memory_space() ==
-             ::tt::target::MemorySpace::DeviceDRAM ||
-         layout->memory_desc()->memory_space() ==
-             ::tt::target::MemorySpace::DeviceL1);
-  BufferType bufferType = layout->memory_desc()->memory_space() ==
-                                  ::tt::target::MemorySpace::DeviceDRAM
-                              ? BufferType::DRAM
-                              : BufferType::L1;
-  uint64_t size = gridVolume * layout->memory_desc()->size();
-  auto shardedBufferConfig = ShardedBufferConfig{
-      .device = device,
-      .size = size,
-      .page_size = size,
-      .buffer_type = bufferType,
-      .buffer_layout = TensorMemoryLayout::HEIGHT_SHARDED,
-      .shard_parameters = shardSpecBuffer,
-  };
-  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-      ::tt::tt_metal::CreateBuffer(shardedBufferConfig);
-  buffer->set_address(command->ref()->address());
-  buffers[command->ref()->global_id()] = buffer;
+  buffers[command->ref()->global_id()] =
+      createBufferFromTensorRef(device, command->ref());
 }
 
 void CQExecutor::execute(
@@ -352,15 +292,11 @@ void CQExecutor::execute(::tt::target::metal::FinishCommand const *) {
   ::tt::tt_metal::Finish(*cq);
 }
 
-std::shared_ptr<::tt::tt_metal::Event> executeCommandQueue(
-    ::tt::tt_metal::Device *device,
-    ::tt::target::metal::CommandQueue const *commandQueue, std::size_t cq_id,
-    std::vector<
-        std::pair<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>> const
-        &inputs,
-    std::vector<
-        std::pair<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>> const
-        &outputs) {
+std::shared_ptr<::tt::tt_metal::Event>
+executeCommandQueue(::tt::tt_metal::Device *device,
+                    ::tt::target::metal::CommandQueue const *commandQueue,
+                    std::size_t cq_id, std::vector<InputBuffer> const &inputs,
+                    std::vector<OutputBuffer> const &outputs) {
   CQExecutor executor(device, cq_id, inputs, outputs);
   return executor.execute(commandQueue);
 }
