@@ -537,6 +537,7 @@ public:
           TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
           TTIRLayoutOperandsRewriter<MeanOp>,
           TTIRLayoutOperandsRewriter<SoftmaxOp>,
+          TTIRLayoutOperandsRewriter<TransposeOp>,
           TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
           &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));

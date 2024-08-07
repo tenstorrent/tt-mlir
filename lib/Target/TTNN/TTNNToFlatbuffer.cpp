@@ -159,6 +159,20 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
                                                dim_arg, op.getKeepDim());
 }
 
+template <typename TransposeOp>
+::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
+createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  int32_t dimension1 = op.getDimension1();
+  int32_t dimension2 = op.getDimension2();
+
+  return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dimension1,
+                                               dimension2);
+}
+
 template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
@@ -217,6 +231,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
+                           debugString);
+  }
+  if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
+    return createOperation(cache, createTransposeOp(cache, transposeOp),
                            debugString);
   }
 

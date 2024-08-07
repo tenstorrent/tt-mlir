@@ -111,6 +111,22 @@ public:
   }
 };
 
+class TransposeOpConversionPattern
+    : public OpConversionPattern<ttir::TransposeOp> {
+public:
+  using OpConversionPattern<ttir::TransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension1(),
+        adaptor.getDimension2());
+    return success();
+  }
+};
+
 } // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
@@ -145,6 +161,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
+           TransposeOpConversionPattern,
            SoftmaxOpConversionPattern,
            MatmulOpConversionPattern
            >(typeConverter, ctx);

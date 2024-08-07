@@ -244,6 +244,27 @@ def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let hasVerifier = 1;
 }
 
+def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
+    let summary = "Transpose op.";
+    let description = [{
+      Transpose tensor along two given dimensions.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dimension1,
+                         SI32Attr:$dimension2,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";

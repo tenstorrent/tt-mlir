@@ -156,6 +156,27 @@ def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {
 
     let hasVerifier = 1;
 }
+
+def TTNN_TransposeOp : TTNN_NamedDPSOp<"transpose"> {
+    let summary = "Transpose op.";
+    let description = [{
+      Transpose tensor along two given dimensions.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dimension1,
+                         SI32Attr:$dimension2);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,
