@@ -27,8 +27,9 @@ def remote_run(args):
     #     command += f" --{key} {value}"
 
     # add support for all
-    if int(args.program_index) != 0:
-        command += f" --program-index {args.program_index}"
+    # if int(args.program_index) != 0:
+    command += f" --program-index {args.program_index}"
+    # Used by client side to insert flatbuffer into the position of the placeholder
     command += " placeholder"
     if int(args.loops) != 1:
         command += f" --loops {args.loops}"
@@ -98,7 +99,7 @@ def remote_perf(args):
         print(response.json()['output'])
 
 def remote_download(args):
-    print(args)
+    # print(args)
     
     response = requests.get(args.url)
 
