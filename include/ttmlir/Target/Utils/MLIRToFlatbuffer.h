@@ -218,7 +218,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
   SmallVector<std::int64_t> tensorGridShape(tensorGrid.getShape());
   AffineMap mapping = deviceGrid.getMapping();
   ::ttmlir::utils::sample(
-      tensorGridShape, [&](SmallVector<std::int64_t> const &virtualCoreCoord) {
+      tensorGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {
         SmallVector<std::int64_t> coreCoord = mapping.compose(virtualCoreCoord);
         assert(coreCoord.size() == 3 && "expected a 2D core");
         assert(coreCoord[0] == 0 && "expected single device");

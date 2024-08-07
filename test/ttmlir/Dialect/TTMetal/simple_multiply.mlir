@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-generic --ttir-layout --ttir-generic-region-operands-to-memref --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-generic --ttir-layout --ttir-generic-region-operands-to-memref --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {

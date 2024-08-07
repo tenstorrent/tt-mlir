@@ -23,6 +23,9 @@
   if (not outputLayout) {
     return emitOpError("Output tensor type missing layout attribute");
   }
+  if (inputTy.getShape() != outputTy.getShape()) {
+    return emitOpError("Input and output shapes must be the same");
+  }
   return success();
 }
 

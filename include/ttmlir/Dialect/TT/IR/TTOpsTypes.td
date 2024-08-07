@@ -101,6 +101,10 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
     static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
+    unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getNocDRAMAddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getPcieAddressAlignBytes(unsigned chipIndex = 0) const;
   }];
 }
 
@@ -186,6 +190,12 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef);
+      LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+      LayoutAttr withGrid(::mlir::MLIRContext *context,
+                          RankedTensorType ty,
+                          GridAttr grid,
+                          ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
@@ -193,11 +203,6 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
-      LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-      LayoutAttr withGrid(::mlir::MLIRContext *context,
-                          RankedTensorType ty,
-                          GridAttr grid,
-                          ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
   }];
 }
@@ -239,6 +244,15 @@ def TT_OperandConstraintAttr : EnumAttr<TT_Dialect, TT_OperandConstraint, "opera
 }
 
 def TT_OperandConstraintArrayAttr : TypedArrayAttrBase<TT_OperandConstraintAttr, "">;
+
+def TT_ArgumentAllocationAttr : TT_Attr<"ArgumentAllocation", "arg_alloc", []> {
+  let summary = "Argument allocation attribute in TT dialect";
+  let description = [{
+    Holds the metadata for the allocation of an function argument i.e. for graph inputs.
+  }];
+  let parameters = (ins "uint64_t":$address, "uint64_t":$size, "MemorySpace":$memorySpace);
+  let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
+}
 
 //===----------------------------------------------------------------------===//
 // TT type definitions
