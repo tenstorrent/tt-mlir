@@ -134,8 +134,7 @@ static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
                  std::shared_ptr<::tt::tt_metal::Event>>
 prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
              void *data, ::tt::target::TensorRef const *tensorRef) {
-  if (TensorDesc const *hostTensorDesc = std::get_if<TensorDesc>(&metalTensor);
-      hostTensorDesc) {
+  if (std::holds_alternative<TensorDesc>(metalTensor)) {
     // todo assert that tensorDesc matches hostTensorDesc
     std::shared_ptr<::tt::tt_metal::Buffer> buffer =
         createBufferFromTensorRef(device, tensorRef);
@@ -146,10 +145,10 @@ prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
     ::tt::tt_metal::EnqueueWriteBuffer(cq, buffer, data, blocking);
     ::tt::tt_metal::EnqueueRecordEvent(cq, event);
     return std::make_pair(buffer, event);
-  } else if (std::shared_ptr<::tt::tt_metal::Buffer> const *buffer =
-                 std::get_if<std::shared_ptr<::tt::tt_metal::Buffer>>(
-                     &metalTensor);
-             buffer) {
+  } else if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
+                 metalTensor)) {
+    std::shared_ptr<::tt::tt_metal::Buffer> buffer =
+        std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
     throw std::runtime_error("Input from buffer not supported yet");
   }
   assert(false && "Unsupported tensor type");
