@@ -212,7 +212,6 @@ Event submit(Device deviceHandle, Binary executableHandle,
   DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>();
   assert(deviceMesh.size() == 1 && "Only one device is supported for now");
   std::shared_ptr<Events> events = std::make_shared<Events>();
-  std::size_t cq_id = 0;
   assert(program->device_programs()->size() == deviceMesh.size() &&
          "Device programs size mismatch");
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
@@ -248,6 +247,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
                            buffer);
     }
 
+    std::size_t cq_id = 0;
     for (::tt::target::metal::CommandQueue const *cq :
          *deviceProgram->command_queues()) {
       deviceEvents.push_back(

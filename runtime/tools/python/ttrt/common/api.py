@@ -182,7 +182,6 @@ def run(args):
 
             print("inputs:\n", torch_inputs)
 
-<<<<<<< HEAD
             total_inputs = []
             total_outputs = []
             for loop in range(arg_loops):
