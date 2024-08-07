@@ -52,16 +52,24 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     } else {
       throw std::runtime_error("Unsupported data type");
     }
+    assert(untilized.get_layout() == ::ttnn::ROW_MAJOR_LAYOUT &&
+           "Expected ROW_MAJOR layout");
+
+    auto &shape = untilized.shape().value();
+    if (shape != shape.without_padding()) {
+      untilized = untilized.unpad_from_tile(
+          untilized.shape().value().without_padding());
+    }
 
     auto &outputTensor = *liveTensors.at(op->out()->global_id());
 
-    void *src = ::tt::tt_metal::get_raw_host_data_ptr(untilized);
-    void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
-
     assert(outputTensor.element_size() == untilized.element_size() &&
            "Element size mismatch");
-    assert(outputTensor.volume() <= untilized.volume() &&
+    assert(outputTensor.volume() == untilized.volume() &&
            "Output tensor is larger than input tensor");
+
+    void *src = ::tt::tt_metal::get_raw_host_data_ptr(untilized);
+    void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
 
     std::uint32_t size = outputTensor.volume() * outputTensor.element_size();
     std::memcpy(dst, src, size);
