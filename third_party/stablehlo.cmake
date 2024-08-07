@@ -20,16 +20,10 @@ ExternalProject_Add(
     GIT_PROGRESS ON
 )
 
-file(GLOB TTMLIR_STABLEHLO_LIBRARIES "${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo-build/lib/*.a")
-foreach(TTMLIR_STABLEHLO_LIBRARY ${TTMLIR_STABLEHLO_LIBRARIES})
-    get_filename_component(lib_name ${TTMLIR_STABLEHLO_LIBRARY} NAME_WE)
-    string(REPLACE "lib" "" lib_name ${lib_name}) # Remove the "lib" prefix if it exists
-    message(STATUS "Adding TTMLIR library: ${lib_name}")
-    add_library(${lib_name} SHARED IMPORTED GLOBAL)
-    set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${TTMLIR_STABLEHLO_LIBRARY})
-    add_dependencies(${lib_name} stablehlo)
-    list(APPEND STABLEHLO_LIBRARIES_LIST ${lib_name})
+include(stablehlo_libs.cmake)
+foreach(lib_name lib_path IN ZIP_LISTS TTMLIR_STABLEHLO_LIBRARY_NAMES TTMLIR_STABLEHLO_LIBRARIES)
+  add_library(${lib_name} SHARED IMPORTED GLOBAL)
+  set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${lib_path})
+  add_dependencies(${lib_name} stablehlo)
 endforeach()
-
-set_property(GLOBAL PROPERTY STABLEHLO_LIBS "${STABLEHLO_LIBRARIES_LIST}")
 
