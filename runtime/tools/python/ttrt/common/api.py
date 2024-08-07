@@ -38,7 +38,7 @@ def read(args):
     arg_binary = args.binary
     arg_clean_artifacts = args.clean_artifacts
     arg_save_artifacts = args.save_artifacts
-    arg_section = arg.section
+    arg_section = args.section
 
     # preprocessing
     if os.path.isdir(arg_binary):

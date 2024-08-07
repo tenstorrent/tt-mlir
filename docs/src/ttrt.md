@@ -81,6 +81,40 @@ ttrt perf /dir/of/flatbuffers
 ttrt perf /dir/of/flatbuffers --loops 10
 ```
 
+## ttrt remote
+
+The remote tool is for running ttrt commands on remote machines that support runtime and perf enabled builds.
+It comes with ttrt so building tt-mlir with runtime and perf disabled and then building ttrt will work
+
+Note: The remote machine and local must be on the same version of tt-mlir. This can be checked with TODO: ADD COMMAND FOR CHECKING TTRT VERSION AND FLATBUFFER VERSION
+
+### Setup
+
+#### Internal
+
+For internal developers, the remote machines for executing jobs are accessed through the cloud. To get access to these machines you need to get permission
+to the TT-Dealer team in the cloud and get access to the cloud vpn. Remote machines update to the latest tt-mlir every 3 hours
+
+#### Users
+
+TODO: ADD INSTRUCTIONS FOR SETTING UP USERS
+
+### API
+
+#### run
+
+```bash
+```
+
+#### query
+
+#### perf
+
+#### upload
+
+#### download
+
+
 ## ttrt is written as a python library, so it can be used in custom python scripts
 
 ```python

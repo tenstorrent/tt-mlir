@@ -19,7 +19,7 @@ import shutil
 import ttrt.binary
 from ttrt.common.api import read, run, query, perf
 from ttrt.common.util import read_actions
-from ttrt.remote.api import remote_run, remote_query, remote_perf, remote_download, remote_upload, remote_create
+from ttrt.remote.api import remote_set, remote_get, remote_run, remote_query, remote_perf, remote_download, remote_upload, remote_create
 
 #######################################################################################
 #######################################**MAIN**########################################
@@ -168,6 +168,24 @@ def main():
         "remote", help="run ttrt commands on a remote machine"
     )
     remote_subparsers = remote_parser.add_subparsers()
+
+    """
+    API: remote set
+    """
+    remote_upload_parser = remote_subparsers.add_parser(
+        "set", help="set ttrt remote configs"
+    )
+
+    remote_upload_parser.add_argument("config", help="config file for ttrt")
+    remote_upload_parser.set_defaults(func=remote_set)
+
+    """
+    API: remote get
+    """
+    remote_upload_parser = remote_subparsers.add_parser(
+        "get", help="get ttrt remote configs"
+    )
+    remote_upload_parser.set_defaults(func=remote_get)
 
     """
     API: remote run
