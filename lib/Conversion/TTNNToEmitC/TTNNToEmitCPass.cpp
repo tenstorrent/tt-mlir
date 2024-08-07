@@ -55,6 +55,17 @@ struct ConvertTTNNToEmitCPass
       auto module = getOperation();
       OpBuilder builder(module);
 
+      if (module.getBodyRegion().empty())
+      {
+        // Parent module is empty, nothing to do here
+        //
+        signalPassFailure();
+      }
+
+      // Set insertion point to start of first module child
+      //
+      builder.setInsertionPointToStart(module.getBody(0));
+
       builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn/device.h",
                                        /*isStandard=*/false);
       builder.create<emitc::IncludeOp>(
