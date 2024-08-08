@@ -1,4 +1,3 @@
-# Use the official Ubuntu 22.04 as a parent image
 FROM ubuntu:22.04
 SHELL ["/bin/bash", "-c"]
 
@@ -43,15 +42,21 @@ RUN wget https://apt.llvm.org/llvm.sh && \
 # Install python packages
 RUN pip install cmake
 
-# Googletest latest version (which isn't in apt for 20.04)
-RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && cd googletest && mkdir build && cd build && cmake .. -DBUILD_GMOCK=OFF && make && make install && cd ../.. && rm -rf googletest
+# Install Googletest
+RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && \
+    cd googletest && \
+    mkdir build && \
+    cd build && \
+    cmake .. -DBUILD_GMOCK=OFF && \
+    make && \
+    make install && \
+    cd ../.. && \
+    rm -rf googletest
 
-# Set the user for RUN commands
-ARG BUILD_DIR=builder
-RUN mkdir -p $BUILD_DIR
-
-# Create and change ownership of toolchain dir
-RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR
+# Create a directory for the build and toolchain
+ARG BUILD_DIR=/home/build
+RUN mkdir -p $BUILD_DIR && \
+    mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
 # Clone the project and update submodules
 RUN git clone https://github.com/tenstorrent/tt-mlir.git $BUILD_DIR/tt-mlir && \
