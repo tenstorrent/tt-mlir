@@ -49,6 +49,40 @@
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::TransposeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+  int32_t dim1 = getDimension1();
+  int32_t dim2 = getDimension2();
+  if (inputType.getRank() < 2) {
+    return emitOpError("Input must be at least a 2D tensor");
+  }
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input must have the same rank as output");
+  }
+  if (dim1 >= inputType.getRank() || dim1 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 1 attribute must be within the bounds of the input tensor");
+  }
+  if (dim2 >= inputType.getRank() || dim2 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 2 attribute must be within the bounds of the input tensor");
+  }
+  if (dim1 < 0) {
+    dim1 += inputType.getRank();
+  }
+  if (dim2 < 0) {
+    dim2 += inputType.getRank();
+  }
+  if (outputShape[dim1] != inputShape[dim2] ||
+      outputShape[dim2] != inputShape[dim1]) {
+    return emitOpError("Input-output transpose dimension mismatch.");
+  }
+  return success();
+}
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();

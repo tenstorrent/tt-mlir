@@ -112,6 +112,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::GreaterEqualOp>>(typeConverter,
                                                                  ctx);
 
+  // Tensor manipulation ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::TransposeOp>>(typeConverter,
+                                                              ctx);
+
   // Matmul ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
