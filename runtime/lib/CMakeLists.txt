@@ -26,17 +26,6 @@ endif()
 if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTMETAL)
   target_compile_definitions(TTRuntime PUBLIC TT_RUNTIME_ENABLE_TTMETAL)
 endif()
-target_include_directories(TTRuntime
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/runtime/include
-    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
-)
-target_link_libraries(TTRuntime
-  PRIVATE
-    TTRuntimeTTNN
-    TTRuntimeTTMetal
-)
-add_dependencies(TTRuntime FBS_GENERATION)
 
 add_library(TTBinary STATIC binary.cpp)
 target_include_directories(TTBinary
@@ -45,3 +34,18 @@ target_include_directories(TTBinary
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 add_dependencies(TTBinary FBS_GENERATION)
+
+target_include_directories(TTRuntime
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+)
+
+target_link_libraries(TTRuntime
+  PRIVATE
+    TTBinary
+    TTRuntimeTTNN
+    TTRuntimeTTMetal
+)
+
+add_dependencies(TTRuntime TTBinary FBS_GENERATION)

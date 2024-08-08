@@ -27,7 +27,7 @@ DeviceRuntime currentRuntime = DeviceRuntime::Disabled;
 
 } // namespace detail
 
-const DeviceRuntime &getCurrentRuntime() {
+DeviceRuntime getCurrentRuntime() {
 #if !defined(TT_RUNTIME_ENABLE_TTNN)
   assert(detail::currentRuntime != DeviceRuntime::TTNN);
 #endif
@@ -35,6 +35,17 @@ const DeviceRuntime &getCurrentRuntime() {
   assert(detail::currentRuntime != DeviceRuntime::TTMetal);
 #endif
   return detail::currentRuntime;
+}
+
+std::vector<DeviceRuntime> getAvailableRuntimes() {
+  std::vector<DeviceRuntime> runtimes;
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  runtimes.push_back(DeviceRuntime::TTNN);
+#endif
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  runtimes.push_back(DeviceRuntime::TTMetal);
+#endif
+  return runtimes;
 }
 
 void setCurrentRuntime(const DeviceRuntime &runtime) {

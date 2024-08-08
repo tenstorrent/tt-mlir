@@ -36,6 +36,8 @@ PYBIND11_MODULE(_C, m) {
 
   m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
         "Get the backend device runtime type");
+  m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
+        "Get the available backend device runtime types");
   m.def("set_compatible_runtime", &tt::runtime::setCompatibleRuntime,
         py::arg("binary"),
         "Set the backend device runtime type to match the binary");

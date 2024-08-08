@@ -13,7 +13,9 @@
 
 namespace tt::runtime {
 
-const DeviceRuntime &getCurrentRuntime();
+DeviceRuntime getCurrentRuntime();
+
+std::vector<DeviceRuntime> getAvailableRuntimes();
 
 void setCurrentRuntime(const DeviceRuntime &runtime);
 
