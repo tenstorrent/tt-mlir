@@ -1,7 +1,3 @@
-if (TT_RUNTIME_ENABLE_TTMETAL AND TTMLIR_ENABLE_RUNTIME_TESTS)
-  message(FATAL_ERROR "TTMETAL runtime does not support runtime tests yet")
-endif()
-
 if (TTMLIR_ENABLE_RUNTIME)
   if (TT_RUNTIME_ENABLE_TTNN)
     add_subdirectory(ttnn)
