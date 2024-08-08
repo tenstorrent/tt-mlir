@@ -17,18 +17,16 @@ def remote_get(args):
     print("remote_get")
 
 def remote_run(args):
-    # print(args)
-    
     fbs = getFlatbuffers(args.binary)
     command = "ttrt run"
-
+    command += f" --program-index {args.program_index}"
     # for extensibility
     # for key, value in args.items():
     #     command += f" --{key} {value}"
 
     # add support for all
     # if int(args.program_index) != 0:
-    command += f" --program-index {args.program_index}"
+    
     # Used by client side to insert flatbuffer into the position of the placeholder
     command += " placeholder"
     if int(args.loops) != 1:
@@ -48,8 +46,6 @@ def remote_run(args):
         print(response.json()['output'])
 
 def remote_query(args):
-    # print(args)
-    
     command = "ttrt query"
     if args.system_desc:
         command += " --system-desc"
@@ -73,12 +69,9 @@ def remote_query(args):
         print(response.json()['output'])
     
 def remote_perf(args):
-    # print(args)
-
     fbs = getFlatbuffers(args.binary)
     command = "ttrt perf"
-    if int(args.program_index) != 0:
-        command += f" --program-index {args.program_index}"
+    command += f" --program-index {args.program_index}"
     if int(args.device):
         command += " --device"
     command += " placeholder"
@@ -99,8 +92,6 @@ def remote_perf(args):
         print(response.json()['output'])
 
 def remote_download(args):
-    # print(args)
-    
     response = requests.get(args.url)
 
     filepath = "download.ttnn"
@@ -113,8 +104,6 @@ def remote_download(args):
         print(f'File downloaded successfully as {filepath}')
 
 def remote_upload(args):
-    # print(args)
-
     command = "ttrt upload"
     json_data = {"command": command}
     file = {args.binary: open(args.binary ,'rb')}
@@ -124,3 +113,4 @@ def remote_upload(args):
     
 def remote_create(args):
     print(args)
+    print("REMOTE CREATE")

@@ -17,7 +17,7 @@ import sys
 import shutil
 
 import ttrt.binary
-from ttrt.common.api import read, run, query, perf
+from ttrt.common.api import version, read, run, query, perf
 from ttrt.common.util import read_actions
 from ttrt.remote.api import remote_set, remote_get, remote_run, remote_query, remote_perf, remote_download, remote_upload, remote_create
 
@@ -31,6 +31,14 @@ def main():
         description="ttrt: a runtime tool for parsing and executing flatbuffer binaries"
     )
     subparsers = parser.add_subparsers(required=True)
+
+    """
+    API: version
+    """
+    version_parser = subparsers.add_parser(
+        "version", help="get version of ttrt"
+    )
+    version_parser.set_defaults(func=version)
 
     """
     API: read

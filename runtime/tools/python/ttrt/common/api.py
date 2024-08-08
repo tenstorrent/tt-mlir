@@ -23,6 +23,22 @@ from ttrt.common.util import *
 #######################################################################################
 ########################################**API**########################################
 #######################################################################################
+
+"""
+API: version
+  - get version of ttrt
+"""
+
+
+def version(args):
+    package_name = "ttrt"
+    try:
+        package_version = get_distribution(package_name).version
+    except Exception as e:
+        print(f"Error retrieving version: {e} for {package_name}")
+    print(package_version)
+
+
 """
 API: read
   - read contents of flatbuffer file
