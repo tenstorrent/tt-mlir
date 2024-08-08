@@ -1,0 +1,10 @@
+#!/bin/bash
+
+echo "==================== BUILDING TTNN STANDALONE ==================="
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build
+echo "================ FINISH BUILDING TTNN STANDALONE ================"
+
+echo "==================== RUNNING TTNN STANDALONE ===================="
+./build/ttnn-standalone
+echo "================= FINISH RUNNING TTNN STANDALONE ================"
