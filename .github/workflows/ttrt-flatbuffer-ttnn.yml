@@ -1,0 +1,91 @@
+name: TTRT Flatbuffer Tests
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu-22-04"]
+        build: [
+          {name: "TTNN n150 runtime tests", runs-on: n150, build_type: Release, enable_runtime: ON, enable_perf: OFF},
+          {name: "TTNN n300 runtime tests", runs-on: n300, build_type: Release, enable_runtime: ON, enable_perf: OFF},
+        ]
+    name: ${{ matrix.build.name }}
+    runs-on: ${{ matrix.build.runs-on }}
+
+    container:
+      image: ghcr.io/${{ github.repository }}/tt-mlir-${{ matrix.image }}:latest
+      options: --user root --volume /dev/hugepages-1G:/dev/hugepages-1G --device /dev/tenstorrent/0:/dev/tenstorrent/0
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0 # Fetch all history and tags
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-${{ env.SDK_VERSION }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_C_COMPILER=clang \
+        -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
+        -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
+        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
+        -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Build
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
+
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- ttrt
+
+    - name: Run Test
+      shell: bash
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+        export SYSTEM_DESC_PATH=${{ steps.strings.outputs.work-dir }}/ttrt-artifacts/system_desc.ttsys
+        llvm-lit -v ${{ steps.strings.outputs.work-dir }}/build/test/ttmlir/Silicon
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
+
+    - name: Run ttrt functional tests
+      if: ${{ matrix.build.enable_perf }} == 'OFF'
+      shell: bash
+      run: |
+        source env/activate
+        pip install loguru
+        pip install torch
+        pip install pandas
+        pip install seaborn
+        ttrt run ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
