@@ -1,0 +1,20 @@
+name: On push
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  pre-commit:
+    uses: ./.github/workflows/pre-commit.yml
+    secrets: inherit
+  spdx:
+    uses: ./.github/workflows/spdx.yml
+    secrets: inherit
+  macos-build:
+    uses: ./.github/workflows/macos-build.yml
+    secrets: inherit
+  docker-build:
+    uses: ./.github/workflows/docker-build.yml
+    secrets: inherit

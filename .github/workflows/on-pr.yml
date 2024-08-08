@@ -1,9 +1,7 @@
-name: On PR and push to main
+name: On PR
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
