@@ -29,7 +29,18 @@ PYBIND11_MODULE(_C, m) {
       .value("UInt32", ::tt::target::DataType::UInt32)
       .value("UInt16", ::tt::target::DataType::UInt16)
       .value("UInt8", ::tt::target::DataType::UInt8);
+  py::enum_<::tt::runtime::DeviceRuntime>(m, "DeviceRuntime")
+      .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
+      .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
+      .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
 
+  m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
+        "Get the backend device runtime type");
+  m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
+        "Get the available backend device runtime types");
+  m.def("set_compatible_runtime", &tt::runtime::setCompatibleRuntime,
+        py::arg("binary"),
+        "Set the backend device runtime type to match the binary");
   m.def("get_current_system_desc", &tt::runtime::getCurrentSystemDesc,
         "Get the current system descriptor");
   m.def(
