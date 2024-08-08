@@ -150,7 +150,7 @@ class TTKernelBuilder(ast.NodeVisitor):
                 func = TTKernelBuilder.cb_fn_map[value.func.attr]
                 cb = self.symbol_table[value.func.value.id]
                 assert ttkernel.ir.CBType.cast(cb.type)
-                return func(cb)
+                return func(cb, self.get_constant(1))
             elif self.symbol_table[value.func.value.id] == "Tensix":
                 assert (
                     value.func.attr in TTKernelBuilder.t6_fn_map
