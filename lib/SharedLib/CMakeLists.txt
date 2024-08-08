@@ -1,8 +1,8 @@
 # Runtime libs from tt-mlir
-set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN)
+set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN TTBinary)
 
 # Dependency libs from tt-metal/ttnn project for ttnn runtime
-set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTEAGER_LIBRARY TTNN_LIBRARY)
+set(TTNN_LIBS TTMETAL_LIBRARY TTEAGER_LIBRARY TTNN_LIBRARY)
 
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
