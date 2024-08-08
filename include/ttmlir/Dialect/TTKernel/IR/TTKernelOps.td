@@ -133,7 +133,7 @@ def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
       CBPushBack operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
 
     let hasVerifier = 1;
 }
@@ -144,7 +144,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
       CBPopFront operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
 
     let hasVerifier = 1;
 }
@@ -155,7 +155,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
       CBReserveBack operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
 
     let hasVerifier = 1;
 }
@@ -166,9 +166,55 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
       CBWaitFront operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
 
     let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel NOC operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
+    let summary = "GetNocAddr";
+    let description = [{
+      GetNocAddr
+    }];
+
+    let arguments = (ins I32:$x, I32:$y, I32:$l1Address);
+    let results = (outs TTKernel_NocAddr:$nocAddr);
+}
+
+def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
+    let summary = "NocAsyncRead";
+    let description = [{
+      NocAsyncRead
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
+}
+
+def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier"> {
+    let summary = "NocAsyncReadBarrier";
+    let description = [{
+      NocAsyncReadBarrier
+    }];
+}
+
+def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
+    let summary = "NocAsyncWrite";
+    let description = [{
+      NocAsyncWrite
+    }];
+
+    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size);
+}
+
+def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
+    let summary = "NocAsyncWriteBarrier";
+    let description = [{
+      NocAsyncWriteBarrier
+    }];
 }
 
 //===----------------------------------------------------------------------===//
