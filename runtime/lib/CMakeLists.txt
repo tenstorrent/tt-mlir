@@ -1,7 +1,3 @@
-if (TT_RUNTIME_ENABLE_TTMETAL AND TTMLIR_ENABLE_RUNTIME_TESTS)
-  message(FATAL_ERROR "TTMETAL runtime does not support runtime tests yet")
-endif()
-
 if (TTMLIR_ENABLE_RUNTIME)
   if (TT_RUNTIME_ENABLE_TTNN)
     add_subdirectory(ttnn)
@@ -18,7 +14,7 @@ else()
   add_library(TTRuntimeTTMetal INTERFACE)
 endif()
 
-message(STATUS "TT_RUNTIME_ENABLE_TTNN: ${TT_RUNTIME_ENABLE_TTNN} ${TT_RUNTIME_ENABLE_TTMETAL}")
+message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}]")
 add_library(TTRuntime STATIC runtime.cpp)
 set_property(TARGET TTRuntime PROPERTY CXX_STANDARD 20)
 if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN)

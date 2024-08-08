@@ -178,13 +178,14 @@ def run(args):
 
     # execution
     print("executing action for all provided flatbuffers")
-    device = ttrt.runtime.open_device(device_ids)
+    # TODO: sort the flatbuffers by runtime type, for now just take the first one
+    ttrt.runtime.set_compatible_runtime(fbb_list[0][1])
+    device = ttrt.runtime.open_device([device_ids[0]])
     atexit.register(lambda: ttrt.runtime.close_device(device))
 
     torch.manual_seed(args.seed)
 
     for (binary_name, fbb, fbb_dict, program_indices) in fbb_list:
-        ttrt.runtime.set_compatible_runtime(fbb)
         torch_inputs[binary_name] = {}
         torch_outputs[binary_name] = {}
         for program_index in program_indices:
