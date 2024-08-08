@@ -1,4 +1,4 @@
-name: Build
+name: Build on macos-latest
 
 on:
   workflow_dispatch:
@@ -13,7 +13,6 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-20.04, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: ON},
           {runs-on: macos-latest, c_compiler: clang, cpp_compiler: clang++, build_type: Release, enable_runtime: OFF}
         ]
     runs-on: ${{ matrix.build.runs-on }}
