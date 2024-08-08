@@ -17,7 +17,7 @@ import sys
 import shutil
 
 import ttrt.binary
-from ttrt.common.api import read, run, query, perf
+from ttrt.common.api import read, run, query, perf, init_fns
 from ttrt.common.util import read_actions
 
 #######################################################################################
@@ -79,6 +79,17 @@ def main():
         "--save-artifacts",
         action="store_true",
         help="save all artifacts during run",
+    )
+    run_parser.add_argument(
+        "--init",
+        default="randn",
+        choices=init_fns,
+        help="Function to initialize tensors with",
+    )
+    run_parser.add_argument(
+        "--identity",
+        action="store_true",
+        help="Do a golden identity test on the output tensors",
     )
     run_parser.add_argument(
         "--seed",

@@ -20,6 +20,31 @@ import atexit
 import ttrt.binary
 from ttrt.common.util import *
 
+
+def randn(shape, dtype):
+    import torch
+
+    return torch.randn(shape, dtype=dtype)
+
+
+def arange(shape, dtype):
+    import torch
+
+    def volume(shape):
+        v = 1
+        for i in shape:
+            v *= i
+        return v
+
+    return torch.arange(volume(shape), dtype=dtype).reshape(shape)
+
+
+init_fns_map = {
+    "randn": randn,
+    "arange": arange,
+}
+init_fns = sorted(list(init_fns_map.keys()))
+
 #######################################################################################
 ########################################**API**########################################
 #######################################################################################
@@ -173,7 +198,7 @@ def run(args):
             )
 
             for i in program["inputs"]:
-                torch_tensor = torch.randn(
+                torch_tensor = init_fns_map[args.init](
                     i["desc"]["shape"],
                     dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
                 )
@@ -225,6 +250,16 @@ def run(args):
                 print(f"finished loop={loop}")
             ttrt.runtime.wait(event)
             print("outputs:\n", torch_outputs)
+            if args.identity:
+                for i, o in zip(torch_inputs[binary_name], torch_outputs[binary_name]):
+                    if not torch.allclose(i, o):
+                        print(
+                            "Failed: inputs and outputs do not match in binary",
+                            binary_name,
+                        )
+                        print(i - o)
+                    else:
+                        print("Passed:", binary_name)
 
     # save artifacts
     if arg_save_artifacts:
