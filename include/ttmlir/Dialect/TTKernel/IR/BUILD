@@ -1,0 +1,150 @@
+load(
+    "@llvm-project//mlir:tblgen.bzl",
+    "gentbl_cc_library",
+    "td_library",
+)
+
+filegroup(
+    name="headers",
+    srcs=glob(["**/*.h"]),
+    visibility=["//visibility:public"],
+)
+
+td_library(
+    name="ttkernel_td_files",
+    srcs=[
+        "TTKernelBase.td",
+        "TTKernelOps.td",
+        "TTKernelOpsEnums.td",
+        "TTKernelOpsTypes.td",
+    ],
+    deps=[
+        "//include/ttmlir/Dialect/TT/IR:tt_td_files",
+        "@llvm-project//mlir:BuiltinDialectTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:ShapeOpsTdFiles",
+    ],
+    includes=["../../../../"],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    strip_include_prefix="./",
+    name="ttkernel_ops_inc_gen",
+    tbl_outs=[
+        (
+            ["-gen-op-decls"],
+            "TTKernelOps.h.inc",
+        ),
+        (
+            ["-gen-op-defs"],
+            "TTKernelOps.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTKernelOps.td",
+    deps=[
+        ":ttkernel_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttkernel_enums_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-enum-decls"],
+            "TTKernelOpsEnums.h.inc",
+        ),
+        (
+            ["-gen-enum-defs"],
+            "TTKernelOpsEnums.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTKernelOpsEnums.td",
+    deps=[
+        ":ttkernel_td_files",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttkernel_attrs_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-attrdef-decls"],
+            "TTKernelOpsAttrDefs.h.inc",
+        ),
+        (
+            ["-gen-attrdef-defs"],
+            "TTKernelOpsAttrDefs.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTKernelOpsTypes.td",
+    deps=[
+        ":ttkernel_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttkernel_types_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-typedef-decls",
+                "--typedefs-dialect=ttkernel",
+            ],
+            "TTKernelOpsTypes.h.inc",
+        ),
+        (
+            [
+                "-gen-typedef-defs",
+                "--typedefs-dialect=ttkernel",
+            ],
+            "TTKernelOpsTypes.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTKernelOps.td",
+    deps=[
+        ":ttkernel_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttkernel_dialect_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-dialect-decls",
+                "--dialect=ttkernel",
+            ],
+            "TTKernelOpsDialect.h.inc",
+        ),
+        (
+            [
+                "-gen-dialect-defs",
+                "--dialect=ttkernel",
+            ],
+            "TTKernelOpsDialect.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTKernelOps.td",
+    deps=[
+        ":ttkernel_td_files",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)

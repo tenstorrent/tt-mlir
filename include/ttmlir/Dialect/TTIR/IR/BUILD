@@ -1,0 +1,102 @@
+load(
+    "@llvm-project//mlir:tblgen.bzl",
+    "gentbl_cc_library",
+    "gentbl_filegroup",
+    "td_library",
+)
+
+filegroup(
+    name="headers",
+    srcs=glob(["**/*.h"]),
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttir_ops_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-op-decls"],
+            "TTIROps.h.inc",
+        ),
+        (
+            ["-gen-op-defs"],
+            "TTIROps.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTIROps.td",
+    deps=[
+        ":ttir_td_files",
+        "@llvm-project//mlir:LinalgOpsTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+gentbl_cc_library(
+    name="ttir_interfaces_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            ["-gen-op-interface-decls"],
+            "TTIROpsInterfaces.h.inc",
+        ),
+        (
+            ["-gen-op-interface-defs"],
+            "TTIROpsInterfaces.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTIROpsInterfaces.td",
+    deps=[
+        ":ttir_td_files",
+    ],
+    visibility=["//visibility:public"],
+)
+
+
+gentbl_cc_library(
+    name="ttir_dialect_inc_gen",
+    strip_include_prefix=".",
+    tbl_outs=[
+        (
+            [
+                "-gen-dialect-decls",
+                "--dialect=ttir",
+            ],
+            "TTIROpsDialect.h.inc",
+        ),
+        (
+            [
+                "-gen-dialect-defs",
+                "--dialect=ttir",
+            ],
+            "TTIROpsDialect.cpp.inc",
+        ),
+    ],
+    tblgen="@llvm-project//mlir:mlir-tblgen",
+    td_file="TTIROps.td",
+    deps=[
+        ":ttir_td_files",
+        "@llvm-project//mlir:LinalgOpsTdFiles",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+    ],
+    visibility=["//visibility:public"],
+)
+
+td_library(
+    name="ttir_td_files",
+    srcs=[
+        "TTIRBase.td",
+        "TTIROps.td",
+        "TTIROpsInterfaces.td",
+    ],
+    deps=[
+        "//include/ttmlir/Dialect/TT/IR:tt_td_files",
+        "@llvm-project//mlir:BuiltinDialectTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:ShapeOpsTdFiles",
+    ],
+    includes=["../../../../"],
+    visibility=["//visibility:public"],
+)
