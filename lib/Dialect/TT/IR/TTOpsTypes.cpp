@@ -357,6 +357,15 @@ mlir::Type LayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
+uint64_t LayoutAttr::getElementSizeBytes() const {
+  mlir::Type elementType = getElementType();
+  if (mlir::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    return tileType.getSizeBytes();
+  }
+  return elementType.getIntOrFloatBitWidth() / 8;
+}
+
 LayoutAttr LayoutAttr::withGrid(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -446,6 +455,16 @@ DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     return ::mlir::failure();
   }
 
+  return ::mlir::success();
+}
+
+::mlir::LogicalResult
+TileType::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                 ArrayRef<int64_t> shape, DataType dataType) {
+  if (shape.size() != 2) {
+    emitError() << "expected 2D shape";
+    return ::mlir::failure();
+  }
   return ::mlir::success();
 }
 
