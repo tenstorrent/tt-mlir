@@ -92,7 +92,8 @@ getCurrentSystemDescImpl(const ::ttnn::multi_device::DeviceMesh &deviceMesh) {
   std::vector<uint32_t> chipDescIndices;
   std::vector<::tt::target::ChipCapability> chipCapabilities;
   // Ignore for now
-  std::vector<::tt::target::ChipCoord> chipCoords;
+  std::vector<::tt::target::ChipCoord> chipCoords = {
+      ::tt::target::ChipCoord(0, 0, 0, 0)};
   ::flatbuffers::FlatBufferBuilder fbb;
 
   for (const ::ttnn::Device *device : devices) {
