@@ -121,8 +121,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension1(),
-        adaptor.getDimension2());
+        adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension0(),
+        adaptor.getDimension1());
     return success();
   }
 };

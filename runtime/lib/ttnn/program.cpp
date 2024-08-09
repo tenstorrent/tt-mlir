@@ -285,18 +285,18 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
+  int32_t dimension0 = op->dimension0();
   int32_t dimension1 = op->dimension1();
-  int32_t dimension2 = op->dimension2();
   auto input_rank = in.get_shape().rank();
   std::vector<int> dimensionOrder(input_rank);
   std::iota(dimensionOrder.begin(), dimensionOrder.end(), 0);
+  if (dimension0 < 0) {
+    dimension0 += input_rank;
+  }
   if (dimension1 < 0) {
     dimension1 += input_rank;
   }
-  if (dimension2 < 0) {
-    dimension2 += input_rank;
-  }
-  std::swap(dimensionOrder[dimension1], dimensionOrder[dimension2]);
+  std::swap(dimensionOrder[dimension0], dimensionOrder[dimension1]);
   tensorPool.push_back(
       ::ttnn::operations::data_movement::permute(in, dimensionOrder));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
