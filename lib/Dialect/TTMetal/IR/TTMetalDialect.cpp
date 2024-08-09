@@ -6,6 +6,7 @@
 
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/Interfaces/FoldInterfaces.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
@@ -36,6 +37,19 @@ parseDimensionList(::mlir::AsmParser &odsParser,
 // TTMetal dialect.
 //===----------------------------------------------------------------------===//
 
+struct TTMetalDialectFoldInterface : public DialectFoldInterface {
+  using DialectFoldInterface::DialectFoldInterface;
+
+  /// Registered hook to check if the given region, which is attached to an
+  /// operation that is *not* isolated from above, should be used when
+  /// materializing constants.
+  bool shouldMaterializeInto(Region *region) const final {
+    // If this is a DispatchOp, protect it from hoisting constants outside of
+    // its region body
+    return isa<DispatchOp>(region->getParentOp());
+  }
+};
+
 void TTMetalDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
@@ -47,4 +61,6 @@ void TTMetalDialect::initialize() {
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsAttrDefs.cpp.inc"
       >();
   registerTypes();
+
+  addInterfaces<TTMetalDialectFoldInterface>();
 }
