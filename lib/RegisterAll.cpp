@@ -18,6 +18,8 @@
 #include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
+#include "stablehlo/dialect/Register.h"
+
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry
       .insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
@@ -28,6 +30,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
               mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
               mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
               mlir::emitc::EmitCDialect>();
+
+  mlir::stablehlo::registerAllDialects(registry);
 }
 
 void mlir::tt::registerAllPasses() {

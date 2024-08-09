@@ -1,3 +1,7 @@
+# StableHLO includes
+include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo)
+include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo-build)
+
 add_subdirectory(CAPI)
 add_subdirectory(Conversion)
 add_subdirectory(Dialect)
