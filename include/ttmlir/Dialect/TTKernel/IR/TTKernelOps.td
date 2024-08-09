@@ -96,6 +96,15 @@ def TTKernel_AddOp : TTKernel_Op<"add"> {
     let arguments = (ins I32:$dst_index);
 }
 
+def TTKernel_DivOp : TTKernel_Op<"div"> {
+    let summary = "Divide operation";
+    let description = [{
+      Divide operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
 def TTKernel_SubOp : TTKernel_Op<"sub"> {
     let summary = "Sub operation";
     let description = [{
