@@ -31,10 +31,14 @@ class TTNNToEmitCTypeConverter : public TypeConverter {
 public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](mlir::tt::DeviceType type) -> Type {
-      return emitc::OpaqueType::get(ctx, "ttnn::Device");
+    // addConversion([ctx](mlir::tt::DeviceType type) -> Type {
+    //   return emitc::OpaqueType::get(ctx, "ttnn::device::Device");
+    // });
+    addConversion([ctx](mlir::tt::DeviceType type) -> mlir::emitc::PointerType {
+      return emitc::PointerType::get(
+          emitc::OpaqueType::get(ctx, "ttnn::device::Device"));
     });
-    addConversion([ctx](TensorType type) -> Type {
+    addConversion([ctx](TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
     });
   }
@@ -55,8 +59,7 @@ struct ConvertTTNNToEmitCPass
       auto module = getOperation();
       OpBuilder builder(module);
 
-      if (module.getBodyRegion().empty())
-      {
+      if (module.getBodyRegion().empty()) {
         // Parent module is empty, nothing to do here
         //
         signalPassFailure();
@@ -66,22 +69,9 @@ struct ConvertTTNNToEmitCPass
       //
       builder.setInsertionPointToStart(module.getBody(0));
 
-      builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn/device.h",
-                                       /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(), "ttnn/operations/eltwise/binary/binary.hpp",
-          /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(), "ttnn/operations/core.hpp", /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(module.getLoc(),
-                                       "ttnn/operations/creation.hpp",
-                                       /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(),
-          "ttnn/operations/reduction/generic/generic_reductions.hpp",
-          /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(module.getLoc(),
-                                       "ttnn/operations/normalization.hpp",
+      // Include headers
+      //
+      builder.create<emitc::IncludeOp>(module.getLoc(), "pch.hpp",
                                        /*isStandard=*/false);
     }
 

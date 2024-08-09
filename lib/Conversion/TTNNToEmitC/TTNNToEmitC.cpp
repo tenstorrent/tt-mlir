@@ -33,16 +33,22 @@ public:
                                      PatternBenefit benefit = 1)
       : OpConversionPattern<SourceOp>(typeConverter, context, benefit) {}
 
+private:
+  std::string virtual getPrefixSearchPattern() const { return "ttnn."; }
+  std::string virtual getPrefixSwapPattern() const { return "ttnn::"; }
+
+public:
   // Converts op name by removing the dialect prefix ("ttnn.") and replacing
   // with namespace prefix ("ttnn::")
   //
   std::string convertOpName(SourceOp op) const {
     auto name = op.getOperationName();
     assert(
-        name.starts_with("ttnn.") &&
+        name.starts_with(getPrefixSearchPattern()) &&
         "DefaultOpConversionPattern only supports ops from the TTNN dialect");
 
-    return name.str().replace(0, 5, "ttnn::");
+    return name.str().replace(0, getPrefixSearchPattern().size(),
+                              getPrefixSwapPattern());
   }
 };
 
@@ -57,19 +63,6 @@ public:
                              MLIRContext *context, PatternBenefit benefit = 1)
       : TTNNToEmitCBaseOpConversionPattern<SourceOp>(typeConverter, context,
                                                      benefit) {}
-
-  // Converts op name by removing the dialect prefix ("ttnn.") and replacing
-  // with namespace prefix ("ttnn::")
-  //
-  // std::string convertOpName(SrcOp op) const {
-  //   auto name = op.getOperationName();
-  //   assert(
-  //       name.starts_with("ttnn.") &&
-  //       "DefaultOpConversionPattern only supports ops from the TTNN
-  //       dialect");
-
-  //   return name.str().replace(0, 5, "ttnn::");
-  // }
 
   LogicalResult
   matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
@@ -108,11 +101,19 @@ public:
       : TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp>(
             typeConverter, context, benefit) {}
 
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn."; }
+  std::string getPrefixSwapPattern() const override {
+    return "&ttnn::device::";
+  }
+
+public:
   LogicalResult
   matchAndRewrite(ttnn::OpenDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto resultTy = cast<emitc::OpaqueType>(
-        this->getTypeConverter()->convertType(srcOp->getResult(0).getType()));
+    auto resultTy =
+        this->getTypeConverter()->convertType(srcOp->getResult(0).getType());
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, resultTy, this->convertOpName(srcOp), srcOp.getDeviceIdsAttr(),
         nullptr, adaptor.getOperands());
