@@ -284,6 +284,117 @@ def TT_ArgumentAllocationAttr : TT_Attr<"ArgumentAllocation", "arg_alloc", []> {
   let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
 }
 
+def TT_CoreRangeAttr : TT_Attr<"CoreRange", "core_range"> {
+  let summary = "Attribute representing range of core coordinates.";
+  let description = [{
+    Attribute representing range of core coordinates.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$offset,
+                        ArrayRefParameter<"int64_t">:$size);
+
+  let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
+
+  let extraClassDeclaration = [{
+      static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
+      {
+        assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
+        return CoreRangeAttr::get(context, offset, grid.getShape());
+      }
+  }];
+}
+
+// An array of core range attributes.
+def TT_CoreRangeArrayAttr : TypedArrayAttrBase<TT_CoreRangeAttr, "">;
+
+def TT_CircularBufferAttributesAttr : TT_Attr<"CircularBufferAttributes", "circular_buffer_attributes"> {
+  let summary = "Circular buffer attributes.";
+
+  let description = [{
+    Attribute representing circular_buffer_attributes_t structure.
+  }];
+
+  let parameters = (ins 
+    "CB":$cb_id,
+    TT_CoreRangeAttr:$core_range,
+    "uint32_t":$total_size,
+    "uint32_t":$page_size,
+    "DataType":$data_format
+  );
+
+  let assemblyFormat = "`<` $cb_id `,` $core_range `,` $total_size `,` $page_size `,` $data_format `>`";
+}
+
+// An array of circular buffer attributes.
+def TT_CircularBufferAttributesArrayAttr : TypedArrayAttrBase<TT_CircularBufferAttributesAttr, "">;
+
+def TT_DataMovementConfigAttr : TT_Attr<"DataMovementConfig", "data_movement_config"> {
+  let summary = "Data movement config.";
+  let description = [{
+    Attribute representing DataMovementConfig structure.
+  }];
+
+  let parameters = (ins 
+    "DataMovementType":$data_movement_type,
+    ArrayRefParameter<"uint32_t">:$compile_args);
+
+  let assemblyFormat = "`<` $data_movement_type `,` `<` $compile_args `>` `>`";
+}
+
+def TT_DataMovementAttributesAttr : TT_Attr<"DataMovementAttributes", "data_movement_attributes"> {
+  let summary = "Data movement attributes.";
+  let description = [{
+    Attribute representing the data_movement_attributes_t structure.
+  }];
+
+  let parameters = (ins 
+    TT_CoreRangeAttr:$core_range,
+    "::mlir::StringAttr":$kernel_path,
+    TT_DataMovementConfigAttr:$data_movement_config);
+    // TODO runtime_args missing
+
+  let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $data_movement_config `>`";
+}
+
+// An array of data movement attributes.
+def TT_DataMovementAttributesArrayAttr : TypedArrayAttrBase<TT_DataMovementAttributesAttr, "">;
+
+def TT_ComputeConfig : TT_Attr<"ComputeConfig", "compute_config"> {
+  let summary = "Compute config.";
+  let description = [{
+    Attribute representing ComputeConfig structure.
+  }];
+
+  let parameters = (ins 
+    "MathFidelity":$math_fidelity,
+    "::mlir::BoolAttr":$fp32_dest_acc_en,
+    "::mlir::BoolAttr":$preserve_fp32_precision,
+    "::mlir::BoolAttr":$math_approx_mode,
+    ArrayRefParameter<"uint32_t">:$compile_args,
+    "::mlir::DictionaryAttr":$defines);
+
+  let assemblyFormat = "`<` $math_fidelity `,` $fp32_dest_acc_en `,` $preserve_fp32_precision `,` $math_approx_mode `,` `<` $compile_args `>` `,` $defines `>`";
+}
+
+def TT_ComputeAttributesAttr : TT_Attr<"ComputeAttributes", "compute_attributes"> {
+  let summary = "Data movement attributes.";
+  let description = [{
+    An attribute representing the compute_attributes_t structure.
+  }];
+
+  let parameters = (ins 
+    TT_CoreRangeAttr:$core_range,
+    "::mlir::StringAttr":$kernel_path,
+    TT_ComputeConfig:$compute_config);
+    // TODO runtime_args missing
+
+  let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $compute_config `>`";
+}
+
+// An array of compute attributes.
+def TT_ComputeAttributesArrayAttr : TypedArrayAttrBase<TT_ComputeAttributesAttr, "">;
+
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
