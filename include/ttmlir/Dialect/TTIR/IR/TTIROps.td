@@ -60,8 +60,8 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let regions = (region AnyRegion:$region);
 }
 
-def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface]> {
-    let summary = "ToLayout op.";
+def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
+    let summary = "Layout op.";
     let description = [{
       ToLayout operation, transition tensors from one layout to another.  Some examples include:
         - Transitioning between different memory spaces, e.g. DRAM to L1.
@@ -83,6 +83,11 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface]> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      ArrayAttr getOperandConstraints() {
+        return nullptr;
+        // TODO return below, but we need a way to properly create an ArrayAttr:
+        // return {OperandConstraint::Any, OperandConstraint::Any};
+      }
     }];
 
     let hasVerifier = 1;
@@ -233,6 +238,27 @@ def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          SI32Attr:$dimension,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
+    let summary = "Transpose op.";
+    let description = [{
+      Transpose tensor along two given dimensions.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dimension1,
+                         SI32Attr:$dimension2,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);

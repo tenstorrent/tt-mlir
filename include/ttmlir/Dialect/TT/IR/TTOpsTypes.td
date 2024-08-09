@@ -101,6 +101,10 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
     static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
+    unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getNocDRAMAddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getPcieAddressAlignBytes(unsigned chipIndex = 0) const;
   }];
 }
 
@@ -186,18 +190,20 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef);
-      MemorySpace getMemorySpace() const;
-      bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
-      bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
-      Type getElementType() const;
-      llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getShardShape() const;
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,
                           GridAttr grid,
                           ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+
+      MemorySpace getMemorySpace() const;
+      bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
+      bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
+      Type getElementType() const;
+      uint64_t getElementSizeBytes() const;
+      llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
+      llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
+      llvm::SmallVector<int64_t> getShardShape() const;
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
   }];
 }
@@ -240,6 +246,15 @@ def TT_OperandConstraintAttr : EnumAttr<TT_Dialect, TT_OperandConstraint, "opera
 
 def TT_OperandConstraintArrayAttr : TypedArrayAttrBase<TT_OperandConstraintAttr, "">;
 
+def TT_ArgumentAllocationAttr : TT_Attr<"ArgumentAllocation", "arg_alloc", []> {
+  let summary = "Argument allocation attribute in TT dialect";
+  let description = [{
+    Holds the metadata for the allocation of an function argument i.e. for graph inputs.
+  }];
+  let parameters = (ins "uint64_t":$address, "uint64_t":$size, "MemorySpace":$memorySpace);
+  let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
@@ -252,14 +267,18 @@ class TT_Type<string name, string typeMnemonic, list<Trait> traits = []>
 def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
-    let parameters = (ins "unsigned":$height, "unsigned":$width, "DataType":$dataType);
-    let assemblyFormat = "`<` $height `x` $width`,` $dataType `>`";
+    let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "DataType":$dataType);
+    let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
 
     let extraClassDeclaration = [{
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
       uint64_t getSizeBytes() const;
+      int64_t getHeight() const { return getShape()[0]; }
+      int64_t getWidth() const { return getShape()[1]; }
     }];
+
+    let genVerifyDecl = 1;
 }
 
 def TT_Device : TT_Type<"Device", "device", []> {

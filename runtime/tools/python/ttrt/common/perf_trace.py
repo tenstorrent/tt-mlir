@@ -156,21 +156,9 @@ def save_perf_artifacts(perf_folder):
     tracy_file = f"{TT_METAL_HOME}/generated/profiler/.logs/{TRACY_FILE_NAME}"
 
     try:
-        # check_file_exists(profiler_device_side_log_file)
-        # check_file_exists(profiler_host_device_sync_info_file)
-        # check_file_exists(profiler_log_location_record_file)
         check_file_exists(tracy_ops_times_file)
         check_file_exists(tracy_ops_data_file)
         check_file_exists(tracy_file)
-
-        # shutil.copy(profiler_device_side_log_file, os.path.join(perf_folder, "profiler_device_side_log_file.csv"))
-        # print(f"File '{profiler_device_side_log_file}' copied to '{perf_folder}' successfully.")
-
-        # shutil.copy(profiler_host_device_sync_info_file, os.path.join(perf_folder, "profiler_host_device_sync_info_file.csv"))
-        # print(f"File '{profiler_host_device_sync_info_file}' copied to '{perf_folder}' successfully.")
-
-        # shutil.copy(profiler_log_location_record_file, os.path.join(perf_folder, "profiler_log_location_record_file.log"))
-        # print(f"File '{profiler_log_location_record_file}' copied to '{perf_folder}' successfully.")
 
         shutil.copy(
             tracy_ops_times_file, os.path.join(perf_folder, "tracy_ops_times_file.csv")
@@ -187,3 +175,22 @@ def save_perf_artifacts(perf_folder):
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
+    # Copy datetime folder files into root perf directory
+    for root, dirs, files in os.walk(perf_folder, topdown=False):
+        if root == perf_folder:
+            continue
+
+        for file_name in files:
+            # Full path of the file
+            file_path = os.path.join(root, file_name)
+            # Destination path in the parent folder
+            dest_path = os.path.join(perf_folder, file_name)
+
+            # Move the file
+            shutil.move(file_path, dest_path)
+            print(f"Moved {file_path} to {dest_path}")
+
+        # Remove the subfolder after moving the files
+        if not os.listdir(root):  # Check if the directory is empty
+            os.rmdir(root)

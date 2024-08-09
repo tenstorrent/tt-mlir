@@ -33,8 +33,12 @@ config.test_source_root = os.path.dirname(__file__)
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 
+# system_desc_path: The system desc that is to be used to generate the binary files.
+config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
+
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
+config.substitutions.append(("%system_desc_path%", config.system_desc_path))
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 

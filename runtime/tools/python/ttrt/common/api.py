@@ -20,6 +20,31 @@ import atexit
 import ttrt.binary
 from ttrt.common.util import *
 
+
+def randn(shape, dtype):
+    import torch
+
+    return torch.randn(shape, dtype=dtype)
+
+
+def arange(shape, dtype):
+    import torch
+
+    def volume(shape):
+        v = 1
+        for i in shape:
+            v *= i
+        return v
+
+    return torch.arange(volume(shape), dtype=dtype).reshape(shape)
+
+
+init_fns_map = {
+    "randn": randn,
+    "arange": arange,
+}
+init_fns = sorted(list(init_fns_map.keys()))
+
 #######################################################################################
 ########################################**API**########################################
 #######################################################################################
@@ -118,15 +143,18 @@ def run(args):
     print("executing constraint for all provided flatbuffers")
     system_desc, device_ids = ttrt.runtime.get_current_system_desc()
     program_indices = []
+    cleaned_binaries = []
     for binary in binaries:
         check_file_exists(binary)
         fbb = ttrt.binary.load_binary_from_path(binary)
         check_version(fbb.version)
         fbb_dict = ttrt.binary.as_dict(fbb)
 
-        assert (
-            fbb_dict["system_desc"] == system_desc_as_dict(system_desc)["system_desc"]
-        ), f"system descriptor for binary and system mismatch!"
+        if fbb_dict["system_desc"] != system_desc_as_dict(system_desc)["system_desc"]:
+            print(
+                f"system descriptor for binary and system mismatch, ignoring test={binary}"
+            )
+            continue
 
         if arg_program_index != "all":
             program_index = int(arg_program_index)
@@ -145,10 +173,14 @@ def run(args):
                 program_indices,
             )
         )
+        cleaned_binaries.append(binary)
+    binaries = cleaned_binaries
 
     # execution
     print("executing action for all provided flatbuffers")
-    device = ttrt.runtime.open_device(device_ids)
+    # TODO: sort the flatbuffers by runtime type, for now just take the first one
+    ttrt.runtime.set_compatible_runtime(fbb_list[0][1])
+    device = ttrt.runtime.open_device([device_ids[0]])
     atexit.register(lambda: ttrt.runtime.close_device(device))
 
     torch.manual_seed(args.seed)
@@ -156,7 +188,6 @@ def run(args):
     for (binary_name, fbb, fbb_dict, program_indices) in fbb_list:
         torch_inputs[binary_name] = {}
         torch_outputs[binary_name] = {}
-
         for program_index in program_indices:
             torch_inputs[binary_name][program_index] = []
             torch_outputs[binary_name][program_index] = []
@@ -168,7 +199,7 @@ def run(args):
             )
 
             for i in program["inputs"]:
-                torch_tensor = torch.randn(
+                torch_tensor = init_fns_map[args.init](
                     i["desc"]["shape"],
                     dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
                 )
@@ -212,12 +243,24 @@ def run(args):
                 total_inputs.append(inputs)
                 total_outputs.append(outputs)
 
+            event = None
             for loop in range(arg_loops):
-                ttrt.runtime.submit(
+                event = ttrt.runtime.submit(
                     device, fbb, program_index, total_inputs[loop], total_outputs[loop]
                 )
                 print(f"finished loop={loop}")
+            ttrt.runtime.wait(event)
             print("outputs:\n", torch_outputs)
+            if args.identity:
+                for i, o in zip(torch_inputs[binary_name], torch_outputs[binary_name]):
+                    if not torch.allclose(i, o):
+                        print(
+                            "Failed: inputs and outputs do not match in binary",
+                            binary_name,
+                        )
+                        print(i - o)
+                    else:
+                        print("Passed:", binary_name)
 
     # save artifacts
     if arg_save_artifacts:

@@ -8,11 +8,15 @@ try:
         Event,
         Tensor,
         DataType,
+        DeviceRuntime,
+        get_current_runtime,
+        set_compatible_runtime,
         get_current_system_desc,
         open_device,
         close_device,
         submit,
         create_tensor,
+        wait,
     )
 except ModuleNotFoundError:
     raise ImportError(

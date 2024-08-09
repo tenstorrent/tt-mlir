@@ -21,6 +21,7 @@
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERIC
@@ -538,6 +539,7 @@ public:
           TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
           TTIRLayoutOperandsRewriter<MeanOp>,
           TTIRLayoutOperandsRewriter<SoftmaxOp>,
+          TTIRLayoutOperandsRewriter<TransposeOp>,
           TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
           &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
@@ -556,8 +558,12 @@ public:
 };
 
 inline uint64_t getElementSizeBytes(Type ty) {
-  assert(ty.isF32() && "Only support f32 for now");
-  return 4;
+  if (isa<TileType>(ty)) {
+    auto tileType = mlir::cast<TileType>(ty);
+    return tileType.getSizeBytes();
+  } else {
+    return ty.getIntOrFloatBitWidth() / 8;
+  }
 }
 
 inline uint64_t getMemrefSizeBytes(MemRefType ty) {
@@ -581,13 +587,13 @@ inline uint64_t getTensorMemrefSizeBytes(RankedTensorType ty) {
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
   struct SimpleAllocator {
     static constexpr uint64_t kBaseAddress = 1llu << 18llu;
+    uint64_t addressAlignment;
+
+    SimpleAllocator(uint64_t addressAlignment)
+        : addressAlignment(addressAlignment) {}
 
     SmallVector<uint64_t> currPtr = SmallVector<uint64_t>(
         getMaxEnumValForMemorySpace() + 1llu, kBaseAddress);
-
-    uint64_t alignUp(uint64_t ptr, uint64_t alignment) {
-      return (ptr + alignment - 1) & ~(alignment - 1);
-    }
 
     uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
       if (isSystemMemorySpace(memorySpace)) {
@@ -597,7 +603,7 @@ class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
       uint32_t index = static_cast<uint32_t>(memorySpace);
       assert(index < currPtr.size());
       uint64_t &ptr = currPtr[index];
-      ptr = alignUp(ptr, 16);
+      ptr = ttmlir::utils::alignUp(ptr, addressAlignment);
       auto result = ptr;
       ptr += size;
       return result;
@@ -638,10 +644,27 @@ public:
 
     module->walk([&](func::FuncOp func) {
       assert(func.getBody().hasOneBlock());
-      SimpleAllocator allocator;
+      auto systemDesc = getCurrentScopeSystemDesc(func);
+      assert(systemDesc);
+      auto addressAlignment = systemDesc.getAddressAlignBytes();
+      SimpleAllocator allocator(addressAlignment);
       Liveness liveness(func.getOperation());
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
+
+      mlir::SmallVector<Attribute> argumentAllocations;
+      for (auto operand : func.getArguments()) {
+        auto operandTy = mlir::cast<RankedTensorType>(operand.getType());
+        assert(operandTy.getEncoding());
+        auto memorySpace = getMemorySpace(operandTy);
+        auto sizeBytes = getTensorMemrefSizeBytes(operandTy);
+        auto address = allocator.allocate(sizeBytes, memorySpace);
+        argumentAllocations.push_back(rewriter.getAttr<ArgumentAllocationAttr>(
+            address, sizeBytes, memorySpace));
+      }
+      func->setDiscardableAttr(ArgumentAllocationAttr::name,
+                               rewriter.getArrayAttr(argumentAllocations));
+
       func->walk([&](tensor::EmptyOp empty) {
         auto resultTy =
             mlir::cast<RankedTensorType>(empty.getResult().getType());

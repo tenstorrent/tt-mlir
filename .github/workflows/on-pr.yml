@@ -1,9 +1,7 @@
-name: On PR and push to main
+name: On PR
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
@@ -14,6 +12,9 @@ jobs:
   spdx:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
-  build:
-    uses: ./.github/workflows/build.yml
+  macos-build:
+    uses: ./.github/workflows/macos-build.yml
+    secrets: inherit
+  docker-build:
+    uses: ./.github/workflows/docker-build.yml
     secrets: inherit

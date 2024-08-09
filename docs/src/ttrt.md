@@ -93,4 +93,5 @@ d = ttrt.binary.as_dict(fbb)
 ```
 
 ## bonus
-artifacts are saved in ttrt-artifacts directory if the option `--save-artifacts` is provided
+- artifacts are saved in ttrt-artifacts directory if the option `--save-artifacts` is provided
+- you can specify `SYSTEM_DESC_PATH` with the path to your ttsys file, and lit will automatically generate all the flatbuffer binaries for that system

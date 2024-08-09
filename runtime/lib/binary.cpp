@@ -138,7 +138,9 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
   std::vector<TensorDesc> inputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  for (auto const *input : *program->inputs()) {
+  assert(program->device_programs()->size() == 1 &&
+         "Currently only one device is supported");
+  for (auto const *input : *program->device_programs()->Get(0)->inputs()) {
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
                   input->desc()->shape()->end()};
@@ -156,7 +158,8 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
   std::vector<TensorDesc> outputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  for (auto const *output : *program->outputs()) {
+  assert(program->device_programs()->size() == 1);
+  for (auto const *output : *program->device_programs()->Get(0)->outputs()) {
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
                   output->desc()->shape()->end()};

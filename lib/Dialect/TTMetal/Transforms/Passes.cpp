@@ -250,6 +250,8 @@ public:
 };
 
 void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
+  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
   pm.addPass(mlir::tt::ttir::createTTIRGeneric());
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());

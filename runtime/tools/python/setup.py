@@ -45,14 +45,14 @@ ext_modules = [
 ]
 
 dylibs = []
-linklibs = []
+linklibs = ["TTBinary"]
 if enable_ttnn:
-    dylibs = ["_ttnn.so"]
-    linklibs = ["TTRuntimeTTNN", ":_ttnn.so"]
-elif enable_ttmetal:
-    assert enable_ttmetal
-    dylibs = ["libtt_metal.so"]
-    linklibs = ["TTRuntimeTTMetal", "tt_metal"]
+    dylibs += ["_ttnn.so"]
+    linklibs += ["TTRuntimeTTNN", ":_ttnn.so"]
+
+if enable_ttmetal:
+    dylibs += ["libtt_metal.so"]
+    linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"

@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <optional>
 #include <unordered_map>
@@ -12,13 +14,6 @@
 
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wignored-qualifiers"
-// Including this in ttnn.h causes multiple definition linker error
-// due to non-inlined function definitions
-#include "ttnn/operations/unary.hpp"
-#pragma clang diagnostic pop
 
 // It seems like `ttnn::to_layout` cannot be called inside of the
 // `tt::runtime::ttnn` namespace.  TTNN uses a lot of metaprogramming and for
@@ -51,7 +46,7 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
     }
     return ::ttnn::typecast(input, targetDataType);
   } else {
-    throw runtime_error("Unsupported storage type");
+    throw std::runtime_error("Unsupported storage type");
   }
 }
 
@@ -275,6 +270,27 @@ run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::device::Device &device,
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 
+static void
+run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
+  int32_t dimension1 = op->dimension1();
+  int32_t dimension2 = op->dimension2();
+  auto input_rank = in.get_shape().rank();
+  std::vector<std::int64_t> dimensionOrder(input_rank);
+  std::iota(dimensionOrder.begin(), dimensionOrder.end(), 0);
+  if (dimension1 < 0) {
+    dimension1 += input_rank;
+  }
+  if (dimension2 < 0) {
+    dimension2 += input_rank;
+  }
+  std::swap(dimensionOrder[dimension1], dimensionOrder[dimension2]);
+  tensorPool.push_back(::ttnn::permute(in, dimensionOrder));
+  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+}
+
 // ANCHOR: adding_an_op_matmul_runtime
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
@@ -282,8 +298,8 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
     std::list<::ttnn::Tensor> &tensorPool) {
   auto &lhs = *liveTensors.at(op->in0()->global_id());
   auto &rhs = *liveTensors.at(op->in1()->global_id());
-  tensorPool.push_back(
-      ::ttnn::operations::matmul::matmul(lhs, rhs, std::nullopt));
+  tensorPool.push_back(::ttnn::operations::matmul::matmul(
+      lhs, rhs, std::nullopt, ::tt::operations::primary::Matmul{}));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 // ANCHOR_END: adding_an_op_matmul_runtime
@@ -319,6 +335,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
     return run(op->type_as_SoftmaxOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");

@@ -48,19 +48,6 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
   }
 };
 
-namespace mlir::tt {
-static void printDimensionList(::mlir::AsmPrinter &printer,
-                               ::llvm::ArrayRef<int64_t> shape) {
-  printer.printDimensionList(shape);
-}
-
-static ::mlir::ParseResult
-parseDimensionList(::mlir::AsmParser &odsParser,
-                   ::llvm::SmallVector<int64_t> &dimensions) {
-  return odsParser.parseDimensionList(dimensions, false, false);
-}
-} // namespace mlir::tt
-
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES

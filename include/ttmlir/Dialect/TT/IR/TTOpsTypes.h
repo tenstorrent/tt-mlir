@@ -7,6 +7,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OpImplementation.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
 
@@ -20,6 +21,17 @@ inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
   return memorySpace == MemorySpace::DeviceDRAM ||
          memorySpace == MemorySpace::DeviceL1;
 }
+
+inline void printDimensionList(::mlir::AsmPrinter &printer,
+                               ::llvm::ArrayRef<int64_t> shape) {
+  printer.printDimensionList(shape);
+}
+
+inline ::mlir::ParseResult
+parseDimensionList(::mlir::AsmParser &odsParser,
+                   ::llvm::SmallVector<int64_t> &dimensions) {
+  return odsParser.parseDimensionList(dimensions, false, false);
+}
 } // namespace mlir::tt
 
 #define GET_ATTRDEF_CLASSES
@@ -29,6 +41,7 @@ inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h.inc"
 
 namespace mlir::tt {
+SystemDescAttr getCurrentScopeSystemDesc(Operation *op);
 DeviceAttr getCurrentScopeDevice(Operation *op);
 } // namespace mlir::tt
 

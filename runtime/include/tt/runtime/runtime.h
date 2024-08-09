@@ -13,6 +13,14 @@
 
 namespace tt::runtime {
 
+DeviceRuntime getCurrentRuntime();
+
+std::vector<DeviceRuntime> getAvailableRuntimes();
+
+void setCurrentRuntime(const DeviceRuntime &runtime);
+
+void setCompatibleRuntime(const Binary &binary);
+
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
 Tensor createTensor(std::shared_ptr<void> data,

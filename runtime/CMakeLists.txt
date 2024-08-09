@@ -1,17 +1,7 @@
 # Options
 option(TTMLIR_ENABLE_RUNTIME_TESTS "Enable runtime tests" OFF)
-option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime" OFF)
-option(TT_RUNTIME_ENABLE_TTMETAL "Enable TTMetal Runtime" OFF)
-
-if (TT_RUNTIME_ENABLE_TTNN AND TT_RUNTIME_ENABLE_TTMETAL)
-  message(FATAL_ERROR "Cannot enable both TTNN and TTMETAL runtimes")
-endif()
-
-if (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL)
-  # Default to TTNN
-  set(TT_RUNTIME_ENABLE_TTNN ON)
-endif()
-
+option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime" ON)
+option(TT_RUNTIME_ENABLE_TTMETAL "Enable TTMetal Runtime" ON)
 
 add_subdirectory(lib)
 add_subdirectory(tools)
