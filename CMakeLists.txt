@@ -7,6 +7,7 @@ endif()
 
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
+option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
