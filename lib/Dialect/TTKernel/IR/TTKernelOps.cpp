@@ -91,6 +91,78 @@ static bool insideThread(mlir::Operation *op, ttkernel::ThreadType threadType) {
   return success();
 }
 
+::mlir::LogicalResult TilizeInitOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("TilizeInitOp must be inside of a DispatchOp region");
+  }
+  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
+    return emitOpError("cbIn and cbOut must be different");
+  }
+  if (mlir::isa<tt::TileType>(
+          getCbIn().getType().getMemref().getElementType())) {
+    return emitOpError("cbIn must have scalar element type");
+  }
+  if (not mlir::isa<tt::TileType>(
+          getCbOut().getType().getMemref().getElementType())) {
+    return emitOpError("cbOut must have tile element type");
+  }
+  return success();
+}
+
+::mlir::LogicalResult UntilizeInitOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("TilizeInitOp must be inside of a DispatchOp region");
+  }
+  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
+    return emitOpError("cbIn and cbOut must be different");
+  }
+  if (not mlir::isa<tt::TileType>(
+          getCbIn().getType().getMemref().getElementType())) {
+    return emitOpError("cbIn must have tile element type");
+  }
+  if (mlir::isa<tt::TileType>(
+          getCbOut().getType().getMemref().getElementType())) {
+    return emitOpError("cbOut must have scalar element type");
+  }
+  return success();
+}
+
+::mlir::LogicalResult TilizeBlockOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("TilizeBlockOp must be inside of a DispatchOp region");
+  }
+  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
+    return emitOpError("cbIn and cbOut must be different");
+  }
+  if (mlir::isa<tt::TileType>(
+          getCbIn().getType().getMemref().getElementType())) {
+    return emitOpError("cbIn must have scalar element type");
+  }
+  if (not mlir::isa<tt::TileType>(
+          getCbOut().getType().getMemref().getElementType())) {
+    return emitOpError("cbOut must have tile element type");
+  }
+  return success();
+}
+
+::mlir::LogicalResult UntilizeBlockOp::verify() {
+  if (not insideDispatchOpRegion(getOperation())) {
+    return emitOpError("TilizeBlockOp must be inside of a DispatchOp region");
+  }
+  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
+    return emitOpError("cbIn and cbOut must be different");
+  }
+  if (not mlir::isa<tt::TileType>(
+          getCbIn().getType().getMemref().getElementType())) {
+    return emitOpError("cbIn must have tile element type");
+  }
+  if (mlir::isa<tt::TileType>(
+          getCbOut().getType().getMemref().getElementType())) {
+    return emitOpError("cbOut must have scalar element type");
+  }
+  return success();
+}
+
 ::mlir::LogicalResult ReturnOp::verify() {
   if (not insideDispatchOpRegion(getOperation())) {
     return emitOpError("ReturnOp must be inside of a DispatchOp region");

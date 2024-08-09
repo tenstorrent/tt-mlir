@@ -172,6 +172,54 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
 }
 
 //===----------------------------------------------------------------------===//
+// TTKernel Tile operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_TilizeInitOp : TTKernel_Op<"tilize_init"> {
+    let summary = "TilizeInitOp call.";
+    let description = [{
+      TilizeInitOp operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
+    let summary = "UntilizeInitOp call.";
+    let description = [{
+      UntilizeInitOp operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block"> {
+    let summary = "TilizeBlockOp call.";
+    let description = [{
+      TilizeBlockOp operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
+    let summary = "UntilizeBlockOp call.";
+    let description = [{
+      UntilizeBlockOp operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cbIn, I32:$numTiles, TTKernel_CB:$cbOut);
+
+    let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//
 

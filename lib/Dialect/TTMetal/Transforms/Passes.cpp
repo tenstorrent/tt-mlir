@@ -264,8 +264,87 @@ public:
     auto outputTy = mlir::cast<RankedTensorType>(op.getType());
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
-    (void)inputLayout;
-    (void)outputLayout;
+    assert(inputLayout.getGrid() == outputLayout.getGrid());
+
+    auto tensixAttr =
+        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Tensix);
+    SmallVector<Attribute> threadTypes = {tensixAttr};
+    SmallVector<Attribute> operand_cb_port_mapping = {
+        rewriter.getI64IntegerAttr(0),
+        rewriter.getI64IntegerAttr(1),
+    };
+
+    SmallVector<Attribute> coreRanges = {
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
+    };
+
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), SmallVector<Type>({outputTy}),
+        SmallVector<Value>({op.getInput()}),
+        SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr(threadTypes),
+        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+
+    std::int64_t inputBaseAddress = lookupAddress(op.getInput());
+    std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
+    Block *tensixBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
+    OpBuilder tensixBuilder(tensixBlock, tensixBlock->begin());
+    Type inputCBTy = rewriter.getType<ttkernel::CBType>(
+        inputBaseAddress, 0, mlir::cast<MemRefType>(inputLayout.getMemref()));
+    Type outputCBTy = rewriter.getType<ttkernel::CBType>(
+        outputBaseAddress, 1, mlir::cast<MemRefType>(outputLayout.getMemref()));
+    tensixBlock->addArgument(inputCBTy, op.getLoc());
+    tensixBlock->addArgument(outputCBTy, op.getLoc());
+
+    bool shouldTilize = not inputLayout.isTiled() && outputLayout.isTiled();
+    bool shouldUntilize = inputLayout.isTiled() && not outputLayout.isTiled();
+    assert(shouldTilize ^ shouldUntilize);
+
+    int shardTileVolume = 1;
+    for (auto dim : (shouldTilize ? outputLayout.getMemref().getShape()
+                                  : inputLayout.getMemref().getShape())) {
+      shardTileVolume *= dim;
+    }
+
+    auto one = tensixBuilder.create<arith::ConstantOp>(
+        op.getLoc(), tensixBuilder.getI32Type(),
+        tensixBuilder.getI32IntegerAttr(1));
+    auto numTiles = tensixBuilder.create<arith::ConstantOp>(
+        op.getLoc(), tensixBuilder.getI32Type(),
+        tensixBuilder.getI32IntegerAttr(shardTileVolume));
+
+    if (shouldTilize) {
+      tensixBuilder.create<ttkernel::TilizeInitOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          tensixBlock->getArgument(1));
+    } else {
+      tensixBuilder.create<ttkernel::UntilizeInitOp>(
+          op.getLoc(), tensixBlock->getArgument(0),
+          tensixBlock->getArgument(1));
+    }
+
+    // tensixBuilder.create<ttkernel::CBPushBackOp>(
+    //     op.getLoc(), tensixBlock->getArgument(0), one);
+    // tensixBuilder.create<ttkernel::CBWaitFrontOp>(
+    //     op.getLoc(), tensixBlock->getArgument(0), one);
+    tensixBuilder.create<ttkernel::CBReserveBackOp>(
+        op.getLoc(), tensixBlock->getArgument(1), one);
+
+    if (shouldTilize) {
+      tensixBuilder.create<ttkernel::TilizeBlockOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          tensixBlock->getArgument(1));
+    } else {
+      tensixBuilder.create<ttkernel::UntilizeBlockOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          tensixBlock->getArgument(1));
+    }
+
+    tensixBuilder.create<ttkernel::CBPushBackOp>(
+        op.getLoc(), tensixBlock->getArgument(1), one);
+    // tensixBuilder.create<ttkernel::CBPopFrontOp>(
+    //     op.getLoc(), tensixBlock->getArgument(0), one);
+    tensixBuilder.create<ttkernel::ReturnOp>(op.getLoc());
     return failure();
   }
 
@@ -284,7 +363,10 @@ public:
 
     bool isMemorySpaceChange =
         inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-    bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
+    bool isLayoutChange =
+        (inputLayout.getLinear() != outputLayout.getLinear() ||
+         inputLayout.getGrid() != outputLayout.getGrid() ||
+         inputLayout.getShardShape() != outputLayout.getShardShape());
     bool isFormatChange =
         inputLayout.getElementType() != outputLayout.getElementType();
     assert(isMemorySpaceChange ^ isLayoutChange ^ isFormatChange &&
