@@ -26,18 +26,17 @@ MlirAttribute ttmlirTTArchAttrGet(MlirContext ctx, uint32_t arch) {
   return wrap(ArchAttr::get(unwrap(ctx), static_cast<Arch>(arch)));
 }
 
-MlirAttribute ttmlirTTChipDescAttrGet(MlirContext ctx, MlirAttribute arch,
-                                      int64_t *grid, size_t gridSize,
-                                      unsigned l1Size, unsigned numDramChannels,
-                                      unsigned dramChannelSize,
-                                      unsigned nocL1AddressAlignBytes,
-                                      unsigned pcieAddressAlignBytes,
-                                      unsigned nocDRAMAddressAlignBytes) {
+MlirAttribute ttmlirTTChipDescAttrGet(
+    MlirContext ctx, MlirAttribute arch, int64_t *grid, size_t gridSize,
+    unsigned l1Size, unsigned numDramChannels, unsigned dramChannelSize,
+    unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
+    unsigned nocDRAMAddressAlignBytes, MlirAttribute chipPhysicalCores) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   return wrap(ChipDescAttr::get(
       unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec, l1Size,
       numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
-      pcieAddressAlignBytes, nocDRAMAddressAlignBytes));
+      pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
+      mlir::dyn_cast<ChipPhysicalCoresAttr>(unwrap(chipPhysicalCores))));
 }
 
 MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,
