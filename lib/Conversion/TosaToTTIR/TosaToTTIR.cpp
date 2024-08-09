@@ -96,6 +96,8 @@ struct ConvertTosaToTTIRPass
     patterns.add<TosaToTTIROpConversionPattern<tosa::GreaterEqualOp,
                                                mlir::tt::ttir::GreaterEqualOp>>(
         typeConverter, &getContext());
+    patterns.add<TosaToTTIROpConversionPattern<tosa::DivOp, mlir::tt::ttir::DivOp>>(
+        typeConverter, &getContext());
 
     // Apply conversion.
     if (failed(
