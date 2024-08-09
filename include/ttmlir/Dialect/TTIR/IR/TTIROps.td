@@ -5,9 +5,6 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIROPS_TD
 
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
-include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
-include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
@@ -16,6 +13,11 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
+
+include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
+include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
+
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     TTIR_Op<mnemonic, !listconcat(traits, [TTIROpInterface, DestinationStyleOpInterface])> {
@@ -27,6 +29,27 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
 //===----------------------------------------------------------------------===//
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
+
+// This op is named this way since top level API will completely resemble what we have here. The
+// GenericOp defined below already has a bunch of conversion code written for it, which can lower
+// it all the way to ttmetal. In order not to delete it, this one was named "external", suggesting 
+// that everything is "externally" supplied.
+def TTIR_ExternalGenericOp : TTIR_DPSOp<"external_generic", [AttrSizedOperandSegments]> {
+    let summary = "Generic op modelling any kind of user-written work a group of cores executes.";
+
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         TT_CircularBufferAttributesArrayAttr:$circular_buffer_attributes,
+                         TT_DataMovementAttributesArrayAttr:$data_movement_attributes,
+                         TT_ComputeAttributesArrayAttr:$compute_attributes,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+}
 
 def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let summary = "Generically dispatch work to a grid of cores.";

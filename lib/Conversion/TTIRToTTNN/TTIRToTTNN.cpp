@@ -158,6 +158,31 @@ public:
   }
 };
 
+class GenericOpConversionPattern
+    : public OpConversionPattern<ttir::ExternalGenericOp> {
+public:
+  using OpConversionPattern<ttir::ExternalGenericOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ExternalGenericOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    auto conversion_result = this->getTypeConverter()->convertTypes(
+        op->getResultTypes(), resultTypes);
+
+    if (failed(conversion_result)) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+        op, resultTypes, adaptor.getInputs(), adaptor.getOutputs(),
+        adaptor.getCircularBufferAttributes(),
+        adaptor.getDataMovementAttributes(), adaptor.getComputeAttributes());
+
+    return success();
+  }
+};
+
 } // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
@@ -199,7 +224,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
-           MatmulOpConversionPattern
+           MatmulOpConversionPattern,
+           GenericOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

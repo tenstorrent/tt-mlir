@@ -5,15 +5,16 @@
 #ifndef TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPS_TD
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPS_TD
 
-include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
+
+include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 
 def TTNN_OpenDeviceOp : TTNN_Op<"open_device"> {
     let summary = "Open Device op.";
@@ -297,6 +298,22 @@ def TTNN_DeallocOp : TTNN_Op<"dealloc"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input);
+}
+
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments]> {
+    let summary = "Generic op modelling any kind of user-written work a group of cores executes.";
+
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         TT_CircularBufferAttributesArrayAttr:$circular_buffer_attributes,
+                         TT_DataMovementAttributesArrayAttr:$data_movement_attributes,
+                         TT_ComputeAttributesArrayAttr:$compute_attributes);
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
 #endif
