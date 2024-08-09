@@ -41,8 +41,8 @@ int main() {
   //
   const size_t tensor_width = 32;
   const size_t tensor_height = 32;
-  ttnn::Shape xs = ttnn::Shape({1, 1, tensor_width, tensor_height});
-  ttnn::Shape ys = ttnn::Shape({1, 1, tensor_width, tensor_height});
+  ttnn::Shape xs = ttnn::Shape(Shape{1, 1, tensor_width, tensor_height});
+  ttnn::Shape ys = ttnn::Shape(Shape{1, 1, tensor_width, tensor_height});
 
   // Create tensors on cpu
   //

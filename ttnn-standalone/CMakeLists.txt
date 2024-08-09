@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(ttnn-standalone CXX)
 
-set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
+set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_VERBOSE_MAKEFILE on)
@@ -30,12 +30,16 @@ if("$ENV{ARCH_NAME}" STREQUAL "")
 endif()
 
 message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
+
 add_executable(ttnn-standalone ttnn-standalone.cpp)
+set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 
 target_include_directories(ttnn-standalone PRIVATE
+    # reflect
+    $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+
     # Metalium
     $ENV{TT_METAL_HOME}
-    $ENV{TT_METAL_HOME}/tt_eager
     $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/wormhole/wormhole_b0_defines
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
@@ -47,32 +51,27 @@ target_include_directories(ttnn-standalone PRIVATE
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc
     # $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/$ENV{ARCH_NAME}
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/wormhole
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
 
     # TTNN
     $ENV{TT_METAL_HOME}/ttnn/cpp
+    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
-
 )
 
 target_link_directories(ttnn-standalone PRIVATE
-    # $ENV{TT_METAL_HOME}-build/lib
-    /localdev/svuckovic/_workspace/repos/tt-mlir/third_party/tt-metal/src/tt-metal-build/lib
+    $ENV{TT_METAL_HOME}-build/lib
 )
 
-# TODO: In the future TTNN can optionally not depend on Python
-find_package(Python REQUIRED Development)
 target_link_libraries(ttnn-standalone PRIVATE
-    /localdev/svuckovic/_workspace/repos/tt-mlir/third_party/tt-metal/src/tt-metal-build/lib/_ttnn.so
     # Metalium
     tt_metal
     yaml-cpp
     pthread
-    tt_eager
 
     # TTNN
-    Python::Python
-    # $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
+    # _ttnn  # Why doesn't this work?
+    $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
 )
 
 target_compile_definitions(ttnn-standalone PRIVATE
