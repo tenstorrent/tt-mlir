@@ -9,6 +9,8 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
+
+include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 
@@ -34,24 +36,26 @@ class TTNN_Attr<string name, string attrMnemonic, list<Trait> traits = [],
 }
 
 def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {
-  let summary = "TTNN grid attribute";
+  let summary = "Attribute representing range of core coordinates.";
   let description = [{
-    TTNN grid attribute
+    Attribute representing range of core coordinates.
   }];
 
   let parameters = (ins ArrayRefParameter<"int64_t">:$offset,
                         ArrayRefParameter<"int64_t">:$size);
+
   let assemblyFormat = "`<` custom<DimensionList>($offset) `,` custom<DimensionList>($size) `>`";
 
   let extraClassDeclaration = [{
       static CoreRangeAttr get(::mlir::MLIRContext *context, ::mlir::tt::GridAttr grid, SmallVector<int64_t> offset = {0, 0})
       {
         assert(grid.getShape().size() == 2 && "Grid shape must be 2D for now");
-        return CoreRangeAttr::get(context, {0, 0}, grid.getShape());
+        return CoreRangeAttr::get(context, offset, grid.getShape());
       }
   }];
 }
 
+// An array of core range attributes.
 def TTNN_CoreRangeArrayAttr : TypedArrayAttrBase<TTNN_CoreRangeAttr, "">;
 
 #endif
