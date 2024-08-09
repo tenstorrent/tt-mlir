@@ -133,7 +133,7 @@ def TTKernel_CBPushBackOp : TTKernel_Op<"cb_push_back"> {
       CBPushBack operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -144,7 +144,7 @@ def TTKernel_CBPopFrontOp : TTKernel_Op<"cb_pop_front"> {
       CBPopFront operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -155,7 +155,7 @@ def TTKernel_CBReserveBackOp : TTKernel_Op<"cb_reserve_back"> {
       CBReserveBack operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
@@ -166,7 +166,7 @@ def TTKernel_CBWaitFrontOp : TTKernel_Op<"cb_wait_front"> {
       CBWaitFront operation
     }];
 
-    let arguments = (ins TTKernel_CB:$cb, I32:$numBlocks);
+    let arguments = (ins TTKernel_CB:$cb, I32:$numPages);
 
     let hasVerifier = 1;
 }
