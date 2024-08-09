@@ -202,4 +202,69 @@ def TTNN_DeallocOp : TTNN_Op<"dealloc"> {
     let arguments = (ins AnyRankedTensor:$input);
 }
 
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments]> {
+    let summary = "Generic op modelling any kind of user-written work a group of cores executes.";
+
+    let description = [{
+      Generic op form where the key properties of the computation are specified as attributes.
+
+      It contains a region that hooks to a backend call which executes the described work.
+
+      ```mlir
+      %4 = "ttnn.generic"(%1, %2, %3) < { attributes-specifying-underlying-computation } > ({
+        ^bb0(%arg2: tensor<?xf32, #l1_layout>, %arg3: tensor<?xf32, #l1_layout>, %arg4: tensor<?xf32, #l1_layout>):
+          // Region body, would contain a backend hook to some computation that represents the work each core does.
+          // In ttnn terms it would pass the user-written compute and data movement kernels, as well as parameters for
+          // setting up entire ttnn execution flow (check out 
+          // https://tenstorrent.github.io/tt-metal/latest/ttnn/ttnn/adding_new_ttnn_operation.html) to the backend hook.
+      }) : (tensor<?xf32, #l1_layout>, tensor<?xf32, #l1_layout>, tensor<?xf32, #l1_layout>) -> tensor<?xf32, #l1_layout>
+      ```
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         TT_GridAttr:$grid,
+                         AffineMapArrayAttr:$indexing_maps,
+                         TT_IteratorTypeArrayAttr:$iterator_types,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+    
+    let regions = (region AnyRegion:$region);
+}
+
+//===----------------------------------------------------------------------===//
+// TTNN region ops (ops that may appear inside of ttnn.generic region)
+//===----------------------------------------------------------------------===//
+
+def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
+
+def TTNN_KernelOp : TTNN_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+    let summary = "Kernel call.";
+    let description = [{
+      A generic kernel call operation. This operation is used to pattern match by some consuming backend.
+    }];
+
+    let arguments = (ins FlatSymbolRefAttr:$op,
+                         FlatSymbolRefAttr:$kind,
+                         Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
+
+    let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+    }];
+}
+
+def TTNN_YieldOp : TTNN_Op<"yield", [Pure, ReturnLike, Terminator]> {
+    let summary = "Yield op.";
+    
+    let description = [{
+      Yield operation, this is required by MLIR to mark the end of a dispatch region.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+}
+
 #endif

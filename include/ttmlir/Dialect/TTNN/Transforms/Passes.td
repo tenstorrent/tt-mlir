@@ -14,4 +14,11 @@ def TTNNOpenDevice: Pass<"ttnn-open-device", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNGeneric: Pass<"ttnn-generic", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Wrap top level ops in a generic op.
+  }];
+}
+
 #endif
