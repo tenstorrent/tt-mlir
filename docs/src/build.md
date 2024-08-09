@@ -49,8 +49,8 @@ cmake --build build
 
 | OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 |----|-----------------------|-----------------------| -----------------------------|
-| Ubuntu 22.04  | ✅ | ❌ | ❌ |
-| Ubuntu 20.04  | ✅ | ✅ | ✅ |
+| Ubuntu 22.04  | ✅ | ✅ | ✅ |
+| Ubuntu 20.04  | ✅ | ❌ | ❌ |
 | MacOS         | ✅ | ❌ | ❌ |
 
 ## Test
@@ -133,21 +133,14 @@ pip install seaborn
 
 ### Ubuntu 22.04
 
-We need to install Ninja which can be done with the following command
+On Ubuntu 22.04 we need to install clang, ninja, and to update the version of cmake because 3.20 is the minimum required for this project.
 
 ```bash
-sudo apt install ninja-build
-```
-
-### Ubuntu 22.04
-
-On Ubuntu 22.04 we need to install clang and to update the version of cmake because 3.20 is the minimum required for this project.
-
-```bash
-sudo apt-get update
-sudo apt-get upgrade
+sudo apt update
+sudo apt upgrade
 
 sudo apt install clang-17
+sudo apt install ninja-build
 
 sudo apt remove cmake -y
 pip3 install cmake --upgrade
