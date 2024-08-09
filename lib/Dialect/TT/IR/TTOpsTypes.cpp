@@ -137,6 +137,19 @@ unsigned SystemDescAttr::getAddressAlignBytes(unsigned chipIndex) const {
   });
 }
 
+unsigned SystemDescAttr::getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex) const {
+  switch (memorySpace) {
+  case MemorySpace::DeviceL1:
+    return getNocL1AddressAlignBytes(chipIndex);
+  case MemorySpace::DeviceDRAM:
+    return getNocDRAMAddressAlignBytes(chipIndex);
+  case MemorySpace::SystemMMIO:
+    return getPcieAddressAlignBytes(chipIndex);
+  default:
+    return 1;
+  }
+}
+
 unsigned SystemDescAttr::getNocL1AddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getNocL1AddressAlignBytes();
 }
@@ -234,6 +247,26 @@ static mlir::AffineMap collapsedLinearAffineMap(
   return map;
 }
 
+static mlir::SmallVector<std::int64_t>
+calculateLogicalShardShape(::mlir::MLIRContext *context,
+                           mlir::ArrayRef<int64_t> tensorShape,
+                           mlir::AffineMap linear, GridAttr grid) {
+  assert(linear.getNumResults() == grid.getShape().size());
+  mlir::SmallVector<mlir::AffineExpr> tensorShapeExprs(
+      llvm::map_range(tensorShape, [context](std::int64_t e) {
+        return getAffineConstantExpr(e - 1, context);
+      }));
+  mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
+  for (unsigned i = 0; i < linear.getNumResults(); ++i) {
+    mlir::AffineExpr expr = linear.getResult(i);
+    mlir::AffineExpr constantExpr = expr.replaceDims(tensorShapeExprs);
+    std::int64_t constant =
+        llvm::cast<mlir::AffineConstantExpr>(constantExpr).getValue() + 1;
+    shardShape[i] = (constant + grid.getShape()[i] - 1) / grid.getShape()[i];
+  }
+  return shardShape;
+}
+
 LayoutAttr LayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, MemorySpace memorySpace, GridAttr grid,
@@ -244,21 +277,10 @@ LayoutAttr LayoutAttr::get(
                                    : GridAttr::get(context, {1, 1});
   }
 
-  SmallVector<AffineExpr> tensorShapeExprs(
-      llvm::map_range(tensorShape, [context](std::int64_t e) {
-        return getAffineConstantExpr(e - 1, context);
-      }));
   auto linear = collapsedLinearAffineMap(context, tensorShape, grid.getShape(),
                                          collapseIntervals);
-  SmallVector<std::int64_t> shardShape(linear.getNumResults());
-  assert(linear.getNumResults() == grid.getShape().size());
-  for (unsigned i = 0; i < linear.getNumResults(); ++i) {
-    AffineExpr expr = linear.getResult(i);
-    AffineExpr constantExpr = expr.replaceDims(tensorShapeExprs);
-    std::int64_t constant =
-        llvm::cast<AffineConstantExpr>(constantExpr).getValue() + 1;
-    shardShape[i] = (constant + grid.getShape()[i] - 1) / grid.getShape()[i];
-  }
+  auto shardShape =
+      calculateLogicalShardShape(context, tensorShape, linear, grid);
   auto memref = buildMemRef(context, shardShape, elementType, memorySpace);
   return get(context, linear, oobVal, grid, memref);
 }
@@ -390,6 +412,53 @@ LayoutAttr LayoutAttr::withElementType(::mlir::MLIRContext *context,
 MemorySpace LayoutAttr::getMemorySpace() const {
   return mlir::cast<mlir::tt::MemorySpaceAttr>(getMemref().getMemorySpace())
       .getValue();
+}
+
+mlir::AffineMap LayoutAttr::projectOnto(ArrayRef<int64_t> logicalTensorShape,
+                                        GridAttr grid) const {
+  assert(getGrid().getShape().size() == grid.getShape().size() &&
+         "Layout and device grids must have same number of dimensions");
+  assert(getLinear().getNumResults() == grid.getShape().size() &&
+         "Linear map and device grid must have same number of dimensions");
+  for (auto [layoutGridDim, otherGridDim] :
+       llvm::zip(getGrid().getShape(), grid.getShape())) {
+    assert(layoutGridDim <= otherGridDim &&
+           "Layout grid dimensions must be less than or equal to device grid");
+  }
+
+  auto linear = getLinear();
+  auto logicalShardShape = calculateLogicalShardShape(
+      getContext(), logicalTensorShape, linear, getGrid());
+
+  // Compute the projection of the layout onto its own logical grid
+  // Simultaneously compute the indexing of shards within each core
+  SmallVector<AffineExpr> logicalGridProjection(linear.getNumResults());
+  AffineExpr shardIndexing = getAffineConstantExpr(0, getContext());
+  int shardVolume = 1;
+  assert(logicalShardShape.size() == linear.getNumResults() &&
+         "Logical shard shape and linear map must have same number of dims");
+  for (int i = linear.getNumResults() - 1; i >= 0; i--) {
+    mlir::AffineExpr expr = linear.getResult(i);
+    mlir::AffineExpr shardDim =
+        getAffineConstantExpr(logicalShardShape[i], getContext());
+    mlir::AffineExpr shardVolumeExpr =
+        getAffineConstantExpr(shardVolume, getContext());
+    logicalGridProjection[i] = expr.floorDiv(shardDim);
+    shardIndexing = (expr % shardDim) * shardVolumeExpr + shardIndexing;
+    shardVolume *= logicalShardShape[i];
+  }
+
+  // Compose the logical grid projection with the device grid mapping, now we
+  // have a projection onto the physical grid
+  mlir::AffineMap gridProjection =
+      grid.getMapping().compose(mlir::AffineMap::get(
+          logicalTensorShape.size(), 0, logicalGridProjection, getContext()));
+
+  // Finally we tack on the indexing of shards within each core
+  SmallVector<AffineExpr> projection(gridProjection.getResults());
+  projection.push_back(shardIndexing);
+  return mlir::AffineMap::get(logicalTensorShape.size(), 0, projection,
+                              getContext());
 }
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
