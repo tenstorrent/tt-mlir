@@ -178,7 +178,7 @@ def run(args):
 
     # execution
     print("executing action for all provided flatbuffers")
-    device = ttrt.runtime.open_device(device_ids)
+    device = ttrt.runtime.open_device([device_ids[0]])
     atexit.register(lambda: ttrt.runtime.close_device(device))
 
     torch.manual_seed(args.seed)
