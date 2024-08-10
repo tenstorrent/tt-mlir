@@ -19,25 +19,6 @@ using DeviceMesh = std::vector<::tt::tt_metal::Device *>;
 using MetalTensor =
     std::variant<TensorDesc, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
-static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
-  switch (arch) {
-  case ::tt::ARCH::GRAYSKULL:
-    return ::tt::target::Arch::Grayskull;
-  case ::tt::ARCH::WORMHOLE_B0:
-    return ::tt::target::Arch::Wormhole_b0;
-  case ::tt::ARCH::BLACKHOLE:
-    return ::tt::target::Arch::Blackhole;
-  default:
-    break;
-  }
-
-  throw std::runtime_error("Unsupported arch");
-}
-
-static ::tt::target::Dim2d toFlatbuffer(CoreCoord coreCoord) {
-  return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
-}
-
 static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   bool isTTMetal =
       ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
@@ -46,55 +27,6 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
     throw std::runtime_error("Unsupported binary format");
   }
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
-}
-
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
-  ::tt::tt_metal::Device *device = ::tt::tt_metal::CreateDevice(0);
-  std::vector<int> chipIds = {
-      device->id(),
-  };
-  ::flatbuffers::FlatBufferBuilder fbb;
-  ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
-  ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
-                                ttmlirVersion.patch);
-  ::tt::target::Dim2d deviceGrid =
-      toFlatbuffer(device->compute_with_storage_grid_size());
-  std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs = {
-      ::tt::target::CreateChipDesc(
-          fbb, toFlatbuffer(device->arch()), &deviceGrid, (1 << 20), 12,
-          (1 << 20), L1_ALIGNMENT, PCIE_ALIGNMENT, DRAM_ALIGNMENT),
-  };
-  std::vector<uint32_t> chipDescIndices = {
-      0,
-  };
-  ::tt::target::ChipCapability chipCapability =
-      ::tt::target::ChipCapability::PCIE;
-  if (device->is_mmio_capable()) {
-    chipCapability = chipCapability | ::tt::target::ChipCapability::HostMMIO;
-  }
-  std::vector<::tt::target::ChipCapability> chipCapabilities = {
-      chipCapability,
-  };
-  std::vector<::tt::target::ChipCoord> chipCoord = {
-      ::tt::target::ChipCoord(0, 0, 0, 0),
-  };
-  std::vector<::tt::target::ChipChannel> chipChannel;
-  auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoord,
-      &chipChannel);
-  auto root = ::tt::target::CreateSystemDescRootDirect(
-      fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
-  ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
-  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-  if (not ::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
-    throw std::runtime_error("Failed to verify system desc root buffer");
-  }
-  uint8_t *buf = fbb.GetBufferPointer();
-  auto size = fbb.GetSize();
-  auto handle = utils::malloc_shared(size);
-  std::memcpy(handle.get(), buf, size);
-  ::tt::tt_metal::CloseDevice(device);
-  return std::make_pair(SystemDesc(handle), chipIds);
 }
 
 Tensor createTensor(std::shared_ptr<void> data,
