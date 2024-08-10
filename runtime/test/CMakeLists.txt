@@ -1,3 +1,7 @@
+if (NOT TTMLIR_ENABLE_RUNTIME OR (NOT TT_RUNTIME_ENABLE_TTNN AND NOT TT_RUNTIME_ENABLE_TTMETAL))
+  message(FATAL_ERROR "Runtime tests require -DTTMLIR_ENABLE_RUNTIME=ON and at least one backend runtime to be enabled")
+endif()
+
 enable_testing()
 include(FetchContent)
 FetchContent_Declare(
@@ -44,10 +48,18 @@ target_link_libraries(TTRuntimeTEST INTERFACE
 
 function(add_runtime_gtest test_name)
   add_executable(${test_name} ${ARGN})
+  set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 20)
   add_dependencies(${test_name} TTRuntimeTEST)
   target_link_libraries(${test_name} PRIVATE TTRuntimeTEST)
   gtest_discover_tests(${test_name})
 endfunction()
 
-add_subdirectory(ttnn)
-add_subdirectory(ttmetal)
+add_subdirectory(common)
+
+if (TT_RUNTIME_ENABLE_TTNN)
+  add_subdirectory(ttnn)
+endif()
+
+if (TT_RUNTIME_ENABLE_TTMETAL)
+  add_subdirectory(ttmetal)
+endif()

@@ -31,9 +31,10 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(
     MlirContext ctx, unsigned rack, unsigned shelf, unsigned y, unsigned x);
 
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipChannelAttrGet(MlirContext ctx,
-                                                            unsigned endpoint0,
-                                                            unsigned endpoint1);
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipChannelAttrGet(
+    MlirContext ctx, unsigned deviceId0, int64_t *ethernetCoreCoord0,
+    size_t ethernetCoreCoord0Size, unsigned deviceId1,
+    int64_t *ethernetCoreCoord1, size_t ethernetCoreCoord1Size);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
     MlirContext ctx, MlirAttribute *chipDescs, size_t chipDescsSize,

@@ -4,6 +4,7 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
@@ -77,16 +78,8 @@ void setCompatibleRuntime(const Binary &binary) {
 }
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getCurrentSystemDesc();
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getCurrentSystemDesc();
-  }
+#if defined(TT_RUNTIME_ENABLE_TTNN) || defined(TT_RUNTIME_ENABLE_TTMETAL)
+  return system_desc::getCurrentSystemDesc();
 #endif
   throw std::runtime_error("runtime is not enabled");
 }

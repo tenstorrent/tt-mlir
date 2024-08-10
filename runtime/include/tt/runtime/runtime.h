@@ -13,6 +13,10 @@
 
 namespace tt::runtime {
 
+namespace system_desc {
+std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
+} // namespace system_desc
+
 DeviceRuntime getCurrentRuntime();
 
 std::vector<DeviceRuntime> getAvailableRuntimes();
