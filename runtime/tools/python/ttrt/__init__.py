@@ -17,8 +17,18 @@ import sys
 import shutil
 
 import ttrt.binary
-from ttrt.common.api import read, run, query, perf, init_fns
+from ttrt.common.api import proxy
 from ttrt.common.util import read_actions
+
+def proxy(args):
+    # setup artifact directories
+    
+    logging.basicConfig(filename=log_file_path, 
+                        level=logging.INFO, 
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+    # run command
+    args.func(args)
+
 
 #######################################################################################
 #######################################**MAIN**########################################
@@ -182,9 +192,8 @@ def main():
         parser.print_help()
         return
 
-    # run command
-    args.func(args)
-
+    # setup
+    proxy(args)
 
 if __name__ == "__main__":
     main()
