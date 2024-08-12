@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "pch.hpp"
+#include "ttnn-precompiled.hpp"
 
 // Below is a snippet generated with:
 // ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout

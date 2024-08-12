@@ -94,4 +94,4 @@ target_compile_definitions(ttnn-standalone PRIVATE
     FMT_HEADER_ONLY
 )
 
-target_precompile_headers(ttnn-standalone PRIVATE pch.hpp)
+target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
