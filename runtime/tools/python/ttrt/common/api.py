@@ -45,6 +45,21 @@ init_fns_map = {
 }
 init_fns = sorted(list(init_fns_map.keys()))
 
+
+def check_identity(args, binary_name, torch_inputs, torch_outputs):
+    import torch
+
+    for i, o in zip(torch_inputs, torch_outputs):
+        if not torch.allclose(i, o, rtol=args.rtol, atol=args.atol):
+            print(
+                "Failed: inputs and outputs do not match in binary",
+                binary_name,
+            )
+            print(torch.abs(i - o))
+        else:
+            print("Passed:", binary_name)
+
+
 #######################################################################################
 ########################################**API**########################################
 #######################################################################################
@@ -252,15 +267,12 @@ def run(args):
             ttrt.runtime.wait(event)
             print("outputs:\n", torch_outputs)
             if args.identity:
-                for i, o in zip(torch_inputs[binary_name], torch_outputs[binary_name]):
-                    if not torch.allclose(i, o):
-                        print(
-                            "Failed: inputs and outputs do not match in binary",
-                            binary_name,
-                        )
-                        print(i - o)
-                    else:
-                        print("Passed:", binary_name)
+                check_identity(
+                    args,
+                    binary_name,
+                    torch_inputs[binary_name][program_index],
+                    torch_outputs[binary_name][program_index],
+                )
 
     # save artifacts
     if arg_save_artifacts:

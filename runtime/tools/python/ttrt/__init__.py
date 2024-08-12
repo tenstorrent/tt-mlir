@@ -92,6 +92,18 @@ def main():
         help="Do a golden identity test on the output tensors",
     )
     run_parser.add_argument(
+        "--rtol",
+        default=1e-05,
+        type=float,
+        help="rtol for golden test",
+    )
+    run_parser.add_argument(
+        "--atol",
+        default=1e-08,
+        type=float,
+        help="atol for golden test",
+    )
+    run_parser.add_argument(
         "--seed",
         default=0,
         help="Seed for random number generator",
