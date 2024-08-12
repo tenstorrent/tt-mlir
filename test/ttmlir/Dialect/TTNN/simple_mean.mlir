@@ -5,10 +5,8 @@ module attributes {tt.system_desc = #tt.system_desc<[{arch = <wormhole_b0>, grid
     // CHECK: %[[C:.*]] = "ttnn.open_device"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.full"[[C:.*]]
     %0 = tensor.empty() : tensor<512x32xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.to_memory_config"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.mean"[[C:.*]]
     %1 = "ttir.mean"(%arg0, %0) <{dim_arg = [-1: i32], keep_dim = true, operand_constraints = [#any_device, #any_device]}> : (tensor<512x1024xbf16>, tensor<512x32xbf16>) -> tensor<512x32xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.to_memory_config"[[C:.*]]
     // CHECK: "ttnn.close_device"[[C:.*]]
     return %1 : tensor<512x32xbf16>
   }
