@@ -19,23 +19,23 @@ namespace tt::runtime {
 
 namespace detail {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
-DeviceRuntime currentRuntime = DeviceRuntime::TTNN;
+DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTNN;
 #elif defined(TT_RUNTIME_ENABLE_TTMETAL)
-DeviceRuntime currentRuntime = DeviceRuntime::TTMetal;
+DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTMetal;
 #else
-DeviceRuntime currentRuntime = DeviceRuntime::Disabled;
+DeviceRuntime globalCurrentRuntime = DeviceRuntime::Disabled;
 #endif
 
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
 #if !defined(TT_RUNTIME_ENABLE_TTNN)
-  assert(detail::currentRuntime != DeviceRuntime::TTNN);
+  assert(detail::globalCurrentRuntime != DeviceRuntime::TTNN);
 #endif
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL)
-  assert(detail::currentRuntime != DeviceRuntime::TTMetal);
+  assert(detail::globalCurrentRuntime != DeviceRuntime::TTMetal);
 #endif
-  return detail::currentRuntime;
+  return detail::globalCurrentRuntime;
 }
 
 std::vector<DeviceRuntime> getAvailableRuntimes() {
@@ -56,7 +56,7 @@ void setCurrentRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL)
   assert(runtime != DeviceRuntime::TTMetal);
 #endif
-  detail::currentRuntime = runtime;
+  detail::globalCurrentRuntime = runtime;
 }
 
 void setCompatibleRuntime(const Binary &binary) {
