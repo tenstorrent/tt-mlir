@@ -1,4 +1,3 @@
-# StableHLO includes
 include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo)
 include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo-build)
 
@@ -14,6 +13,10 @@ if (TTMLIR_ENABLE_RUNTIME)
 endif()
 
 add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp
+
+  DEPENDS
+  stablehlo 
+ 
   LINK_LIBS PUBLIC
     MLIR
     MLIRTTDialect
@@ -27,4 +30,7 @@ add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp
     MLIRTTMetalDialect
     MLIRTTMetalTransforms
     MLIRTTNNPipelines
+    TTMLIRStableHLOToTTIR
 )
+
+add_dependencies(TTMLIRStatic stablehlo)
