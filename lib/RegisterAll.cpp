@@ -30,13 +30,12 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
               mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
               mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
               mlir::emitc::EmitCDialect>();
-
   mlir::stablehlo::registerAllDialects(registry);
 }
 
 void mlir::tt::registerAllPasses() {
   // Register all dialect conversion passes
-  //
+  
   mlir::tt::registerTTMLIRConversionPasses();
 
   mlir::tt::ttir::registerPasses();
