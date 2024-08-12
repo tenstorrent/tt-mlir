@@ -7,7 +7,7 @@ endif()
 
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
-option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
+option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" ON)
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
@@ -44,6 +44,7 @@ include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 include_directories(${TTMLIR_BINARY_DIR}/include)
+include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/flatbuffers/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)

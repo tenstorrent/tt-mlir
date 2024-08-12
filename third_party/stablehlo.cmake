@@ -4,14 +4,14 @@ set(STABLE_HLO_VERSION "v1.0.0")
 
 ExternalProject_Add(
     stablehlo
-    PREFIX ${TTMLIR_SOURCE_DIR}/third_party/stablehlo
+    PREFIX ${PROJECT_SOURCE_DIR}/third_party/stablehlo
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
       -DCMAKE_BUILD_TYPE=Release
       -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-      -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
       -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
+      -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
       # TODO: Figure out if we need this (or benefit from it) when it comes to linking stablehlo.
       #-DSTABLEHLO_BUILD_EMBEDDED=ON
       -DMLIR_DIR=${TTMLIR_TOOLCHAIN_DIR}/lib/cmake/mlir
@@ -32,3 +32,4 @@ foreach(TTMLIR_STABLEHLO_LIBRARY ${TTMLIR_STABLEHLO_LIBRARIES})
 endforeach()
 
 set_property(GLOBAL PROPERTY STABLEHLO_LIBS "${STABLEHLO_LIBRARIES_LIST}")
+

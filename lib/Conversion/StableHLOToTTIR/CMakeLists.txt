@@ -1,3 +1,6 @@
+include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo)
+include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo-build)
+
 get_property(STABLEHLO_LIBS GLOBAL PROPERTY STABLEHLO_LIBS)
 
 add_mlir_library(TTMLIRStableHLOToTTIR
@@ -11,8 +14,9 @@ add_mlir_library(TTMLIRStableHLOToTTIR
 
   DEPENDS
   TTMLIRConversionPassIncGen
+  stablehlo
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRTransformUtils
   ${STABLEHLO_LIBS}
 )

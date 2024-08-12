@@ -18,6 +18,7 @@ set(TTMLIR_LIBS
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
     TTMLIRTTNNToEmitC
+    TTMLIRStableHLOToTTIR
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
@@ -27,6 +28,7 @@ add_dependencies(TTMLIR
     ${TTMLIR_LIBS}
     ${TTNN_RUNTIME_LIBS}
     ${TTNN_LIBS}
+    ${STABLEHLO_LIBS}
 )
 
 target_link_libraries(TTMLIR PRIVATE
@@ -41,7 +43,7 @@ target_link_libraries(TTMLIR PRIVATE
     -Wl,--no-whole-archive
 
     ${TTNN_LIBS}
-
+    ${STABLEHLO_LIBS}
     flatbuffers
 )
 

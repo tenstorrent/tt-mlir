@@ -4,6 +4,7 @@
 
 #include <fstream>
 
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "flatbuffers/idl.h"
 
 #include "tt/runtime/types.h"
