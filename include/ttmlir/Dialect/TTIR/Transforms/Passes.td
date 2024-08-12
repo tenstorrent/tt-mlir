@@ -34,6 +34,13 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   let description = [{
     Transition between different tensor layouts.
   }];
+
+  let options = [
+    Option<"initMemorySpace", "init-memory-space",
+          "::mlir::tt::MemorySpace",
+          /*default=*/"::mlir::tt::MemorySpace::System",
+           "Set the initial memory space for tensors to start in">,
+  ];
 }
 
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {

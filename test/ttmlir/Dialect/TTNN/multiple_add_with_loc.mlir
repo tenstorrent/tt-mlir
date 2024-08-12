@@ -13,7 +13,7 @@ module @pybuda_graph attributes {} {
     %4 = tensor.empty() : tensor<1x32x32xf32> loc(#loc7)
     // CHECK: %[[C:.*]] = "ttnn.add"[[C:.*]] -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
     %5 = "ttir.add"(%arg2, %arg1, %4) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<1x32x32xf32>, tensor<1x32x32xf32>, tensor<1x32x32xf32>) -> tensor<1x32x32xf32> loc(#loc7)
-    // CHECK: return %[[R0:.*]], %[[R1:.*]] : tensor<1x32x32xf32, #layout1>, tensor<1x32x32xf32, #[[LAYOUT_1]]>
+    // CHECK: return %[[R0:.*]], %[[R1:.*]] : tensor<1x32x32xf32, #layout1>, tensor<1x32x32xf32, #layout1>
     return %3, %5 : tensor<1x32x32xf32>, tensor<1x32x32xf32> loc(#loc4)
   } loc(#loc)
 } loc(#loc)
