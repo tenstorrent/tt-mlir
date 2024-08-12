@@ -2,15 +2,15 @@
 
 Following script compiles and runs the ttnn standalone
 ```bash
-cd ttnn-standalone
+cd tools/ttnn-standalone
 ./run
 ```
 
-Note: if you get a
+Note: if you receive this error
 ```bash
 -bash: ./run: Permission denied
 ```
-just do a
+you may run
 ```bash
 chmod +x run
 ```
