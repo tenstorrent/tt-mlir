@@ -10,6 +10,8 @@
 
 namespace tt::runtime::ttnn {
 
+using ::tt::runtime::DeviceRuntime;
+
 template <typename T>
 static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements) {
   return BorrowedStorage(
@@ -45,7 +47,7 @@ Tensor createTensor(std::shared_ptr<void> data,
   auto tensor = std::make_shared<::ttnn::Tensor>(
       createStorage(data.get(), numElements, dataType), shape,
       utils::toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
-  return Tensor(tensor, data);
+  return Tensor(tensor, data, DeviceRuntime::TTNN);
 }
 
 Device openDevice(std::vector<int> const &deviceIds,
@@ -53,11 +55,11 @@ Device openDevice(std::vector<int> const &deviceIds,
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   assert(numHWCQs.empty() && "HWCQs are not supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front());
-  return Device::borrow(device);
+  return Device::borrow(device, DeviceRuntime::TTNN);
 }
 
 void closeDevice(Device device) {
-  auto &ttnn_device = device.as<::ttnn::Device>();
+  auto &ttnn_device = device.as<::ttnn::Device>(DeviceRuntime::TTNN);
   ::ttnn::close_device(ttnn_device);
 }
 
@@ -74,25 +76,28 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
              std::vector<Tensor> const &outputHandles) {
-  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>();
+  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN);
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
   inputs.reserve(inputHandles.size());
   for (auto &input : inputHandles) {
+    assert(input.matchesRuntime(DeviceRuntime::TTNN));
     inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
   }
   std::vector<::ttnn::Tensor *> outputs;
   outputs.reserve(outputHandles.size());
   for (auto &output : outputHandles) {
+    assert(output.matchesRuntime(DeviceRuntime::TTNN));
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
   tt::runtime::ttnn::runProgram(device, fbb.programs()->Get(programIndex),
                                 inputs, outputs);
-  return Event(nullptr);
+  return Event(nullptr, DeviceRuntime::TTNN);
 }
 
-void wait(Event) {
+void wait(Event event) {
   // Not implemented
+  assert(event.matchesRuntime(DeviceRuntime::TTNN));
 }
 
 } // namespace tt::runtime::ttnn

@@ -12,7 +12,7 @@
 #include "ttmlir/Version.h"
 
 namespace tt::runtime::ttmetal {
-
+using ::tt::runtime::DeviceRuntime;
 constexpr inline std::size_t kHostBufferCommandQueueId = 0;
 using Events = std::vector<std::shared_ptr<::tt::tt_metal::Event>>;
 using DeviceMesh = std::vector<::tt::tt_metal::Device *>;
@@ -39,7 +39,8 @@ Tensor createTensor(std::shared_ptr<void> data,
   desc.itemsize = itemsize;
   desc.dataType = dataType;
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  return Tensor(static_pointer_cast<void>(tensor), data);
+  return Tensor(static_pointer_cast<void>(tensor), data,
+                DeviceRuntime::TTMetal);
 }
 
 Device openDevice(std::vector<int> const &deviceIds,
@@ -52,11 +53,11 @@ Device openDevice(std::vector<int> const &deviceIds,
     deviceMesh->push_back(CreateDevice(deviceId, num_hw_cqs));
     ++i;
   }
-  return static_pointer_cast<void>(deviceMesh);
+  return Device(static_pointer_cast<void>(deviceMesh), DeviceRuntime::TTMetal);
 }
 
 void closeDevice(Device device) {
-  DeviceMesh &deviceMesh = device.as<DeviceMesh>();
+  DeviceMesh &deviceMesh = device.as<DeviceMesh>(DeviceRuntime::TTMetal);
   for (::tt::tt_metal::Device *device : deviceMesh) {
     ::tt::tt_metal::CloseDevice(device);
   }
@@ -111,8 +112,8 @@ Events maybeCopyHostOutputs(::tt::tt_metal::Device *device,
   Events copyEvents;
   int i = 0;
   for (Tensor const &outputHandle : outputHandles) {
-    if (TensorDesc const *hostTensor =
-            std::get_if<TensorDesc>(&outputHandle.as<MetalTensor>());
+    if (TensorDesc const *hostTensor = std::get_if<TensorDesc>(
+            &outputHandle.as<MetalTensor>(DeviceRuntime::TTMetal));
         hostTensor) {
       ::tt::tt_metal::CommandQueue &cq =
           device->command_queue(kHostBufferCommandQueueId);
@@ -140,7 +141,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
   ::tt::target::metal::TTMetalBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::metal::Program const *program =
       fbb.programs()->Get(programIndex);
-  DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>();
+  DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>(DeviceRuntime::TTMetal);
   assert(deviceMesh.size() == 1 && "Only one device is supported for now");
   std::shared_ptr<Events> events = std::make_shared<Events>();
   assert(program->device_programs()->size() == deviceMesh.size() &&
@@ -158,9 +159,9 @@ Event submit(Device deviceHandle, Binary executableHandle,
     for (unsigned i = 0; i < inputHandles.size(); ++i) {
       ::tt::target::TensorRef const *tensorRef =
           deviceProgram->inputs()->Get(i);
-      auto [buffer, event] =
-          prepareInput(device, inputHandles[i].as<MetalTensor>(),
-                       inputHandles[i].data.get(), tensorRef);
+      auto [buffer, event] = prepareInput(
+          device, inputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
+          inputHandles[i].data.get(), tensorRef);
       inputs.emplace_back(deviceProgram->inputs()->Get(i)->global_id(), buffer,
                           event);
     }
@@ -172,8 +173,9 @@ Event submit(Device deviceHandle, Binary executableHandle,
     for (unsigned i = 0; i < outputHandles.size(); ++i) {
       ::tt::target::TensorRef const *tensorRef =
           deviceProgram->outputs()->Get(i);
-      std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-          prepareOutput(device, &outputHandles[i].as<MetalTensor>(), tensorRef);
+      std::shared_ptr<::tt::tt_metal::Buffer> buffer = prepareOutput(
+          device, &outputHandles[i].as<MetalTensor>(DeviceRuntime::TTMetal),
+          tensorRef);
       outputs.emplace_back(deviceProgram->outputs()->Get(i)->global_id(),
                            buffer);
     }
@@ -195,11 +197,11 @@ Event submit(Device deviceHandle, Binary executableHandle,
     events->insert(events->end(), deviceEvents.begin(), deviceEvents.end());
   }
 
-  return static_pointer_cast<void>(events);
+  return Event(static_pointer_cast<void>(events), DeviceRuntime::TTMetal);
 }
 
 void wait(Event event) {
-  Events events = event.as<Events>();
+  Events events = event.as<Events>(DeviceRuntime::TTMetal);
   for (auto e : events) {
     ::tt::tt_metal::EventSynchronize(e);
   }
