@@ -7,9 +7,8 @@
 #include "ttnn/core.hpp"
 #include "ttnn/cpp/ttnn/tensor/tensor.hpp"
 #include "ttnn/device.hpp"
-#include "ttnn/operations/eltwise/binary/binary.hpp"
-// #include "ttnn/cpp/ttnn/core.hpp"
 #include "ttnn/operations/creation.hpp"
+#include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/types.hpp"
 
 #include <cstddef>

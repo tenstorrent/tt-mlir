@@ -24,6 +24,8 @@ using namespace mlir::tt;
 
 namespace {
 
+// Base class for TTNN to EmitC OpConversionPattern
+//
 template <typename SourceOp>
 class TTNNToEmitCBaseOpConversionPattern
     : public OpConversionPattern<SourceOp> {
@@ -91,6 +93,8 @@ public:
   }
 };
 
+// OpenDeviceOp conversion pattern
+//
 class OpenDeviceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp> {
 
@@ -103,9 +107,7 @@ public:
 
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn."; }
-  std::string getPrefixSwapPattern() const override {
-    return "&ttnn::device::";
-  }
+  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
 
 public:
   LogicalResult
@@ -122,6 +124,35 @@ public:
   }
 };
 
+// CloseDeviceOp conversion pattern
+//
+class CloseDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp> {
+
+public:
+  CloseDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                                 MLIRContext *context,
+                                 PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp>(
+            typeConverter, context, benefit) {}
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn."; }
+  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
+
+public:
+  LogicalResult
+  matchAndRewrite(ttnn::CloseDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
+        nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -132,8 +163,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Device ops
   //
   patterns.add<OpenDeviceOpConversionPattern>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::CloseDeviceOp>>(typeConverter,
-                                                                ctx);
+  patterns.add<CloseDeviceOpConversionPattern>(typeConverter, ctx);
 
   // Memory ops
   //

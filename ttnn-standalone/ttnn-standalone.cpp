@@ -4,8 +4,15 @@
 
 #include "pch.hpp"
 
+// Below is a snippet generated with:
+// ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout
+// --ttnn-open-device --convert-ttir-to-ttnn --convert-ttnn-to-emitc
+// test/ttmlir/Dialect/TTNN/simple_multiply.mlir | ./build/bin/ttmlir-translate
+// -mlir-to-cpp -allow-unregistered-dialect
+//
+// #include "pch.hpp"
 // ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
-//   ttnn::Device v3 = ttnn::open_device(0);
+//   ttnn::device::Device& v3 = ttnn::device::open_device(0);
 //   ttnn::Tensor v4 = ttnn::full(v3);
 //   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
 //   ttnn::Tensor v6 = ttnn::full(v3);
@@ -14,25 +21,28 @@
 //   ttnn::Tensor v9 = ttnn::multiply(v5, v7, v8);
 //   ttnn::Tensor v10 = ttnn::full(v3);
 //   ttnn::Tensor v11 = ttnn::to_memory_config(v9, v10);
-//   ttnn::close_device(v3);
+//   ttnn::device::close_device(v3);
 //   return v11;
 // }
 
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
-  ttnn::device::Device *v3 = &ttnn::device::open_device(0);
+  ttnn::device::Device &v3 = ttnn::device::open_device(0);
 
   ttnn::Tensor v4 = ttnn::full(v1.shape(), 4.0f, v1.tensor_attributes->dtype,
-                               v1.tensor_attributes->layout, std::ref(*v3));
+                               v1.tensor_attributes->layout, std::ref(v3));
   //   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
+
   ttnn::Tensor v6 = ttnn::full(v2.shape(), 6.0f, v2.tensor_attributes->dtype,
-                               v2.tensor_attributes->layout, std::ref(*v3));
+                               v2.tensor_attributes->layout, std::ref(v3));
   //   ttnn::Tensor v7 = ttnn::to_memory_config(v2, v6);
 
-  //   ttnn::Tensor v8 = ttnn::full(v3);
-  ttnn::Tensor v9 = ttnn::multiply(v4, v6);
+  ttnn::Tensor v9 = ttnn::full(v2.shape(), 2.0f, v2.tensor_attributes->dtype,
+                               v2.tensor_attributes->layout, std::ref(v3));
+  ttnn::multiply(v4, v6, std::nullopt, std::nullopt, v9, std::nullopt,
+                 std::nullopt);
   v9 = v9.cpu(); // move to CPU
 
-  v3->close();
+  ttnn::close_device(v3);
   return v9;
 }
 
