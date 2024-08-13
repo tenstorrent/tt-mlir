@@ -45,7 +45,7 @@ ext_modules = [
 ]
 
 dylibs = []
-linklibs = ["TTBinary"]
+linklibs = ["TTBinary", "TTRuntimeSysDesc"]
 if enable_ttnn:
     dylibs += ["_ttnn.so"]
     linklibs += ["TTRuntimeTTNN", ":_ttnn.so"]
@@ -75,6 +75,7 @@ if enable_runtime:
             libraries=["TTRuntime"] + linklibs + ["flatbuffers"],
             library_dirs=[
                 f"{src_dir}/build/runtime/lib",
+                f"{src_dir}/build/runtime/lib/common",
                 f"{src_dir}/build/runtime/lib/ttnn",
                 f"{src_dir}/build/runtime/lib/ttmetal",
                 f"{toolchain}/lib",

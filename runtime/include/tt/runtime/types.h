@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_TYPES_H
 #define TT_RUNTIME_TYPES_H
 
+#include <cassert>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -15,8 +16,15 @@
 
 namespace tt::runtime {
 
+enum class DeviceRuntime {
+  Disabled,
+  TTNN,
+  TTMetal,
+};
+
 namespace detail {
 struct ObjectImpl {
+
   std::shared_ptr<void> handle;
 
   ObjectImpl(std::shared_ptr<void> handle) : handle(handle) {}
@@ -25,13 +33,32 @@ struct ObjectImpl {
     return *static_cast<T const *>(handle.get());
   }
 };
-} // namespace detail
 
-enum class DeviceRuntime {
-  Disabled,
-  TTNN,
-  TTMetal,
+struct RuntimeCheckedObjectImpl {
+  std::shared_ptr<void> handle;
+  ::tt::runtime::DeviceRuntime associatedRuntime;
+
+  RuntimeCheckedObjectImpl(std::shared_ptr<void> handle,
+                           ::tt::runtime::DeviceRuntime runtime)
+      : handle(handle), associatedRuntime(runtime) {}
+
+  bool matchesRuntime(DeviceRuntime runtime) const {
+    return associatedRuntime == runtime;
+  }
+
+  template <typename T> T &as(DeviceRuntime expectedRuntime) {
+    assert(associatedRuntime == expectedRuntime &&
+           "Associated runtime does not match expected runtime of cast");
+    return *static_cast<T *>(handle.get());
+  }
+  template <typename T> T const &as(DeviceRuntime expectedRuntime) const {
+    assert(associatedRuntime == expectedRuntime &&
+           "Associated runtime does not match expected runtime of cast");
+    return *static_cast<T const *>(handle.get());
+  }
 };
+
+} // namespace detail
 
 struct TensorDesc {
   std::vector<std::uint32_t> shape;
@@ -75,22 +102,23 @@ struct Binary : public Flatbuffer {
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
 };
 
-struct Device : public detail::ObjectImpl {
-  using detail::ObjectImpl::ObjectImpl;
+struct Device : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 
-  template <typename T> static Device borrow(T &object) {
-    return Device(utils::unsafe_borrow_shared(&object));
+  template <typename T> static Device borrow(T &object, DeviceRuntime runtime) {
+    return Device(utils::unsafe_borrow_shared(&object), runtime);
   }
 };
 
-struct Event : public detail::ObjectImpl {
-  using detail::ObjectImpl::ObjectImpl;
+struct Event : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
-struct Tensor : public detail::ObjectImpl {
+struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
-  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data)
-      : detail::ObjectImpl(handle), data(data) {}
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
+         DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
 };
 
 } // namespace tt::runtime

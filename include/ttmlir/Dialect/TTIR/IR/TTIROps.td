@@ -298,7 +298,7 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
 def AnyRankedTensorOrMemRef: AnyTypeOf<[AnyRankedTensor, AnyNon0RankedMemRef]>;
 
-def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let summary = "Kernel call.";
     let description = [{
       A generic kernel call operation. This operation is used to pattern match by some consuming backend.
@@ -307,12 +307,9 @@ def TTIR_KernelOp : TTIR_Op<"kernel", [DestinationStyleOpInterface, AttrSizedOpe
     let arguments = (ins FlatSymbolRefAttr:$op,
                          FlatSymbolRefAttr:$kind,
                          Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-    }];
 }
 
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {

@@ -45,9 +45,18 @@ MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,
   return wrap(ChipCoordAttr::get(unwrap(ctx), rack, shelf, y, x));
 }
 
-MlirAttribute ttmlirTTChipChannelAttrGet(MlirContext ctx, unsigned endpoint0,
-                                         unsigned endpoint1) {
-  return wrap(ChipChannelAttr::get(unwrap(ctx), endpoint0, endpoint1));
+MlirAttribute ttmlirTTChipChannelAttrGet(MlirContext ctx, unsigned deviceId0,
+                                         int64_t *ethernetCoreCoord0,
+                                         size_t ethernetCoreCoord0Size,
+                                         unsigned deviceId1,
+                                         int64_t *ethernetCoreCoord1,
+                                         size_t ethernetCoreCoord1Size) {
+  std::vector<int64_t> ethCoord0Vec(
+      ethernetCoreCoord0, ethernetCoreCoord0 + ethernetCoreCoord0Size);
+  std::vector<int64_t> ethCoord1Vec(
+      ethernetCoreCoord1, ethernetCoreCoord1 + ethernetCoreCoord1Size);
+  return wrap(ChipChannelAttr::get(unwrap(ctx), deviceId0, ethCoord0Vec,
+                                   deviceId1, ethCoord1Vec));
 }
 
 MlirAttribute ttmlirTTSystemDescAttrGet(

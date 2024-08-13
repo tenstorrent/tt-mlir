@@ -28,11 +28,12 @@ cmake --build env/build
 
 ```bash
 source env/activate
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17
 cmake --build build
 ```
 
 > - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`
+> - Clang 17 is the minimum required version when enabling the runtime.
 > - To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` and `export ENABLE_TRACY=1` to environment before building
 > - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`
 > - To accelerate builds further, if python bindings aren't needed, `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`. For some reason the python bindings link step is very slow.
@@ -48,8 +49,8 @@ cmake --build build
 
 | OS | Offline Compiler Only | Runtime Enabled Build | Runtime + Perf Enabled Build |
 |----|-----------------------|-----------------------| -----------------------------|
-| Ubuntu 22.04  | ✅ | ❌ | ❌ |
-| Ubuntu 20.04  | ✅ | ✅ | ✅ |
+| Ubuntu 22.04  | ✅ | ✅ | ✅ |
+| Ubuntu 20.04  | ✅ | ❌ | ❌ |
 | MacOS         | ✅ | ❌ | ❌ |
 
 ## Test
@@ -132,21 +133,14 @@ pip install seaborn
 
 ### Ubuntu 22.04
 
-We need to install Ninja which can be done with the following command
+On Ubuntu 22.04 we need to install clang, ninja, and to update the version of cmake because 3.20 is the minimum required for this project.
 
 ```bash
+sudo apt update
+sudo apt upgrade
+
+sudo apt install clang-17
 sudo apt install ninja-build
-```
-
-### Ubuntu 20.04
-
-On Ubuntu 20.04 we need to install clang and to update the version of cmake because 3.20 is the minimum required for this project.
-
-```bash
-sudo apt-get update
-sudo apt-get upgrade
-
-sudo apt-get install clang
 
 sudo apt remove cmake -y
 pip3 install cmake --upgrade

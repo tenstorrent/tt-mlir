@@ -1,0 +1,1 @@
+add_runtime_gtest(sys_desc_sanity test_generate_sys_desc.cpp)

@@ -10,4 +10,5 @@ target_include_directories(TTRuntimeTTMetal PUBLIC
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTMetal PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-add_dependencies(TTRuntimeTTMetal tt-metal FBS_GENERATION)
+target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY)
+add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY tt-metal FBS_GENERATION)

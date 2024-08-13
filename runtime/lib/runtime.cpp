@@ -4,6 +4,7 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
@@ -18,23 +19,23 @@ namespace tt::runtime {
 
 namespace detail {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
-DeviceRuntime currentRuntime = DeviceRuntime::TTNN;
+DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTNN;
 #elif defined(TT_RUNTIME_ENABLE_TTMETAL)
-DeviceRuntime currentRuntime = DeviceRuntime::TTMetal;
+DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTMetal;
 #else
-DeviceRuntime currentRuntime = DeviceRuntime::Disabled;
+DeviceRuntime globalCurrentRuntime = DeviceRuntime::Disabled;
 #endif
 
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
 #if !defined(TT_RUNTIME_ENABLE_TTNN)
-  assert(detail::currentRuntime != DeviceRuntime::TTNN);
+  assert(detail::globalCurrentRuntime != DeviceRuntime::TTNN);
 #endif
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL)
-  assert(detail::currentRuntime != DeviceRuntime::TTMetal);
+  assert(detail::globalCurrentRuntime != DeviceRuntime::TTMetal);
 #endif
-  return detail::currentRuntime;
+  return detail::globalCurrentRuntime;
 }
 
 std::vector<DeviceRuntime> getAvailableRuntimes() {
@@ -55,7 +56,7 @@ void setCurrentRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL)
   assert(runtime != DeviceRuntime::TTMetal);
 #endif
-  detail::currentRuntime = runtime;
+  detail::globalCurrentRuntime = runtime;
 }
 
 void setCompatibleRuntime(const Binary &binary) {
@@ -77,16 +78,8 @@ void setCompatibleRuntime(const Binary &binary) {
 }
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::getCurrentSystemDesc();
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::getCurrentSystemDesc();
-  }
+#if defined(TT_RUNTIME_ENABLE_TTNN) || defined(TT_RUNTIME_ENABLE_TTMETAL)
+  return system_desc::getCurrentSystemDesc();
 #endif
   throw std::runtime_error("runtime is not enabled");
 }

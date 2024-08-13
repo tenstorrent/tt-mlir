@@ -24,31 +24,50 @@ using namespace mlir::tt;
 
 namespace {
 
+// Base class for TTNN to EmitC OpConversionPattern
+//
+template <typename SourceOp>
+class TTNNToEmitCBaseOpConversionPattern
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTNNToEmitCBaseOpConversionPattern(const TypeConverter &typeConverter,
+                                     MLIRContext *context,
+                                     PatternBenefit benefit = 1)
+      : OpConversionPattern<SourceOp>(typeConverter, context, benefit) {}
+
+private:
+  std::string virtual getPrefixSearchPattern() const { return "ttnn."; }
+  std::string virtual getPrefixSwapPattern() const { return "ttnn::"; }
+
+public:
+  // Converts op name by removing the dialect prefix ("ttnn.") and replacing
+  // with namespace prefix ("ttnn::")
+  //
+  std::string convertOpName(SourceOp op) const {
+    auto name = op.getOperationName();
+    assert(
+        name.starts_with(getPrefixSearchPattern()) &&
+        "DefaultOpConversionPattern only supports ops from the TTNN dialect");
+
+    return name.str().replace(0, getPrefixSearchPattern().size(),
+                              getPrefixSwapPattern());
+  }
+};
+
 // Default op conversion pattern, used to convert most ops
 //
-template <typename SrcOp, typename Adaptor = typename SrcOp::Adaptor>
-class DefaultOpConversionPattern : public OpConversionPattern<SrcOp> {
-  using OpConversionPattern<SrcOp>::OpConversionPattern;
+template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
+class DefaultOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
 
 public:
   DefaultOpConversionPattern(const TypeConverter &typeConverter,
                              MLIRContext *context, PatternBenefit benefit = 1)
-      : OpConversionPattern<SrcOp>(typeConverter, context, benefit) {}
-
-  // Converts op name by removing the dialect prefix ("ttnn.") and replacing
-  // with namespace prefix ("ttnn::")
-  //
-  std::string convertOpName(SrcOp op) const {
-    auto name = op.getOperationName();
-    assert(
-        name.starts_with("ttnn.") &&
-        "DefaultOpConversionPattern only supports ops from the TTNN dialect");
-
-    return name.str().replace(0, 5, "ttnn::");
-  }
+      : TTNNToEmitCBaseOpConversionPattern<SourceOp>(typeConverter, context,
+                                                     benefit) {}
 
   LogicalResult
-  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     int numReturnTypes = srcOp->getResultTypes().size();
     assert(numReturnTypes <= 1 &&
@@ -60,15 +79,75 @@ public:
       auto resultTy = cast<emitc::OpaqueType>(
           this->getTypeConverter()->convertType(srcOp->getResult(0).getType()));
       rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          srcOp, resultTy, convertOpName(srcOp), nullptr, nullptr,
+          srcOp, resultTy, this->convertOpName(srcOp), nullptr, nullptr,
           adaptor.getOperands());
     } else {
       // No return type, only convert the op
       //
       rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          srcOp, srcOp->getResultTypes(), convertOpName(srcOp), nullptr,
+          srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
           nullptr, adaptor.getOperands());
     }
+
+    return success();
+  }
+};
+
+// OpenDeviceOp conversion pattern
+//
+class OpenDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp> {
+
+public:
+  OpenDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                                MLIRContext *context,
+                                PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp>(
+            typeConverter, context, benefit) {}
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn."; }
+  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
+
+public:
+  LogicalResult
+  matchAndRewrite(ttnn::OpenDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultTy =
+        this->getTypeConverter()->convertType(srcOp->getResult(0).getType());
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultTy, this->convertOpName(srcOp), srcOp.getDeviceIdsAttr(),
+        nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// CloseDeviceOp conversion pattern
+//
+class CloseDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp> {
+
+public:
+  CloseDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                                 MLIRContext *context,
+                                 PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp>(
+            typeConverter, context, benefit) {}
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn."; }
+  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
+
+public:
+  LogicalResult
+  matchAndRewrite(ttnn::CloseDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
+        nullptr, adaptor.getOperands());
 
     return success();
   }
@@ -83,10 +162,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  TypeConverter &typeConverter) {
   // Device ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::OpenDeviceOp>>(typeConverter,
-                                                               ctx, true);
-  patterns.add<DefaultOpConversionPattern<ttnn::CloseDeviceOp>>(typeConverter,
-                                                                ctx);
+  patterns.add<OpenDeviceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CloseDeviceOpConversionPattern>(typeConverter, ctx);
 
   // Memory ops
   //

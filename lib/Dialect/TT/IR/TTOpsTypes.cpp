@@ -33,7 +33,7 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {
           tt::ChipDescAttr::get(
               context, tt::ArchAttr::get(context, tt::Arch::WormholeB0), {8, 8},
-              (1 << 20), 12, (1 << 20), 16, 32, 32),
+              1499136, 12, (1 << 30), 16, 32, 32),
       },
       // Chip Descriptor Indices
       {

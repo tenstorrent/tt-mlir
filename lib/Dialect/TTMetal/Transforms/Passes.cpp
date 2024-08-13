@@ -5,16 +5,13 @@
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/MLProgram/IR/MLProgram.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -175,25 +172,29 @@ public:
       arg.setType(ty);
     }
 
-    rewriter.setInsertionPointToStart(noc0Block);
-    auto push0 = rewriter.create<ttkernel::CBPushBackOp>(
-        op.getLoc(), noc0Block->getArgument(0));
-    push0->remove();
-    noc0Block->push_back(push0);
-    auto return0 =
-        rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
-    return0->remove();
-    noc0Block->push_back(return0);
+    {
+      OpBuilder noc0Builder(noc0Block, noc0Block->begin());
+      auto one = noc0Builder.create<arith::ConstantOp>(
+          op.getLoc(), noc0Builder.getI32Type(),
+          noc0Builder.getI32IntegerAttr(1));
+      noc0Builder.create<ttkernel::CBReserveBackOp>(
+          op.getLoc(), noc0Block->getArgument(0), one);
+      noc0Builder.create<ttkernel::CBPushBackOp>(
+          op.getLoc(), noc0Block->getArgument(0), one);
+      noc0Builder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    }
 
-    rewriter.setInsertionPointToStart(noc1Block);
-    auto push1 = rewriter.create<ttkernel::CBPushBackOp>(
-        op.getLoc(), noc1Block->getArgument(1));
-    push1->remove();
-    noc1Block->push_back(push1);
-    auto return1 =
-        rewriter.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
-    return1->remove();
-    noc1Block->push_back(return1);
+    {
+      OpBuilder noc1Builder(noc1Block, noc1Block->begin());
+      auto one = noc1Builder.create<arith::ConstantOp>(
+          op.getLoc(), noc1Builder.getI32Type(),
+          noc1Builder.getI32IntegerAttr(1));
+      noc1Builder.create<ttkernel::CBReserveBackOp>(
+          op.getLoc(), noc1Block->getArgument(0), one);
+      noc1Builder.create<ttkernel::CBPushBackOp>(
+          op.getLoc(), noc1Block->getArgument(0), one);
+      noc1Builder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    }
 
     rewriter.replaceOp(op, metalDispatch);
 
@@ -246,6 +247,7 @@ public:
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::ttmetal::TTMetalDialect>();
     registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
+    registry.insert<mlir::arith::ArithDialect>();
   }
 };
 
@@ -253,6 +255,8 @@ void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
   pm.addPass(mlir::tt::ttir::createTTIRGeneric());
+  mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
+  layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
   pm.addPass(mlir::tt::ttir::createTTIRLayout());
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());

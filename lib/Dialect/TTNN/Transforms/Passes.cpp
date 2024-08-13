@@ -44,10 +44,18 @@ public:
       auto *block = &func.getBody().front();
       auto opRange = block->without_terminator();
 
+      llvm::SmallVector<Attribute, 8> chipDescIndices;
+      for (size_t i = 0; i < systemDesc.getChipDescIndices().size(); i++) {
+        chipDescIndices.push_back(builder.getIntegerAttr(
+            builder.getIntegerType(64), systemDesc.getChipDescIndices()[i]));
+      }
+
       builder.setInsertionPoint(block, opRange.begin());
       auto openDevice = builder.create<OpenDeviceOp>(
-          func.getLoc(), builder.getType<tt::DeviceType>(
-                             builder.getAttr<tt::DeviceAttr>(systemDesc)));
+          func.getLoc(),
+          builder.getType<tt::DeviceType>(
+              builder.getAttr<tt::DeviceAttr>(systemDesc)),
+          builder.getArrayAttr(chipDescIndices));
 
       builder.setInsertionPoint(block, opRange.end());
       builder.create<CloseDeviceOp>(func.getLoc(), openDevice.getResult());

@@ -1,83 +1,16 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/utils.h"
-#include "utils.h"
-
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+#include "utils.h"
 
 namespace tt::runtime::ttnn {
-static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
-  switch (arch) {
-  case ::tt::ARCH::GRAYSKULL:
-    return ::tt::target::Arch::Grayskull;
-  case ::tt::ARCH::WORMHOLE_B0:
-    return ::tt::target::Arch::Wormhole_b0;
-  case ::tt::ARCH::BLACKHOLE:
-    return ::tt::target::Arch::Blackhole;
-  default:
-    break;
-  }
 
-  throw std::runtime_error("Unsupported arch");
-}
-
-static ::tt::target::Dim2d toFlatbuffer(CoreCoord coreCoord) {
-  return ::tt::target::Dim2d(coreCoord.y, coreCoord.x);
-}
-
-std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
-  auto &device = ::ttnn::open_device(0);
-  std::vector<int> chipIds = {
-      device.id(),
-  };
-  ::flatbuffers::FlatBufferBuilder fbb;
-  ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
-  ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
-                                ttmlirVersion.patch);
-  ::tt::target::Dim2d deviceGrid =
-      toFlatbuffer(device.compute_with_storage_grid_size());
-  std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs = {
-      ::tt::target::CreateChipDesc(
-          fbb, toFlatbuffer(device.arch()), &deviceGrid, (1 << 20), 12,
-          (1 << 20), L1_ALIGNMENT, PCIE_ALIGNMENT, DRAM_ALIGNMENT),
-  };
-  std::vector<uint32_t> chipDescIndices = {
-      0,
-  };
-  ::tt::target::ChipCapability chipCapability =
-      ::tt::target::ChipCapability::PCIE;
-  if (device.is_mmio_capable()) {
-    chipCapability = chipCapability | ::tt::target::ChipCapability::HostMMIO;
-  }
-  std::vector<::tt::target::ChipCapability> chipCapabilities = {
-      chipCapability,
-  };
-  std::vector<::tt::target::ChipCoord> chipCoord = {
-      ::tt::target::ChipCoord(0, 0, 0, 0),
-  };
-  std::vector<::tt::target::ChipChannel> chipChannel;
-  auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoord,
-      &chipChannel);
-  auto root = ::tt::target::CreateSystemDescRootDirect(
-      fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
-  ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
-  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-  if (not ::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
-    throw std::runtime_error("Failed to verify system desc root buffer");
-  }
-  uint8_t *buf = fbb.GetBufferPointer();
-  auto size = fbb.GetSize();
-  auto handle = ::tt::runtime::utils::malloc_shared(size);
-  std::memcpy(handle.get(), buf, size);
-  ::ttnn::close_device(device);
-  return std::make_pair(SystemDesc(handle), chipIds);
-}
+using ::tt::runtime::DeviceRuntime;
 
 template <typename T>
 static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements) {
@@ -114,7 +47,7 @@ Tensor createTensor(std::shared_ptr<void> data,
   auto tensor = std::make_shared<::ttnn::Tensor>(
       createStorage(data.get(), numElements, dataType), shape,
       utils::toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
-  return Tensor(tensor, data);
+  return Tensor(tensor, data, DeviceRuntime::TTNN);
 }
 
 Device openDevice(std::vector<int> const &deviceIds,
@@ -122,11 +55,11 @@ Device openDevice(std::vector<int> const &deviceIds,
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   assert(numHWCQs.empty() && "HWCQs are not supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front());
-  return Device::borrow(device);
+  return Device::borrow(device, DeviceRuntime::TTNN);
 }
 
 void closeDevice(Device device) {
-  auto &ttnn_device = device.as<::ttnn::Device>();
+  auto &ttnn_device = device.as<::ttnn::Device>(DeviceRuntime::TTNN);
   ::ttnn::close_device(ttnn_device);
 }
 
@@ -143,25 +76,28 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
              std::vector<Tensor> const &outputHandles) {
-  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>();
+  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN);
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
   inputs.reserve(inputHandles.size());
   for (auto &input : inputHandles) {
+    assert(input.matchesRuntime(DeviceRuntime::TTNN));
     inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
   }
   std::vector<::ttnn::Tensor *> outputs;
   outputs.reserve(outputHandles.size());
   for (auto &output : outputHandles) {
+    assert(output.matchesRuntime(DeviceRuntime::TTNN));
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
   tt::runtime::ttnn::runProgram(device, fbb.programs()->Get(programIndex),
                                 inputs, outputs);
-  return Event(nullptr);
+  return Event(nullptr, DeviceRuntime::TTNN);
 }
 
-void wait(Event) {
+void wait(Event event) {
   // Not implemented
+  assert(event.matchesRuntime(DeviceRuntime::TTNN));
 }
 
 } // namespace tt::runtime::ttnn

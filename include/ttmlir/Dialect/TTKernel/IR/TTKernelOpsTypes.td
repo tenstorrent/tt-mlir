@@ -30,6 +30,11 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
+def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
+    let summary = "TTKernel noc address";
+    let description = "Noc address type in TTKernel dialect";
+}
+
 def TTKernel_ThreadTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ThreadType, "thread"> {
   let assemblyFormat = "`<` $value `>`";
 }

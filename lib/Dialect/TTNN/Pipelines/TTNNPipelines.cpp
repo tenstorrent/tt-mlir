@@ -17,7 +17,9 @@ void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
-  pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
+  layoutOptions.initMemorySpace = mlir::tt::MemorySpace::System;
+  pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
 
   if (options.gridSetPassEnabled) {
     ttir::TTIRGridSetOptions gridSetOptions;

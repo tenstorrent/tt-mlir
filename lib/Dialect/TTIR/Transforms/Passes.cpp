@@ -98,7 +98,7 @@ public:
 
     auto kernel = rewriter.create<ttir::KernelOp>(
         op.getLoc(), op.getResultTypes(), kernelName, kernelKind,
-        op.getInputs(), op.getOutputs());
+        op.getInputs(), op.getOutputs(), op.getOperandConstraints());
 
     rewriter.replaceOp(op, kernel);
 
@@ -343,14 +343,15 @@ inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
 
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTIRLayoutTensorTypeConverter(MLIRContext *ctx) {
+  TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](RankedTensorType type) -> Type {
+    addConversion([ctx, initMemorySpace](RankedTensorType type) -> Type {
       auto layout = type.getEncoding();
       if (layout) {
         return type;
       }
-      auto newLayout = LayoutAttr::get(ctx, type);
+      // Default to initMemorySpace, the optimizer might decide otherwise
+      auto newLayout = LayoutAttr::get(ctx, type, initMemorySpace);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -415,13 +416,12 @@ public:
   const TypeConverter *converter;
 };
 
-static std::optional<Value>
-createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint) {
+static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
+                                             Location loc, Value input,
+                                             MemorySpace desiredMemorySpace) {
   auto ty = mlir::cast<RankedTensorType>(input.getType());
   auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
   auto currMemorySpace = currLayout.getMemorySpace();
-  auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
   if (currMemorySpace == desiredMemorySpace) {
     return std::nullopt;
   }
@@ -440,27 +440,38 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       ->getResult(0);
 }
 
-template <typename TTIROpTy>
-class TTIRLayoutOperandsRewriter : public OpRewritePattern<TTIROpTy> {
-public:
-  using OpRewritePattern<TTIROpTy>::OpRewritePattern;
+static std::optional<Value>
+createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                 OperandConstraint operandConstraint) {
+  auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
+  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace);
+}
 
-  LogicalResult matchAndRewrite(TTIROpTy op,
+class TTIRLayoutDPSOperandsRewriter
+    : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
+public:
+  using OpInterfaceRewritePattern<
+      DestinationStyleOpInterface>::OpInterfaceRewritePattern;
+
+  LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
+    if (mlir::isa<ToLayoutOp>(op.getOperation())) {
+      // Skip the ToLayoutOp itself
+      return failure();
+    }
+
     assert(op->template hasTrait<TTIROp::Trait>());
-    auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
-      bool isResult = dpsInterface.isDpsInit(&operand);
+      bool isResult = op.isDpsInit(&operand);
       auto encoding =
           mlir::cast<RankedTensorType>(operand.get().getType()).getEncoding();
-      if (not encoding) {
-        return failure(); // Hasn't been type converted yet
-      }
+      assert(encoding);
 
       auto operandConstraint =
           mlir::cast<OperandConstraintAttr>(
-              op.getOperandConstraints()[operand.getOperandNumber()])
+              mlir::cast<TTIROp>(op.getOperation())
+                  .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
       auto desiredLayout = createToLayoutOp(rewriter, op.getLoc(),
                                             operand.get(), operandConstraint);
@@ -495,14 +506,18 @@ public:
 class TTIRLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
-  using OpRewritePattern<mlir::func::ReturnOp>::OpRewritePattern;
+  TTIRLayoutFuncReturnRewriter(MLIRContext *ctx, MemorySpace initMemorySpace)
+      : OpRewritePattern<mlir::func::ReturnOp>(ctx),
+        initMemorySpace(initMemorySpace) {}
 
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
+      // Leave the return values in initMemorySpace, optimizer might decide
+      // otherwise
       if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                         OperandConstraint::System);
+                                         initMemorySpace);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -511,6 +526,9 @@ public:
     }
     return modified ? success() : failure();
   }
+
+private:
+  MemorySpace initMemorySpace;
 };
 
 class TTIRLayout : public impl::TTIRLayoutBase<TTIRLayout> {
@@ -519,7 +537,8 @@ public:
 
   void runOnOperation() final {
     {
-      TTIRLayoutTensorTypeConverter typeConverter(&getContext());
+      TTIRLayoutTensorTypeConverter typeConverter(&getContext(),
+                                                  initMemorySpace);
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
@@ -530,18 +549,9 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<
-          TTIRLayoutOperandsRewriter<GenericOp>,
-          TTIRLayoutOperandsRewriter<AddOp>,
-          TTIRLayoutOperandsRewriter<MultiplyOp>,
-          TTIRLayoutOperandsRewriter<SubtractOp>,
-          TTIRLayoutOperandsRewriter<GreaterEqualOp>,
-          TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
-          TTIRLayoutOperandsRewriter<MeanOp>,
-          TTIRLayoutOperandsRewriter<SoftmaxOp>,
-          TTIRLayoutOperandsRewriter<TransposeOp>,
-          TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
-          &getContext());
+      patterns.add<TTIRLayoutDPSOperandsRewriter>(&getContext());
+      patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(),
+                                                 initMemorySpace);
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();

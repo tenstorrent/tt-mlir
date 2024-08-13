@@ -81,8 +81,11 @@ def TT_ChipChannelAttr : TT_Attr<"ChipChannel", "chip_channel"> {
     TT chip_channel attribute
   }];
 
-  let parameters = (ins "unsigned":$endpoint0, "unsigned":$endpoint1);
-  let assemblyFormat = "`<` $endpoint0 `,` $endpoint1 `>`";
+  let parameters = (ins "unsigned":$deviceId0,
+                        ArrayRefParameter<"int64_t">:$ethernetCoreCoord0,
+                        "unsigned":$deviceId1,
+                        ArrayRefParameter<"int64_t">:$ethernetCoreCoord1);
+  let assemblyFormat = "`<` $deviceId0 `,` $ethernetCoreCoord0 `,` $deviceId1 `,` $ethernetCoreCoord1 `>`";
 }
 
 def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
