@@ -56,7 +56,7 @@ class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [Elementwise, AttrSizedOperandSegments])> {
+    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments])> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs);
