@@ -31,10 +31,10 @@ class TTNNToEmitCTypeConverter : public TypeConverter {
 public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](mlir::tt::DeviceType type) -> Type {
-      return emitc::OpaqueType::get(ctx, "ttnn::Device");
+    addConversion([ctx](tt::DeviceType type) -> emitc::OpaqueType {
+      return emitc::OpaqueType::get(ctx, "ttnn::device::Device&");
     });
-    addConversion([ctx](TensorType type) -> Type {
+    addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
     });
   }
@@ -55,22 +55,19 @@ struct ConvertTTNNToEmitCPass
       auto module = getOperation();
       OpBuilder builder(module);
 
-      builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn/device.h",
-                                       /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(), "ttnn/operations/eltwise/binary/binary.hpp",
-          /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(), "ttnn/operations/core.hpp", /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(module.getLoc(),
-                                       "ttnn/operations/creation.hpp",
-                                       /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(
-          module.getLoc(),
-          "ttnn/operations/reduction/generic/generic_reductions.hpp",
-          /*isStandard=*/false);
-      builder.create<emitc::IncludeOp>(module.getLoc(),
-                                       "ttnn/operations/normalization.hpp",
+      if (module.getBodyRegion().empty()) {
+        // Parent module is empty, nothing to do here
+        //
+        signalPassFailure();
+      }
+
+      // Set insertion point to start of first module child
+      //
+      builder.setInsertionPointToStart(module.getBody(0));
+
+      // Include headers
+      //
+      builder.create<emitc::IncludeOp>(module.getLoc(), "pch.hpp",
                                        /*isStandard=*/false);
     }
 
