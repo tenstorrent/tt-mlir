@@ -53,9 +53,10 @@ class API:
         API.Run.register_arg(api_only=False, name="--seed", type=int, default=0, choices=None, help="seed for random number generator")
 
         # register all perf arguments
+        API.Perf.register_arg(api_only=True, name="--device", type=boolean, default=False, choices=[False, False], help="collect performance trace on both host and device")
         up_stream_apis = API.Run.get_upstream_apis()
         for api in up_stream_apis:
-            API.Run.register_arg(api_only=True, name=api["name"], type=api["type"], default=api["default"], choices=api["choices"], help=api["help"])
+            API.Perf.register_arg(api_only=True, name=api["name"], type=api["type"], default=api["default"], choices=api["choices"], help=api["help"])
 
         # register apis
         API.register_api(API.Query)
@@ -593,17 +594,190 @@ class API:
                 return torch.zeros(shape, dtype=dtype)
 
     class Perf:
+      registered_args = {}
+      api_only_arg = []
+
       def __init__(self, logging, args):
-            pass
+            self.logging = logging
+            self.artifacts = Artifacts.prepare_artifact()
+            self.ttnn_binaries = None
+            self.ttmetal_binaries = None
+            self.query = API.Query()
+            self.tracy_capture_tool_path = f"{artifacts.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
+            self.tracy_csvexport_tool_path = f"{artifacts.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
+            self.tracy_capture_tool_process = None
+
+            for name, _ in API.Run.registered_args.items():
+                self[name] = args[name]
           
         def preprocess(self):
-            pass
+            self.query()
+
+            if self["clean_artifacts"]:
+                self.artifacts.clean_artifacts()
+
+            if self["save_artifacts"]:
+                self.artifacts.create_artifacts()
+
+            ttnn_binary_paths = BinaryTTNN.find_ttnn_binary_paths(self["binary"])
+            ttmetal_binary_paths = BinaryTTMetal.find_ttmetal_binary_paths(self["binary"])
+
+            FileManager.remove_directory(PROFILER_LOGS_DIR)
+            FileManager.create_directory(PROFILER_LOGS_DIR)
 
         def check_constraints(self):
-            pass
+            for path in ttnn_binary_paths:
+                bin = BinaryTTNN.prepare_binary(path)
+                if not bin.check_version():
+                    continue
+
+                if not bin.check_system_desc(self.query)
+                    continue
+
+                if self["program_index"] != "all":
+                    if not bin.check_program_index_exists(int(self["program_index"])):
+                        continue
+                
+                self.ttnn_binaries.append(bin)
+
+            for path in ttmetal_binary_paths:
+                bin = BinaryTTMetal.prepare_binary(path)
+                if not bin.check_version():
+                    continue
+
+                if not bin.check_system_desc(self.query)
+                    continue
+
+                if self["program_index"] != "all":
+                    if not bin.check_program_index_exists(int(self["program_index"])):
+                        continue
+
+                self.ttmetal_binaries.append(bin)
+
+            FileManager.check_file_exists(self.tracy_capture_tool_path)
+            FileManager.check_file_exists(self.tracy_csvexport_tool_path)
 
         def execute(self):
-            pass
+            import tracy
+            import tracy_state
+            from tt_metal.tools.profiler.process_ops_logs import process_ops
+            from tt_metal.tools.profiler.common import PROFILER_LOGS_DIR, TRACY_OPS_TIMES_FILE_NAME, TRACY_OPS_DATA_FILE_NAME, TRACY_FILE_NAME
+
+            def get_available_port():
+                ip = socket.gethostbyname(socket.gethostname())
+
+                for port in range(8086, 8500):
+                    try:
+                        serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        serv.bind((ip, port))
+                        return str(port)
+                    except PermissionError as e:
+                        pass
+                    except OSError as e:
+                        pass
+                return None
+
+            def generate_report(binary_perf_folder):
+                child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
+                time_out = 15
+                time_count = 0
+                while not os.path.exists(PROFILER_LOGS_DIR / TRACY_FILE_NAME):
+                    if time_count > time_out:
+                        raise Exception(f"tracy capture output file {PROFILER_LOGS_DIR / TRACY_FILE_NAME} was not generated")
+                    time_count += 1
+                    time.sleep(1)
+
+                with open(PROFILER_LOGS_DIR / TRACY_OPS_TIMES_FILE_NAME, "w") as csv_file:
+                    child_call_str = f"-x {','.join(child_calls)}"
+                    subprocess.run(
+                        f"{self.tracy_csvexport_tool_path} -u -p TT_DNN {child_call_str} {PROFILER_LOGS_DIR / TRACY_FILE_NAME}",
+                        shell=True,
+                        check=True,
+                        stdout=csv_file,
+                        stderr=subprocess.DEVNULL,
+                    )
+
+                with open(PROFILER_LOGS_DIR / TRACY_OPS_DATA_FILE_NAME, "w") as csv_file:
+                    subprocess.run(
+                        f'{self.tracy_csvexport_tool_path} -m -s ";" {PROFILER_LOGS_DIR / TRACY_FILE_NAME}',
+                        shell=True,
+                        check=True,
+                        stdout=csv_file,
+                        stderr=subprocess.DEVNULL,
+                    )
+                process_ops(binary_perf_folder, "", True)
+
+            def save_perf_artifacts(binary_perf_folder):
+                tracy_ops_times_file = (f"{self.artifacts.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_TIMES_FILE_NAME}")
+                tracy_ops_data_file = (f"{self.artifacts.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_DATA_FILE_NAME}")
+                tracy_file = f"{self.artifacts.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_FILE_NAME}"
+
+                try:
+                    FileManager.check_file_exists(tracy_ops_times_file)
+                    FileManager.check_file_exists(tracy_ops_data_file)
+                    FileManager.check_file_exists(tracy_file)
+                except Exception as e:
+                    raise Exception(f"an unexpected error occurred: {e}")
+
+                for root, dirs, files in os.walk(binary_perf_folder, topdown=False):
+                    if root == binary_perf_folder:
+                        continue
+
+                    for file_name in files:
+                        file_path = os.path.join(root, file_name)
+                        dest_path = os.path.join(binary_perf_folder, file_name)
+                        FileManager.copy_file(dest_path, file_path)
+
+                    if not os.listdir(root):
+                        FileManager.remove_directory(root)
+
+            def _execute(binaries):
+                for bin in binaries:
+                    port = get_available_port()
+
+                    if not port:
+                        raise Exception("No available port found")
+
+                    env_vars = dict(os.environ)
+                    env_vars["TRACY_PORT"] = port
+                    env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+
+                    if self["device"]:
+                        env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
+
+                    tracy_capture_tool_command = (f"{self.tracy_capture_tool_path} -o {PROFILER_LOGS_DIR / TRACY_FILE_NAME} -f -p {port}")
+                    self.tracy_capture_tool_process = subprocess.Popen(tracy_capture_tool_command, shell=True)
+
+                    test_command = f"python -m tracy -p {artifacts.get_ttmlir_venv_path()}/bin/ttrt run {bin.file_path} --save-artifacts"
+                    testProcess = subprocess.Popen(
+                        [test_command], shell=True, env=env_vars, preexec_fn=os.setsid
+                    )
+
+                    def signal_handler(sig, frame):
+                        os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
+                        captureProcess.terminate()
+                        captureProcess.communicate()
+                        sys.exit(3)
+
+                    signal.signal(signal.SIGINT, signal_handler)
+                    signal.signal(signal.SIGTERM, signal_handler)
+                    testProcess.communicate()
+
+                    try:
+                        captureProcess.communicate(timeout=15)
+                        perf_trace.generate_report(self.artifacts.get_binary_perf_folder_path(bin))
+                    except subprocess.TimeoutExpired as e:
+                        captureProcess.terminate()
+                        captureProcess.communicate()
+                        raise Exception(f"No profiling data could be captured. Please make sure you are on the correct build")
+            
+                    save_perf_artifacts(self.artifacts.get_binary_perf_folder_path(bin))
+
+            if len(self.ttnn_binaries) != 0:
+                _execute(self.ttnn_binaries)
+            
+            if len(self.ttmetal_binaries) != 0:
+                _execute(self.ttnn_binaries)
 
         def postprocess(self):
             pass
@@ -624,118 +798,35 @@ class API:
             self.postprocess()
 
         @staticmethod
-        def register_arg():
-            pass
+        def register_arg(api_only=True, name, type, default, choices, help):
+            API.Perf.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+
+            if api_only:
+                API.Perf.api_only_arg.append(name)
 
         @staticmethod
-        def generate_subparser():
-            pass
+        def get_upstream_apis():
+            upstream_apis = []
+            for arg_name, arg_value in API.Perf.registered_args.items():
+                if arg_name not in API.Perf.api_only_arg:
+                    upstream_apis.append({"name": arg_name, "type": arg_value["type"], "default": arg_value["default"], "choices": arg_value["choices"], "help": arg_value["help"]})
 
+            return upstream_apis
 
-"""
-API: perf
-  - run flatbuffer on device in performance mode
-"""
-
-
-def perf(args, logger):
-    import ttrt.common.perf_trace as perf_trace
-
-    # initialization
-    binaries = []
-
-    # acquire parameters
-    arg_binary = args.binary
-    arg_program_index = args.program_index
-    arg_clean_artifacts = args.clean_artifacts
-    arg_perf_csv = args.perf_csv
-    arg_loops = int(args.loops)
-    arg_save_artifacts = args.save_artifacts
-    arg_device = args.device
-    arg_generate_params = args.generate_params
-
-    # preprocessing
-    if os.path.isdir(arg_binary):
-        print("provided directory of flatbuffers")
-        binaries = find_ttnn_files(arg_binary)
-    else:
-        binaries.append(arg_binary)
-
-    if arg_clean_artifacts:
-        print("cleaning artifacts")
-        clean_artifacts()
-
-    if arg_save_artifacts:
-        print("setting up artifact directories")
-        setup_artifacts(binaries)
-
-    # constraint checking
-    if arg_generate_params:
-        check_file_exists(arg_perf_csv)
-
-    for binary in binaries:
-        check_file_exists(binary)
-
-    # execution
-    if arg_generate_params:
-        perf_trace.generate_params_dict(arg_perf_csv)
-    else:
-        for binary in binaries:
-            # get available port for tracy client and server to communicate on
-            port = perf_trace.get_available_port()
-
-            if not port:
-                print("No available port found")
-                sys.exit(1)
-            print(f"Using port {port}")
-
-            # setup environment flags
-            envVars = dict(os.environ)
-            envVars["TRACY_PORT"] = port
-            envVars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
-
-            if arg_device:
-                envVars["TT_METAL_DEVICE_PROFILER"] = "1"
-
-            # run perf artifact setup
-            captureProcess = perf_trace.run_perf_artifact_setup(port)
-
-            # generate test command to execute
-            testCommandOptions = ""
-            if arg_save_artifacts:
-                testCommandOptions += f"--save-artifacts "
-
-            testCommand = f"python -m tracy -p {TTMLIR_VENV_DIR}/bin/ttrt run {binary} --loops {arg_loops} --program-index {arg_program_index} {testCommandOptions}"
-            testProcess = subprocess.Popen(
-                [testCommand], shell=True, env=envVars, preexec_fn=os.setsid
+        @staticmethod
+        def generate_subparser(subparsers):
+            perf_parser = subparsers.add_parser(
+                "run", help="run performance trace and collect performance data"
             )
-            print(f"Test process started")
+            perf_parser.set_defaults(func=API.Perf)
 
-            # setup multiprocess signal handler
-            def signal_handler(sig, frame):
-                os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
-                captureProcess.terminate()
-                captureProcess.communicate()
-                sys.exit(3)
-
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-
-            testProcess.communicate()
-
-            binary_name = os.path.splitext(os.path.basename(binary))[0]
-            binary_perf_folder = f"{TTRT_ARTIFACTS}/{binary_name}/perf"
-
-            try:
-                captureProcess.communicate(timeout=15)
-                perf_trace.generate_report(binary_perf_folder)
-            except subprocess.TimeoutExpired as e:
-                captureProcess.terminate()
-                captureProcess.communicate()
-                print(
-                    f"No profiling data could be captured. Please make sure you are on the correct build. Use scripts/build_scripts/build_with_profiler_opt.sh to build if you are not sure."
+            for name, attributes in API.Perf.registered_args.items():
+                perf_parser.add_argument(
+                    f"--{name}",
+                    type=attributes["type"],
+                    default=attributes["default"],
+                    choices=choices["choices"]
+                    help=attributes["help"],
                 )
-                sys.exit(1)
 
-            # save artifacts
-            perf_trace.save_perf_artifacts(binary_perf_folder)
+            return perf_parser

@@ -221,6 +221,9 @@ class Artifacts:
     def get_binary_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}_{binary.extension}"
 
+    def get_binary_perf_folder_path(self, binary):
+        return f"{self.get_artifacts_folder_path()}/{binary.name}_{binary.extension}/perf"
+
     def create_artifacts(self):
         FileManager.create_directory(self.get_artifacts_folder_path())
 
