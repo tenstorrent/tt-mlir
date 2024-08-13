@@ -68,4 +68,14 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
+def TTIRInferBroadcastedShapes: Pass<"ttir-infer-broadcasted-shapes", "::mlir::func::FuncOp"> {
+// def TTIRInferBroadcastedShapes: Pass<"ttir-infer-broadcasted-shapes", "::mlir::tt::ttir::TTIR_ElementwiseOpInterface"> {
+// def TTIRInferBroadcastedShapes: Pass<"ttir-infer-broadcasted-shapes", "::mlir::func::FuncOp"> {
+  let summary = "Infer broadcasted shapes for elementwise ops.";
+  let description = [{
+    Infer broadcasted shapes for elementwise ops.
+  }];
+}
+
+
 #endif

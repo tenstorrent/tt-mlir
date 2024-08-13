@@ -22,6 +22,8 @@
 #include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Operation.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERIC
@@ -31,6 +33,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGRIDSET
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
 #define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
+#define GEN_PASS_DEF_TTIRINFERBROADCASTEDSHAPES
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 class TTIRImplicitDevice
@@ -787,6 +790,38 @@ public:
       module->setAttr(tt::SystemDescAttr::name,
                       tt::SystemDescAttr::getDefault(&getContext()));
     }
+  }
+};
+
+class TTIRInferBroadcastedShapes
+    : public impl::TTIRInferBroadcastedShapesBase<TTIRInferBroadcastedShapes> {
+public:
+  using impl::TTIRInferBroadcastedShapesBase<
+      TTIRInferBroadcastedShapes>::TTIRInferBroadcastedShapesBase;
+
+  void runOnOperation() final {
+    func::FuncOp func = getOperation();
+    // propagateShapesInRegion(func.getBody());
+    // TTIR_ElementwiseOpInterface op = getOperation();
+    // op.inferBroadcastedShape();
+
+    llvm::outs() << "Pass TTIRInferBroadcastedShapes runOnOperation\n";
+    // op.inferBroadcastedShape();
+
+    func->walk([](Operation *op) {
+      if (auto elementwiseOp = dyn_cast<TTIR_ElementwiseOpInterface>(op)) {
+        elementwiseOp.inferBroadcastedShape();
+        llvm::outs() << "Infer broadcasted shapes for " << op->getName()
+                     << "\n";
+
+        for (auto operand : op->getOperands()) {
+          llvm::outs() << "Operand : " << operand << "\n";
+          for (auto &use : operand.getUses()) {
+            llvm::outs() << "Use : " << use.getOwner()->getName() << "\n";
+          }
+        }
+      }
+    });
   }
 };
 

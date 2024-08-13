@@ -18,12 +18,14 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttmetal {
 
@@ -252,11 +254,65 @@ public:
 void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
-  pm.addPass(mlir::tt::ttir::createTTIRGeneric());
-  pm.addPass(mlir::tt::ttir::createTTIRLayout());
-  pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
-  pm.addPass(mlir::tt::ttir::createTTIRAllocate());
-  pm.addPass(createConvertTTIRToTTMetal());
+
+  // insert pass that expands broadcasted tensor shapes
+  // need to check if layout is created normally afterwards as Nick explained
+  // - whether affine map drops some of dimensions...
+
+  // onnx-mlir does following:
+  //     pm.addNestedPass<func::FuncOp>(onnx_mlir::createShapeInferencePass());
+  //     -> return return std::make_unique<ShapeInferencePass>();
+  //     -> void ShapeInferencePass::runOnOperation() {
+  //   func::FuncOp f = getOperation();
+  //   GreedyRewriteConfig config;
+  //   config.useTopDownTraversal = true;
+  //   (void)applyPatternsAndFoldGreedily(f.getBody(), patterns, config);
+  //   inferFunctionReturnShapes(f);
+  // }
+
+  //   LogicalResult initialize(MLIRContext *context) override {
+  //   RewritePatternSet cumulativePatterns(context);
+  //   getShapeInferencePatterns(cumulativePatterns);
+  //   patterns = FrozenRewritePatternSet(std::move(cumulativePatterns));
+  //   return success();
+  // }
+
+  // getShapeInferencePatterns:
+  //   void getShapeInferencePatterns(RewritePatternSet &set) {
+  //   // Bump up the pattern benefit of the shape inference patterns to run
+  //   them
+  //   // before other patterns, because most other patterns (e.g.
+  //   canonicalization)
+  //   // work best after shapes are inferred.
+  //   PatternBenefit highPriority(10000);
+  //   set.insert<InferShapesPattern>(set.getContext(), highPriority);
+  //   set.insert<YieldShapesPattern>(set.getContext(), highPriority);
+  // }
+
+  // we can do as above, or try with pass that uses
+  // canScheduleOn and hasInterface
+
+  // the below compiles but does not actually run the pass, at least doesn't
+  // print anything
+  OpPassManager &nestedModulePM = pm.nest<func::FuncOp>();
+  nestedModulePM.addPass(mlir::tt::ttir::createTTIRInferBroadcastedShapes());
+  // OpPassManager &nestedPM = nestedModulePM.nestAny();
+
+  // pm.addNestedPass<ttir::>(mlir::tt::ttir::createTTIRInferBroadcastedShapes());
+  // pm.addNestedPass<mlir::tt::ttir::TTIROp>(mlir::tt::ttir::createTTIRInferBroadcastedShapes());
+  // nestedPM.addPass(mlir::tt::ttir::createTTIRInferBroadcastedShapes());
+
+  // llvm::outs() << "added pass nestedPm.size=" << nestedPM.size() << "\n";
+
+  llvm::outs() << "added pass pm.size=" << pm.size() << "\n";
+  llvm::outs() << "added pass nestedModulePM.size=" << nestedModulePM.size()
+               << "\n";
+
+  // pm.addPass(mlir::tt::ttir::createTTIRGeneric());
+  // pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  // pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
+  // pm.addPass(mlir::tt::ttir::createTTIRAllocate());
+  // pm.addPass(createConvertTTIRToTTMetal());
 }
 
 } // namespace mlir::tt::ttmetal

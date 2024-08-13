@@ -47,6 +47,18 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
 def TTIR_ElementwiseOpInterface : OpInterface<"TTIR_ElementwiseOpInterface"> {
   let cppNamespace = "::mlir::tt::ttir";
 
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Infer the broadcasted shape of all operands.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"inferBroadcastedShape",
+      /*args=*/(ins),
+      /*defaultImplementation=*/"return ::mlir::tt::ttir::detail::inferBroadcastedShape($_op);"
+    >,
+  ];
+
   let verify = [{
     return detail::verifyElementwiseOp($_op);
   }];
