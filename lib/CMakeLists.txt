@@ -12,25 +12,36 @@ if (TTMLIR_ENABLE_RUNTIME)
     add_subdirectory(SharedLib)
 endif()
 
+set(ttmlir_dependencies "")
+set(link_libs 
+MLIR;
+MLIRTTDialect;
+MLIRTTIRDialect;
+MLIRTTIRTransforms;
+TTMLIRConversions;
+MLIRTTIRAnalysis;
+MLIRTTNNDialect;
+MLIRTTNNTransforms;
+MLIRTTKernelDialect;
+MLIRTTMetalDialect;
+MLIRTTMetalTransforms;
+MLIRTTNNPipelines
+)
+
+if (TTMLIR_ENABLE_STABLEHLO)
+    list(APPEND ttmlir_dependencies stablehlo)
+    list(APPEND link_libs TTMLIRStableHLOToTTIR)
+endif()
+
 add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp
 
   DEPENDS
-  stablehlo 
+  ${ttmlir_dependencies}
  
   LINK_LIBS PUBLIC
-    MLIR
-    MLIRTTDialect
-    MLIRTTIRDialect
-    MLIRTTIRTransforms
-    TTMLIRConversions
-    MLIRTTIRAnalysis
-    MLIRTTNNDialect
-    MLIRTTNNTransforms
-    MLIRTTKernelDialect
-    MLIRTTMetalDialect
-    MLIRTTMetalTransforms
-    MLIRTTNNPipelines
-    TTMLIRStableHLOToTTIR
+  ${link_libs}
 )
 
+if (TTMLIR_ENABLE_STABLEHLO)
 add_dependencies(TTMLIRStatic stablehlo)
+endif()

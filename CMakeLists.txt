@@ -9,6 +9,10 @@ option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" ON)
 
+if (TTMLIR_ENABLE_STABLEHLO)
+  add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
+endif()
+
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
