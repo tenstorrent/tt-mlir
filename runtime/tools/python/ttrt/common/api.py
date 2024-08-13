@@ -29,8 +29,39 @@ class API:
     registered_functions = ["__init__", "_preprocess", "check_constraints", "execute", "postprocess", "__str__", "__getitem__", "__setitem__", "__call__", "register_arg", "generate_subparser"]
 
     @staticmethod
-    def initialize_api():
-        pass
+    def initialize_apis():
+        # name, type, default, choices, help
+        # register all query arguments
+        API.Query.register_arg(api_only=True, name="--clean-artifacts", type=boolean, default=False, choices=[True, False], help="clean all artifacts from previous runs")
+        API.Query.register_arg(api_only=True, name="--save-artifacts", type=boolean, default=False, choices=[True, False], help="save all artifacts during run")
+        API.Query.register_arg(api_only=True, name="--print", type=boolean, default=False, choices=[True, False], help="print system desc to output")
+
+        # register all read arguments
+        API.Read.register_arg(api_only=True, name="--section", type=str, default="all", choices=sorted(API.Read.read_actions.keys()), help="output sections of the fb")
+        API.Read.register_arg(api_only=True, name="--clean-artifacts", type=boolean, default=False, choices=[True, False], help="clean all artifacts from previous runs")
+        API.Read.register_arg(api_only=True, name="--save-artifacts", type=boolean, default=False, choices=[True, False], help="save all artifacts during run")
+
+        # register all run arguments
+        API.Run.register_arg(api_only=False, name="--clean-artifacts", type=boolean, default=False, choices=[True, False], help="clean all artifacts from previous runs")
+        API.Run.register_arg(api_only=False, name="--save-artifacts", type=boolean, default=False, choices=[False, False], help="save all artifacts during run")
+        API.Run.register_arg(api_only=False, name="--program-index", type=str, default="all", choices=["all"] + [str(i) for i in range(1, 101)], help="the program inside the fbb to run")
+        API.Run.register_arg(api_only=False, name="--loops", type=int, default=1, choices=None, help="number of loops")
+        API.Run.register_arg(api_only=False, name="--init", type=str, default="randn", choices=API.run.TorchInitilizer.init_fns, help="function to initialize tensors with")
+        API.Run.register_arg(api_only=False, name="--identity", type=boolean, default=False, choices=[False, False], help="do a golden identity test on the output tensors")
+        API.Run.register_arg(api_only=False, name="--rtol", type=float, default=1e-05, choices=None, help="rtol for golden test")
+        API.Run.register_arg(api_only=False, name="--atol", type=float, default=1e-08, choices=None, help="atol for golden test")
+        API.Run.register_arg(api_only=False, name="--seed", type=int, default=0, choices=None, help="seed for random number generator")
+
+        # register all perf arguments
+        up_stream_apis = API.Run.get_upstream_apis()
+        for api in up_stream_apis:
+            API.Run.register_arg(api_only=True, name=api["name"], type=api["type"], default=api["default"], choices=api["choices"], help=api["help"])
+
+        # register apis
+        API.register_api(API.Query)
+        API.register_api(API.Read)
+        API.register_api(API.Run)
+        API.register_api(API.Perf)
 
     @staticmethod
     def register_api(api_class):
@@ -44,8 +75,9 @@ class API:
 
         API.registered_apis[api_class.__name__] = api_class
 
-    class query:
+    class Query:
         registered_args = {}
+        api_only_arg = []
 
         def __init__(self, logging, args):
             self.system_desc = None
@@ -53,7 +85,7 @@ class API:
             self.logging = logging
             self.artifacts = Artifacts.prepare_artifact()
             
-            for name, _ in API.query.registered_args.items():
+            for name, _ in API.Query.registered_args.items():
                 self[name] = args[name]
           
         def preprocess(self):
@@ -71,6 +103,9 @@ class API:
 
             try:
                 self.system_desc, self.device_ids = ttrt.runtime.get_current_system_desc()
+
+                if self["print"]:
+                    logging.info(get_system_desc_as_dict())
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
@@ -92,25 +127,34 @@ class API:
             self.check_constraints()
             self.execute()
             self.postprocess()
-            
-        def get_system_desc(self):
-            return StringIO(json.loads(self.system_desc))
         
         def get_system_desc_as_dict(self):
             return json.loads(self.system_desc.as_json())
 
         @staticmethod
-        def register_arg(name, type, default, choices, help):
-            API.query.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+        def register_arg(api_only=True, name, type, default, choices, help):
+            API.Query.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+
+            if api_only:
+                API.Query.api_only_arg.append(name)
+
+        @staticmethod
+        def get_upstream_apis():
+            upstream_apis = []
+            for arg_name, arg_value in API.Query.registered_args.items():
+                if arg_name not in API.Query.api_only_arg:
+                    upstream_apis.append({"name": arg_name, "type": arg_value["type"], "default": arg_value["default"], "choices": arg_value["choices"], "help": arg_value["help"]})
+
+            return upstream_apis
 
         @staticmethod
         def generate_subparser(subparsers):
             query_parser = subparsers.add_parser(
                 "query", help="query information about the current system"
             )
-            query_parser.set_defaults(func=API.query)
+            query_parser.set_defaults(func=API.Query)
 
-            for name, attributes in API.query.registered_args.items():
+            for name, attributes in API.Query.registered_args.items():
                 query_parser.add_argument(
                     f"--{name}",
                     type=attributes["type"],
@@ -121,16 +165,17 @@ class API:
 
             return query_parser
 
-    class read:
+    class Read:
         registered_args = {}
+        api_only_arg = []
         read_actions = {
-            "all": Binary: API.read.all,
-            "version": Binary: API.read.version,
-            "system-desc": Binary: API.read.system_desc,
-            "mlir": Binary: API.read.mlir,
-            "cpp": Binary: API.read.cpp,
-            "inputs": Binary: API.read.inputs,
-            "outputs": Binary: API.read.outputs,
+            "all": Binary: API.Read.all,
+            "version": Binary: API.Read.version,
+            "system-desc": Binary: API.Read.system_desc,
+            "mlir": Binary: API.Read.mlir,
+            "cpp": Binary: API.Read.cpp,
+            "inputs": Binary: API.Read.inputs,
+            "outputs": Binary: API.Read.outputs,
         }
         
         def __init__(self, logging, args):
@@ -139,7 +184,7 @@ class API:
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
             
-            for name, _ in API.read.registered_args.items():
+            for name, _ in API.Read.registered_args.items():
                 self[name] = args[name]
           
         def preprocess(self):
@@ -165,10 +210,10 @@ class API:
 
         def execute(self):
             for binary in self.ttnn_binaries
-                API.read[self["section"]](binary)
+                API.Read[self["section"]](binary)
 
             for binary in self.ttmetal_binaries
-                API.read[self["section"]](binary)
+                API.Read[self["section"]](binary)
 
         def postprocess(self):
             if self["save_artifacts"]:
@@ -194,18 +239,30 @@ class API:
             self.postprocess()
 
         @staticmethod
-        def register_arg(name, type, default, choices, help):
-            API.read.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+        def register_arg(api_only=True, name, type, default, choices, help):
+            API.Read.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+
+            if api_only:
+                API.Read.api_only_arg.append(name)
+
+        @staticmethod
+        def get_upstream_apis():
+            upstream_apis = []
+            for arg_name, arg_value in API.Read.registered_args.items():
+                if arg_name not in API.Read.api_only_arg:
+                    upstream_apis.append({"name": arg_name, "type": arg_value["type"], "default": arg_value["default"], "choices": arg_value["choices"], "help": arg_value["help"]})
+
+            return upstream_apis
 
         @staticmethod
         def generate_subparser(subparsers):
             read_parser = subparsers.add_parser(
                 "read", help="read information from flatbuffer binary"
             )
-            read_parser.set_defaults(func=API.read)
+            read_parser.set_defaults(func=API.Read)
             read_parser.add_argument("binary", help="flatbuffer binary file")
 
-            for name, attributes in API.read.registered_args.items():
+            for name, attributes in API.Read.registered_args.items():
                 read_parser.add_argument(
                     f"--{name}",
                     type=attributes["type"],
@@ -279,17 +336,18 @@ class API:
 
             return outputs_string
 
-    class run:
+    class Run:
         registered_args = {}
+        api_only_arg = []
 
-        def __init__(self, logging):
+        def __init__(self, logging, args):
             self.logging = logging
             self.artifacts = Artifacts.prepare_artifact()
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
             self.query = API.Query()
             
-            for name, _ in API.run.registered_args.items():
+            for name, _ in API.Run.registered_args.items():
                 self[name] = args[name]
           
         def preprocess(self):
@@ -348,8 +406,8 @@ class API:
 
                     for program_index in program_indices:
                         program = bin.get_program(program_index)
-                        program.populate_inputs(API.run.TorchInitilizer.get_initilizer(self[init]), program_index)
-                        program.populate_outputs(API.run.TorchInitilizer.get_initilizer("zeros"), program_index)
+                        program.populate_inputs(API.Run.TorchInitilizer.get_initilizer(self[init]), program_index)
+                        program.populate_outputs(API.Run.TorchInitilizer.get_initilizer("zeros"), program_index)
 
                         total_inputs = []
                         total_outputs = []
@@ -464,17 +522,29 @@ class API:
             raise ValueError(f"unsupported dtype: {dtype}")
 
         @staticmethod
-        def register_arg(name, type, default, choices, help):
-            API.run.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+        def register_arg(api_only=True, name, type, default, choices, help):
+            API.Run.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+
+            if api_only:
+                API.Run.api_only_arg.append(name)
+
+        @staticmethod
+        def get_upstream_apis():
+            upstream_apis = []
+            for arg_name, arg_value in API.Run.registered_args.items():
+                if arg_name not in API.Run.api_only_arg:
+                    upstream_apis.append({"name": arg_name, "type": arg_value["type"], "default": arg_value["default"], "choices": arg_value["choices"], "help": arg_value["help"]})
+
+            return upstream_apis
 
         @staticmethod
         def generate_subparser(subparsers):
             run_parser = subparsers.add_parser(
                 "run", help="run a flatbuffer binary"
             )
-            run_parser.set_defaults(func=API.run)
+            run_parser.set_defaults(func=API.Run)
 
-            for name, attributes in API.run.registered_args.items():
+            for name, attributes in API.Run.registered_args.items():
                 run_parser.add_argument(
                     f"--{name}",
                     type=attributes["type"],
@@ -522,8 +592,8 @@ class API:
                 import torch
                 return torch.zeros(shape, dtype=dtype)
 
-    class perf:
-      def __init__(self, logging):
+    class Perf:
+      def __init__(self, logging, args):
             pass
           
         def preprocess(self):
