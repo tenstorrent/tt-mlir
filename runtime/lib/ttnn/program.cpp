@@ -13,6 +13,9 @@
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "types_generated.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttnn/operations/data_movement/permute/permute.hpp"
+#include "ttnn/operations/generic/generic_op/device/generic_op_device_operation.hpp"
 #include "utils.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
@@ -321,6 +324,28 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
 }
 
+static void
+run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+
+    // TODO(pjanevski): implement this
+    for (auto cb_config : *op->cb_configs()) {
+        std::cout << cb_config->page_size() << std::endl;
+    }
+
+    for (auto compute_kernel: *op->compute_kernels()) {
+      std::cout << compute_kernel->kernel_path() << std::endl;
+    }
+    
+    std::vector<::ttnn::operations::generic::data_movement_attributes_t> data_movement_attributes;
+    for (auto data_movement_kernel : *op->data_movement_kernels()) {
+      std:: cout << data_movement_kernel->kernel_path() << std::endl;
+
+    }
+
+}
+
 // ANCHOR: adding_an_op_matmul_runtime
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
@@ -371,6 +396,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    return run(op->type_as_GenericOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");
