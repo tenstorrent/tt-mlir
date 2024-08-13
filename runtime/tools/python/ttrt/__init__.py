@@ -31,8 +31,8 @@ def main():
     subparsers = parser.add_subparsers(required=True)
 
     API.initialize_apis()
-    for api_name, api_class in API.registered_apis:
-        subparsers.add_subparsers(api_class.generate_subparser)
+    for api_name, api_class in API.registered_apis.items():
+        api_class.generate_subparser(subparsers)
 
     try:
         args = parser.parse_args()

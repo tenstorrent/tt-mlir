@@ -111,7 +111,7 @@ class FileManager:
         try:
             shutil.copytree(src_directory_path, dest_directory_path)
         except FileNotFoundError as e:
-            raise FileNotFoundError(f"source directory does not exist: '{src_directory_path}")'
+            raise FileNotFoundError(f"source directory does not exist: '{src_directory_path}")
         except FileExistsError as e:
             raise FileExistsError(f"destination directory already exists: '{dest_directory_path}'")
         except PermissionError as e:
@@ -262,7 +262,8 @@ class Artifacts:
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    def save_system_desc(system_desc, system_desc_folder=f"{self.get_artifacts_folder_path()}", system_desc_name="system_desc.ttsys"):
+    def save_system_desc(system_desc, system_desc_folder="", system_desc_name="system_desc.ttsys"):
+        system_desc_folder = f"{self.get_artifacts_folder_path()}" if system_desc_folder == "" else system_desc_folder
         try:
             system_desc.store(f"{system_desc_folder}/{system_desc_name}")
         except Exception as e:
@@ -291,7 +292,7 @@ class Binary:
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.programs = []
 
-        for i in range(len(self.fbb_dict["programs"]))
+        for i in range(len(self.fbb_dict["programs"])):
             program = Program(i, self.fbb_dict["programs"][i])
             self.programs.append(program)
 
@@ -391,7 +392,7 @@ class BinaryTTNN(Binary):
             try: 
                 for root, _, files in os.walk(path):
                     for file in files:
-                        if FileManager.get_file_extension(file) == BinaryTTNN.get_file_extension()
+                        if FileManager.get_file_extension(file) == BinaryTTNN.get_file_extension():
                             files.append(os.path.join(root, file))
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
@@ -426,7 +427,7 @@ class BinaryTTMetal(Binary):
             try: 
                 for root, _, files in os.walk(path):
                     for file in files:
-                        if FileManager.get_file_extension(file) == BinaryTTMetal.get_file_extension()
+                        if FileManager.get_file_extension(file) == BinaryTTMetal.get_file_extension():
                             files.append(os.path.join(root, file))
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
