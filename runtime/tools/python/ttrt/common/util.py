@@ -23,6 +23,9 @@ if "LOGGER_LEVEL" not in os.environ:
 if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
+#######################################################################################
+#######################################**UTILS**#######################################
+#######################################################################################
 class FileManager:
     def __init__(self):
         pass
@@ -193,7 +196,6 @@ class FileManager:
         return file_extension
 
 class Artifacts:
-
     def __init__(self, ttmlir_home_path, ttmlir_venv_path, ttmetal_home_path, artifacts_folder_path, log_name):
       self.ttmlir_home_path = ttmlir_home_path
       self.ttmlir_venv_path = ttmlir_venv_path
@@ -228,10 +230,40 @@ class Artifacts:
     def clean_binary_artifacts(self, binary):
         FileManager.remove_directory(self.get_binary_folder_path(binary))
 
-    def save_binary(self, binary):
-        FileManager.create_directory(self.get_binary_folder_path(binary))
-        FileManager.create_directory(f"{self.get_binary_folder_path(binary)}/perf")
-        FileManager.copy_file(f"{self.get_binary_folder_path(binary)}", binary.file_path)
+    def save_binary(self, binary, query):
+        binary_folder = self.get_binary_folder_path(binary)
+        FileManager.create_directory(binary_folder)
+        FileManager.create_directory(f"{binary_folder}/run")
+        FileManager.create_directory(f"{binary_folder}/perf")
+
+        FileManager.copy_file(f"{binary_folder}", binary.file_path)
+
+        for program in binary.programs():
+            program_folder = f"{binary_folder}/run/program_{program.index}"
+            FileManager.create_directory(program_folder)
+
+            for i in range(len(program.get_inputs())):
+                self.save_torch_tensor(program_folder, program.get_inputs()[i], f"program_{program.index}_input_{i}.pt")
+
+            for i in range(len(program.get_outputs())):
+                self.save_torch_tensor(program_folder, program.get_outputs()[i], f"program_{program.index}_output_{i}.pt")
+
+        if query != None:
+            self.save_system_desc(query.system_desc, f"{binary_folder}")
+
+    def save_torch_tensor(folder_path, torch_tensor, torch_tensor_name):
+        import torch
+
+        try:
+            torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
+        except Exception as e:
+            raise Exception(f"an unexpected error occurred: {e}")
+
+    def save_system_desc(system_desc, system_desc_folder=f"{self.get_artifacts_folder_path()}", system_desc_name="system_desc.ttsys"):
+        try:
+            system_desc.store(f"{system_desc_folder}/{system_desc_name}")
+        except Exception as e:
+            raise Exception(f"an unexpected error occurred: {e}")
 
     def __str__(self):
         return f"ttmlir_home_path={self.ttmlir_home_path}\nttmlir_venv_path={self.ttmlir_venv_path}\nttmetal_home_path={self.ttmetal_home_path}\nartifacts_folder_path={self.artifacts_folder_path}\nlog_name={self.log_name}\n"
@@ -245,24 +277,7 @@ class Artifacts:
 
         return Artifacts(ttmlir_home_path, ttmlir_venv_path, ttmetal_home_path, artifacts_folder_path, log_name)
 
-    @staticmethod
-    def save_torch_tensor(binary_name, torch_tensor, torch_tensor_name):
-        import torch
-
-        try:
-            torch.save(torch_tensor, f"{self.get_artifacts_folder_path()}/{binary_name}/{torch_tensor_name}")
-        except Exception as e:
-            raise Exception(f"an unexpected error occurred: {e}")
-
-    @staticmethod
-    def save_system_desc(system_desc, system_desc_name="system_desc.ttsys"):
-        try:
-            system_desc.store(f"{self.get_artifacts_folder_path()}/{system_desc_name}")
-        except Exception as e:
-            raise Exception(f"an unexpected error occurred: {e}")
-
 class Binary:
-
     def __init__(self, file_path):
         import ttrt.binary
 
@@ -270,6 +285,12 @@ class Binary:
         self.name = FileManager.get_file_name(file_path)
         self.extension = FileManager.get_file_extension(file_path)
         self.fbb = ttrt.binary.load_from_path(file_path)
+        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.programs = []
+
+        for i in range(len(self.fbb_dict["programs"]))
+            program = Program(i, self.fbb_dict["programs"][i])
+            self.programs.append(program)
 
     def check_version(self):
         package_name = "ttrt"
@@ -277,13 +298,67 @@ class Binary:
         try:
             package_version = get_distribution(package_name).version
         except Exception as e:
-            print(f"error retrieving version: {e} for {package_name}")
+            raise Exception(f"error retrieving version: {e} for {package_name}")
 
         if package_version != self.fbb.version:
             logging.info(f"{package_name}: v{package_version} does not match flatbuffer: v{self.fbb.version} for flatbuffer: {self.file_path} - skipping this test")
             return False
         
         return True
+
+    def check_system_desc(self, query):
+        import ttrt.binary
+
+        try:
+            if self.fbb_dict["system_desc"] != query.get_system_desc_as_dict()["system_desc"]:
+                logging.info(f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test")
+                return False
+
+        except Exception as e:
+            raise Exception(f"an unexpected error occurred: {e}")
+
+        return True
+
+    def get_num_programs(self):
+        return len(self.programs)
+
+    def check_program_index_exists(self, program_index):
+        if program_index > self.get_num_programs():
+            return False
+        
+        return True
+
+    def get_program(self, program_index):
+        if program_index > self.get_num_programs():
+            raise Exception(f"program index={program_index} is greater than number of programs availabe={self.get_num_programs()}!")
+
+        return self.programs[program_index]
+
+    def save(self, artifacts, query=None):
+        artifacts.save_binary(self, query)
+
+    class Program:
+        def __init__(self, index, program):
+            self.index = index
+            self.program = program
+            self.input_tensors = []
+            self.output_tensors = []
+
+        def get_inputs(self):
+            return self.input_tensors
+
+        def get_outputs(self):
+            return self.output_tensors
+
+        def populate_inputs(self, init_fn):
+            input_dict = self.program["inputs"][self.index]
+            torch_tensor = init_fn(input_dict["desc"]["shape"], dtype=fromDataType(input_dict["desc"]["layout"]["memory_desc"]["data_type"]))
+            self.input_tensors.append(torch_tensor)
+          
+        def populate_outputs(self, init_fn):
+            output_dict = self.program["outputs"][self.index]
+            torch_tensor = init_fn(output_dict["desc"]["shape"], dtype=fromDataType(output_dict["desc"]["layout"]["memory_desc"]["data_type"]))
+            self.output_tensors.append(torch_tensor)
 
 class BinaryTTNN(Binary):
     file_extension = ".ttnn"

@@ -29,6 +29,10 @@ class API:
     registered_functions = ["__init__", "_preprocess", "check_constraints", "execute", "postprocess", "__str__", "__getitem__", "__setitem__", "__call__", "register_arg", "generate_subparser"]
 
     @staticmethod
+    def initialize_api():
+        pass
+
+    @staticmethod
     def register_api(api_class):
         missing_methods = [
             func for func in API.registered_functions 
@@ -91,6 +95,9 @@ class API:
             
         def get_system_desc(self):
             return StringIO(json.loads(self.system_desc))
+        
+        def get_system_desc_as_dict(self):
+            return json.loads(self.system_desc.as_json())
 
         @staticmethod
         def register_arg(name, type, default, choices, help):
@@ -132,7 +139,7 @@ class API:
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
             
-            for name, _ in API.query.registered_args.items():
+            for name, _ in API.read.registered_args.items():
                 self[name] = args[name]
           
         def preprocess(self):
@@ -145,18 +152,16 @@ class API:
             ttnn_binary_paths = BinaryTTNN.find_ttnn_binary_paths(self["binary"])
             ttmetal_binary_paths = BinaryTTMetal.find_ttmetal_binary_paths(self["binary"])
 
+        def check_constraints(self):
             for path in ttnn_binary_paths:
-                bin = BinaryTTNN.prepare_binary()
+                bin = BinaryTTNN.prepare_binary(path)
                 if bin.check_version():
                     self.ttnn_binaries.append(bin)
 
             for path in ttmetal_binary_paths:
-                bin = BinaryTTMetal.prepare_binary()
+                bin = BinaryTTMetal.prepare_binary(path)
                 if bin.check_version():
                     self.ttmetal_binaries.append(bin)
-
-        def check_constraints(self):
-            pass
 
         def execute(self):
             for binary in self.ttnn_binaries
@@ -282,21 +287,129 @@ class API:
             self.artifacts = Artifacts.prepare_artifact()
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
+            self.query = API.Query()
             
-            for name, _ in API.query.registered_args.items():
+            for name, _ in API.run.registered_args.items():
                 self[name] = args[name]
           
         def preprocess(self):
-            pass
+            self.query()
+
+            if self["clean_artifacts"]:
+                self.artifacts.clean_artifacts()
+
+            if self["save_artifacts"]:
+                self.artifacts.create_artifacts()
+
+            ttnn_binary_paths = BinaryTTNN.find_ttnn_binary_paths(self["binary"])
+            ttmetal_binary_paths = BinaryTTMetal.find_ttmetal_binary_paths(self["binary"])
 
         def check_constraints(self):
-            pass
+            for path in ttnn_binary_paths:
+                bin = BinaryTTNN.prepare_binary(path)
+                if not bin.check_version():
+                    continue
+
+                if not bin.check_system_desc(self.query)
+                    continue
+
+                if self["program_index"] != "all":
+                    if not bin.check_program_index_exists(int(self["program_index"])):
+                        continue
+                
+                self.ttnn_binaries.append(bin)
+
+            for path in ttmetal_binary_paths:
+                bin = BinaryTTMetal.prepare_binary(path)
+                if not bin.check_version():
+                    continue
+
+                if not bin.check_system_desc(self.query)
+                    continue
+
+                if self["program_index"] != "all":
+                    if not bin.check_program_index_exists(int(self["program_index"])):
+                        continue
+
+                self.ttmetal_binaries.append(bin)
 
         def execute(self):
-            pass
+            def _execute(binaries):
+                ttrt.runtime.set_compatible_runtime(self.binaries.fbb)
+                device = ttrt.runtime.open_device([self.query.device_ids[0]])
+                atexit.register(lambda: ttrt.runtime.close_device(device))
+
+                for bin in binaries:
+                    program_indices = []
+                    if self["program_index"] == "all":
+                        program_indices.extend(range(bin.get_num_programs()))
+                    else:
+                        program_indices.append(int(self["program_index"]))
+
+                    for program_index in program_indices:
+                        program = bin.get_program(program_index)
+                        program.populate_inputs(API.run.TorchInitilizer.get_initilizer(self[init]), program_index)
+                        program.populate_outputs(API.run.TorchInitilizer.get_initilizer("zeros"), program_index)
+
+                        total_inputs = []
+                        total_outputs = []
+                        for loop in range(self["loops"]):
+                            inputs = []
+                            outputs = []
+                            for i in program.get_inputs():
+                                inputs.append(
+                                    ttrt.runtime.create_tensor(
+                                        i.data_ptr(),
+                                        list(i.shape),
+                                        list(i.stride()),
+                                        i.element_size(),
+                                        toDataType(i.dtype),
+                                    )
+                                )
+
+                            for i in program.get_outputs():
+                                outputs.append(
+                                    ttrt.runtime.create_tensor(
+                                        i.data_ptr(),
+                                        list(i.shape),
+                                        list(i.stride()),
+                                        i.element_size(),
+                                        toDataType(i.dtype),
+                                    )
+                                )
+
+                            total_inputs.append(inputs)
+                            total_outputs.append(outputs)
+
+                        event = None
+                        for loop in range(self["loops"]):
+                            event = ttrt.runtime.submit(device, self.bin.fbb, program_index, total_inputs[loop], total_outputs[loop])
+                        ttrt.runtime.wait(event)
+
+                        if self["identity"]:
+                            for i, o in zip(program.get_inputs(), program.get_outputs()):
+                                if not torch.allclose(i, o):
+                                    logging.error(f"Failed: inputs and outputs do not match in binary")
+                                    logging.error(i - o)
+
+            import ttrt.runtime
+            import torch
+
+            torch.manual_seed(self[seed])
+
+            if len(self.ttnn_binaries) != 0:
+                _execute(self.ttnn_binaries)
+            
+            if len(self.ttmetal_binaries) != 0:
+                _execute(self.ttnn_binaries)
 
         def postprocess(self):
-            pass
+            if self["save_artifacts"]:
+                for bin in self.ttnn_binaries:
+                    bin.save(self.artifacts, self.query)
+
+                for bin in self.ttmetal_binaries:
+                    bin.save(self.artifacts, self.query)
 
         def __str__(self):
             pass
@@ -313,6 +426,7 @@ class API:
             self.execute()
             self.postprocess()
 
+        @staticmethod
         def toDataType(dtype):
             import torch
             import ttrt.runtime
@@ -331,6 +445,7 @@ class API:
                 return ttrt.runtime.DataType.UInt8
             raise ValueError(f"unsupported dtype: {dtype}")
 
+        @staticmethod
         def fromDataType(dtype):
             import torch
 
@@ -374,6 +489,7 @@ class API:
             init_fns_map = {
                 "randn": TorchInitilizer.randn,
                 "arange": TorchInitilizer.arange,
+                "zeros": TorchInitilizer.zeros,
             }
             init_fns = sorted(list(init_fns_map.keys()))
 
@@ -381,6 +497,7 @@ class API:
             def get_initilizer(name):
                 return TorchInitilizer.init_fns_map[name]
             
+            @staticmethod
             def get_init_fns():
                 return TorchInitilizer.init_fns
 
@@ -399,6 +516,11 @@ class API:
                     return v
 
                 return torch.arange(volume(shape), dtype=dtype).reshape(shape)
+
+            @staticmethod
+            def zeros(shape, dtype):
+                import torch
+                return torch.zeros(shape, dtype=dtype)
 
     class perf:
       def __init__(self, logging):
@@ -438,248 +560,6 @@ class API:
         @staticmethod
         def generate_subparser():
             pass
-
-
-
-
-
-
-def run(args, logger):
-    import ttrt.runtime
-    import torch
-
-    # initialization
-    binaries = []
-    ttnn_binaries = []
-    ttmetal_binaries = []
-    fbb_list = []
-    torch_inputs = {}
-    torch_outputs = {}
-    system_desc = None
-
-    # acquire parameters
-    arg_binary = args.binary
-    arg_program_index = args.program_index
-    arg_clean_artifacts = args.clean_artifacts
-    arg_loops = int(args.loops)
-    arg_save_artifacts = args.save_artifacts
-
-    # preprocessing
-    if os.path.isdir(arg_binary):
-        print("provided directory of flatbuffers")
-        binaries = find_ttnn_files(arg_binary)
-    else:
-        binaries.append(arg_binary)
-
-    # sort binaries into ttnn and ttmetal binaries
-
-
-
-    if arg_clean_artifacts:
-        print("cleaning artifacts")
-        clean_artifacts()
-
-    if arg_save_artifacts:
-        print("setting up artifact directories")
-        setup_artifacts(binaries)
-
-    # constraint checking
-    print("executing constraint for all provided flatbuffers")
-    system_desc, device_ids = ttrt.runtime.get_current_system_desc()
-    program_indices = []
-    cleaned_binaries = []
-    for binary in binaries:
-        check_file_exists(binary)
-        fbb = ttrt.binary.load_binary_from_path(binary)
-        check_version(fbb.version)
-        fbb_dict = ttrt.binary.as_dict(fbb)
-
-        if fbb_dict["system_desc"] != system_desc_as_dict(system_desc)["system_desc"]:
-            print(
-                f"system descriptor for binary and system mismatch, ignoring test={binary}"
-            )
-            continue
-
-        if arg_program_index != "all":
-            program_index = int(arg_program_index)
-            assert program_index < len(
-                fbb_dict["programs"]
-            ), "args.program_index out of range"
-            program_indices.append(program_index)
-        else:
-            program_indices = [i for i in range(len(fbb_dict["programs"]))]
-
-        fbb_list.append(
-            (
-                os.path.splitext(os.path.basename(binary))[0],
-                fbb,
-                fbb_dict,
-                program_indices,
-            )
-        )
-        cleaned_binaries.append(binary)
-    binaries = cleaned_binaries
-
-    # execution
-    print("executing action for all provided flatbuffers")
-    # TODO: sort the flatbuffers by runtime type, for now just take the first one
-    ttrt.runtime.set_compatible_runtime(fbb_list[0][1])
-    device = ttrt.runtime.open_device([device_ids[0]])
-    atexit.register(lambda: ttrt.runtime.close_device(device))
-
-    torch.manual_seed(args.seed)
-
-    for (binary_name, fbb, fbb_dict, program_indices) in fbb_list:
-        torch_inputs[binary_name] = {}
-        torch_outputs[binary_name] = {}
-        for program_index in program_indices:
-            torch_inputs[binary_name][program_index] = []
-            torch_outputs[binary_name][program_index] = []
-
-            program = fbb_dict["programs"][program_index]
-            print(
-                f"running binary={binary_name} with program[{program_index}]:",
-                program["name"],
-            )
-
-            for i in program["inputs"]:
-                torch_tensor = init_fns_map[args.init](
-                    i["desc"]["shape"],
-                    dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
-                )
-                torch_inputs[binary_name][program_index].append(torch_tensor)
-            for i in program["outputs"]:
-                torch_tensor = torch.zeros(
-                    i["desc"]["shape"],
-                    dtype=fromDataType(i["desc"]["layout"]["memory_desc"]["data_type"]),
-                )
-                torch_outputs[binary_name][program_index].append(torch_tensor)
-
-            print("inputs:\n", torch_inputs)
-
-            total_inputs = []
-            total_outputs = []
-            for loop in range(arg_loops):
-                inputs = []
-                outputs = []
-                for i in torch_inputs[binary_name][program_index]:
-                    inputs.append(
-                        ttrt.runtime.create_tensor(
-                            i.data_ptr(),
-                            list(i.shape),
-                            list(i.stride()),
-                            i.element_size(),
-                            toDataType(i.dtype),
-                        )
-                    )
-
-                for i in torch_outputs[binary_name][program_index]:
-                    outputs.append(
-                        ttrt.runtime.create_tensor(
-                            i.data_ptr(),
-                            list(i.shape),
-                            list(i.stride()),
-                            i.element_size(),
-                            toDataType(i.dtype),
-                        )
-                    )
-
-                total_inputs.append(inputs)
-                total_outputs.append(outputs)
-
-            event = None
-            for loop in range(arg_loops):
-                event = ttrt.runtime.submit(
-                    device, fbb, program_index, total_inputs[loop], total_outputs[loop]
-                )
-                print(f"finished loop={loop}")
-            ttrt.runtime.wait(event)
-            print("outputs:\n", torch_outputs)
-            if args.identity:
-                for i, o in zip(torch_inputs[binary_name], torch_outputs[binary_name]):
-                    if not torch.allclose(i, o):
-                        print(
-                            "Failed: inputs and outputs do not match in binary",
-                            binary_name,
-                        )
-                        print(i - o)
-                    else:
-                        print("Passed:", binary_name)
-
-    # save artifacts
-    if arg_save_artifacts:
-        print("saving artifacts")
-        for binary in binaries:
-            fbb_dict = ttrt.binary.as_dict(ttrt.binary.load_binary_from_path(binary))
-            curr_program_indices = []
-
-            if arg_program_index != "all":
-                curr_program_indices.append(int(arg_program_index))
-            else:
-                curr_program_indices = [i for i in range(len(fbb_dict["programs"]))]
-
-            for program_index in curr_program_indices:
-                copy_ttnn_binary_into_artifact(binary)
-                binary_name = os.path.splitext(os.path.basename(binary))[0]
-                torch_input_tensors = torch_inputs[binary_name][program_index]
-                torch_output_tensors = torch_outputs[binary_name][program_index]
-
-                for i, input in enumerate(torch_input_tensors):
-                    save_torch_tensor_into_ttrt_artifacts(
-                        input, f"{binary_name}/program_{program_index}_input_{i}.pt"
-                    )
-
-                for i, output in enumerate(torch_output_tensors):
-                    save_torch_tensor_into_ttrt_artifacts(
-                        output, f"{binary_name}/program_{program_index}_output_{i}.pt"
-                    )
-
-                save_system_desc_into_ttrt_artifacts(
-                    system_desc, f"{binary_name}/system_desc.ttsys"
-                )
-
-
-"""
-API: query
-  - query device for system descriptor in the form of a flatbuffer
-"""
-
-
-def query(args, logger):
-    import ttrt.runtime
-
-    # initialization
-    system_desc = None
-
-    # acquire parameters
-    arg_system_desc = args.system_desc
-    arg_system_desc_as_json = args.system_desc_as_json
-    arg_system_desc_as_dict = args.system_desc_as_dict
-    arg_clean_artifacts = args.clean_artifacts
-    arg_save_artifacts = args.save_artifacts
-
-    # preprocessing
-    if arg_clean_artifacts:
-        print("cleaning artifacts")
-        clean_artifacts()
-
-    if arg_save_artifacts:
-        print("setting up artifact directories")
-        setup_artifacts()
-
-    # execution
-    print("executing action to get system desc")
-    system_desc = ttrt.runtime.get_current_system_desc()[0]
-
-    if arg_system_desc or arg_system_desc_as_json:
-        print(system_desc.as_json())
-    if arg_system_desc_as_dict:
-        print(system_desc_as_dict(system_desc))
-
-    # save artifacts
-    if arg_save_artifacts:
-        print("saving artifacts")
-        save_system_desc_into_ttrt_artifacts(system_desc, "system_desc.ttsys")
 
 
 """
