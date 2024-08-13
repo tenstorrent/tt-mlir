@@ -79,6 +79,14 @@ table TransposeOp {
   dim1: int32;
 }
 
+table GenericOp {
+  ins: [tt.target.TensorRef];
+  outs: [tt.target.TensorRef];
+  compute_kernels: [ComputeKernelAttribute];
+  data_movement_kernels: [DataMovementAttribute];
+  cb_configs: [CBConfig];
+}
+
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
   in0: tt.target.TensorRef;
@@ -98,7 +106,8 @@ union OpType {
   ReductionOp,
   EmbeddingOp,
   SoftmaxOp,
-  TransposeOp
+  TransposeOp,
+  GenericOp
 }
 
 table Operation {

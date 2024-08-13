@@ -8,11 +8,16 @@
 #include <optional>
 #include <unordered_map>
 
+#include "common/tt_backend_api_types.hpp"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
+#include "types_generated.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttnn/operations/data_movement/permute/permute.hpp"
+#include "ttnn/operations/generic/generic_op/device/generic_op_device_operation.hpp"
 #include "types_generated.h"
 #include "utils.h"
 
@@ -365,6 +370,111 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
 }
 
+static CoreRangeSet get_core_range_set(const target::CoreSpec *core_spec) {
+  uint32_t x_start = core_spec->x_start();
+  uint32_t y_start = core_spec->y_start();
+  uint32_t x_size = core_spec->x_size();
+  uint32_t y_size = core_spec->y_size();
+  CoreRange cr({x_start, y_start}, {x_start + x_size - 1, y_start + y_size - 1});
+  CoreRangeSet crs({cr});
+  return crs;
+}
+
+// TODO(pjanevski): bind all values to DataFormat enum from 
+// tt-metal tt_backend_api_types.hpp. We probably want to move all these
+// functions that are ttnn specific to separate file, maybe utils?
+DataFormat get_tt_metal_dataformat(target::DataType data_format) {
+  return DataFormat::Float32;
+}
+
+static void
+run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+
+    std::unordered_map<uint8_t, ::ttnn::operations::generic::circular_buffer_attributes_t> circular_buffer_attributes;
+    for (auto cb_config : *op->cb_configs()) {
+        CoreRangeSet crs = get_core_range_set(cb_config->core_spec());
+        
+        // TODO(pjanevski): globally allocated addr setup
+        circular_buffer_attributes.insert({
+          cb_config->cb_id(),
+          {
+              .core_spec = crs,
+              .total_size = cb_config->total_size(),
+              .page_size = cb_config->page_size(),
+              .data_format = get_tt_metal_dataformat(cb_config->data_format()),
+          }
+        });
+    }
+
+    std::vector<::ttnn::operations::generic::compute_attributes_t> compute_attributes;
+    for (auto compute_kernel: *op->compute_kernels()) {
+      // Convert compile args to vector.
+      auto compile_args_vec = compute_kernel->compute_kernel_config()->compile_args();
+      std::vector<uint32_t> compile_args(compile_args_vec->begin(), compile_args_vec->end());
+
+      // Convert defines to map.
+      auto map_defines = compute_kernel->compute_kernel_config()->defines();
+      std::map<std::string, std::string> compute_config_defines;
+      for (auto one_define : *map_defines) {
+        compute_config_defines[one_define->key()->str()] = one_define->val()->str();
+      }
+
+      CoreRangeSet crs = get_core_range_set(compute_kernel->core_spec());
+
+      // TODO(pjanevski): setup runtime args
+      // TODO(pjanevski): create struct in .fbs for math fidelity
+      ::ttnn::operations::generic::compute_attributes_t compute_kernel_attribute = {
+        .core_spec = crs,
+        .kernel_path = compute_kernel->kernel_path()->str(),
+        .config = ComputeConfig {
+          .math_fidelity = compute_kernel->compute_kernel_config()->math_fidelity() == 0 ? MathFidelity::HiFi4 : MathFidelity::HiFi3,
+          .fp32_dest_acc_en = compute_kernel->compute_kernel_config()->fp32_dest(),
+          .preserve_fp32_precision = compute_kernel->compute_kernel_config()->preserve_fp32(),  
+          .math_approx_mode = compute_kernel->compute_kernel_config()->math_approx_mode(),
+          .compile_args = compile_args,
+          .defines = compute_config_defines,
+        },
+        .runtime_args_per_core = {}
+      };
+      
+      compute_attributes.push_back(compute_kernel_attribute);
+    }
+    
+    std::vector<::ttnn::operations::generic::data_movement_attributes_t> data_movement_attributes;
+    for (auto data_movement_kernel : *op->data_movement_kernels()) {
+
+      // Convert compile args to vector.
+      auto compile_args_vec = data_movement_kernel->data_movement_config()->compile_args();
+      std::vector<uint32_t> compile_args(compile_args_vec->begin(), compile_args_vec->end());
+
+      // Convert defines to map.
+      auto dm_defines = data_movement_kernel->data_movement_config()->defines();
+      std::map<std::string, std::string> dm_config_defines;
+      for (auto one_define : *dm_defines) {
+        dm_config_defines[one_define->key()->str()] = one_define->val()->str();
+      }
+      
+      CoreRangeSet crs = get_core_range_set(data_movement_kernel->core_spec());
+
+      // TODO(pjanevski): setup runtime args
+      ::ttnn::operations::generic::data_movement_attributes_t dm_attr = {
+        .core_spec = crs,
+        .kernel_path = data_movement_kernel->kernel_path()->str(),
+        .config = DataMovementConfig {
+          .processor = data_movement_kernel->data_movement_config()->processor() == 0 ? DataMovementProcessor::RISCV_0 : DataMovementProcessor::RISCV_1,
+          .noc = data_movement_kernel->data_movement_config()->noc() == 0 ? NOC::NOC_0 : NOC::NOC_1,
+          .compile_args = compile_args,
+          .defines = dm_config_defines,
+        },
+        .runtime_args_per_core = {}
+      };
+      
+      data_movement_attributes.push_back(dm_attr);
+    }
+}
+
 // ANCHOR: adding_an_op_matmul_runtime
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
@@ -418,6 +528,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::GenericOp: {
+    return run(op->type_as_GenericOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");

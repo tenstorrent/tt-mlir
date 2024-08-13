@@ -144,3 +144,61 @@ table DeviceRef {
 table EventRef {
   global_id: uint32;
 }
+
+table CoreSpec {
+  x_start: uint32;
+  y_start: uint32;
+  x_size: uint32;
+  y_size: uint32;
+}
+
+table CBConfig {
+  cb_id : int32;
+  core_spec: CoreSpec;
+  total_size: uint32;
+  page_size: uint32;
+  data_format: DataType;
+  globally_allocated_address : int32;
+}
+
+table RuntimeArg {
+  ttnn_compute : bool;
+  val: int32;
+  tensor_glob_id : int32;
+}
+
+table DefineArgument {
+  key : string;
+  val : string;
+}
+
+table DataMovementConfig {
+  processor: int32;
+  noc: int32;
+  compile_args : [int32];
+  defines : [DefineArgument];
+}
+
+table DataMovementAttribute {
+  core_spec: CoreSpec;
+  kernel_path: string;
+  data_movement_config: DataMovementConfig;
+  runtime_args: [RuntimeArg];
+}
+
+table ComputeKernelConfig {
+  math_fidelity: int32;
+  fp32_dest : bool;
+  preserve_fp32 : bool;
+  math_approx_mode : bool;
+  compile_args: [int32];
+  defines : [DefineArgument];
+}
+
+table ComputeKernelAttribute {
+  core_spec: CoreSpec;
+  kernel_path: string;
+  compute_kernel_config : ComputeKernelConfig;
+  runtime_args : [RuntimeArg];
+}
+

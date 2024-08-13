@@ -12,6 +12,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -22,6 +23,7 @@
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -218,6 +220,40 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
+// TODO(pjanevski)
+template <typename GenericOp>
+::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
+createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
+
+  // input tensors
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  for (auto input : op.getInputs()) {
+      ins.push_back(
+          cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  }
+
+  // output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> outs;
+  for (auto output : op.getResults()) {
+    outs.push_back(
+      cache.getOrCreate(getOperandThroughDPSOps(output), tensorValueToFlatbuffer, 0, 0));
+  }
+
+  // circular buffer attributes
+  std::vector<::flatbuffers::Offset<::tt::target::CBConfig>> cb_configs;
+  auto cb_attributes = op.getCircularBufferAttributes();
+  for (auto attr : cb_attributes) {
+    llvm::outs() << attr << "\n";
+  }
+
+  // compute kernel atrributes
+
+  return ::tt::target::ttnn::CreateGenericOp(
+          *cache.fbb,
+          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(ins),
+          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(outs));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString) {
@@ -290,6 +326,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
                            debugString);
+  }
+
+  if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
+    return createOperation(cache, createGenericOp(cache, genericOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
