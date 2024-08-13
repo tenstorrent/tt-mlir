@@ -47,8 +47,9 @@ enum MemorySpace: ushort {
 }
 
 enum ChipCapability: uint32 (bit_flags) {
-  PCIE = 0,
-  HostMMIO = 1,
+  None = 0,
+  PCIE = 1,
+  HostMMIO = 2,
 }
 
 table MemoryDesc {

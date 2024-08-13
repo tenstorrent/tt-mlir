@@ -127,11 +127,13 @@ def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Const
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;
-def TT_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 1, "host_mmio">;
+def TT_ChipCapabilityNone : I32BitEnumAttrCaseBit<"None", 0, "none">;
+def TT_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 1, "pcie">;
+def TT_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 2, "host_mmio">;
 
 def TT_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
                            [
+                            TT_ChipCapabilityNone,
                             TT_ChipCapabilityPCIE,
                             TT_ChipCapabilityHostMMIO,
                            ]> {

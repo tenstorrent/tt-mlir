@@ -113,6 +113,11 @@ toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
   auto capabilities = capabilityAttr.getValue();
   static_assert(
       static_cast<std::underlying_type_t<ChipCapability>>(
+          ChipCapability::None) ==
+      static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+          ::tt::target::ChipCapability::None));
+  static_assert(
+      static_cast<std::underlying_type_t<ChipCapability>>(
           ChipCapability::PCIE) ==
       static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
           ::tt::target::ChipCapability::PCIE));
@@ -122,7 +127,7 @@ toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
       static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
           ::tt::target::ChipCapability::HostMMIO));
   assert((static_cast<std::underlying_type_t<ChipCapability>>(capabilities) &
-          ~0b11) == 0 &&
+          ~0b111) == 0 &&
          "unsupported chip capabilities");
   return static_cast<::tt::target::ChipCapability>(capabilities);
 }

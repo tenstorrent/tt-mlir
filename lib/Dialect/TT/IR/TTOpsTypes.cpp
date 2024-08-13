@@ -98,6 +98,11 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   std::vector<tt::ChipCapabilityAttr> chip_capabilities_list;
   for (auto element : *chip_capabilities) {
     static_assert(
+        static_cast<std::underlying_type_t<ChipCapability>>(
+            ChipCapability::None) ==
+        static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
+            ::tt::target::ChipCapability::None));
+    static_assert(
         static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(
             ::mlir::tt::ChipCapability::PCIE) ==
         static_cast<std::underlying_type_t<::tt::target::ChipCapability>>(

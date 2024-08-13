@@ -120,9 +120,9 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
-        ::tt::target::ChipCapability::NONE;
+        ::tt::target::ChipCapability::None;
     if (device->is_mmio_capable()) {
-      chipCapability = chipCapability | ::tt::target::ChipCapability::PCIE |
+      chipCapability = ::tt::target::ChipCapability::PCIE |
                        ::tt::target::ChipCapability::HostMMIO;
     }
     chipCapabilities.push_back(chipCapability);
