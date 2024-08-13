@@ -320,6 +320,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     return run(op->type_as_ToMemoryConfigOp(), device, liveTensors, tensorPool);
   }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    return run(op->type_as_EmptyOp(), device, liveTensors, tensorPool);
+  }
   case ::tt::target::ttnn::OpType::FullOp: {
     // Skip for now, we need an empty op
     break;

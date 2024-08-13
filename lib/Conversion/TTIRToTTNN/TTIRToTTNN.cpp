@@ -27,7 +27,7 @@ static Value findDevice(Operation *op) {
   return nullptr;
 }
 
-class TensorEmptyToFullConversionPattern
+class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
   using OpConversionPattern<tensor::EmptyOp>::OpConversionPattern;
@@ -36,9 +36,8 @@ public:
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto device = findDevice(op);
-    rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), device,
-        rewriter.getF32FloatAttr(0.0));
+    rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), device);
     return success();
   }
 };
@@ -152,7 +151,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   // ANCHOR: adding_an_op_matmul_rewrite_pattern_set
   patterns
-      .add<TensorEmptyToFullConversionPattern,
+      .add<TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
            ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
