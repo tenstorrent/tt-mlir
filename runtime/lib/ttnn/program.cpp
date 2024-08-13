@@ -10,6 +10,9 @@
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
+#include "ttnn/tensor/types.hpp"
+#include "ttnn/types.hpp"
+#include "types_generated.h"
 #include "utils.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
@@ -172,6 +175,23 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     break;
   }
   }
+}
+
+static void
+run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::device::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+
+  ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(
+      op->out()->desc()->layout()->memory_desc()->data_type());
+  // TODO: determine layout, hardcoding tile_layout for now
+  auto desiredLayout = ::ttnn::Layout::TILE;
+  // TODO: how do we determine shape from an int* and no known rank?
+  // op->out()->desc()->shape()
+  auto shape = ::ttnn::Shape(::tt::tt_metal::Shape({1, 1, 32, 32}));
+  tensorPool.push_back(
+      ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device));
+  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 
 static void
