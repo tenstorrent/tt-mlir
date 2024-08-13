@@ -178,7 +178,7 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
 }
 
 static void
-run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::device::Device &device,
+run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
 
