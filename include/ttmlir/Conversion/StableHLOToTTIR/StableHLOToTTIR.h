@@ -9,9 +9,18 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::tt {
+
 #ifdef TTMLIR_ENABLE_STABLEHLO
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass();
+#else
+// define an empty function in case conversion definition does not exist. 
+std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass()
+{
+std::unique_ptr<OperationPass<ModuleOp>> dummy;
+return dummy;
+}
 #endif
+
 } // namespace mlir::tt
 
 #endif

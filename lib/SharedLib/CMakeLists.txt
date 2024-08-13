@@ -18,10 +18,11 @@ set(TTMLIR_LIBS
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
     TTMLIRTTNNToEmitC
-if (TTMLIR_ENABLE_STABLEHLO)
-    TTMLIRStableHLOToTTIR
-endif ()
 )
+
+if (TTMLIR_ENABLE_STABLEHLO)
+list(APPEND TTMLIR_LIBS TTMLIRStableHLOToTTIR)
+endif()
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
 add_library(TTMLIR SHARED empty.cpp)

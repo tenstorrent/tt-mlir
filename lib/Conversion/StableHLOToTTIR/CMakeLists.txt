@@ -1,8 +1,8 @@
+if (TTMLIR_ENABLE_STABLEHLO)
 include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo)
 include_directories(${PROJECT_SOURCE_DIR}/third_party/stablehlo/src/stablehlo-build)
 
 get_property(STABLEHLO_LIBS GLOBAL PROPERTY STABLEHLO_LIBS)
-if (TTMLIR_ENABLE_STABLEHLO)
 add_mlir_library(TTMLIRStableHLOToTTIR
   StableHLOToTTIR.cpp
 
