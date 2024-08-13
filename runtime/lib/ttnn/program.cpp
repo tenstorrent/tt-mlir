@@ -278,16 +278,26 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
   int32_t dimension1 = op->dimension1();
   int32_t dimension2 = op->dimension2();
   auto input_rank = in.get_shape().rank();
-  std::vector<std::int64_t> dimensionOrder(input_rank);
+  // for the current version of permute, we need to work in 4D, so we add
+  // leading dimensions of size 1
+  std::vector<std::int64_t> dimensionOrder(4);
   std::iota(dimensionOrder.begin(), dimensionOrder.end(), 0);
   if (dimension1 < 0) {
-    dimension1 += input_rank;
+    dimension1 += 4;
+  } else {
+    dimension1 = dimension1 + 4 - input_rank;
   }
+
   if (dimension2 < 0) {
-    dimension2 += input_rank;
+    dimension2 += 4;
+  } else {
+    dimension2 = dimension2 + 4 - input_rank;
   }
   std::swap(dimensionOrder[dimension1], dimensionOrder[dimension2]);
-  tensorPool.push_back(::ttnn::permute(in, dimensionOrder));
+  // Ideally this would use ttnn::transpose, but since ttnn::transpose doesn't
+  // work at the moment, we use this temporary solution.
+  auto unsqueezed_input = ::ttnn::unsqueeze_to_4D(in);
+  tensorPool.push_back(::ttnn::permute(unsqueezed_input, dimensionOrder));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
 }
 
