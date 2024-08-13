@@ -75,6 +75,7 @@ table TensorDesc {
 table CBDesc {
   port: uint32;
   memory_desc: MemoryDesc;
+  page_size: uint64;
   num_buffers: uint64;
 }
 
@@ -87,7 +88,7 @@ table TensorRef {
 
 table CBRef {
   global_id: uint32;
-  associated_tensor_global_id: uint32;
+  tensor_ref: TensorRef;
   address: uint64;
   desc: CBDesc;
 }
