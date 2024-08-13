@@ -18,7 +18,9 @@ set(TTMLIR_LIBS
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
     TTMLIRTTNNToEmitC
+if (TTMLIR_ENABLE_STABLEHLO)
     TTMLIRStableHLOToTTIR
+endif ()
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
