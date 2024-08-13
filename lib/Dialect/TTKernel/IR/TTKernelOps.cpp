@@ -54,117 +54,109 @@ static bool insideThread(mlir::Operation *op, ttkernel::ThreadType threadType) {
 }
 
 ::mlir::LogicalResult BuiltinOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("KernelOp must be inside of a DispatchOp region");
   }
-  if (not insideThread(getOperation(), ttkernel::ThreadType::Tensix)) {
+  if (!insideThread(getOperation(), ttkernel::ThreadType::Tensix)) {
     return emitOpError("KernelOp must be inside of a Tensix thread");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBPushBackOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("CBPushBackOp must be inside of a DispatchOp region");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBPopFrontOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("CBPopFrontOp must be inside of a DispatchOp region");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBReserveBackOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("CBReserveBackOp must be inside of a DispatchOp region");
   }
   return success();
 }
 
 ::mlir::LogicalResult CBWaitFrontOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("CBWaitFrontOp must be inside of a DispatchOp region");
   }
   return success();
 }
 
+static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
+  if (tilizedCB.getPort() == scalarCB.getPort()) {
+    return "Input circular buffer port and output circular buffer "
+           "port must be different";
+  }
+  if (mlir::isa<tt::TileType>(scalarCB.getMemref().getElementType())) {
+    return "Input to TilizeOp or Output to UntilizeOp must have scalar "
+           "element type";
+  }
+  if (!mlir::isa<tt::TileType>(tilizedCB.getMemref().getElementType())) {
+    return "Input to UntilizeOp or Output to TilizeOp must have tile "
+           "element type";
+  }
+  return std::string();
+}
+
 ::mlir::LogicalResult TilizeInitOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("TilizeInitOp must be inside of a DispatchOp region");
   }
-  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
-    return emitOpError("cbIn and cbOut must be different");
-  }
-  if (mlir::isa<tt::TileType>(
-          getCbIn().getType().getMemref().getElementType())) {
-    return emitOpError("cbIn must have scalar element type");
-  }
-  if (not mlir::isa<tt::TileType>(
-          getCbOut().getType().getMemref().getElementType())) {
-    return emitOpError("cbOut must have tile element type");
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbOut().getType(), getCbIn().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
   }
   return success();
 }
 
 ::mlir::LogicalResult UntilizeInitOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
-    return emitOpError("TilizeInitOp must be inside of a DispatchOp region");
+  if (!insideDispatchOpRegion(getOperation())) {
+    return emitOpError("UntilizeInitOp must be inside of a DispatchOp region");
   }
-  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
-    return emitOpError("cbIn and cbOut must be different");
-  }
-  if (not mlir::isa<tt::TileType>(
-          getCbIn().getType().getMemref().getElementType())) {
-    return emitOpError("cbIn must have tile element type");
-  }
-  if (mlir::isa<tt::TileType>(
-          getCbOut().getType().getMemref().getElementType())) {
-    return emitOpError("cbOut must have scalar element type");
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
   }
   return success();
 }
 
 ::mlir::LogicalResult TilizeBlockOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("TilizeBlockOp must be inside of a DispatchOp region");
   }
-  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
-    return emitOpError("cbIn and cbOut must be different");
-  }
-  if (mlir::isa<tt::TileType>(
-          getCbIn().getType().getMemref().getElementType())) {
-    return emitOpError("cbIn must have scalar element type");
-  }
-  if (not mlir::isa<tt::TileType>(
-          getCbOut().getType().getMemref().getElementType())) {
-    return emitOpError("cbOut must have tile element type");
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbOut().getType(), getCbIn().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
   }
   return success();
 }
 
 ::mlir::LogicalResult UntilizeBlockOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
-    return emitOpError("TilizeBlockOp must be inside of a DispatchOp region");
+  if (!insideDispatchOpRegion(getOperation())) {
+    return emitOpError("UntilizeBlockOp must be inside of a DispatchOp region");
   }
-  if (getCbIn().getType().getPort() == getCbOut().getType().getPort()) {
-    return emitOpError("cbIn and cbOut must be different");
-  }
-  if (not mlir::isa<tt::TileType>(
-          getCbIn().getType().getMemref().getElementType())) {
-    return emitOpError("cbIn must have tile element type");
-  }
-  if (mlir::isa<tt::TileType>(
-          getCbOut().getType().getMemref().getElementType())) {
-    return emitOpError("cbOut must have scalar element type");
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
   }
   return success();
 }
 
 ::mlir::LogicalResult ReturnOp::verify() {
-  if (not insideDispatchOpRegion(getOperation())) {
+  if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("ReturnOp must be inside of a DispatchOp region");
   }
   return success();
