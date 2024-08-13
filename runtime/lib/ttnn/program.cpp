@@ -186,9 +186,8 @@ run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::device::Device &device,
       op->out()->desc()->layout()->memory_desc()->data_type());
   // TODO: determine layout, hardcoding tile_layout for now
   auto desiredLayout = ::ttnn::Layout::TILE;
-  // TODO: how do we determine shape from an int* and no known rank?
-  // op->out()->desc()->shape()
-  auto shape = ::ttnn::Shape(::tt::tt_metal::Shape({1, 1, 32, 32}));
+  auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
+      utils::toShapeFromFBShape(*op->out()->desc()->shape())));
   tensorPool.push_back(
       ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device));
   liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());

@@ -5,6 +5,7 @@
 #ifndef TTNN_RUNTIME_UTILS_H
 #define TTNN_RUNTIME_UTILS_H
 
+#include "flatbuffers/vector.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttnn/types.hpp"
 
@@ -34,6 +35,11 @@ inline ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
   default:
     throw std::runtime_error("Unsupported data type");
   }
+}
+
+inline std::vector<uint32_t>
+toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
+  return std::vector<uint32_t>(vec.begin(), vec.end());
 }
 
 } // namespace tt::runtime::ttnn::utils
