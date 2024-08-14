@@ -260,34 +260,6 @@ toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
   return coreRangeSet;
 }
 
-inline DataType elementTypeToDataType(Type elementType) {
-  DataType dtype = DataType::Float32;
-  if (isa<FloatType>(elementType)) {
-    auto floatType = mlir::cast<FloatType>(elementType);
-    if (floatType.isF32()) {
-      dtype = DataType::Float32;
-    } else if (floatType.isF16()) {
-      dtype = DataType::Float16;
-    } else if (floatType.isBF16()) {
-      dtype = DataType::BFloat16;
-    } else {
-      assert(false && "unsupported float type");
-    }
-  } else if (isa<IntegerType>(elementType)) {
-    auto intType = mlir::cast<IntegerType>(elementType);
-    if (intType.getWidth() == 32) {
-      dtype = DataType::UInt32;
-    } else if (intType.getWidth() == 16) {
-      dtype = DataType::UInt16;
-    } else if (intType.getWidth() == 8) {
-      dtype = DataType::UInt8;
-    } else {
-      assert(false && "unsupported integer type");
-    }
-  }
-  return dtype;
-}
-
 template <typename AttrType, typename ValueType>
 struct ArrayAttrToFlatbufferSerializer {
   static flatbuffers::Offset<flatbuffers::Vector<ValueType>>

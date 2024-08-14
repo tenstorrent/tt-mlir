@@ -273,6 +273,13 @@ LayoutAttr LayoutAttr::get(
              collapseIntervals, oobVal);
 }
 
+LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
+                           MemorySpace memorySpace, Type elementType) {
+  assert(ty);
+  return get(context, ty.getShape(), elementType, memorySpace, {}, {{0, -1}},
+             OOBVal::Undef);
+}
+
 // From the logical shape of the tensor and the affine map of the layout,
 // compute the physical shape of the tensor, i.e the shape of the tensor
 // after the dimensions have been collapsed onto a grid.
@@ -470,6 +477,11 @@ TileType::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     return ::mlir::failure();
   }
   return ::mlir::success();
+}
+
+TileType TileType::get(::mlir::MLIRContext *context, Type elementType,
+                       ArrayRef<int64_t> shape) {
+  return get(context, shape, elementTypeToDataType(elementType));
 }
 
 llvm::SmallVector<int64_t>

@@ -418,15 +418,22 @@ public:
 
 static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
                                              Location loc, Value input,
-                                             MemorySpace desiredMemorySpace) {
+                                             MemorySpace desiredMemorySpace,
+                                             bool tiled) {
   auto ty = mlir::cast<RankedTensorType>(input.getType());
   auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
   auto currMemorySpace = currLayout.getMemorySpace();
-  if (currMemorySpace == desiredMemorySpace) {
+  auto currElementType = currLayout.getElementType();
+  auto desiredElementType =
+      tiled ? rewriter.getType<TileType>(ty.getElementType())
+            : ty.getElementType();
+  if (currMemorySpace == desiredMemorySpace &&
+      currElementType == desiredElementType) {
     return std::nullopt;
   }
 
-  auto desiredLayout = rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace);
+  auto desiredLayout =
+      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, desiredElementType);
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
@@ -444,7 +451,9 @@ static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  OperandConstraint operandConstraint) {
   auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
-  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace);
+  bool tiled =
+      !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
+  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace, tiled);
 }
 
 class TTIRLayoutDPSOperandsRewriter
@@ -516,8 +525,9 @@ public:
     for (auto &operand : op->getOpOperands()) {
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
+      bool tiled = false;
       if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                         initMemorySpace);
+                                         initMemorySpace, tiled);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
