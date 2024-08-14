@@ -74,8 +74,8 @@ createOp(FlatbufferObjectCache &cache, CloseDeviceOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToMemoryConfigOp>
 createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
-  auto input = getOperandThroughDPSOps(op.getInput());
-  auto output = getOperandThroughDPSOps(op.getOutput());
+  auto input = op.getInput();
+  auto output = op.getResult();
   return ::tt::target::ttnn::CreateToMemoryConfigOp(
       *cache.fbb, cache.at<::tt::target::TensorRef>(input),
       cache.at<::tt::target::TensorRef>(output));

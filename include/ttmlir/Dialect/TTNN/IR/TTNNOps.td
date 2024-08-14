@@ -32,18 +32,13 @@ def TTNN_CloseDeviceOp : TTNN_Op<"close_device"> {
     let arguments = (ins TT_Device:$device);
 }
 
-def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config", [DestinationStyleOpInterface]> {
+def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
+    let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }

@@ -67,7 +67,7 @@ struct ConvertTTNNToEmitCPass
 
       // Include headers
       //
-      builder.create<emitc::IncludeOp>(module.getLoc(), "pch.hpp",
+      builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn-precompiled.hpp",
                                        /*isStandard=*/false);
     }
 
