@@ -81,6 +81,18 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
       cache.at<::tt::target::TensorRef>(output));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
+createOp(FlatbufferObjectCache &cache, EmptyOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto output = getOperandThroughDPSOps(op.getResult());
+  return ::tt::target::ttnn::CreateEmptyOp(
+      *cache.fbb, cache.at<::tt::target::DeviceRef>(device),
+      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
+                        kHostAllocatedSize));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   constexpr uint64_t kHostAllocatedAddress = 0;
@@ -198,6 +210,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       toMemoryConfigOp) {
     return createOperation(cache, createOp(cache, toMemoryConfigOp),
                            debugString);
+  }
+  if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
+    return createOperation(cache, createOp(cache, emptyOp), debugString);
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString);

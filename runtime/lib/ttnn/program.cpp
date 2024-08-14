@@ -10,6 +10,9 @@
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
+#include "ttnn/tensor/types.hpp"
+#include "ttnn/types.hpp"
+#include "types_generated.h"
 #include "utils.h"
 
 #include "ttmlir/Target/TTNN/Target.h"
@@ -175,6 +178,22 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
 }
 
 static void
+run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+
+  ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(
+      op->out()->desc()->layout()->memory_desc()->data_type());
+  // TODO: determine layout, hardcoding tile_layout for now
+  auto desiredLayout = ::ttnn::Layout::TILE;
+  auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
+      utils::toShapeFromFBShape(*op->out()->desc()->shape())));
+  tensorPool.push_back(
+      ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device));
+  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+}
+
+static void
 run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
@@ -319,6 +338,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     return run(op->type_as_ToMemoryConfigOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    return run(op->type_as_EmptyOp(), device, liveTensors, tensorPool);
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     // Skip for now, we need an empty op

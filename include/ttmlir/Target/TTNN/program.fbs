@@ -18,6 +18,11 @@ table ToMemoryConfigOp {
   out: tt.target.TensorRef;
 }
 
+table EmptyOp {
+  device: tt.target.DeviceRef;
+  out: tt.target.TensorRef;
+}
+
 table FullOp {
   device: tt.target.DeviceRef;
   fill_value: float;
@@ -76,6 +81,7 @@ union OpType {
   OpenDeviceOp,
   CloseDeviceOp,
   ToMemoryConfigOp,
+  EmptyOp,
   FullOp,
   EltwiseOp,
   MatmulOp,

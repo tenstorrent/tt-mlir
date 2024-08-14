@@ -192,6 +192,16 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
+def TTNN_EmptyOp : TTNN_Op<"empty"> {
+    let summary = "Empty op.";
+    let description = [{
+      Tensor empty operation
+    }];
+
+    let arguments = (ins TT_Device:$device);
+    let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_FullOp : TTNN_Op<"full"> {
     let summary = "Full op.";
     let description = [{
