@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(STABLE_HLO_VERSION "v1.0.0")
+set(STABLE_HLO_VERSION "v1.5.0")
 
 ExternalProject_Add(
     stablehlo
