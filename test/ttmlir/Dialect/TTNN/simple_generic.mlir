@@ -4,12 +4,10 @@ module attributes {} {
     %0 = tensor.empty() : tensor<64x128xf32>
 
     %1 = "ttir.external_generic"(%arg0, %arg1, %0) <{
-      compute_attributes = [
-        #tt.compute_attributes<
-          <0x0, 6x6>, 
-          "ttnn/cpp/ttnn/operations/eltwise/binary/device/kernels/compute/eltwise_binary_kernel.cpp", 
-          <hifi4, false, false, false, <1>, {ELTWISE_OP = "add_tiles", ELTWISE_OP_TYPE = "EltwiseBinaryType::ELWADD"}>
-        >
+      circular_buffer_attributes = [
+        #tt.circular_buffer_attributes<c_in0, <0x0, 6x6>, 4096, 2048, bf16>, 
+        #tt.circular_buffer_attributes<c_in1, <0x0, 6x6>, 4096, 2048, bf16>, 
+        #tt.circular_buffer_attributes<c_out0, <0x0, 6x6>, 4096, 2048, bf16>
       ], 
       data_movement_attributes = [
         #tt.data_movement_attributes<
@@ -22,10 +20,12 @@ module attributes {} {
           "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp", 
           <writer, <1, 1>>>
       ], 
-      circular_buffer_attributes = [
-        #tt.circular_buffer_attributes<c_in0, <0x0, 6x6>, 4096, 2048, bf16>, 
-        #tt.circular_buffer_attributes<c_in1, <0x0, 6x6>, 4096, 2048, bf16>, 
-        #tt.circular_buffer_attributes<c_out0, <0x0, 6x6>, 4096, 2048, bf16>
+      compute_attributes = [
+        #tt.compute_attributes<
+          <0x0, 6x6>, 
+          "ttnn/cpp/ttnn/operations/eltwise/binary/device/kernels/compute/eltwise_binary_kernel.cpp", 
+          <hifi4, false, false, false, <1>, {ELTWISE_OP = "add_tiles", ELTWISE_OP_TYPE = "EltwiseBinaryType::ELWADD"}>
+        >
       ], 
       operandSegmentSizes = array<i32: 2, 1>, 
       operand_constraints = [#any_device, #any_device, #any_device]

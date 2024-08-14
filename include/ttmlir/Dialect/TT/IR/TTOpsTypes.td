@@ -333,7 +333,7 @@ def TT_DataMovementAttributesAttr : TT_Attr<"DataMovementAttributes", "data_move
 // An array of data movement attributes.
 def TT_DataMovementAttributesArrayAttr : TypedArrayAttrBase<TT_DataMovementAttributesAttr, "">;
 
-def TT_ComputeConfig : TT_Attr<"ComputeConfig", "compute_config"> {
+def TT_ComputeConfigAttr : TT_Attr<"ComputeConfig", "compute_config"> {
   let summary = "Compute config.";
   let description = [{
     Attribute representing ComputeConfig structure.
@@ -359,7 +359,7 @@ def TT_ComputeAttributesAttr : TT_Attr<"ComputeAttributes", "compute_attributes"
   let parameters = (ins 
     TT_CoreRangeAttr:$core_range,
     "::mlir::StringAttr":$kernel_path,
-    TT_ComputeConfig:$compute_config);
+    TT_ComputeConfigAttr:$compute_config);
     // TODO runtime_args missing
 
   let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $compute_config `>`";
