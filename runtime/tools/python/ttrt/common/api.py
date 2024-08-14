@@ -42,13 +42,14 @@ class API:
         # register all run arguments
         API.Run.register_arg(name="--clean-artifacts", type=bool, default=False, choices=[True, False], help="clean all artifacts from previous runs", api_only=False)
         API.Run.register_arg(name="--save-artifacts", type=bool, default=False, choices=[False, False], help="save all artifacts during run", api_only=False)
-        API.Run.register_arg(name="--program-index", type=str, default="all", choices=["all"] + [str(i) for i in range(1, 101)], help="the program inside the fbb to run", api_only=False)
+        API.Run.register_arg(name="--program-index", type=str, default="all", choices=["all"] + [str(i) for i in range(0, 5)], help="the program inside the fbb to run", api_only=False)
         API.Run.register_arg(name="--loops", type=int, default=1, choices=None, help="number of loops", api_only=False)
         API.Run.register_arg(name="--init", type=str, default="randn", choices=API.Run.TorchInitilizer.init_fns, help="function to initialize tensors with", api_only=False)
-        API.Run.register_arg(name="--identity", type=bool, default=False, choices=[False, False], help="do a golden identity test on the output tensors", api_only=False)
+        API.Run.register_arg(name="--identity", type=bool, default=False, choices=[True, False], help="do a golden identity test on the output tensors", api_only=False)
         API.Run.register_arg(name="--rtol", type=float, default=1e-05, choices=None, help="rtol for golden test", api_only=False)
         API.Run.register_arg(name="--atol", type=float, default=1e-08, choices=None, help="atol for golden test", api_only=False)
         API.Run.register_arg(name="--seed", type=int, default=0, choices=None, help="seed for random number generator", api_only=False)
+        API.Run.register_arg(name="binary", type=str, default="", choices=None, help="flatbuffer binary file")
 
         # register all perf arguments
         API.Perf.register_arg(name="--device", type=bool, default=False, choices=[False, False], help="collect performance trace on both host and device")
@@ -60,7 +61,7 @@ class API:
         API.register_api(API.Query)
         API.register_api(API.Read)
         API.register_api(API.Run)
-        API.register_api(API.Perf)
+        #API.register_api(API.Perf)
 
     @staticmethod
     def register_api(api_class):
@@ -78,7 +79,7 @@ class API:
         registered_args = {}
         api_only_arg = []
 
-        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+        def __init__(self, args={}, logging=None, globals=None, file_manager=None, artifacts=None):
             self.logger = logging if logging != None else Logger("ttrt.log")
             self.logging = self.logger.get_logger()
             self.globals = globals if globals != None else Globals(self.logging)
@@ -87,10 +88,17 @@ class API:
             self.system_desc = None
             self.device_ids = None
             
-            for name, _ in API.Query.registered_args.items():
+            for name, attributes in API.Query.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
                 name = name.replace('-', '_')
-                self[name] = getattr(args, name)
+
+                if type(args) == dict:
+                    if name in args.keys():
+                        self[name] = args[name]
+                    else:
+                        self[name] = attributes["default"]
+                else:
+                    self[name] = getattr(args, name)
           
         def preprocess(self):
             if self["clean_artifacts"]:
@@ -179,7 +187,7 @@ class API:
         api_only_arg = []
         read_actions = ["all", "version", "system_desc", "mlir", "cpp", "inputs", "outputs"]
         
-        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+        def __init__(self, args={}, logging=None, globals=None, file_manager=None, artifacts=None):
             self.logger = logging if logging != None else Logger("ttrt.log")
             self.logging = self.logger.get_logger()
             self.globals = globals if globals != None else Globals(self.logging)
@@ -192,7 +200,14 @@ class API:
             for name, _ in API.Read.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
                 name = name.replace('-', '_')
-                self[name] = getattr(args, name)
+                
+                if type(args) == dict:
+                    if name in args.keys():
+                        self[name] = args[name]
+                    else:
+                        self[name] = attributes["default"]
+                else:
+                    self[name] = getattr(args, name)
           
         def preprocess(self):
             if self["clean_artifacts"]:
@@ -219,19 +234,19 @@ class API:
                     self.ttmetal_binaries.append(bin)
 
         def execute(self):
-            for binary in self.ttnn_binaries:
-                self.read_action_functions[self["section"]](binary)
+            for bin in self.ttnn_binaries:
+                self.read_action_functions[self["section"]](bin)
 
-            for binary in self.ttmetal_binaries:
-                self.read_action_functions[self["section"]](binary)
+            for bin in self.ttmetal_binaries:
+                self.read_action_functions[self["section"]](bin)
 
         def postprocess(self):
             if self["save_artifacts"]:
-                for binary in self.ttnn_binaries:
-                    self.artifacts.save_binary(binary)
+                for bin in self.ttnn_binaries:
+                    self.artifacts.save_binary(bin)
 
-                for binary in self.ttmetal_binaries:
-                    self.artifacts.save_binary(binary)
+                for bin in self.ttmetal_binaries:
+                    self.artifacts.save_binary(bin)
 
         def __str__(self):
             pass
@@ -247,49 +262,6 @@ class API:
             self.check_constraints()
             self.execute()
             self.postprocess()
-
-        @staticmethod
-        def register_arg(name, type, default, choices, help, api_only=True):
-            API.Read.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
-
-            if api_only:
-                API.Read.api_only_arg.append(name)
-
-        @staticmethod
-        def get_upstream_apis():
-            upstream_apis = []
-            for arg_name, arg_value in API.Read.registered_args.items():
-                if arg_name not in API.Read.api_only_arg:
-                    upstream_apis.append({"name": arg_name, "type": arg_value["type"], "default": arg_value["default"], "choices": arg_value["choices"], "help": arg_value["help"]})
-
-            return upstream_apis
-
-        @staticmethod
-        def generate_subparser(subparsers):
-            read_parser = subparsers.add_parser(
-                "read", help="read information from flatbuffer binary"
-            )
-            read_parser.set_defaults(api=API.Read)
-
-            for name, attributes in API.Read.registered_args.items():
-                if name == "binary":
-                    read_parser.add_argument(f"{name}", help=attributes["help"])
-                elif attributes["type"] == bool:
-                    read_parser.add_argument(
-                        f"{name}",
-                        action="store_true", 
-                        help=attributes["help"],
-                    )
-                else:
-                    read_parser.add_argument(
-                        f"{name}",
-                        type=attributes["type"],
-                        default=attributes["default"],
-                        choices=attributes["choices"],
-                        help=attributes["help"],
-                    )
-            
-            return read_parser
 
         def all(self, binary):
             return self.logging.info(binary.fbb.as_json())
@@ -340,24 +312,74 @@ class API:
                 self.logging.info(f"program:{program['name']}")
                 self.logging.info(f"\n{json.dumps(program['outputs'], indent=2)}")
 
+        @staticmethod
+        def register_arg(name, type, default, choices, help, api_only=True):
+            API.Read.registered_args[name] = {"type": type, "default": default, "choices": choices, "help": help}
+
+            if api_only:
+                API.Read.api_only_arg.append(name)
+
+        @staticmethod
+        def get_upstream_apis():
+            upstream_apis = []
+            for arg_name, arg_value in API.Read.registered_args.items():
+                if arg_name not in API.Read.api_only_arg:
+                    upstream_apis.append({"name": arg_name, "type": arg_value["type"], "default": arg_value["default"], "choices": arg_value["choices"], "help": arg_value["help"]})
+
+            return upstream_apis
+
+        @staticmethod
+        def generate_subparser(subparsers):
+            read_parser = subparsers.add_parser(
+                "read", help="read information from flatbuffer binary"
+            )
+            read_parser.set_defaults(api=API.Read)
+
+            for name, attributes in API.Read.registered_args.items():
+                if name == "binary":
+                    read_parser.add_argument(f"{name}", help=attributes["help"])
+                elif attributes["type"] == bool:
+                    read_parser.add_argument(
+                        f"{name}",
+                        action="store_true", 
+                        help=attributes["help"],
+                    )
+                else:
+                    read_parser.add_argument(
+                        f"{name}",
+                        type=attributes["type"],
+                        default=attributes["default"],
+                        choices=attributes["choices"],
+                        help=attributes["help"],
+                    )
+            
+            return read_parser
+
     class Run:
         registered_args = {}
         api_only_arg = []
 
-        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+        def __init__(self, args={}, logging=None, globals=None, file_manager=None, artifacts=None):
             self.logger = logging if logging != None else Logger("ttrt.log")
             self.logging = self.logger.get_logger()
             self.globals = globals if globals != None else Globals(self.logging)
             self.file_manager = file_manager if file_manager != None else FileManager(self.logging)
             self.artifacts = artifacts if artifacts != None else Artifacts(self.logging, self.file_manager)
-            self.query = API.Query()
-            self.ttnn_binaries = None
-            self.ttmetal_binaries = None
+            self.query = API.Query({}, self.logger, self.globals, self.file_manager, self.artifacts)
+            self.ttnn_binaries = []
+            self.ttmetal_binaries = []
             
             for name, _ in API.Run.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
                 name = name.replace('-', '_')
-                self[name] = getattr(args, name)
+                
+                if type(args) == dict:
+                    if name in args.keys():
+                        self[name] = args[name]
+                    else:
+                        self[name] = attributes["default"]
+                else:
+                    self[name] = getattr(args, name)
           
         def preprocess(self):
             self.query()
@@ -368,12 +390,12 @@ class API:
             if self["save_artifacts"]:
                 self.artifacts.create_artifacts()
 
-            ttnn_binary_paths = BinaryTTNN.find_ttnn_binary_paths(self["binary"])
-            ttmetal_binary_paths = BinaryTTMetal.find_ttmetal_binary_paths(self["binary"])
-
         def check_constraints(self):
+            ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
+            ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(self["binary"])
+
             for path in ttnn_binary_paths:
-                bin = BinaryTTNN.prepare_binary(path)
+                bin = BinaryTTNN(self.logging, self.file_manager, path)
                 if not bin.check_version():
                     continue
 
@@ -382,12 +404,13 @@ class API:
 
                 if self["program_index"] != "all":
                     if not bin.check_program_index_exists(int(self["program_index"])):
+                        self.logging.info(f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path}")
                         continue
                 
                 self.ttnn_binaries.append(bin)
 
             for path in ttmetal_binary_paths:
-                bin = BinaryTTMetal.prepare_binary(path)
+                bin = BinaryTTMetal(self.logging, self.file_manager, path)
                 if not bin.check_version():
                     continue
 
@@ -396,13 +419,21 @@ class API:
 
                 if self["program_index"] != "all":
                     if not bin.check_program_index_exists(int(self["program_index"])):
+                        self.logging.info(f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path}")
                         continue
 
                 self.ttmetal_binaries.append(bin)
 
         def execute(self):
             def _execute(binaries):
-                ttrt.runtime.set_compatible_runtime(self.binaries.fbb)
+                import ttrt.runtime
+                import torch
+
+                if len(binaries) == 0:
+                    return
+
+                torch.manual_seed(self["seed"])
+                ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
                 device = ttrt.runtime.open_device([self.query.device_ids[0]])
                 atexit.register(lambda: ttrt.runtime.close_device(device))
 
@@ -415,33 +446,33 @@ class API:
 
                     for program_index in program_indices:
                         program = bin.get_program(program_index)
-                        program.populate_inputs(API.Run.TorchInitilizer.get_initilizer(self[init]), program_index)
-                        program.populate_outputs(API.Run.TorchInitilizer.get_initilizer("zeros"), program_index)
+                        program.populate_inputs(API.Run.TorchInitilizer.get_initilizer(self["init"]))
+                        program.populate_outputs(API.Run.TorchInitilizer.get_initilizer("zeros"))
 
                         total_inputs = []
                         total_outputs = []
                         for loop in range(self["loops"]):
                             inputs = []
                             outputs = []
-                            for i in program.get_inputs():
+                            for i in program.input_tensors:
                                 inputs.append(
                                     ttrt.runtime.create_tensor(
                                         i.data_ptr(),
                                         list(i.shape),
                                         list(i.stride()),
                                         i.element_size(),
-                                        toDataType(i.dtype),
+                                        Binary.Program.to_data_type(i.dtype),
                                     )
                                 )
 
-                            for i in program.get_outputs():
+                            for i in program.output_tensors:
                                 outputs.append(
                                     ttrt.runtime.create_tensor(
                                         i.data_ptr(),
                                         list(i.shape),
                                         list(i.stride()),
                                         i.element_size(),
-                                        toDataType(i.dtype),
+                                        Binary.Program.to_data_type(i.dtype),
                                     )
                                 )
 
@@ -450,33 +481,25 @@ class API:
 
                         event = None
                         for loop in range(self["loops"]):
-                            event = ttrt.runtime.submit(device, self.bin.fbb, program_index, total_inputs[loop], total_outputs[loop])
+                            event = ttrt.runtime.submit(device, bin.fbb, program_index, total_inputs[loop], total_outputs[loop])
                         ttrt.runtime.wait(event)
 
                         if self["identity"]:
-                            for i, o in zip(program.get_inputs(), program.get_outputs()):
-                                if not torch.allclose(i, o):
+                            for i, o in zip(program.input_tensors, program.output_tensors):
+                                if not torch.allclose(i, o, rtol=self["rtol"], atol=self["atol"]):
                                     self.logging.error(f"Failed: inputs and outputs do not match in binary")
                                     self.logging.error(i - o)
 
-            import ttrt.runtime
-            import torch
-
-            torch.manual_seed(self[seed])
-
-            if len(self.ttnn_binaries) != 0:
-                _execute(self.ttnn_binaries)
-            
-            if len(self.ttmetal_binaries) != 0:
-                _execute(self.ttnn_binaries)
+            _execute(self.ttnn_binaries)
+            _execute(self.ttmetal_binaries)
 
         def postprocess(self):
             if self["save_artifacts"]:
                 for bin in self.ttnn_binaries:
-                    bin.save(self.artifacts, self.query)
+                    self.artifacts.save_binary(bin, self.query)
 
                 for bin in self.ttmetal_binaries:
-                    bin.save(self.artifacts, self.query)
+                    self.artifacts.save_binary(bin, self.query)
 
         def __str__(self):
             pass
@@ -492,43 +515,6 @@ class API:
             self.check_constraints()
             self.execute()
             self.postprocess()
-
-        @staticmethod
-        def toDataType(dtype):
-            import torch
-            import ttrt.runtime
-
-            if dtype == torch.float32:
-                return ttrt.runtime.DataType.Float32
-            if dtype == torch.float16:
-                return ttrt.runtime.DataType.Float16
-            if dtype == torch.bfloat16:
-                return ttrt.runtime.DataType.BFloat16
-            if dtype == torch.uint32:
-                return ttrt.runtime.DataType.UInt32
-            if dtype == torch.uint16:
-                return ttrt.runtime.DataType.UInt16
-            if dtype == torch.uint8:
-                return ttrt.runtime.DataType.UInt8
-            raise ValueError(f"unsupported dtype: {dtype}")
-
-        @staticmethod
-        def fromDataType(dtype):
-            import torch
-
-            if dtype == "Float32":
-                return torch.float32
-            if dtype == "Float16":
-                return torch.float16
-            if dtype == "BFloat16":
-                return torch.bfloat16
-            if dtype == "UInt32":
-                return torch.uint32
-            if dtype == "UInt16":
-                return torch.uint16
-            if dtype == "UInt8":
-                return torch.uint8
-            raise ValueError(f"unsupported dtype: {dtype}")
 
         @staticmethod
         def register_arg(name, type, default, choices, help, api_only=True):
@@ -574,15 +560,19 @@ class API:
             return run_parser
 
         class TorchInitilizer():
-            init_fns = sorted(["randn","arange","zeros"])
+            init_fns = sorted(["randn", "arange", "zeros"])
 
             @staticmethod
             def get_initilizer(name):
-                return TorchInitilizer[name]
+                for attr, value in API.Run.TorchInitilizer.__dict__.items():
+                    if attr == name:
+                        return value
+
+                raise Exception(f"could not find specified init function={name}")
             
             @staticmethod
             def get_init_fns():
-                return TorchInitilizer.init_fns
+                return API.Run.TorchInitilizer.init_fns
 
             @staticmethod
             def randn(shape, dtype):
@@ -609,7 +599,7 @@ class API:
         registered_args = {}
         api_only_arg = []
 
-        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+        def __init__(self, args={}, logging=None, globals=None, file_manager=None, artifacts=None):
             self.logger = logging if logging != None else Logger("ttrt.log")
             self.logging = self.logger.get_logger()
             self.globals = globals if globals != None else Globals(self.logging)
@@ -625,7 +615,14 @@ class API:
             for name, _ in API.Run.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
                 name = name.replace('-', '_')
-                self[name] = getattr(args, name)
+                
+                if type(args) == dict:
+                    if name in args.keys():
+                        self[name] = args[name]
+                    else:
+                        self[name] = attributes["default"]
+                else:
+                    self[name] = getattr(args, name)
           
         def preprocess(self):
             self.query()
@@ -833,7 +830,7 @@ class API:
         @staticmethod
         def generate_subparser(subparsers):
             perf_parser = subparsers.add_parser(
-                "run", help="run performance trace and collect performance data"
+                "perf", help="run performance trace and collect performance data"
             )
             perf_parser.set_defaults(api=API.Perf)
 

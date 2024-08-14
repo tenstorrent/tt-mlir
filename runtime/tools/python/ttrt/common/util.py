@@ -316,11 +316,11 @@ class Artifacts:
             program_folder = f"{binary_folder}/run/program_{program.index}"
             self.file_manager.create_directory(program_folder)
 
-            for i in range(len(program.get_inputs())):
-                self.save_torch_tensor(program_folder, program.get_inputs()[i], f"program_{program.index}_input_{i}.pt")
+            for i in range(len(program.input_tensors)):
+                self.save_torch_tensor(program_folder, program.input_tensors[i], f"program_{program.index}_input_{i}.pt")
 
-            for i in range(len(program.get_outputs())):
-                self.save_torch_tensor(program_folder, program.get_outputs()[i], f"program_{program.index}_output_{i}.pt")
+            for i in range(len(program.output_tensors)):
+                self.save_torch_tensor(program_folder, program.output_tensors[i], f"program_{program.index}_output_{i}.pt")
 
         if query != None:
             self.save_system_desc(query.system_desc, f"{binary_folder}")
@@ -349,7 +349,7 @@ class Binary:
         self.file_path = file_path
         self.name = self.file_manager.get_file_name(file_path)
         self.extension = self.file_manager.get_file_extension(file_path)
-        self.fbb = ttrt.binary.load_from_path(file_path)
+        self.fbb = ttrt.binary.load_binary_from_path(file_path)
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.programs = []
 
@@ -388,7 +388,7 @@ class Binary:
         return len(self.programs)
 
     def check_program_index_exists(self, program_index):
-        if program_index > self.get_num_programs():
+        if program_index >= self.get_num_programs():
             return False
         
         return True
@@ -409,21 +409,52 @@ class Binary:
             self.input_tensors = []
             self.output_tensors = []
 
-        def get_inputs(self):
-            return self.input_tensors
-
-        def get_outputs(self):
-            return self.output_tensors
-
         def populate_inputs(self, init_fn):
-            input_dict = self.program["inputs"][self.index]
-            torch_tensor = init_fn(input_dict["desc"]["shape"], dtype=fromDataType(input_dict["desc"]["layout"]["memory_desc"]["data_type"]))
-            self.input_tensors.append(torch_tensor)
+            for i in self.program["inputs"]:
+                torch_tensor = init_fn(i["desc"]["shape"], dtype=Binary.Program.from_data_type(i["desc"]["layout"]["memory_desc"]["data_type"]))
+                self.input_tensors.append(torch_tensor)
           
         def populate_outputs(self, init_fn):
-            output_dict = self.program["outputs"][self.index]
-            torch_tensor = init_fn(output_dict["desc"]["shape"], dtype=fromDataType(output_dict["desc"]["layout"]["memory_desc"]["data_type"]))
-            self.output_tensors.append(torch_tensor)
+            for i in self.program["outputs"]:
+                torch_tensor = init_fn(i["desc"]["shape"], dtype=Binary.Program.from_data_type(i["desc"]["layout"]["memory_desc"]["data_type"]))
+                self.output_tensors.append(torch_tensor)
+
+        @staticmethod
+        def to_data_type(dtype):
+            import torch
+            import ttrt.runtime
+
+            if dtype == torch.float32:
+                return ttrt.runtime.DataType.Float32
+            if dtype == torch.float16:
+                return ttrt.runtime.DataType.Float16
+            if dtype == torch.bfloat16:
+                return ttrt.runtime.DataType.BFloat16
+            if dtype == torch.uint32:
+                return ttrt.runtime.DataType.UInt32
+            if dtype == torch.uint16:
+                return ttrt.runtime.DataType.UInt16
+            if dtype == torch.uint8:
+                return ttrt.runtime.DataType.UInt8
+            raise ValueError(f"unsupported dtype: {dtype}")
+
+        @staticmethod
+        def from_data_type(dtype):
+            import torch
+
+            if dtype == "Float32":
+                return torch.float32
+            if dtype == "Float16":
+                return torch.float16
+            if dtype == "BFloat16":
+                return torch.bfloat16
+            if dtype == "UInt32":
+                return torch.uint32
+            if dtype == "UInt16":
+                return torch.uint16
+            if dtype == "UInt8":
+                return torch.uint8
+            raise ValueError(f"unsupported dtype: {dtype}")
 
 class BinaryTTNN(Binary):
     file_extension = ".ttnn"
