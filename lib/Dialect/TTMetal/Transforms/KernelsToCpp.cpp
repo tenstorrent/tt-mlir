@@ -143,6 +143,16 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
     builder.create<emitc::IncludeOp>(module.getLoc(),
                                      "compute_kernel_api/common.h",
                                      /*isStandard=*/false);
+    builder.create<emitc::IncludeOp>(module.getLoc(),
+                                     "compute_kernel_api/tilize.h",
+                                     /*isStandard=*/false);
+    builder.create<emitc::IncludeOp>(module.getLoc(),
+                                     "compute_kernel_api/untilize.h",
+                                     /*isStandard=*/false);
+  }
+
+  if (threadTypeAttr.getValue() == ttkernel::ThreadType::Tensix) {
+    builder.create<emitc::VerbatimOp>(module.getLoc(), "namespace NAMESPACE {");
   }
 
   // Create a new func op and move the existing block into it.
@@ -153,6 +163,12 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
   Region *funcBody = entryBlock->getParent();
   IRMapping irMapper;
   funcBody->takeBody(region);
+
+  if (threadTypeAttr.getValue() == ttkernel::ThreadType::Tensix) {
+    builder.create<emitc::VerbatimOp>(module.getLoc(),
+                                      "void MAIN { kernel_main(); }");
+    builder.create<emitc::VerbatimOp>(module.getLoc(), "}");
+  }
 
   // Apply arith to emitc conversion first
   {
@@ -179,6 +195,10 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,

@@ -357,6 +357,10 @@ mlir::Type LayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
+bool LayoutAttr::isTiled() const {
+  return ::mlir::isa<::mlir::tt::TileType>(getElementType());
+}
+
 uint64_t LayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
   if (mlir::isa<TileType>(elementType)) {

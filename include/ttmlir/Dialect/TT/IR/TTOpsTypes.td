@@ -202,6 +202,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
+      bool isTiled() const;
       Type getElementType() const;
       uint64_t getElementSizeBytes() const;
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
