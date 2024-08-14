@@ -122,7 +122,7 @@ class FileManager:
         try:
             os.remove(file_path)
         except FileNotFoundError:
-            self.logging.warning(f"file '{file_path}' not found")
+            self.logging.warning(f"file '{file_path}' not found - cannot remove")
         except PermissionError:
             raise PermissionError(f"insufficient permissions to remove file '{file_path}'")
         except Exception as e:
@@ -134,7 +134,7 @@ class FileManager:
         try:
             shutil.rmtree(directory_path)
         except FileNotFoundError:
-            self.logging.warning(f"directory '{directory_path}' not found")
+            self.logging.warning(f"directory '{directory_path}' not found - cannot remove")
         except PermissionError:
             raise PermissionError(f"insufficient permissions to remove directory '{directory_path}'")
         except Exception as e:
@@ -232,11 +232,53 @@ class FileManager:
         file_extension = ""
 
         try:
-            _, file_extension = os.path.splitext(filepath)
+            _, file_extension = os.path.splitext(file_path)
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
         return file_extension
+
+    def find_ttnn_binary_paths(self, path):
+        files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if self.get_file_extension(path) == BinaryTTNN.get_file_extension():
+                    files.append(path)
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try: 
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if self.get_file_extension(file) == BinaryTTNN.get_file_extension():
+                            files.append(os.path.join(root, file))
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        return files
+
+    def find_ttmetal_binary_paths(self, path):
+        files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if self.get_file_extension(path) == BinaryTTMetal.get_file_extension():
+                    files.append(path)
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try: 
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if self.get_file_extension(file) == BinaryTTMetal.get_file_extension():
+                            files.append(os.path.join(root, file))
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        return files
 
 class Artifacts:
     def __init__(self, logging, file_manager, artifacts_folder_path=""):
@@ -248,10 +290,10 @@ class Artifacts:
         return self.artifacts_folder_path
 
     def get_binary_folder_path(self, binary):
-        return f"{self.get_artifacts_folder_path()}/{binary.name}_{binary.extension}"
+        return f"{self.get_artifacts_folder_path()}/{binary.name}"
 
     def get_binary_perf_folder_path(self, binary):
-        return f"{self.get_artifacts_folder_path()}/{binary.name}_{binary.extension}/perf"
+        return f"{self.get_artifacts_folder_path()}/{binary.name}/perf"
 
     def create_artifacts(self):
         self.file_manager.create_directory(self.get_artifacts_folder_path())
@@ -262,7 +304,7 @@ class Artifacts:
     def clean_binary_artifacts(self, binary):
         self.file_manager.remove_directory(self.get_binary_folder_path(binary))
 
-    def save_binary(self, binary, query):
+    def save_binary(self, binary, query=None):
         binary_folder = self.get_binary_folder_path(binary)
         self.file_manager.create_directory(binary_folder)
         self.file_manager.create_directory(f"{binary_folder}/run")
@@ -270,7 +312,7 @@ class Artifacts:
 
         self.file_manager.copy_file(f"{binary_folder}", binary.file_path)
 
-        for program in binary.programs():
+        for program in binary.programs:
             program_folder = f"{binary_folder}/run/program_{program.index}"
             self.file_manager.create_directory(program_folder)
 
@@ -299,18 +341,20 @@ class Artifacts:
             raise Exception(f"an unexpected error occurred: {e}")
 
 class Binary:
-    def __init__(self, file_path):
+    def __init__(self, logging, file_manager, file_path):
         import ttrt.binary
 
+        self.logging = logging
+        self.file_manager = file_manager
         self.file_path = file_path
-        self.name = FileManager.get_file_name(file_path)
-        self.extension = FileManager.get_file_extension(file_path)
+        self.name = self.file_manager.get_file_name(file_path)
+        self.extension = self.file_manager.get_file_extension(file_path)
         self.fbb = ttrt.binary.load_from_path(file_path)
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.programs = []
 
         for i in range(len(self.fbb_dict["programs"])):
-            program = Program(i, self.fbb_dict["programs"][i])
+            program = Binary.Program(i, self.fbb_dict["programs"][i])
             self.programs.append(program)
 
     def check_version(self):
@@ -322,7 +366,7 @@ class Binary:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
         if package_version != self.fbb.version:
-            logging.info(f"{package_name}: v{package_version} does not match flatbuffer: v{self.fbb.version} for flatbuffer: {self.file_path} - skipping this test")
+            self.logging.info(f"{package_name}: v{package_version} does not match flatbuffer: v{self.fbb.version} for flatbuffer: {self.file_path} - skipping this test")
             return False
         
         return True
@@ -332,7 +376,7 @@ class Binary:
 
         try:
             if self.fbb_dict["system_desc"] != query.get_system_desc_as_dict()["system_desc"]:
-                logging.info(f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test")
+                self.logging.info(f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test")
                 return False
 
         except Exception as e:
@@ -384,69 +428,23 @@ class Binary:
 class BinaryTTNN(Binary):
     file_extension = ".ttnn"
 
-    def __int__(self, file_path):
-        super().__init__(file_path)
+    def __int__(self, logging, file_manager, file_path):
+        super().__init__(logging, file_manager, file_path)
+        self.logging = logging
+        self.file_manager = file_manager
 
     @staticmethod
     def get_file_extension():
         return BinaryTTNN.file_extension
 
-    @staticmethod
-    def prepare_binary(file_path):
-        return BinaryTTNN(file_path)
-
-    @staticmethod
-    def find_ttnn_binary_paths(path):
-        files = []
-
-        if FileManager.is_file(path):
-            if FileManager.check_file_exists(path):
-                files.append(path)
-            else:
-                logging.info(f"file '{path}' not found - skipping")
-        else:
-            FileManager.check_directory_exists(path)
-            try: 
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if FileManager.get_file_extension(file) == BinaryTTNN.get_file_extension():
-                            files.append(os.path.join(root, file))
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-        return files
-
 class BinaryTTMetal(Binary):
     file_extension = ".ttb"
 
-    def __int__(self, file_path):
-        super().__init__(file_path)
+    def __int__(self, logging, file_manager, file_path):
+        super().__init__(logging, file_manager, file_path)
+        self.logging = logging
+        self.file_manager = file_manager
 
     @staticmethod
     def get_file_extension():
         return BinaryTTMetal.file_extension
-
-    @staticmethod
-    def prepare_binary(file_path):
-        return BinaryTTMetal(file_path)
-
-    @staticmethod
-    def find_ttmetal_binary_paths(directory_path):
-        files = []
-
-        if FileManager.is_file(path):
-            if FileManager.check_file_exists(path):
-                files.append(path)
-            else:
-                logging.info(f"file '{path}' not found - skipping")
-        else:
-            FileManager.check_directory_exists(path)
-            try: 
-                for root, _, files in os.walk(path):
-                    for file in files:
-                        if FileManager.get_file_extension(file) == BinaryTTMetal.get_file_extension():
-                            files.append(os.path.join(root, file))
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-        return files

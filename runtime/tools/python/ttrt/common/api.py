@@ -37,6 +37,7 @@ class API:
         API.Read.register_arg(name="--section", type=str, default="all", choices=sorted(API.Read.read_actions), help="output sections of the fb")
         API.Read.register_arg(name="--clean-artifacts", type=bool, default=False, choices=[True, False], help="clean all artifacts from previous runs")
         API.Read.register_arg(name="--save-artifacts", type=bool, default=False, choices=[True, False], help="save all artifacts during run")
+        API.Read.register_arg(name="binary", type=str, default="", choices=None, help="flatbuffer binary file")
 
         # register all run arguments
         API.Run.register_arg(name="--clean-artifacts", type=bool, default=False, choices=[True, False], help="clean all artifacts from previous runs", api_only=False)
@@ -106,7 +107,7 @@ class API:
 
             try:
                 self.system_desc, self.device_ids = ttrt.runtime.get_current_system_desc()
-                self.logging.info(self.get_system_desc_as_dict())
+                self.logging.info(self.system_desc.as_json())
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
@@ -176,7 +177,7 @@ class API:
     class Read:
         registered_args = {}
         api_only_arg = []
-        read_actions = ["all", "version", "system-desc", "mlir", "cpp", "inputs", "outputs"]
+        read_actions = ["all", "version", "system_desc", "mlir", "cpp", "inputs", "outputs"]
         
         def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
             self.logger = logging if logging != None else Logger("ttrt.log")
@@ -184,8 +185,9 @@ class API:
             self.globals = globals if globals != None else Globals(self.logging)
             self.file_manager = file_manager if file_manager != None else FileManager(self.logging)
             self.artifacts = artifacts if artifacts != None else Artifacts(self.logging, self.file_manager)
-            self.ttnn_binaries = None
-            self.ttmetal_binaries = None
+            self.read_action_functions = {}
+            self.ttnn_binaries = []
+            self.ttmetal_binaries = []
             
             for name, _ in API.Read.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
@@ -199,26 +201,29 @@ class API:
             if self["save_artifacts"]:
                 self.artifacts.create_artifacts()
 
-            ttnn_binary_paths = BinaryTTNN.find_ttnn_binary_paths(self["binary"])
-            ttmetal_binary_paths = BinaryTTMetal.find_ttmetal_binary_paths(self["binary"])
+            for action in self.read_actions:
+                self.read_action_functions[action] = self[action]
 
         def check_constraints(self):
+            ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
+            ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(self["binary"])
+
             for path in ttnn_binary_paths:
-                bin = BinaryTTNN.prepare_binary(path)
+                bin = BinaryTTNN(self.logging, self.file_manager, path)
                 if bin.check_version():
                     self.ttnn_binaries.append(bin)
 
             for path in ttmetal_binary_paths:
-                bin = BinaryTTMetal.prepare_binary(path)
+                bin = BinaryTTMetal(self.logging, self.file_manager, path)
                 if bin.check_version():
                     self.ttmetal_binaries.append(bin)
 
         def execute(self):
             for binary in self.ttnn_binaries:
-                API.Read[self["section"]](binary)
+                self.read_action_functions[self["section"]](binary)
 
             for binary in self.ttmetal_binaries:
-                API.Read[self["section"]](binary)
+                self.read_action_functions[self["section"]](binary)
 
         def postprocess(self):
             if self["save_artifacts"]:
@@ -265,10 +270,11 @@ class API:
                 "read", help="read information from flatbuffer binary"
             )
             read_parser.set_defaults(api=API.Read)
-            read_parser.add_argument("binary", help="flatbuffer binary file")
 
             for name, attributes in API.Read.registered_args.items():
-                if attributes["type"] == bool:
+                if name == "binary":
+                    read_parser.add_argument(f"{name}", help=attributes["help"])
+                elif attributes["type"] == bool:
                     read_parser.add_argument(
                         f"{name}",
                         action="store_true", 
@@ -285,68 +291,54 @@ class API:
             
             return read_parser
 
-        @staticmethod
-        def all(binary):
+        def all(self, binary):
             return self.logging.info(binary.fbb.as_json())
 
-        @staticmethod
-        def version(binary):
-            return self.logging.info(f"version: {binary.fbb.version}\ntt-mlir git hash: {binary.fbb.ttmlir_git_hash}")
+        def version(self, binary):
+            return self.logging.info(f"\nversion: {binary.fbb.version}\ntt-mlir git hash: {binary.fbb.ttmlir_git_hash}")
 
-        @staticmethod
-        def system_desc(binary):
+        def system_desc(self, binary):
             import ttrt.binary
             bin_dict = ttrt.binary.as_dict(binary.fbb)
             return self.logging.info(json.dumps(bin_dict["system_desc"], indent=2))
 
-        @staticmethod
-        def mlir(binary):
+        def mlir(self, binary):
             import ttrt.binary
             bin_dict = ttrt.binary.as_dict(binary.fbb)
             
-            for i, program in enumerate(d["programs"]):
+            for i, program in enumerate(bin_dict["programs"]):
                 if "debug_info" not in program:
-                    self.logging.info("// no debug info found for program:", program["name"])
+                    self.logging.info(f"no debug info found for program:{program['name']}")
                     continue
-                self.logging.info(
-                    f"// program[{i}]:",
-                    program["name"],
-                    "-",
-                    program["debug_info"]["mlir"]["name"],
-                )
-                self.logging.info(program["debug_info"]["mlir"]["source"], end="")
+                self.logging.info(f"program[{i}]:{program['name']}-{program['debug_info']['mlir']['name']}")
+                self.logging.info(f"\n{program['debug_info']['mlir']['source']}")
 
-        @staticmethod
-        def cpp(binary):
+        def cpp(self, binary):
             import ttrt.binary
             bin_dict = ttrt.binary.as_dict(binary.fbb)
             
-            for i, program in enumerate(d["programs"]):
+            for i, program in enumerate(bin_dict["programs"]):
                 if "debug_info" not in program:
-                    self.logging.info("// no debug info found for program:", program["name"])
+                    self.logging.info(f"no debug info found for program:{program['name']}")
                     continue
-                self.logging.info(f"// program[{i}]:", program["name"])
-                self.logging.info(program["debug_info"]["cpp"], end="")
+                self.logging.info(f"program[{i}]:{program['name']}")
+                self.logging.info(f"\n{program['debug_info']['cpp']}")
 
-        @staticmethod
-        def inputs(binary):
+        def inputs(self, binary):
             import ttrt.binary
             bin_dict = ttrt.binary.as_dict(binary.fbb)
 
             for program in bin_dict["programs"]:
-                self.logging.info("program:", program["name"])
-                self.logging.info(json.dumps(program["inputs"], indent=2))
+                self.logging.info(f"program:{program['name']}")
+                self.logging.info(f"\n{json.dumps(program['inputs'], indent=2)}")
 
-        @staticmethod
-        def outputs(binary):
-          import ttrt.binary
-          bin_dict = ttrt.binary.as_dict(binary.fbb)
-          
-          for program in bin_dict["programs"]:
-              self.logging.info("program:", program["name"])
-              self.logging.info(json.dumps(program["outputs"], indent=2))
+        def outputs(self, binary):
+            import ttrt.binary
+            bin_dict = ttrt.binary.as_dict(binary.fbb)
 
-          return outputs_string
+            for program in bin_dict["programs"]:
+                self.logging.info(f"program:{program['name']}")
+                self.logging.info(f"\n{json.dumps(program['outputs'], indent=2)}")
 
     class Run:
         registered_args = {}
@@ -562,7 +554,9 @@ class API:
             run_parser.set_defaults(api=API.Run)
 
             for name, attributes in API.Run.registered_args.items():
-                if attributes["type"] == bool:
+                if name == "binary":
+                    run_parser.add_argument(f"{name}", help=attributes["help"])
+                elif attributes["type"] == bool:
                     run_parser.add_argument(
                       f"{name}",
                         action="store_true", 
@@ -844,7 +838,9 @@ class API:
             perf_parser.set_defaults(api=API.Perf)
 
             for name, attributes in API.Perf.registered_args.items():
-                if attributes["type"] == bool:
+                if name == "binary":
+                    perf_parser.add_argument(f"{name}", help=attributes["help"])
+                elif attributes["type"] == bool:
                     perf_parser.add_argument(
                           f"{name}",
                         action="store_true", 
