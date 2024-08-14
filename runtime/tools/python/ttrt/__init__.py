@@ -40,8 +40,8 @@ def main():
         parser.print_help()
         return
 
-    # run command
-    args.func(args)
+    request_api = args.api(args)
+    request_api()
 
 if __name__ == "__main__":
     main()

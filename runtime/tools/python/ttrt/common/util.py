@@ -16,19 +16,72 @@ import socket
 from pkg_resources import get_distribution
 import sys
 import shutil
-import logging
-
-if "LOGGER_LEVEL" not in os.environ:
-    os.environ["LOGGER_LEVEL"] = "FATAL"
-if "TT_METAL_LOGGER_LEVEL" not in os.environ:
-    os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 #######################################################################################
 #######################################**UTILS**#######################################
 #######################################################################################
+class Logger:
+    def __init__(self, file_name):
+        import logging
+        self.logging = logging
+        self.file_name = file_name
+
+        self.logging.basicConfig(
+            filename=self.file_name,
+            filemode='w',        
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            level=self.logging.NOTSET
+        )
+
+    def get_logger(self):
+        return self.logging
+
+class Globals:
+    def __init__(self, logging):
+        self.logging = logging
+
+        if self.check_global_exists("LOGGER_LEVEL"):
+            self.add_global_env("LOGGER_LEVEL", "FATAL")
+        if self.check_global_exists("TT_METAL_LOGGER_LEVEL"):
+            self.add_global_env("TT_METAL_LOGGER_LEVEL", "FATAL")
+
+    def add_global_env(self, key, value):
+        env_vars = dict(os.environ)
+        env_vars[key] = value
+
+    def remove_global_env(self, key):
+        del os.environ[key]
+
+    def get_globals(self):
+        return dict(os.environ)
+
+    def print_globals(self):
+        env_vars = dict(os.environ)
+        for var_name, value in env_vars.items():
+            self.logging.info(f"{var_name}: {value}")
+
+    def check_global_exists(self, key):
+        env_vars = dict(os.environ)
+        if key in env_vars.keys():
+            return True
+
+        return False
+
+    @staticmethod
+    def get_ttmlir_home_path():
+        return os.environ.get("TT_MLIR_HOME", f"{os.getcwd()}")
+
+    @staticmethod
+    def get_ttmlir_venv_path():
+        return os.environ.get("TTMLIR_VENV_DIR", "/opt/ttmlir-toolchain/venv")
+
+    @staticmethod
+    def get_ttmetal_home_path():
+        return os.environ.get("TT_METAL_HOME", "third_party/tt-metal/src/tt-metal")
+
 class FileManager:
-    def __init__(self):
-        pass
+    def __init__(self, logging):
+        self.logging = logging
 
     def file_directory_constraint_check(self, path):
         if not isinstance(path, str):
@@ -37,13 +90,12 @@ class FileManager:
         if not path:
             raise ValueError(f"the path '{path}' cannot be an empty string")
 
-    @staticmethod
-    def create_file(file_path):
-        file_directory_constraint_check(file_path)
+    def create_file(self, file_path):
+        self.file_directory_constraint_check(file_path)
 
         try:
-            if not FileManager.check_directory_exists(os.path.dirname(file_path)):
-                FileManager.create_directory(os.path.dirname(file_path))
+            if not self.check_directory_exists(os.path.dirname(file_path)):
+                self.create_directory(os.path.dirname(file_path))
 
             with open(file_path, 'w') as file:
                 file.write('')
@@ -52,47 +104,45 @@ class FileManager:
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    @staticmethod
-    def create_directory(directory_path):
-        file_directory_constraint_check(directory_path)
+    def create_directory(self, directory_path):
+        self.file_directory_constraint_check(directory_path)
 
         try:
             os.makedirs(directory_path)
+        except FileExistsError as e:
+            self.logging.warning(f"directory '{directory_path}' already exists")
         except OSError as e:
             raise OSError(f"error creating directory: {e}")
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    @staticmethod
-    def remove_file(file_path):
-        file_directory_constraint_check(file_path)
+    def remove_file(self, file_path):
+        self.file_directory_constraint_check(file_path)
 
         try:
             os.remove(file_path)
         except FileNotFoundError:
-            logging.warning(f"file '{file_path}' not found")
+            self.logging.warning(f"file '{file_path}' not found")
         except PermissionError:
             raise PermissionError(f"insufficient permissions to remove file '{file_path}'")
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    @staticmethod
-    def remove_directory(directory_path):
-        file_directory_constraint_check(directory_path)
+    def remove_directory(self, directory_path):
+        self.file_directory_constraint_check(directory_path)
 
         try:
             shutil.rmtree(directory_path)
         except FileNotFoundError:
-            logging.warning(f"directory '{directory_path}' not found")
+            self.logging.warning(f"directory '{directory_path}' not found")
         except PermissionError:
             raise PermissionError(f"insufficient permissions to remove directory '{directory_path}'")
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    @staticmethod
-    def copy_file(dest_file_path, src_file_path):
-        file_directory_constraint_check(dest_file_path)
-        file_directory_constraint_check(src_file_path)
+    def copy_file(self, dest_file_path, src_file_path):
+        self.file_directory_constraint_check(dest_file_path)
+        self.file_directory_constraint_check(src_file_path)
 
         try:
             shutil.copy2(src_file_path, dest_file_path)
@@ -103,10 +153,9 @@ class FileManager:
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    @staticmethod
-    def copy_directory(dest_directory_path, src_directory_path):
-        file_directory_constraint_check(dest_directory_path)
-        file_directory_constraint_check(src_directory_path)
+    def copy_directory(self, dest_directory_path, src_directory_path):
+        self.file_directory_constraint_check(dest_directory_path)
+        self.file_directory_constraint_check(src_directory_path)
 
         try:
             shutil.copytree(src_directory_path, dest_directory_path)
@@ -119,9 +168,8 @@ class FileManager:
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
     
-    @staticmethod
-    def check_file_exists(file_path):
-        file_directory_constraint_check(file_path)
+    def check_file_exists(self, file_path):
+        self.file_directory_constraint_check(file_path)
         exists = False
 
         try:
@@ -132,9 +180,8 @@ class FileManager:
 
         return exists
 
-    @staticmethod
-    def check_directory_exists(directory_path):
-        file_directory_constraint_check(directory_path)
+    def check_directory_exists(self, directory_path):
+        self.file_directory_constraint_check(directory_path)
         exists = False
 
         try:
@@ -145,9 +192,8 @@ class FileManager:
 
         return exists
 
-    @staticmethod
-    def is_file(file_path):
-        file_directory_constraint_check(file_path)
+    def is_file(self, file_path):
+        self.file_directory_constraint_check(file_path)
         is_file = False
 
         try:
@@ -158,9 +204,8 @@ class FileManager:
 
         return is_file
 
-    @staticmethod
-    def is_directory(directory_path):
-        file_directory_constraint_check(directory_path)
+    def is_directory(self, directory_path):
+        self.file_directory_constraint_check(directory_path)
         is_directory = False
 
         try:
@@ -171,9 +216,8 @@ class FileManager:
 
         return is_directory
 
-    @staticmethod
-    def get_file_name(file_path):
-        file_directory_constraint_check(file_path)
+    def get_file_name(self, file_path):
+        self.file_directory_constraint_check(file_path)
         file_name = ""
 
         try:
@@ -183,9 +227,8 @@ class FileManager:
 
         return file_name
 
-    @staticmethod
-    def get_file_extension(file_path):
-        file_directory_constraint_check(file_path)
+    def get_file_extension(self, file_path):
+        self.file_directory_constraint_check(file_path)
         file_extension = ""
 
         try:
@@ -196,27 +239,13 @@ class FileManager:
         return file_extension
 
 class Artifacts:
-    def __init__(self, ttmlir_home_path, ttmlir_venv_path, ttmetal_home_path, artifacts_folder_path, log_name):
-      self.ttmlir_home_path = ttmlir_home_path
-      self.ttmlir_venv_path = ttmlir_venv_path
-      self.ttmetal_home_path = ttmetal_home_path
-      self.artifacts_folder_path = artifacts_folder_path
-      self.log_name = log_name
-
-    def get_ttmlir_home_path(self):
-        return self.ttmlir_home_path
-
-    def get_ttmlir_venv_path(self):
-        return self.ttmlir_venv_path
-
-    def get_ttmetal_home_path(self):
-        return self.ttmetal_home_path
+    def __init__(self, logging, file_manager, artifacts_folder_path=""):
+      self.logging = logging
+      self.file_manager = file_manager
+      self.artifacts_folder_path = artifacts_folder_path if artifacts_folder_path != "" else f"{Globals.get_ttmlir_home_path()}/ttrt-artifacts"
 
     def get_artifacts_folder_path(self):
         return self.artifacts_folder_path
-
-    def get_log_name(self):
-        return self.log_name
 
     def get_binary_folder_path(self, binary):
         return f"{self.get_artifacts_folder_path()}/{binary.name}_{binary.extension}"
@@ -225,25 +254,25 @@ class Artifacts:
         return f"{self.get_artifacts_folder_path()}/{binary.name}_{binary.extension}/perf"
 
     def create_artifacts(self):
-        FileManager.create_directory(self.get_artifacts_folder_path())
+        self.file_manager.create_directory(self.get_artifacts_folder_path())
 
     def clean_artifacts(self):
-        FileManager.remove_directory(self.get_artifacts_folder_path())
+        self.file_manager.remove_directory(self.get_artifacts_folder_path())
 
     def clean_binary_artifacts(self, binary):
-        FileManager.remove_directory(self.get_binary_folder_path(binary))
+        self.file_manager.remove_directory(self.get_binary_folder_path(binary))
 
     def save_binary(self, binary, query):
         binary_folder = self.get_binary_folder_path(binary)
-        FileManager.create_directory(binary_folder)
-        FileManager.create_directory(f"{binary_folder}/run")
-        FileManager.create_directory(f"{binary_folder}/perf")
+        self.file_manager.create_directory(binary_folder)
+        self.file_manager.create_directory(f"{binary_folder}/run")
+        self.file_manager.create_directory(f"{binary_folder}/perf")
 
-        FileManager.copy_file(f"{binary_folder}", binary.file_path)
+        self.file_manager.copy_file(f"{binary_folder}", binary.file_path)
 
         for program in binary.programs():
             program_folder = f"{binary_folder}/run/program_{program.index}"
-            FileManager.create_directory(program_folder)
+            self.file_manager.create_directory(program_folder)
 
             for i in range(len(program.get_inputs())):
                 self.save_torch_tensor(program_folder, program.get_inputs()[i], f"program_{program.index}_input_{i}.pt")
@@ -254,7 +283,7 @@ class Artifacts:
         if query != None:
             self.save_system_desc(query.system_desc, f"{binary_folder}")
 
-    def save_torch_tensor(folder_path, torch_tensor, torch_tensor_name):
+    def save_torch_tensor(self, folder_path, torch_tensor, torch_tensor_name):
         import torch
 
         try:
@@ -262,24 +291,12 @@ class Artifacts:
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
 
-    def save_system_desc(system_desc, system_desc_folder="", system_desc_name="system_desc.ttsys"):
+    def save_system_desc(self, system_desc, system_desc_folder="", system_desc_name="system_desc.ttsys"):
         system_desc_folder = f"{self.get_artifacts_folder_path()}" if system_desc_folder == "" else system_desc_folder
         try:
             system_desc.store(f"{system_desc_folder}/{system_desc_name}")
         except Exception as e:
             raise Exception(f"an unexpected error occurred: {e}")
-
-    def __str__(self):
-        return f"ttmlir_home_path={self.ttmlir_home_path}\nttmlir_venv_path={self.ttmlir_venv_path}\nttmetal_home_path={self.ttmetal_home_path}\nartifacts_folder_path={self.artifacts_folder_path}\nlog_name={self.log_name}\n"
-
-    @staticmethod
-    def prepare_artifact(ttmlir_home_path="", ttmlir_venv_path="", ttmetal_home_path="", artifacts_folder_path="", log_name="ttrt.log"):
-        ttmlir_home_path = os.environ.get("TT_MLIR_HOME", f"{os.getcwd()}") if ttmlir_home_path == "" else ttmlir_home_path
-        ttmlir_venv_path = os.environ.get("TTMLIR_VENV_DIR", "/opt/ttmlir-toolchain/venv") if ttmlir_venv_path == "" else ttmlir_venv_path
-        ttmetal_home_path = os.environ.get("TT_METAL_HOME", "third_party/tt-metal/src/tt-metal") if ttmetal_home_path == "" else ttmetal_home_path
-        artifacts_folder_path = f"{ttmlir_home_path}/ttrt-artifacts" if artifacts_folder_path == "" else artifacts_folder_path
-
-        return Artifacts(ttmlir_home_path, ttmlir_venv_path, ttmetal_home_path, artifacts_folder_path, log_name)
 
 class Binary:
     def __init__(self, file_path):

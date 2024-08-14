@@ -16,8 +16,6 @@ from pkg_resources import get_distribution
 import sys
 import shutil
 import atexit
-import logging
-from io import StringIO
 
 from ttrt.common.util import *
 
@@ -34,7 +32,6 @@ class API:
         # register all query arguments
         API.Query.register_arg(name="--clean-artifacts", type=bool, default=False, choices=[True, False], help="clean all artifacts from previous runs")
         API.Query.register_arg(name="--save-artifacts", type=bool, default=False, choices=[True, False], help="save all artifacts during run")
-        API.Query.register_arg(name="--print", type=bool, default=False, choices=[True, False], help="print system desc to output")
 
         # register all read arguments
         API.Read.register_arg(name="--section", type=str, default="all", choices=sorted(API.Read.read_actions), help="output sections of the fb")
@@ -80,11 +77,14 @@ class API:
         registered_args = {}
         api_only_arg = []
 
-        def __init__(self, args, logging=None):
+        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+            self.logger = logging if logging != None else Logger("ttrt.log")
+            self.logging = self.logger.get_logger()
+            self.globals = globals if globals != None else Globals(self.logging)
+            self.file_manager = file_manager if file_manager != None else FileManager(self.logging)
+            self.artifacts = artifacts if artifacts != None else Artifacts(self.logging, self.file_manager)
             self.system_desc = None
             self.device_ids = None
-            self.logging = logging
-            self.artifacts = Artifacts.prepare_artifact()
             
             for name, _ in API.Query.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
@@ -106,9 +106,7 @@ class API:
 
             try:
                 self.system_desc, self.device_ids = ttrt.runtime.get_current_system_desc()
-
-                if self["print"]:
-                    self.logging.info(get_system_desc_as_dict())
+                self.logging.info(self.get_system_desc_as_dict())
             except Exception as e:
                 raise Exception(f"an unexpected error occurred: {e}")
 
@@ -155,16 +153,23 @@ class API:
             query_parser = subparsers.add_parser(
                 "query", help="query information about the current system"
             )
-            query_parser.set_defaults(func=API.Query)
+            query_parser.set_defaults(api=API.Query)
 
             for name, attributes in API.Query.registered_args.items():
-                query_parser.add_argument(
-                    f"{name}",
-                    type=attributes["type"],
-                    default=attributes["default"],
-                    choices=attributes["choices"],
-                    help=attributes["help"],
-                )
+                if attributes["type"] == bool:
+                    query_parser.add_argument(
+                        f"{name}",
+                        action="store_true", 
+                        help=attributes["help"],
+                    )
+                else:
+                    query_parser.add_argument(
+                        f"{name}",
+                        type=attributes["type"],
+                        default=attributes["default"],
+                        choices=attributes["choices"],
+                        help=attributes["help"],
+                    )
 
             return query_parser
 
@@ -173,9 +178,12 @@ class API:
         api_only_arg = []
         read_actions = ["all", "version", "system-desc", "mlir", "cpp", "inputs", "outputs"]
         
-        def __init__(self, args, logging=None):
-            self.logging = logging
-            self.artifacts = Artifacts.prepare_artifact()
+        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+            self.logger = logging if logging != None else Logger("ttrt.log")
+            self.logging = self.logger.get_logger()
+            self.globals = globals if globals != None else Globals(self.logging)
+            self.file_manager = file_manager if file_manager != None else FileManager(self.logging)
+            self.artifacts = artifacts if artifacts != None else Artifacts(self.logging, self.file_manager)
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
             
@@ -256,17 +264,24 @@ class API:
             read_parser = subparsers.add_parser(
                 "read", help="read information from flatbuffer binary"
             )
-            read_parser.set_defaults(func=API.Read)
+            read_parser.set_defaults(api=API.Read)
             read_parser.add_argument("binary", help="flatbuffer binary file")
 
             for name, attributes in API.Read.registered_args.items():
-                read_parser.add_argument(
-                    f"{name}",
-                    type=attributes["type"],
-                    default=attributes["default"],
-                    choices=attributes["choices"],
-                    help=attributes["help"],
-                )
+                if attributes["type"] == bool:
+                    read_parser.add_argument(
+                        f"{name}",
+                        action="store_true", 
+                        help=attributes["help"],
+                    )
+                else:
+                    read_parser.add_argument(
+                        f"{name}",
+                        type=attributes["type"],
+                        default=attributes["default"],
+                        choices=attributes["choices"],
+                        help=attributes["help"],
+                    )
             
             return read_parser
 
@@ -337,12 +352,15 @@ class API:
         registered_args = {}
         api_only_arg = []
 
-        def __init__(self, args, logging=None):
-            self.logging = logging
-            self.artifacts = Artifacts.prepare_artifact()
+        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+            self.logger = logging if logging != None else Logger("ttrt.log")
+            self.logging = self.logger.get_logger()
+            self.globals = globals if globals != None else Globals(self.logging)
+            self.file_manager = file_manager if file_manager != None else FileManager(self.logging)
+            self.artifacts = artifacts if artifacts != None else Artifacts(self.logging, self.file_manager)
+            self.query = API.Query()
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
-            self.query = API.Query()
             
             for name, _ in API.Run.registered_args.items():
                 name = name if not name.startswith('-') else name.lstrip('-')
@@ -541,16 +559,23 @@ class API:
             run_parser = subparsers.add_parser(
                 "run", help="run a flatbuffer binary"
             )
-            run_parser.set_defaults(func=API.Run)
+            run_parser.set_defaults(api=API.Run)
 
             for name, attributes in API.Run.registered_args.items():
-                run_parser.add_argument(
-                    f"{name}",
-                    type=attributes["type"],
-                    default=attributes["default"],
-                    choices=attributes["choices"],
-                    help=attributes["help"],
-                )
+                if attributes["type"] == bool:
+                    run_parser.add_argument(
+                      f"{name}",
+                        action="store_true", 
+                        help=attributes["help"],
+                    )
+                else:
+                    run_parser.add_argument(
+                        f"{name}",
+                        type=attributes["type"],
+                        default=attributes["default"],
+                        choices=attributes["choices"],
+                        help=attributes["help"],
+                    )
 
             return run_parser
 
@@ -590,12 +615,15 @@ class API:
         registered_args = {}
         api_only_arg = []
 
-        def __init__(self, args, logging=None):
-            self.logging = logging
-            self.artifacts = Artifacts.prepare_artifact()
+        def __init__(self, args, logging=None, globals=None, file_manager=None, artifacts=None):
+            self.logger = logging if logging != None else Logger("ttrt.log")
+            self.logging = self.logger.get_logger()
+            self.globals = globals if globals != None else Globals(self.logging)
+            self.file_manager = file_manager if file_manager != None else FileManager(self.logging)
+            self.artifacts = artifacts if artifacts != None else Artifacts(self.logging, self.file_manager)
+            self.query = API.Query()
             self.ttnn_binaries = None
             self.ttmetal_binaries = None
-            self.query = API.Query()
             self.tracy_capture_tool_path = f"{artifacts.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
             self.tracy_csvexport_tool_path = f"{artifacts.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
             self.tracy_capture_tool_process = None
@@ -813,15 +841,22 @@ class API:
             perf_parser = subparsers.add_parser(
                 "run", help="run performance trace and collect performance data"
             )
-            perf_parser.set_defaults(func=API.Perf)
+            perf_parser.set_defaults(api=API.Perf)
 
             for name, attributes in API.Perf.registered_args.items():
-                perf_parser.add_argument(
-                    f"{name}",
-                    type=attributes["type"],
-                    default=attributes["default"],
-                    choices=attributes["choices"],
-                    help=attributes["help"],
-                )
+                if attributes["type"] == bool:
+                    perf_parser.add_argument(
+                          f"{name}",
+                        action="store_true", 
+                        help=attributes["help"],
+                    )
+                else:
+                    perf_parser.add_argument(
+                        f"{name}",
+                        type=attributes["type"],
+                        default=attributes["default"],
+                        choices=attributes["choices"],
+                        help=attributes["help"],
+                    )
 
             return perf_parser
