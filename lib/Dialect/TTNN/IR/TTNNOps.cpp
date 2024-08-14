@@ -16,7 +16,7 @@ namespace mlir::tt::ttnn {
 
 ::mlir::LogicalResult mlir::tt::ttnn::ToMemoryConfigOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
-  ::mlir::RankedTensorType outputTy = getOutput().getType();
+  ::mlir::RankedTensorType outputTy = getResult().getType();
   auto inputLayout =
       mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
   auto outputLayout =

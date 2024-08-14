@@ -105,10 +105,6 @@ public:
       : TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp>(
             typeConverter, context, benefit) {}
 
-private:
-  std::string getPrefixSearchPattern() const override { return "ttnn."; }
-  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
-
 public:
   LogicalResult
   matchAndRewrite(ttnn::OpenDeviceOp srcOp, OpAdaptor adaptor,
@@ -135,10 +131,6 @@ public:
                                  PatternBenefit benefit = 1)
       : TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp>(
             typeConverter, context, benefit) {}
-
-private:
-  std::string getPrefixSearchPattern() const override { return "ttnn."; }
-  std::string getPrefixSwapPattern() const override { return "ttnn::device::"; }
 
 public:
   LogicalResult
