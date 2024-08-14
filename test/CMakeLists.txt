@@ -12,6 +12,7 @@ configure_lit_site_cfg(
 set(TTMLIR_TEST_DEPENDS
         FileCheck count not
         ttmlir-opt
+        ttmlir-translate
         )
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
   list(APPEND TTMLIR_TEST_DEPENDS TTMLIRPythonModules)
