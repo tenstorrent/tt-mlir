@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
+#include <mlir/IR/BuiltinAttributes.h>
 #include <vector>
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
@@ -227,9 +229,82 @@ void populateTTModule(py::module &m) {
                         unwrap(ctx), SmallVector<std::int64_t>{height, width},
                         static_cast<tt::DataType>(dataType)));
                   })
+      .def_property_readonly("size_bytes", &tt::TileType::getSizeBytes)
       .def_property_readonly("data_type", &tt::TileType::getDataType)
       .def_property_readonly("shape", [](tt::TileType const &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
+      });
+
+  py::class_<tt::CoreRangeAttr>(m, "CoreRangeAttr")
+      .def_static("get", [](MlirContext ctx, std::vector<int64_t> offset,
+                            std::vector<int64_t> size) {
+        return wrap(tt::CoreRangeAttr::get(unwrap(ctx), offset, size));
+      });
+
+  py::class_<tt::CircularBufferAttributesAttr>(m,
+                                               "CircularBufferAttributesAttr")
+      .def_static("get", [](MlirContext ctx, uint8_t cb_id,
+                            MlirAttribute core_range, uint32_t total_size,
+                            uint32_t page_size, uint32_t data_format) {
+        return wrap(tt::CircularBufferAttributesAttr::get(
+            unwrap(ctx), static_cast<tt::CB>(cb_id),
+            mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)), total_size,
+            page_size, static_cast<tt::DataType>(data_format)));
+      });
+
+  py::class_<tt::DataMovementConfigAttr>(m, "DataMovementConfigAttr")
+      .def_static("get", [](MlirContext ctx, uint8_t data_movement_type,
+                            std::vector<uint32_t> compile_args) {
+        return wrap(tt::DataMovementConfigAttr::get(
+            unwrap(ctx), static_cast<tt::DataMovementType>(data_movement_type),
+            compile_args));
+      });
+
+  py::class_<tt::DataMovementAttributesAttr>(m, "DataMovementAttributesAttr")
+      .def_static("get", [](MlirContext ctx, MlirAttribute core_range,
+                            std::string kernel_path,
+                            MlirAttribute data_movement_config) {
+        auto *context = unwrap(ctx);
+
+        return wrap(tt::DataMovementAttributesAttr::get(
+            context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
+            mlir::StringAttr::get(context, kernel_path),
+            mlir::cast<tt::DataMovementConfigAttr>(
+                unwrap(data_movement_config))));
+      });
+
+  py::class_<tt::ComputeConfigAttr>(m, "ComputeConfigAttr")
+      .def_static("get", [](MlirContext ctx, uint8_t math_fidelity,
+                            bool fp32_dest_acc_en, bool preserve_fp32_precision,
+                            bool math_approx_mode,
+                            std::vector<uint32_t> compile_args,
+                            std::map<std::string, std::string> defines) {
+        auto *context = unwrap(ctx);
+
+        SmallVector<NamedAttribute> namedAttributes;
+        for (const auto &[name, value] : defines) {
+          namedAttributes.emplace_back(mlir::StringAttr::get(context, name),
+                                       mlir::StringAttr::get(context, value));
+        }
+
+        return wrap(tt::ComputeConfigAttr::get(
+            context, static_cast<tt::MathFidelity>(math_fidelity),
+            mlir::BoolAttr::get(context, fp32_dest_acc_en),
+            mlir::BoolAttr::get(context, preserve_fp32_precision),
+            mlir::BoolAttr::get(context, math_approx_mode), compile_args,
+            mlir::DictionaryAttr::get(context, namedAttributes)));
+      });
+
+  py::class_<tt::ComputeAttributesAttr>(m, "ComputeAttributesAttr")
+      .def_static("get", [](MlirContext ctx, MlirAttribute core_range,
+                            std::string kernel_path,
+                            MlirAttribute compute_config) {
+        auto *context = unwrap(ctx);
+
+        return wrap(tt::ComputeAttributesAttr::get(
+            context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
+            mlir::StringAttr::get(context, kernel_path),
+            mlir::cast<tt::ComputeConfigAttr>(unwrap(compute_config))));
       });
 }
 } // namespace mlir::ttmlir::python

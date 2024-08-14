@@ -7,6 +7,7 @@
 
 #include "mlir-c/AffineMap.h"
 #include "ttmlir-c/Dialects.h"
+#include <mlir-c/IR.h>
 
 #ifdef __cplusplus
 extern "C" {
