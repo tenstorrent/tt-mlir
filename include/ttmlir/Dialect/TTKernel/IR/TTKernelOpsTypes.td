@@ -31,8 +31,8 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
         static CBType get(::mlir::MLIRContext *context,
                               uint64_t address,
                               uint64_t port,
-                              MemRefType memref,
-                              uint64_t numBuffers = 1) {
+                              MemRefType memref) {
+          uint64_t numBuffers = 1;
           uint64_t pageSize = 0;
           if (::mlir::isa<::mlir::tt::TileType>(memref.getElementType())) {
             pageSize = ::mlir::cast<::mlir::tt::TileType>(memref.getElementType()).getSizeBytes();
