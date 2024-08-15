@@ -47,10 +47,6 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
   }];
 }
 
-def TT_ChipCapabilityAttr : EnumAttr<TT_Dialect, TT_ChipCapability, "Chip_capability"> {
-  let assemblyFormat = "`<` $value `>`";
-}
-
 def TT_ArchAttr : EnumAttr<TT_Dialect, TT_Arch, "arch"> {
   let assemblyFormat = "`<` $value `>`";
 }
@@ -106,7 +102,7 @@ def TT_ChipChannelAttr : TT_Attr<"ChipChannel", "chip_channel"> {
                         ArrayRefParameter<"int64_t">:$ethernetCoreCoord0,
                         "unsigned":$deviceId1,
                         ArrayRefParameter<"int64_t">:$ethernetCoreCoord1);
-  let assemblyFormat = "`<` $deviceId0 `,` $ethernetCoreCoord0 `,` $deviceId1 `,` $ethernetCoreCoord1 `>`";
+  let assemblyFormat = "`<` `[` $deviceId0 `,` $ethernetCoreCoord0 `]` `,` `[` $deviceId1 `,` $ethernetCoreCoord1 `]` `>`";
 }
 
 def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
