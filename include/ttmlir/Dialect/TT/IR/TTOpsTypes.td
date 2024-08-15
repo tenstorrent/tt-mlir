@@ -68,8 +68,8 @@ def TT_ChipPhysicalCoresAttr : TT_Attr<"ChipPhysicalCores", "chip_physical_cores
     TT chip_physical_cores attribute containing arrays of physical cores by core type in order of logical cores.
   }];
 
-  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$worker, ArrayRefParameter<"CoreCoordAttr">:$dram, ArrayRefParameter<"CoreCoordAttr">:$eth, ArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `,` `dram` `=` `[` $dram `]` `,` `eth` `=` `[` $eth `]` `,` `eth_inactive` `=` `[` $eth_inactive `]` `}`";
+  let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$worker, ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
+  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `,` `dram` `=` `[` $dram `]` (`,` `eth` `=` `[` $eth^ `]`)? (`,` `eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
 }
 
 def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
