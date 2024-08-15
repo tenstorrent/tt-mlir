@@ -407,7 +407,6 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
                            ArrayRef<unsigned> chipIds) {
   assert(not chipIds.empty() && "expected at least one chip");
-  assert(chipIds.size() == 1 && "only single chip supported for now");
   ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
   ArrayRef<int64_t> physicalGrid(chipDesc.getGrid());
   assert(physicalGrid.size() == 2 && "expected 2D grid");
@@ -437,8 +436,11 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 }
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
-                           SystemDescAttr systemDesc) {
-  SmallVector<unsigned> chipIds(systemDesc.getChipDescIndices().size());
+                           SystemDescAttr systemDesc, bool enableMultichip) {
+  assert(systemDesc.getChipDescIndices().size() > 0 &&
+         "expected at least one chip");
+  SmallVector<unsigned> chipIds(
+      enableMultichip ? systemDesc.getChipDescIndices().size() : 1);
   std::iota(chipIds.begin(), chipIds.end(), 0);
   return get(context, systemDesc, chipIds);
 }

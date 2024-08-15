@@ -228,7 +228,7 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
         return DeviceAttr::get(context, GridAttr::get(context, shape, physicalGridMapping), chipIds);
       }
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<unsigned> chipIds);
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc);
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, bool enableMultichip = false);
   }];
 
   let genVerifyDecl = 1;
