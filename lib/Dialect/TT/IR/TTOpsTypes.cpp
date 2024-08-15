@@ -78,6 +78,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       binary_system_desc->chip_desc_indices();
   auto const *chip_capabilities = binary_system_desc->chip_capabilities();
   auto const *binary_chip_coords = binary_system_desc->chip_coords();
+  auto const *chip_channel_connections = binary_system_desc->chip_channels();
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
@@ -151,10 +152,26 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
     chip_coordinate_list.push_back(chip_coordinate_attr);
   }
 
+  std::vector<tt::ChipChannelAttr> chip_channel_list;
+  for (auto element : *chip_channel_connections) {
+    std::vector<int64_t> ethernet_core_coord0_vec = {
+        element->ethernet_core_coord0().y(),
+        element->ethernet_core_coord0().x()};
+
+    std::vector<int64_t> ethernet_core_coord1_vec = {
+        element->ethernet_core_coord1().y(),
+        element->ethernet_core_coord1().x()};
+
+    auto chip_channel_attr = tt::ChipChannelAttr::get(
+        context, element->device_id0(), ethernet_core_coord0_vec,
+        element->device_id1(), ethernet_core_coord1_vec);
+    chip_channel_list.push_back(chip_channel_attr);
+  }
+
   // Generate system desc attribute
-  auto system_desc_attr =
-      tt::SystemDescAttr::get(context, chip_desc_list, chip_indices_list,
-                              chip_capabilities_list, chip_coordinate_list, {});
+  auto system_desc_attr = tt::SystemDescAttr::get(
+      context, chip_desc_list, chip_indices_list, chip_capabilities_list,
+      chip_coordinate_list, chip_channel_list);
 
   return system_desc_attr;
 }

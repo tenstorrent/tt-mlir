@@ -135,7 +135,7 @@ def TT_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
                             TT_ChipCapabilityPCIE,
                             TT_ChipCapabilityHostMMIO,
                            ]> {
-  let genSpecializedAttr = 0;
+  let genSpecializedAttr = 1;
   let cppNamespace = "::mlir::tt";
 }
 
