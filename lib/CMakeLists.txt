@@ -8,6 +8,9 @@ add_subdirectory(Target)
 
 # Shared library will include runtime code
 # so we only build it if runtime is enabled
+if (TTMLIR_ENABLE_RUNTIME)
+    add_subdirectory(SharedLib)
+endif()
 
 set(ttmlir_dependencies "")
 set(link_libs 
