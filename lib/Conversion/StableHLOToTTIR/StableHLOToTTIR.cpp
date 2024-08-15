@@ -19,7 +19,7 @@
 #include <mlir/Pass/Pass.h>
 #include <mlir/Support/LogicalResult.h>
 #include <mlir/Transforms/DialectConversion.h>
-#ifdef TTMLIR_ENABLE_STABLEHLO
+
 #include "stablehlo/dialect/StablehloOps.h"
 using namespace mlir;
 using namespace tt;
@@ -101,4 +101,3 @@ std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass() {
 }
 
 } // namespace mlir::tt
-#endif
