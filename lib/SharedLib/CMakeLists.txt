@@ -4,6 +4,31 @@ set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN TTBinary)
 # Dependency libs from tt-metal/ttnn project for ttnn runtime
 set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY)
 
+set(STABLEHLO_LIBS
+	StablehloBase
+    CheckOps
+    ChloCAPI
+    ChloOps
+    InterpreterOps
+    StablehloAssemblyFormat
+    StablehloBase
+    StablehloBroadcastUtils
+    StablehloCAPI
+    StablehloLinalgTransforms
+    StablehloOps
+    StablehloPasses
+    StablehloPortableApi
+    StablehloRegister
+    StablehloSerialization
+    StablehloTOSATransforms
+    StablehloTestUtils
+    StablehloTypeInference
+    Version
+    VhloCAPI
+    VhloOps
+    VhloTypes
+	StablehloBase
+)
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
@@ -44,8 +69,14 @@ target_link_libraries(TTMLIR PRIVATE
     ${TTNN_RUNTIME_LIBS}
     -Wl,--no-whole-archive
 
+    ${STABLEHLO_LIBS}
     ${TTNN_LIBS}
     flatbuffers
 )
 
-target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_directories(TTMLIR PRIVATE 
+    ${TTMLIR_TOOLCHAIN_DIR}/lib
+    ${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build/lib
+)
+
+target_link_options(TTMLIR PRIVATE "-Wl,--no-undefined")
