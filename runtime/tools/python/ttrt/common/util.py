@@ -559,7 +559,7 @@ class BinaryTTNN(Binary):
 
 
 class BinaryTTMetal(Binary):
-    file_extension = ".ttb"
+    file_extension = ".ttm"
 
     def __int__(self, logger, file_manager, file_path):
         super().__init__(logger, file_manager, file_path)
