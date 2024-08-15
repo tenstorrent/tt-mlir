@@ -93,6 +93,49 @@ getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
   return allConnections;
 }
 
+// Gather all physical cores by type for the device using metal device APIs
+static flatbuffers::Offset<::tt::target::ChipPhysicalCores>
+createChipPhysicalCores(const ::tt::tt_metal::Device *device,
+                        flatbuffers::FlatBufferBuilder &fbb) {
+
+  std::vector<::tt::target::Dim2d> worker_cores, dram_cores, eth_cores,
+      eth_inactive_cores;
+
+  CoreCoord logical_grid_size = device->compute_with_storage_grid_size();
+  for (uint32_t y = 0; y < logical_grid_size.y; y++) {
+    for (uint32_t x = 0; x < logical_grid_size.x; x++) {
+      CoreCoord physical =
+          device->worker_core_from_logical_core(CoreCoord(x, y));
+      worker_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
+    }
+  }
+
+  CoreCoord dram_grid_size = device->dram_grid_size();
+  for (uint32_t y = 0; y < dram_grid_size.y; y++) {
+    for (uint32_t x = 0; x < dram_grid_size.x; x++) {
+      CoreCoord physical = device->dram_core_from_logical_core(CoreCoord(x, y));
+      dram_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
+    }
+  }
+
+  for (const CoreCoord &logical : device->get_active_ethernet_cores()) {
+    CoreCoord physical = device->ethernet_core_from_logical_core(logical);
+    eth_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
+  }
+
+  for (const CoreCoord &logical : device->get_inactive_ethernet_cores()) {
+    CoreCoord physical = device->ethernet_core_from_logical_core(logical);
+    eth_inactive_cores.emplace_back(
+        ::tt::target::Dim2d(physical.y, physical.x));
+  }
+
+  return ::tt::target::CreateChipPhysicalCores(
+      fbb, fbb.CreateVectorOfStructs(worker_cores),
+      fbb.CreateVectorOfStructs(dram_cores),
+      fbb.CreateVectorOfStructs(eth_cores),
+      fbb.CreateVectorOfStructs(eth_inactive_cores));
+}
+
 static std::unique_ptr<::tt::runtime::SystemDesc>
 getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
   std::vector<::tt::tt_metal::Device *> devices = deviceMesh.get_devices();
@@ -112,11 +155,15 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());
+
+    // Extract physical core coordinates for worker, dram, eth cores
+    auto chipPhysicalCores = createChipPhysicalCores(device, fbb);
+
     chipDescs.push_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
-        DRAM_ALIGNMENT));
+        DRAM_ALIGNMENT, chipPhysicalCores));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

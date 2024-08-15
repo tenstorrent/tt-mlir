@@ -150,6 +150,36 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
 
+inline flatbuffers::Offset<::tt::target::ChipPhysicalCores>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ChipPhysicalCoresAttr chipPhysicalCores) {
+
+  // Create a Flatbuffer Dim2d struct for each type of core.
+  std::vector<::tt::target::Dim2d> workerCores, dramCores, ethCores,
+      ethInactiveCores;
+
+  for (auto const &coreCoord : chipPhysicalCores.getWorker()) {
+    workerCores.emplace_back(coreCoord.getY(), coreCoord.getX());
+  }
+  for (auto const &coreCoord : chipPhysicalCores.getDram()) {
+    dramCores.emplace_back(coreCoord.getY(), coreCoord.getX());
+  }
+  for (auto const &coreCoord : chipPhysicalCores.getEth()) {
+    ethCores.emplace_back(coreCoord.getY(), coreCoord.getX());
+  }
+  for (auto const &coreCoord : chipPhysicalCores.getEthInactive()) {
+    ethInactiveCores.emplace_back(coreCoord.getY(), coreCoord.getX());
+  }
+
+  // Create and return the ChipPhysicalCores flatbuffer object
+  return ::tt::target::CreateChipPhysicalCores(
+      *cache.fbb,
+      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(workerCores),
+      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(dramCores),
+      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethCores),
+      cache.fbb->CreateVectorOfStructs<::tt::target::Dim2d>(ethInactiveCores));
+}
+
 template <typename T, std::enable_if_t<std::is_arithmetic<T>::value, int> = 0>
 T toFlatbuffer(FlatbufferObjectCache &, T arith) {
   return arith;
@@ -201,7 +231,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
       chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
       chipDesc.getPcieAddressAlignBytes(),
-      chipDesc.getNocDRAMAddressAlignBytes());
+      chipDesc.getNocDRAMAddressAlignBytes(),
+      toFlatbuffer(cache, chipDesc.getChipPhysicalCores()));
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>

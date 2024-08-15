@@ -33,7 +33,12 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {
           tt::ChipDescAttr::get(
               context, tt::ArchAttr::get(context, tt::Arch::WormholeB0), {8, 8},
-              1499136, 12, (1 << 30), 16, 32, 32),
+              1499136, 12, (1 << 30), 16, 32, 32,
+              tt::ChipPhysicalCoresAttr::get(
+                  context, tt::CoreCoordAttr::get(context, 0, 0),
+                  tt::CoreCoordAttr::get(context, 0, 0),
+                  tt::CoreCoordAttr::get(context, 0, 0),
+                  tt::CoreCoordAttr::get(context, 0, 0))),
       },
       // Chip Descriptor Indices
       {
@@ -77,14 +82,39 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
   for (auto element : *binary_chip_desc) {
+
+    std::vector<tt::CoreCoordAttr> worker_cores, dram_cores, eth_cores,
+        eth_inactive_cores;
+    auto physical_cores = element->physical_cores();
+
+    // Populate all vecrors with CoreCoordAttr instances
+    for (auto const &core : *physical_cores->worker()) {
+      worker_cores.emplace_back(
+          tt::CoreCoordAttr::get(context, core->y(), core->x()));
+    }
+    for (auto const &core : *physical_cores->dram()) {
+      dram_cores.emplace_back(
+          tt::CoreCoordAttr::get(context, core->y(), core->x()));
+    }
+    for (auto const &core : *physical_cores->eth()) {
+      eth_cores.emplace_back(
+          tt::CoreCoordAttr::get(context, core->y(), core->x()));
+    }
+    for (auto const &core : *physical_cores->eth_inactive()) {
+      eth_inactive_cores.emplace_back(
+          tt::CoreCoordAttr::get(context, core->y(), core->x()));
+    }
+    // Create ChipPhysicalCoresAttr from the list of CoreCoordAttr instances
+    auto chip_physical_cores_attr = tt::ChipPhysicalCoresAttr::get(
+        context, worker_cores, dram_cores, eth_cores, eth_inactive_cores);
+
     auto current_chip_desc_attr = tt::ChipDescAttr::get(
         context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
         {element->grid_size()->y(), element->grid_size()->x()},
         element->l1_size(), element->num_dram_channels(),
         element->dram_channel_size(), element->noc_l1_address_align_bytes(),
         element->pcie_address_align_bytes(),
-        element->noc_dram_address_align_bytes());
-
+        element->noc_dram_address_align_bytes(), chip_physical_cores_attr);
     chip_desc_list.push_back(current_chip_desc_attr);
   }
 
