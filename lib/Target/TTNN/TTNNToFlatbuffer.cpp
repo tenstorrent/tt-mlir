@@ -12,6 +12,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsAttrDefs.h.inc"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -208,12 +209,22 @@ createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
       ins.push_back(
           cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
   }
+
   // output tensors
   std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> outs;
   for (auto output : op.getResults()) {
     outs.push_back(
       cache.getOrCreate(getOperandThroughDPSOps(output), tensorValueToFlatbuffer, 0, 0));
   }
+
+  // circular buffer attributes
+  std::vector<::flatbuffers::Offset<::tt::target::CBConfig>> cb_configs;
+  auto cb_attributes = op.getCircularBufferAttributes();
+  for (auto attr : cb_attributes) {
+    llvm::outs() << attr << "\n";
+  }
+
+  // compute kernel atrributes
 
   return ::tt::target::ttnn::CreateGenericOp(
           *cache.fbb,

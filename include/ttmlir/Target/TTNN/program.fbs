@@ -69,64 +69,6 @@ table TransposeOp {
   dim1: int32;
 }
 
-table CoreSpec {
-  x_start: int32;
-  y_start: int32;
-  x_size: int32;
-  y_size: int32;
-}
-
-table CBConfig {
-  core_spec: CoreSpec;
-  total_size: int32;
-  page_size: int32;
-  // TODO(pjanevski): change data format to proper type
-  data_format: int32;
-  globally_allocated_address : int32;
-}
-
-table RuntimeArg {
-  // TODO(pjanevksi): change to bool if possible
-  ttnn_compute : int32;
-  val: int32;
-  tensor_glob_id : int32;
-}
-
-table DefineArgument {
-  key : string;
-  val : string;
-}
-
-table DataMovementConfig {
-  processor: int32;
-  noc: int32;
-  compile_args : [int32];
-  defines : [DefineArgument];
-}
-
-table DataMovementAttribute {
-  core_spec: CoreSpec;
-  kernel_path: string;
-  data_movement_config: DataMovementConfig;
-  runtime_args: [RuntimeArg];
-}
-
-table ComputeKernelConfig {
-  math_fidelity: int32;
-  fp32_dest : int32;
-  preserve_fp32 : int32;
-  math_approx_mode : int32;
-  compile_args: [int32];
-  defines : [DefineArgument];
-}
-
-table ComputeKernelAttribute {
-  core_spec: CoreSpec;
-  kernel_path: string;
-  compute_kernel_config : ComputeKernelConfig;
-  runtime_args : [RuntimeArg];
-}
-
 table GenericOp {
   ins: [tt.target.TensorRef];
   outs: [tt.target.TensorRef];
