@@ -29,6 +29,25 @@
   return success();
 }
 
+std::tuple<bool, bool, bool, bool>
+mlir::tt::ttir::ToLayoutOp::compoundComponents() {
+  auto inputLayout =
+      mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
+  auto outputLayout =
+      mlir::cast<tt::LayoutAttr>(getOutput().getType().getEncoding());
+  bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
+  bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
+  bool isShardChange =
+      inputLayout.getShardShape() != outputLayout.getShardShape();
+  assert(isGridChange == isShardChange);
+  bool isFormatChange =
+      inputLayout.getElementType() != outputLayout.getElementType();
+  bool isMemorySpaceChange =
+      inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
+  return std::make_tuple(isLayoutChange, isGridChange, isFormatChange,
+                         isMemorySpaceChange);
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();

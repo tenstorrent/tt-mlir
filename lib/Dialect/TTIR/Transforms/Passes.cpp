@@ -27,6 +27,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERIC
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
+#define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRGRIDSET
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
@@ -564,6 +565,120 @@ public:
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::TTDialect>();
     registry.insert<mlir::func::FuncDialect>();
+  }
+};
+
+class TTIRSplitCompoundLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
+public:
+  using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
+
+  Value createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                         LayoutAttr desiredLayout) const {
+    auto ty = mlir::cast<RankedTensorType>(input.getType());
+    auto output = rewriter.create<tensor::EmptyOp>(
+        loc, ty.getShape(), ty.getElementType(), desiredLayout);
+    return rewriter
+        .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
+        ->getResult(0);
+  }
+
+  Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
+               LayoutAttr bounceLayout) const {
+    auto bounced =
+        createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceLayout);
+    return rewriter.replaceOpWithNewOp<ttir::ToLayoutOp>(
+        op, op.getOutput().getType(), bounced, op.getOutput());
+  }
+
+  LogicalResult matchAndRewrite(ToLayoutOp op,
+                                PatternRewriter &rewriter) const final {
+    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange] =
+        op.compoundComponents();
+    bool isCompound =
+        (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
+         static_cast<int>(isFormatChange) +
+         static_cast<int>(isMemorySpaceChange)) > 1;
+
+    if (!isCompound) {
+      return failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
+    auto inputLayout = mlir::cast<LayoutAttr>(inputType.getEncoding());
+    auto outputLayout = mlir::cast<LayoutAttr>(outputType.getEncoding());
+
+    bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
+    bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;
+
+    // First prioritize moving the data into L1 so we can work with it in L1
+    if (!inputL1) {
+      // read first into L1, then format convert
+      bounce(rewriter, op,
+             inputLayout.withMemorySpace(rewriter.getContext(),
+                                         MemorySpace::DeviceL1));
+    } else if (!outputL1) {
+      // format convert first in L1 first, then write
+      assert(inputL1 && "input should guaranteed be in L1 because of the "
+                        "previous case");
+      bounce(rewriter, op,
+             outputLayout.withMemorySpace(rewriter.getContext(),
+                                          MemorySpace::DeviceL1));
+    } else if (inputLayout.isTiled() != outputLayout.isTiled()) {
+      // Prioritize moving tiled data
+      if (inputLayout.isTiled()) {
+        bounce(rewriter, op,
+               outputLayout.withElementType(rewriter.getContext(),
+                                            inputLayout.getElementType()));
+      } else {
+        assert(outputLayout.isTiled());
+        bounce(rewriter, op,
+               inputLayout.withElementType(rewriter.getContext(),
+                                           outputLayout.getElementType()));
+      }
+    } else if (isLayoutChange && inputLayout.isTiled()) {
+      // For now to flexibly support layout changes, we need to bounce to scalar
+      // first
+      bounce(rewriter, op,
+             inputLayout.withElementType(rewriter.getContext(),
+                                         inputLayout.getScalarElementType()));
+    } else if (isGridChange) {
+      assert(!isLayoutChange &&
+             "Changing layout and grid at the same time is currently "
+             "not supported");
+      bounce(rewriter, op,
+             outputLayout.withGrid(rewriter.getContext(), outputType,
+                                   inputLayout.getGrid()));
+    } else {
+      // Note we should eventually support DRAM <-> DRAM, or System <-> System
+      // w/ format conversion via streaming supported
+      assert(false && "Unsupported compound layout change");
+      return failure();
+    }
+
+    return success();
+  }
+};
+
+class TTIRSplitCompoundLayout
+    : public impl::TTIRSplitCompoundLayoutBase<TTIRSplitCompoundLayout> {
+public:
+  using impl::TTIRSplitCompoundLayoutBase<
+      TTIRSplitCompoundLayout>::TTIRSplitCompoundLayoutBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRSplitCompoundLayoutRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+      return;
+    }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
   }
 };
 

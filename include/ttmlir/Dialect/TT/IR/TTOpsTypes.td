@@ -198,17 +198,19 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                           RankedTensorType ty,
                           GridAttr grid,
                           ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+      LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
+      LayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
 
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
       bool isTiled() const;
       Type getElementType() const;
+      Type getScalarElementType() const;
       uint64_t getElementSizeBytes() const;
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
-      LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
   }];
 }
 
@@ -280,6 +282,9 @@ def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
       uint64_t getSizeBytes() const;
       int64_t getHeight() const { return getShape()[0]; }
       int64_t getWidth() const { return getShape()[1]; }
+      // Returns the scalar element type of the tile, if compressed it returns
+      // the corresponding uncompressed element type, i.e. bfp_bf8 -> bf16
+      Type getElementType() const;
     }];
 
     let genVerifyDecl = 1;
