@@ -2,8 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 
@@ -46,6 +48,28 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
       inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
   return std::make_tuple(isLayoutChange, isGridChange, isFormatChange,
                          isMemorySpaceChange);
+}
+
+template <typename OpTy>
+static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
+                                            ::mlir::OpBuilder &opBuilder,
+                                            ::mlir::Block *block) {
+  auto lhs = block->getArgument(0);
+  auto rhs = block->getArgument(1);
+  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+}
+
+void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  return buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder,
+                                                        block);
+}
+
+void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
+    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+  return buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder,
+                                                        block);
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {

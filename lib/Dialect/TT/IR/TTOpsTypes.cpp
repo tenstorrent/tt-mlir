@@ -560,6 +560,19 @@ mlir::AffineMap LayoutAttr::projectOnto(ArrayRef<int64_t> logicalTensorShape,
                               getContext());
 }
 
+mlir::Type BufferAttr::getElementType() const {
+  return getMemref().getElementType();
+}
+
+llvm::SmallVector<int64_t> BufferAttr::getShape() const {
+  SmallVector<int64_t> bufferShape(getMemref().getShape());
+  auto elementType = getElementType();
+  if (mlir::isa<TileType>(elementType)) {
+    return mlir::cast<TileType>(elementType).getScalarShape(bufferShape);
+  }
+  return bufferShape;
+}
+
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
                            ArrayRef<unsigned> chipIds) {

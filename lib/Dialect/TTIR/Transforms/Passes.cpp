@@ -24,7 +24,8 @@
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRGENERIC
+#define GEN_PASS_DEF_TTIRGENERICKERNEL
+#define GEN_PASS_DEF_TTIRGENERICREGION
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
@@ -113,7 +114,7 @@ public:
 
   static bool sameRank(mlir::OperandRange operands) {
     if (operands.empty()) {
-      return false;
+      return true;
     }
     auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
     for (auto operand : operands) {
@@ -199,9 +200,7 @@ public:
 
   LogicalResult matchAndRewrite(KernelOp op,
                                 PatternRewriter &rewriter) const final {
-    // Test if this generic op has already been lowered, todo find a better way
-    if (op.getOperation()->getParentOp()->getName() ==
-        OperationName("ttir.generic", rewriter.getContext())) {
+    if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
       return failure();
     }
 
@@ -236,9 +235,10 @@ public:
   }
 };
 
-class TTIRGeneric : public impl::TTIRGenericBase<TTIRGeneric> {
+class TTIRGenericKernel
+    : public impl::TTIRGenericKernelBase<TTIRGenericKernel> {
 public:
-  using impl::TTIRGenericBase<TTIRGeneric>::TTIRGenericBase;
+  using impl::TTIRGenericKernelBase<TTIRGenericKernel>::TTIRGenericKernelBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRLinalgGenericRewriter, TTIRKernelGenericRewriter,
@@ -258,43 +258,123 @@ public:
   }
 };
 
-class TTIRGenericOperandsToMemrefRewriter : public OpRewritePattern<GenericOp> {
+class TTIRGenericRegionRewriter
+    : public OpInterfaceRewritePattern<GenericRegionOp> {
 public:
-  using OpRewritePattern<GenericOp>::OpRewritePattern;
+  using OpInterfaceRewritePattern<GenericRegionOp>::OpInterfaceRewritePattern;
 
-  LogicalResult matchAndRewrite(GenericOp op,
+  LogicalResult matchAndRewrite(GenericRegionOp op,
                                 PatternRewriter &rewriter) const final {
-    auto dpsInterface = cast<DestinationStyleOpInterface>(op.getOperation());
-    for (auto &operand : op->getOpOperands()) {
-      auto encoding =
-          mlir::cast<RankedTensorType>(operand.get().getType()).getEncoding();
-      if (not encoding) {
-        return failure(); // Hasn't been type converted yet
-      }
-
-      auto blockArg = op.getRegion().getArgument(operand.getOperandNumber());
-      if (mlir::isa<MemRefType>(blockArg.getType())) {
-        return failure(); // Already lowered
-      }
-
-      // Rewire the operand to the layout op
-      rewriter.modifyOpInPlace(op, [&]() {
-        auto layout = mlir::cast<LayoutAttr>(
-            mlir::cast<RankedTensorType>(operand.get().getType())
-                .getEncoding());
-
-        blockArg.setType(layout.getMemref());
-
-        bool isResult = dpsInterface.isDpsInit(&operand);
-        if (isResult) {
-          for (auto *user : blockArg.getUsers()) {
-            dyn_cast<KernelOp>(user).getResult(0).setType(layout.getMemref());
-          }
-        }
-      });
+    if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
+      return failure();
     }
 
+    auto dps = cast<DestinationStyleOpInterface>(op.getOperation());
+
+    // Create a dispatch op
+    auto [indexingMaps, iteratorTypes] = op.getIndexingMaps(rewriter);
+    auto constraints = rewriter.getArrayAttr(SmallVector<Attribute>(
+        op->getNumOperands(), rewriter.getAttr<OperandConstraintAttr>(
+                                  OperandConstraint::AnyDeviceTile)));
+    auto dispatch = rewriter.create<ttir::GenericOp>(
+        op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
+        dps.getDpsInits(), rewriter.getAttr<GridAttr>(), indexingMaps,
+        iteratorTypes, constraints);
+
+    // Create a new basic block for the dispatch op and create block arguments
+    Block *block = rewriter.createBlock(&dispatch.getRegion());
+    SmallVector<Location> blockArgumentLocs(dispatch.getOperands().size(),
+                                            dispatch.getLoc());
+    block->addArguments(TypeRange(dispatch.getOperandTypes()),
+                        blockArgumentLocs);
+
+    // Convert the original op into arith/math and into the dispatch block
+    OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
+    op.buildGenericRegion(blockBuilder, block);
+    rewriter.replaceOp(op, dispatch);
     return success();
+  }
+};
+
+class TTIRGenericRegion
+    : public impl::TTIRGenericRegionBase<TTIRGenericRegion> {
+public:
+  using impl::TTIRGenericRegionBase<TTIRGenericRegion>::TTIRGenericRegionBase;
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericRegionRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
+  }
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
+    registry.insert<mlir::arith::ArithDialect>();
+  }
+};
+
+struct TTIRGenericOperandsToMemrefRewriter
+    : public OpConversionPattern<GenericOp> {
+  using OpConversionPattern<GenericOp>::OpConversionPattern;
+
+  template <typename ValueRange>
+  void convertTypes(ValueRange valueRange,
+                    DenseMap<Type, Type> const &typeMap) const {
+    for (auto operand : valueRange) {
+      if (typeMap.count(operand.getType()) == 0) {
+        continue;
+      }
+      operand.setType(typeMap.at(operand.getType()));
+    }
+  }
+
+  LogicalResult
+  matchAndRewrite(GenericOp generic, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Block *entry = &generic.getRegion().front();
+    auto firstEntryArgType = entry->getArguments()[0].getType();
+    bool isConverted = static_cast<bool>(
+        mlir::cast<RankedTensorType>(firstEntryArgType).getEncoding());
+    if (isConverted) {
+      // Already converted
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(generic, [&]() {
+      DenseMap<Type, Type> typeMap;
+      for (auto [operand, blockArg] :
+           llvm::zip(generic->getOperands(), entry->getArguments())) {
+        auto ty = getTypeConverter()->convertType(operand.getType());
+        typeMap[blockArg.getType()] = ty;
+        blockArg.setType(ty);
+      }
+      for (Operation &op : generic.getRegion().getOps()) {
+        convertTypes(op.getOperands(), typeMap);
+        convertTypes(op.getResults(), typeMap);
+      }
+    });
+
+    return success();
+  }
+};
+
+class TTIRGenericRegionMemrefTypeConverter : public TypeConverter {
+public:
+  TTIRGenericRegionMemrefTypeConverter(MLIRContext *ctx) {
+    addConversion([](Type type) { return type; });
+    addConversion([ctx](RankedTensorType type) -> Type {
+      auto encoding = type.getEncoding();
+      assert(encoding);
+      if (mlir::isa<BufferAttr>(encoding)) {
+        return type;
+      }
+      auto layout = mlir::cast<LayoutAttr>(type.getEncoding());
+      auto buffer = BufferAttr::get(ctx, layout.getMemref());
+      return RankedTensorType::get(buffer.getShape(), type.getElementType(),
+                                   buffer);
+    });
   }
 };
 
@@ -306,9 +386,13 @@ public:
       TTIRGenericRegionOperandsToMemref>::TTIRGenericRegionOperandsToMemrefBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRGenericOperandsToMemrefRewriter>(&getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    TTIRGenericRegionMemrefTypeConverter typeConverter(&getContext());
+    patterns.add<TTIRGenericOperandsToMemrefRewriter>(typeConverter,
+                                                      &getContext());
+
+    mlir::ConversionTarget target(getContext());
+    if (failed(applyPartialConversion(getOperation(), target,
+                                      std::move(patterns)))) {
       signalPassFailure();
     }
   }
@@ -405,6 +489,10 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
+    // Skip if we're inside a GenericOp
+    if (mlir::isa<GenericOp>(op->getParentOp())) {
+      return failure();
+    }
     bool updated = false;
     SmallVector<Type> operands;
     SmallVector<Type> results;
@@ -474,9 +562,6 @@ public:
     bool modified = false;
     for (auto &operand : op->getOpOperands()) {
       bool isResult = op.isDpsInit(&operand);
-      auto encoding =
-          mlir::cast<RankedTensorType>(operand.get().getType()).getEncoding();
-      assert(encoding);
 
       auto operandConstraint =
           mlir::cast<OperandConstraintAttr>(
@@ -490,20 +575,9 @@ public:
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
           op->setOperand(operand.getOperandNumber(), *desiredLayout);
-          std::optional<BlockArgument> blockArg;
-          if (op->getNumRegions() == 1) {
-            blockArg = op->getRegion(0).getArgument(operand.getOperandNumber());
-            blockArg->setType(desiredLayout->getType());
-          }
           if (isResult) {
             // If this is the output operand, update the result type
             op->getResult(0).setType(desiredLayout->getType());
-            if (blockArg) {
-              for (auto *user : blockArg->getUsers()) {
-                dyn_cast<KernelOp>(user).getResult(0).setType(
-                    desiredLayout->getType());
-              }
-            }
           }
         });
       }

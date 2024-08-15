@@ -15,17 +15,24 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRGeneric: Pass<"ttir-generic", "::mlir::ModuleOp"> {
+def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    Wrap top level ops in a generic op.
+    Wrap top level kernel ops in a generic op.
+  }];
+}
+
+def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Wrap top level elementwise ops in a generic op.
   }];
 }
 
 def TTIRGenericRegionOperandsToMemref: Pass<"ttir-generic-region-operands-to-memref", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
-    Convert generic region operands to memref.
+    Convert region operations to work on memref instead of tensors.
   }];
 }
 

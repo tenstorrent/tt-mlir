@@ -404,7 +404,9 @@ public:
       auto port =
           mlir::cast<IntegerAttr>(operand_cb_port_mapping[arg.getArgNumber()])
               .getInt();
-      auto memref = mlir::cast<MemRefType>(arg.getType());
+      auto tensor = mlir::cast<RankedTensorType>(arg.getType());
+      auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
+      auto memref = buffer.getMemref();
       rewrittenBlockArgumentTypes.push_back(
           rewriter.getType<ttkernel::CBType>(address, port, memref));
     }
@@ -537,10 +539,10 @@ public:
 void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
-  pm.addPass(mlir::tt::ttir::createTTIRGeneric());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-  pm.addPass(mlir::tt::ttir::createTTIRLayout());
+  pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());
   pm.addPass(createConvertTTIRToTTMetal());
