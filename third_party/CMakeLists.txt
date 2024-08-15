@@ -13,13 +13,6 @@ else()
   message(FATAL_ERROR "Unsupported ARCH_NAME: $ENV{ARCH_NAME}")
 endif()
 
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  add_compile_definitions(TRACY_ENABLE)
-  set(ENV{ENABLE_TRACY} "1")
-else()
-  set(ENV{ENABLE_TRACY} "0")
-endif()
-
 set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/deprecated
@@ -53,7 +46,7 @@ ExternalProject_Add(
     -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
-    -DTRACY_ENABLE=${TT_RUNTIME_ENABLE_PERF_TRACE}
+    -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG f6a2e5cb2b857bf4c72401bea68adf98c25bbe47
   GIT_PROGRESS ON
