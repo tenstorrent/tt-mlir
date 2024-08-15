@@ -69,7 +69,7 @@ def TT_ChipPhysicalCoresAttr : TT_Attr<"ChipPhysicalCores", "chip_physical_cores
   }];
 
   let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$worker, ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `,` `dram` `=` `[` $dram `]` (`,` `eth` `=` `[` $eth^ `]`)? (`,` `eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
+  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `,` `dram` `=` `[` $dram `]` `,` `eth` `=` (`[` $eth^ `]` `:` `[` `]`)? `,` `eth_inactive` `=` (`[` $eth_inactive^ `]` `:` `[` `]`)? `}`";
 }
 
 def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
@@ -122,6 +122,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
     static tt::SystemDescAttr getDefault(MLIRContext *context);
     static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
     unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getNocDRAMAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getPcieAddressAlignBytes(unsigned chipIndex = 0) const;
@@ -232,6 +233,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
+      AffineMap projectOnto(ArrayRef<int64_t> logicalTensorShape, GridAttr grid) const;
   }];
 }
 

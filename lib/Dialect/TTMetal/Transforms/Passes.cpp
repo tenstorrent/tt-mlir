@@ -16,20 +16,353 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "llvm/ADT/MapVector.h"
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+#include "ttmlir/Utils.h"
+
+namespace mlir::tt::ttmetal {
+struct CoreCoord {
+  std::int64_t d = 0;
+  std::int64_t y = 0;
+  std::int64_t x = 0;
+
+  CoreCoord() = default;
+  CoreCoord(std::int64_t d, std::int64_t y, std::int64_t x)
+      : d(d), y(y), x(x) {}
+  CoreCoord(ArrayRef<std::int64_t> coord)
+      : d(coord[0]), y(coord[1]), x(coord[2]) {}
+
+  std::int64_t &operator[](std::size_t i) {
+    assert(i < 3);
+    return i == 0 ? d : i == 1 ? y : x;
+  }
+
+  std::int64_t operator[](std::size_t i) const {
+    assert(i < 3);
+    return i == 0 ? d : i == 1 ? y : x;
+  }
+
+  bool operator==(CoreCoord const &other) const {
+    return d == other.d && y == other.y && x == other.x;
+  }
+};
+} // namespace mlir::tt::ttmetal
+
+namespace llvm {
+template <> struct DenseMapInfo<mlir::tt::ttmetal::CoreCoord> {
+  static mlir::tt::ttmetal::CoreCoord getEmptyKey() {
+    return mlir::tt::ttmetal::CoreCoord{-1, -1, -1};
+  }
+
+  static mlir::tt::ttmetal::CoreCoord getTombstoneKey() {
+    return mlir::tt::ttmetal::CoreCoord{-2, -2, -2};
+  }
+
+  static unsigned getHashValue(mlir::tt::ttmetal::CoreCoord coord) {
+    return llvm::hash_combine(coord.d, coord.y, coord.x);
+  }
+
+  static bool isEqual(mlir::tt::ttmetal::CoreCoord lhs,
+                      mlir::tt::ttmetal::CoreCoord rhs) {
+    return lhs == rhs;
+  }
+};
+} // namespace llvm
 
 namespace mlir::tt::ttmetal {
 
 #define GEN_PASS_DEF_CONVERTTTIRTOTTMETAL
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
+class PhysicalCoordMapping {
+public:
+  PhysicalCoordMapping(ArrayRef<tt::ChipDescAttr> chipDescs) {
+    ArrayRef<int64_t> firstChipGrid = chipDescs.front().getGrid();
+    assert(firstChipGrid.size() == 2);
+    grid = {firstChipGrid[0], firstChipGrid[1]};
+
+    data.reserve(chipDescs.size() * grid[0] * grid[1]);
+    for (auto chipDesc : chipDescs) {
+      auto chipGrid = chipDesc.getGrid();
+      assert(chipGrid == firstChipGrid);
+      ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
+      assert(chipPhysicalCores.getWorker().size() ==
+             static_cast<size_t>(grid[0] * grid[1]));
+      for (auto worker : chipPhysicalCores.getWorker()) {
+        data.push_back({worker.getY(), worker.getX()});
+      }
+    }
+    assert(data.size() == chipDescs.size() * grid[0] * grid[1]);
+  }
+
+  std::array<int64_t, 2> operator[](CoreCoord coord) const {
+    return data[coord.d * grid[0] * grid[1] + coord.y * grid[1] + coord.x];
+  }
+
+private:
+  std::array<int64_t, 2> grid;
+  SmallVector<std::array<int64_t, 2>> data;
+};
+
+static uint64_t lookupAddress(Value value) {
+  auto blockArg = mlir::dyn_cast<BlockArgument>(value);
+  if (blockArg) {
+    auto funcOp = blockArg.getOwner()->getParentOp();
+    if (mlir::isa<func::FuncOp>(funcOp)) {
+      auto argAlloc = mlir::cast<ArgumentAllocationAttr>(
+          mlir::cast<ArrayAttr>(funcOp->getDiscardableAttr(
+              ArgumentAllocationAttr::name))[blockArg.getArgNumber()]);
+      return argAlloc.getAddress();
+    }
+  }
+
+  auto *op = value.getDefiningOp();
+  if (!op) {
+    return 0;
+  }
+
+  while (isa<DestinationStyleOpInterface>(op)) {
+    assert(op->getResults().size() == 1);
+    auto dps = cast<DestinationStyleOpInterface>(op);
+    assert(dps.getNumDpsInits() == 1);
+    auto *opOperand = dps.getDpsInitOperand(0);
+    value = opOperand->get();
+    op = value.getDefiningOp();
+  }
+
+  auto allocOp = dyn_cast<ttir::AllocOp>(op);
+  if (!allocOp) {
+    return 0;
+  }
+  return allocOp.getAddress();
+}
+
 class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::ToLayoutOp> {
 public:
   using OpRewritePattern<ttir::ToLayoutOp>::OpRewritePattern;
+
+  struct NocRead {
+    CoreCoord srcCoord;
+    std::int64_t srcOffset = 0;
+    std::int64_t dstOffset = 0;
+    std::int64_t size = 0;
+
+    NocRead(CoreCoord srcCoord, std::int64_t srcOffset, std::int64_t dstOffset,
+            std::int64_t size)
+        : srcCoord(srcCoord), srcOffset(srcOffset), dstOffset(dstOffset),
+          size(size) {}
+
+    bool isContiguous(CoreCoord nextCoord, std::int64_t nextSrcOffset,
+                      std::int64_t nextDstOffset) const {
+      return (nextCoord == srcCoord) && (nextSrcOffset == srcOffset + size) &&
+             (nextDstOffset == dstOffset + size);
+    }
+  };
+
+  llvm::MapVector<CoreCoord, mlir::SmallVector<NocRead>>
+  calculateDataMovement(ArrayRef<std::int64_t> tensorShape,
+                        std::int64_t elemSize, AffineMap src,
+                        AffineMap dst) const {
+    // For now it's just a simple pull model, but eventually we want to leverage
+    // both NoCs and the both read and write
+    llvm::MapVector<CoreCoord, mlir::SmallVector<NocRead>> dst2srcMap;
+    assert(src.getNumResults() == 4);
+    assert(dst.getNumResults() == 4);
+
+    ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize](
+                                             ArrayRef<std::int64_t> index) {
+      auto srcResults = src.compose(index);
+      auto dstResults = dst.compose(index);
+      assert(srcResults.size() == src.getNumResults());
+      assert(dstResults.size() == dst.getNumResults());
+      CoreCoord srcCoord(srcResults);
+      CoreCoord dstCoord(dstResults);
+      std::int64_t srcOffset = srcResults[3] * elemSize;
+      std::int64_t dstOffset = dstResults[3] * elemSize;
+      mlir::SmallVector<NocRead> &srcs = dst2srcMap[dstCoord];
+      if (not srcs.empty() &&
+          srcs.back().isContiguous(srcCoord, srcOffset, dstOffset)) {
+        srcs.back().size += elemSize;
+      } else {
+        srcs.push_back(NocRead(srcCoord, srcOffset, dstOffset, elemSize));
+      }
+    });
+
+    return dst2srcMap;
+  }
+
+  LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    assert(inputLayout.getMemorySpace() == outputLayout.getMemorySpace());
+    tt::DeviceAttr device = op.getDevice();
+    assert(device);
+    tt::SystemDescAttr systemDesc = op.getSystemDesc();
+    assert(systemDesc);
+    auto addressAlignment = systemDesc.getAddressAlignBytes(
+        /*inputLayout.getMemorySpace() issue #407*/);
+    assert(inputLayout.getPhysicalShape(inputTy.getShape()) ==
+               outputLayout.getPhysicalShape(outputTy.getShape()) &&
+           "Physical shapes must match for now");
+    AffineMap src =
+        inputLayout.projectOnto(inputTy.getShape(), device.getGrid());
+    AffineMap dst =
+        outputLayout.projectOnto(outputTy.getShape(), device.getGrid());
+    auto dm = calculateDataMovement(
+        inputTy.getShape(), inputLayout.getElementSizeBytes(), src, dst);
+
+    auto noc0Attr =
+        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);
+    SmallVector<Attribute> threadTypes(dm.size(), noc0Attr);
+    SmallVector<Attribute> operand_cb_port_mapping;
+    SmallVector<Attribute> coreRanges;
+    coreRanges.reserve(dm.size());
+    for (auto [dstCoord, srcs] : dm) {
+      SmallVector<int64_t> offset = {dstCoord.y, dstCoord.x};
+      SmallVector<int64_t> size = {1, 1};
+      coreRanges.push_back(
+          rewriter.getAttr<ttmetal::CoreRangeAttr>(offset, size));
+    };
+
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), SmallVector<Type>({outputTy}),
+        SmallVector<Value>({op.getInput()}),
+        SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr(threadTypes),
+        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+
+    int i = 0;
+    PhysicalCoordMapping physicalCoordMapping(systemDesc.getChipDescs());
+    std::int64_t inputBaseAddress = lookupAddress(op.getInput());
+    std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
+    assert(inputBaseAddress);
+    assert(outputBaseAddress);
+    assert(inputBaseAddress % addressAlignment == 0);
+    assert(outputBaseAddress % addressAlignment == 0);
+    for (auto [dstCoord, srcs] : dm) {
+      Block *nocBlock = rewriter.createBlock(&metalDispatch.getRegion(i++));
+      OpBuilder nocBuilder(nocBlock, nocBlock->begin());
+      for (auto s : srcs) {
+        assert(s.srcOffset % addressAlignment == 0);
+        assert(s.dstOffset % addressAlignment == 0);
+        assert(s.size % addressAlignment == 0);
+        auto [yPhys, xPhys] = physicalCoordMapping[s.srcCoord];
+        auto y = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(yPhys));
+        auto x = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(xPhys));
+        auto srcOffset = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(inputBaseAddress + s.srcOffset));
+        auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrOp>(
+            op.getLoc(), x, y, srcOffset);
+        auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(outputBaseAddress + s.dstOffset));
+        auto size = nocBuilder.create<arith::ConstantOp>(
+            op.getLoc(), nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(s.size));
+        nocBuilder.create<ttkernel::NocAsyncReadOp>(
+            op.getLoc(), srcRemoteNocAddr, dstLocalL1Addr, size);
+      }
+      nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      nocBuilder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
+    }
+
+    rewriter.replaceOp(op, metalDispatch);
+
+    return success();
+  }
+
+  LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getType());
+    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    bool shouldTilize = not inputLayout.isTiled() && outputLayout.isTiled();
+    bool shouldUntilize = inputLayout.isTiled() && not outputLayout.isTiled();
+    assert(shouldTilize ^ shouldUntilize);
+    assert(inputLayout.getGrid() == outputLayout.getGrid());
+
+    auto tensixAttr = rewriter.getAttr<ttkernel::ThreadTypeAttr>(
+        ttkernel::ThreadType::Tensix);
+    SmallVector<Attribute> threadTypes = {tensixAttr};
+    SmallVector<Attribute> operand_cb_port_mapping = {
+        rewriter.getI64IntegerAttr(0),
+        rewriter.getI64IntegerAttr(16),
+    };
+
+    SmallVector<Attribute> coreRanges = {
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
+    };
+
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), SmallVector<Type>({outputTy}),
+        SmallVector<Value>({op.getInput()}),
+        SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr(threadTypes),
+        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+
+    std::int64_t inputBaseAddress = lookupAddress(op.getInput());
+    std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
+    Block *tensixBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
+    OpBuilder tensixBuilder(tensixBlock, tensixBlock->begin());
+    uint64_t pageSize = inputLayout.isTiled()
+                            ? inputLayout.getElementSizeBytes()
+                            : outputLayout.getElementSizeBytes();
+    Type inputCBTy = rewriter.getType<ttkernel::CBType>(
+        inputBaseAddress, 0, mlir::cast<MemRefType>(inputLayout.getMemref()),
+        pageSize, /*num_buffers*/ 1);
+    Type outputCBTy = rewriter.getType<ttkernel::CBType>(
+        outputBaseAddress, 16, mlir::cast<MemRefType>(outputLayout.getMemref()),
+        pageSize, /*num_buffers*/ 1);
+    tensixBlock->addArgument(inputCBTy, op.getLoc());
+    tensixBlock->addArgument(outputCBTy, op.getLoc());
+
+    int shardTileVolume = 1;
+    for (auto dim : (shouldTilize ? outputLayout.getMemref().getShape()
+                                  : inputLayout.getMemref().getShape())) {
+      shardTileVolume *= dim;
+    }
+
+    auto numTiles = tensixBuilder.create<arith::ConstantOp>(
+        op.getLoc(), tensixBuilder.getI32Type(),
+        tensixBuilder.getI32IntegerAttr(shardTileVolume));
+
+    if (shouldTilize) {
+      tensixBuilder.create<ttkernel::TilizeInitOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          tensixBlock->getArgument(1));
+    } else {
+      tensixBuilder.create<ttkernel::UntilizeInitOp>(
+          op.getLoc(), tensixBlock->getArgument(0),
+          tensixBlock->getArgument(1));
+    }
+
+    if (shouldTilize) {
+      tensixBuilder.create<ttkernel::TilizeBlockOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          tensixBlock->getArgument(1));
+    } else {
+      tensixBuilder.create<ttkernel::UntilizeBlockOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          tensixBlock->getArgument(1));
+    }
+
+    tensixBuilder.create<ttkernel::ReturnOp>(op.getLoc());
+
+    rewriter.replaceOp(op, metalDispatch);
+
+    return success();
+  }
 
   LogicalResult matchAndRewrite(ttir::ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
@@ -38,22 +371,42 @@ public:
     if (not inputTy.getEncoding() || not outputTy.getEncoding()) {
       return failure();
     }
+    assert(inputTy.getShape() == outputTy.getShape());
     assert(mlir::isa<tt::LayoutAttr>(inputTy.getEncoding()));
     assert(mlir::isa<tt::LayoutAttr>(outputTy.getEncoding()));
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
-    if (inputLayout.isSystemMemorySpace()) {
-      assert(outputLayout.isDeviceMemorySpace());
-      rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
-          op, outputTy, op.getInput(), op.getOutput());
-    } else if (outputLayout.isSystemMemorySpace()) {
-      assert(inputLayout.isDeviceMemorySpace());
-      rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
-          op, outputTy, op.getInput(), op.getOutput());
+
+    bool isMemorySpaceChange =
+        inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
+    bool isLayoutChange =
+        (inputLayout.getLinear() != outputLayout.getLinear() ||
+         inputLayout.getGrid() != outputLayout.getGrid() ||
+         inputLayout.getShardShape() != outputLayout.getShardShape());
+    bool isFormatChange =
+        inputLayout.getElementType() != outputLayout.getElementType();
+    assert(isMemorySpaceChange ^ isLayoutChange ^ isFormatChange &&
+           "Only one change is allowed");
+
+    if (isMemorySpaceChange) {
+      if (inputLayout.isSystemMemorySpace()) {
+        assert(outputLayout.isDeviceMemorySpace());
+        rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
+            op, outputTy, op.getInput(), op.getOutput());
+      } else if (outputLayout.isSystemMemorySpace()) {
+        assert(inputLayout.isDeviceMemorySpace());
+        rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
+            op, outputTy, op.getInput(), op.getOutput());
+      } else {
+        assert(false && "L1 <-> DRAM not supported yet");
+      }
+    } else if (isLayoutChange) {
+      return relayout(op, rewriter);
     } else {
-      return failure();
+      assert(isFormatChange);
+      return reformat(op, rewriter);
     }
-    return success();
+    return failure();
   }
 };
 
@@ -97,18 +450,6 @@ public:
       }
     });
     return exists;
-  }
-
-  uint64_t lookupAddress(Value value) const {
-    auto *op = value.getDefiningOp();
-    if (!op) {
-      return 0;
-    }
-    auto allocOp = dyn_cast<ttir::AllocOp>(op);
-    if (!allocOp) {
-      return 0;
-    }
-    return allocOp.getAddress();
   }
 
   SmallVector<Type> getBlockArgumentTypesAsCBs(
