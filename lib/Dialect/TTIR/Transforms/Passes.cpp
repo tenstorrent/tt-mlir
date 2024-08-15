@@ -530,18 +530,19 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<
-          TTIRLayoutOperandsRewriter<GenericOp>,
-          TTIRLayoutOperandsRewriter<AddOp>,
-          TTIRLayoutOperandsRewriter<MultiplyOp>,
-          TTIRLayoutOperandsRewriter<SubtractOp>,
-          TTIRLayoutOperandsRewriter<GreaterEqualOp>,
-          TTIRLayoutOperandsRewriter<ReluOp>, TTIRLayoutOperandsRewriter<SumOp>,
-          TTIRLayoutOperandsRewriter<MeanOp>,
-          TTIRLayoutOperandsRewriter<SoftmaxOp>,
-          TTIRLayoutOperandsRewriter<TransposeOp>,
-          TTIRLayoutOperandsRewriter<MatmulOp>, TTIRLayoutFuncReturnRewriter>(
-          &getContext());
+      patterns.add<TTIRLayoutOperandsRewriter<GenericOp>,
+                   TTIRLayoutOperandsRewriter<AddOp>,
+                   TTIRLayoutOperandsRewriter<MultiplyOp>,
+                   TTIRLayoutOperandsRewriter<SubtractOp>,
+                   TTIRLayoutOperandsRewriter<GreaterEqualOp>,
+                   TTIRLayoutOperandsRewriter<ReluOp>,
+                   TTIRLayoutOperandsRewriter<SumOp>,
+                   TTIRLayoutOperandsRewriter<MeanOp>,
+                   TTIRLayoutOperandsRewriter<SoftmaxOp>,
+                   TTIRLayoutOperandsRewriter<TransposeOp>,
+                   TTIRLayoutOperandsRewriter<MatmulOp>,
+                   TTIRLayoutOperandsRewriter<ExternalGenericOp>,
+                   TTIRLayoutFuncReturnRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
