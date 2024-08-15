@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
-#include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
 #include <optional>
 #include <unordered_map>
 
