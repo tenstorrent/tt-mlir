@@ -335,8 +335,44 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
         std::cout << cb_config->page_size() << std::endl;
     }
 
+    std::vector<::ttnn::operations::generic::compute_attributes_t> compute_attributes;
     for (auto compute_kernel: *op->compute_kernels()) {
-      std::cout << compute_kernel->kernel_path() << std::endl;
+        // Convert compile args to vector.
+      auto compile_args_vec = compute_kernel->compute_kernel_config()->compile_args();
+      std::vector<uint32_t> compile_args(compile_args_vec->begin(), compile_args_vec->end());
+
+      // Convert defines to map.
+      auto map_defines = compute_kernel->compute_kernel_config()->defines();
+      std::map<std::string, std::string> compute_config_defines;
+      for (auto one_define : *map_defines) {
+        compute_config_defines[one_define->key()->str()] = one_define->val()->str();
+      }
+      
+      uint32_t x_start = compute_kernel->core_spec()->x_start();
+      uint32_t y_start = compute_kernel->core_spec()->y_start();
+      uint32_t x_size = compute_kernel->core_spec()->x_size();
+      uint32_t y_size = compute_kernel->core_spec()->y_size();
+      // TODO(pjanevski): is this inclusive?
+      CoreRange cr({x_start, y_start}, {x_start + x_size - 1, y_start + y_size - 1});
+      CoreRangeSet crs({cr});
+
+      // TODO(pjanevski): setup runtime args
+      // TODO(pjanevski): create struct in .fbs for math fidelity
+      ::ttnn::operations::generic::compute_attributes_t compute_kernel_attribute = {
+        .core_spec = crs,
+        .kernel_path = compute_kernel->kernel_path()->str(),
+        .config = ComputeConfig {
+          .math_fidelity = compute_kernel->compute_kernel_config()->math_fidelity() == 0 ? MathFidelity::HiFi4 : MathFidelity::HiFi3,
+          .fp32_dest_acc_en = (bool)compute_kernel->compute_kernel_config()->fp32_dest(),
+          .preserve_fp32_precision = (bool)compute_kernel->compute_kernel_config()->preserve_fp32(),  
+          .math_approx_mode = (bool)compute_kernel->compute_kernel_config()->math_approx_mode(),
+          .compile_args = compile_args,
+          .defines = compute_config_defines,
+        },
+        .runtime_args_per_core = {}
+      };
+      
+      compute_attributes.push_back(compute_kernel_attribute);
     }
     
     std::vector<::ttnn::operations::generic::data_movement_attributes_t> data_movement_attributes;
