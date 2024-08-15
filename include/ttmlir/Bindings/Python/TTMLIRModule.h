@@ -5,12 +5,11 @@
 #ifndef TTMLIR_BINDINGS_PYTHON_TTMLIRMODULE_H
 #define TTMLIR_BINDINGS_PYTHON_TTMLIRMODULE_H
 
+#include "mlir-c/Bindings/Python/Interop.h"
 #include "mlir/Bindings/Python/PybindAdaptors.h"
+#include "mlir/CAPI/IR.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
-// #include "mlir/Parser/Parser.h"
-#include "mlir-c/Bindings/Python/Interop.h"
-#include "mlir/CAPI/IR.h"
 #include "ttmlir-c/Dialects.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -19,9 +18,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/RegisterAll.h"
-// #include <cstdint>
-// #include <string>
-// #include <unordered_map>
 
 namespace py = pybind11;
 

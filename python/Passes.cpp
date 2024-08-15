@@ -14,7 +14,6 @@ void populatePassesModule(py::module &m) {
 
   mlir::tt::registerAllPasses();
   mlir::registerAllTranslations();
-  // mlir::tt::ttnn::registerTTNNPipelines();
 
   m.def("ttir_to_ttnn_backend_pipeline", [](MlirModule module) {
     mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
@@ -41,13 +40,6 @@ void populatePassesModule(py::module &m) {
       throw std::runtime_error("Failed to run pass manager");
     }
   });
-
-  py::class_<std::shared_ptr<void>>(m, "TTNNToFlatbufferData")
-      .def(py::init<>())
-      .def("from_module", [](MlirModule module) {
-        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        auto data = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
-      });
 
   m.def("ttnn_to_flatbuffer", [](MlirModule module) {
     mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));

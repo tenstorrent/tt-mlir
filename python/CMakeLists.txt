@@ -72,11 +72,9 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     LLVMSupport
     ${dialect_libs}
     ${conversion_libs}
+    ${translation_libs}
     MLIR
     TTMLIRStatic
-    TTMLIRConversions
-    TTMLIRTTNNToEmitC
-    TTNNTargetFlatbuffer
 )
 
 set(TTMLIR_PYTHON_SOURCES
