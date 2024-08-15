@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
 #include <optional>
 #include <unordered_map>
 
@@ -340,10 +341,41 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
     
     std::vector<::ttnn::operations::generic::data_movement_attributes_t> data_movement_attributes;
     for (auto data_movement_kernel : *op->data_movement_kernels()) {
-      std:: cout << data_movement_kernel->kernel_path() << std::endl;
 
+      // Convert compile args to vector.
+      auto compile_args_vec = data_movement_kernel->data_movement_config()->compile_args();
+      std::vector<uint32_t> compile_args(compile_args_vec->begin(), compile_args_vec->end());
+
+      // Convert defines to map.
+      auto dm_defines = data_movement_kernel->data_movement_config()->defines();
+      std::map<std::string, std::string> dm_config_defines;
+      for (auto one_define : *dm_defines) {
+        dm_config_defines[one_define->key()->str()] = one_define->val()->str();
+      }
+      
+      uint32_t x_start = data_movement_kernel->core_spec()->x_start();
+      uint32_t y_start = data_movement_kernel->core_spec()->y_start();
+      uint32_t x_size = data_movement_kernel->core_spec()->x_size();
+      uint32_t y_size = data_movement_kernel->core_spec()->y_size();
+      // TODO(pjanevski): is this inclusive?
+      CoreRange cr({x_start, y_start}, {x_start + x_size - 1, y_start + y_size - 1});
+      CoreRangeSet crs({cr});
+
+      // TODO(pjanevski): setup runtime args
+      ::ttnn::operations::generic::data_movement_attributes_t dm_attr = {
+        .core_spec = crs,
+        .kernel_path = data_movement_kernel->kernel_path()->str(),
+        .config = DataMovementConfig {
+          .processor = data_movement_kernel->data_movement_config()->processor() == 0 ? DataMovementProcessor::RISCV_0 : DataMovementProcessor::RISCV_1,
+          .noc = data_movement_kernel->data_movement_config()->noc() == 0 ? NOC::NOC_0 : NOC::NOC_1,
+          .compile_args = compile_args,
+          .defines = dm_config_defines,
+        },
+        .runtime_args_per_core = {}
+      };
+      
+      data_movement_attributes.push_back(dm_attr);
     }
-
 }
 
 // ANCHOR: adding_an_op_matmul_runtime
