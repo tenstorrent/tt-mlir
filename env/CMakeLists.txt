@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "a6d7828f4c50c1ec7b0b5f61fe59d7a768175dcc")
+set(LLVM_PROJECT_VERSION "9ddfe62f5c11e3f65f444209f514029ded2d58b9")
 
 include(ExternalProject)
 
@@ -65,6 +65,26 @@ ExternalProject_Add(
     GIT_TAG ${LLVM_PROJECT_VERSION}
     GIT_PROGRESS ON
     DEPENDS python-venv
+)
+
+set(STABLE_HLO_VERSION "v1.5.0")
+
+ExternalProject_Add(
+    stablehlo
+    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+    CMAKE_GENERATOR Ninja
+    CMAKE_ARGS
+      -DCMAKE_BUILD_TYPE=Release
+      -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
+      -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+      # TODO: Figure out if we need this (or benefit from it) when it comes to linking stablehlo.
+      #-DSTABLEHLO_BUILD_EMBEDDED=ON
+      -DMLIR_DIR=${TTMLIR_TOOLCHAIN_DIR}/lib/cmake/mlir
+    GIT_REPOSITORY https://github.com/openxla/stablehlo
+    GIT_TAG ${STABLE_HLO_VERSION}
+    GIT_PROGRESS ON
 )
 
 add_custom_target(llvm-lit ALL COMMAND cp ${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)
