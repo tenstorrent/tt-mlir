@@ -150,11 +150,11 @@ table CoreSpec {
 }
 
 table CBConfig {
+  cb_id : int32;
   core_spec: CoreSpec;
-  total_size: int32;
-  page_size: int32;
-  // TODO(pjanevski): change data format to proper type
-  data_format: int32;
+  total_size: uint32;
+  page_size: uint32;
+  data_format: DataType;
   globally_allocated_address : int32;
 }
 
