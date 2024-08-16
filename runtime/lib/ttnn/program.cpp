@@ -337,7 +337,8 @@ static CoreRangeSet get_core_range_set(const target::CoreSpec *core_spec) {
 }
 
 // TODO(pjanevski): bind all values to DataFormat enum from 
-// tt-metal tt_backend_api_types.hpp
+// tt-metal tt_backend_api_types.hpp. We probably want to move all these
+// functions that are ttnn specific to separate file, maybe utils?
 DataFormat get_tt_metal_dataformat(target::DataType data_format) {
   return DataFormat::Float32;
 }

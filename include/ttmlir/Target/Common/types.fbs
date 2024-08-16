@@ -143,10 +143,10 @@ table EventRef {
 }
 
 table CoreSpec {
-  x_start: int32;
-  y_start: int32;
-  x_size: int32;
-  y_size: int32;
+  x_start: uint32;
+  y_start: uint32;
+  x_size: uint32;
+  y_size: uint32;
 }
 
 table CBConfig {
@@ -159,8 +159,7 @@ table CBConfig {
 }
 
 table RuntimeArg {
-  // TODO(pjanevksi): change to bool if possible
-  ttnn_compute : int32;
+  ttnn_compute : bool;
   val: int32;
   tensor_glob_id : int32;
 }
