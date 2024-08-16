@@ -69,7 +69,7 @@ def TT_ChipPhysicalCoresAttr : TT_Attr<"ChipPhysicalCores", "chip_physical_cores
   }];
 
   let parameters = (ins ArrayRefParameter<"CoreCoordAttr">:$worker, ArrayRefParameter<"CoreCoordAttr">:$dram, OptionalArrayRefParameter<"CoreCoordAttr">:$eth, OptionalArrayRefParameter<"CoreCoordAttr">:$eth_inactive);
-  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `,` `dram` `=` `[` $dram `]` (`,` `eth` `=` `[` $eth^ `]`)? (`,` `eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
+  let assemblyFormat = "`{` `worker` `=` `[` $worker `]` `dram` `=` `[` $dram `]` (`eth` `=` `[` $eth^ `]`)? (`eth_inactive` `=` `[` $eth_inactive^ `]`)? `}`";
 }
 
 def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
