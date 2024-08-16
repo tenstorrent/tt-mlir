@@ -165,8 +165,8 @@ def TTNN_TransposeOp : TTNN_NamedDPSOp<"transpose"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dimension1,
-                         SI32Attr:$dimension2);
+                         SI32Attr:$dim0,
+                         SI32Attr:$dim1);
 
     let results = (outs AnyRankedTensor:$result);
 

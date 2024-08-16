@@ -73,30 +73,30 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   ::mlir::RankedTensorType outputType = getOutput().getType();
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
-  int32_t dim1 = getDimension1();
-  int32_t dim2 = getDimension2();
+  int32_t dim0 = getDim0();
+  int32_t dim1 = getDim1();
   if (inputType.getRank() < 2) {
     return emitOpError("Input must be at least a 2D tensor");
   }
   if (inputType.getRank() != outputType.getRank()) {
     return emitOpError("Input must have the same rank as output");
   }
+  if (dim0 >= inputType.getRank() || dim0 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 0 attribute must be within the bounds of the input tensor");
+  }
   if (dim1 >= inputType.getRank() || dim1 < -inputType.getRank()) {
     return emitOpError(
         "Dimension 1 attribute must be within the bounds of the input tensor");
   }
-  if (dim2 >= inputType.getRank() || dim2 < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension 2 attribute must be within the bounds of the input tensor");
+  if (dim0 < 0) {
+    dim0 += inputType.getRank();
   }
   if (dim1 < 0) {
     dim1 += inputType.getRank();
   }
-  if (dim2 < 0) {
-    dim2 += inputType.getRank();
-  }
-  if (outputShape[dim1] != inputShape[dim2] ||
-      outputShape[dim2] != inputShape[dim1]) {
+  if (outputShape[dim0] != inputShape[dim1] ||
+      outputShape[dim1] != inputShape[dim0]) {
     return emitOpError("Input-output transpose dimension mismatch.");
   }
   return success();

@@ -296,25 +296,24 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
-  int32_t dimension1 = op->dimension1();
-  int32_t dimension2 = op->dimension2();
+  int32_t dim0 = op->dim0();
+  int32_t dim1 = op->dim1();
   auto input_rank = in.get_shape().rank();
   // for the current version of permute, we need to work in 4D, so we add
   // leading dimensions of size 1
   std::vector<std::int64_t> dimensionOrder(4);
   std::iota(dimensionOrder.begin(), dimensionOrder.end(), 0);
-  if (dimension1 < 0) {
-    dimension1 += 4;
+  if (dim0 < 0) {
+    dim0 += 4;
   } else {
-    dimension1 = dimension1 + 4 - input_rank;
+    dim0 = dim0 + 4 - input_rank;
   }
-
-  if (dimension2 < 0) {
-    dimension2 += 4;
+  if (dim1 < 0) {
+    dim1 += 4;
   } else {
-    dimension2 = dimension2 + 4 - input_rank;
+    dim1 = dim1 + 4 - input_rank;
   }
-  std::swap(dimensionOrder[dimension1], dimensionOrder[dimension2]);
+  std::swap(dimensionOrder[dim0], dimensionOrder[dim1]);
   // Ideally this would use ttnn::transpose, but since ttnn::transpose doesn't
   // work at the moment, we use this temporary solution.
   auto unsqueezed_input = ::ttnn::unsqueeze_to_4D(in);

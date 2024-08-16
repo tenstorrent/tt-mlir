@@ -178,11 +178,10 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto out = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  int32_t dimension1 = op.getDimension1();
-  int32_t dimension2 = op.getDimension2();
+  int32_t dim0 = op.getDim0();
+  int32_t dim1 = op.getDim1();
 
-  return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dimension1,
-                                               dimension2);
+  return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
 template <typename SoftmaxOp>
