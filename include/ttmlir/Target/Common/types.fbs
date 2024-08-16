@@ -186,9 +186,9 @@ table DataMovementAttribute {
 
 table ComputeKernelConfig {
   math_fidelity: int32;
-  fp32_dest : int32;
-  preserve_fp32 : int32;
-  math_approx_mode : int32;
+  fp32_dest : bool;
+  preserve_fp32 : bool;
+  math_approx_mode : bool;
   compile_args: [int32];
   defines : [DefineArgument];
 }
