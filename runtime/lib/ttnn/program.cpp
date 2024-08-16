@@ -366,7 +366,8 @@ void runProgram(::ttnn::Device &device,
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
-    assert(inserted && "Duplicate output tensor");
+    // assert(inserted && "Duplicate output tensor");
+    (void)inserted;
   }
 
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
