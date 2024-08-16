@@ -77,7 +77,7 @@ ttrt query --clean-artifacts
 
 ### perf (coming soon)
 Run performance mode of a binary file or a directory of binary files
-Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` with `export ENABLE_TRACY=1`.
+Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 
 ```bash
 ttrt perf --help

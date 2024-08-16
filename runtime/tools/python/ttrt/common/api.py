@@ -91,15 +91,13 @@ class API:
             default=False,
             choices=[True, False],
             help="clean all artifacts from previous runs",
-            api_only=False,
         )
         API.Run.register_arg(
             name="--save-artifacts",
             type=bool,
             default=False,
-            choices=[False, False],
+            choices=[True, False],
             help="save all artifacts during run",
-            api_only=False,
         )
         API.Run.register_arg(
             name="--program-index",
@@ -167,10 +165,24 @@ class API:
 
         # register all perf arguments
         API.Perf.register_arg(
+            name="--clean-artifacts",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="clean all artifacts from previous runs",
+        )
+        API.Perf.register_arg(
+            name="--save-artifacts",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="save all artifacts during run",
+        )
+        API.Perf.register_arg(
             name="--device",
             type=bool,
             default=False,
-            choices=[False, False],
+            choices=[True, False],
             help="collect performance trace on both host and device",
         )
         API.Perf.register_arg(
@@ -194,7 +206,7 @@ class API:
         API.register_api(API.Query)
         API.register_api(API.Read)
         API.register_api(API.Run)
-        # API.register_api(API.Perf)
+        API.register_api(API.Perf)
 
     @staticmethod
     def register_api(api_class):
@@ -943,13 +955,13 @@ class API:
                 else Artifacts(self.logger, self.file_manager)
             )
             self.query = API.Query({}, self.logger, self.artifacts)
-            self.ttnn_binaries = None
-            self.ttmetal_binaries = None
+            self.ttnn_binaries = []
+            self.ttmetal_binaries = []
             self.tracy_capture_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
             self.tracy_csvexport_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
             self.tracy_capture_tool_process = None
 
-            for name, _ in API.Run.registered_args.items():
+            for name, _ in API.Perf.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
 
@@ -968,16 +980,19 @@ class API:
             if self["clean_artifacts"]:
                 self.artifacts.clean_artifacts()
 
-            if self["save_artifacts"]:
-                self.artifacts.create_artifacts()
+            self.artifacts.create_artifacts()
 
             self.logging.debug(f"finished preprocessing perf API")
 
         def check_constraints(self):
             self.logging.debug(f"checking constraints for perf API")
 
-            self.file_manager.check_file_exists(self.tracy_capture_tool_path)
-            self.file_manager.check_file_exists(self.tracy_csvexport_tool_path)
+            assert self.file_manager.check_file_exists(
+                self.tracy_capture_tool_path
+            ), f"perf tool={self.tracy_capture_tool_path} does not exist - rebuild using perf mode"
+            assert self.file_manager.check_file_exists(
+                self.tracy_csvexport_tool_path
+            ), f"perf tool={self.tracy_csvexport_tool_path} does not exist - rebuild using perf mode"
             ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
             ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
                 self["binary"]
@@ -1025,7 +1040,7 @@ class API:
             self.logging.debug(f"executing perf API")
 
             import tracy
-            import tracy_state
+            import tracy.tracy_state
             from tt_metal.tools.profiler.process_ops_logs import process_ops
             from tt_metal.tools.profiler.common import (
                 PROFILER_LOGS_DIR,
@@ -1033,6 +1048,9 @@ class API:
                 TRACY_OPS_DATA_FILE_NAME,
                 TRACY_FILE_NAME,
             )
+
+            self.file_manager.remove_directory(PROFILER_LOGS_DIR)
+            self.file_manager.create_directory(PROFILER_LOGS_DIR)
 
             def get_available_port():
                 ip = socket.gethostbyname(socket.gethostname())
@@ -1049,9 +1067,6 @@ class API:
                 return None
 
             def generate_report(binary_perf_folder):
-                self.file_manager.remove_directory(PROFILER_LOGS_DIR)
-                self.file_manager.create_directory(PROFILER_LOGS_DIR)
-
                 child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
                 time_out = 15
                 time_count = 0
@@ -1088,9 +1103,9 @@ class API:
                 process_ops(binary_perf_folder, "", True)
 
             def save_perf_artifacts(binary_perf_folder):
-                tracy_ops_times_file = f"{self.artifacts.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_TIMES_FILE_NAME}"
-                tracy_ops_data_file = f"{self.artifacts.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_DATA_FILE_NAME}"
-                tracy_file = f"{self.artifacts.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_FILE_NAME}"
+                tracy_ops_times_file = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_TIMES_FILE_NAME}"
+                tracy_ops_data_file = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_DATA_FILE_NAME}"
+                tracy_file = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_FILE_NAME}"
 
                 try:
                     self.file_manager.check_file_exists(tracy_ops_times_file)
@@ -1108,7 +1123,7 @@ class API:
                         dest_path = os.path.join(binary_perf_folder, file_name)
                         self.file_manager.copy_file(dest_path, file_path)
 
-                    if not os.listdir(root):
+                    if os.listdir(root):
                         self.file_manager.remove_directory(root)
 
             def _execute(binaries):
@@ -1136,15 +1151,33 @@ class API:
                         tracy_capture_tool_command, shell=True
                     )
 
-                    test_command = f"python -m tracy -p {artifacts.get_ttmlir_venv_path()}/bin/ttrt run {bin.file_path} --save-artifacts"
+                    upstream_apis = API.Run.get_upstream_apis()
+                    command_options = ""
+
+                    for api in upstream_apis:
+                        name = (
+                            api["name"]
+                            if not api["name"].startswith("-")
+                            else api["name"].lstrip("-")
+                        )
+                        name = name.replace("-", "_")
+
+                        if api["type"] == bool:
+                            if self[name]:
+                                command_options += f" {api['name']} "
+                        else:
+                            command_options += f" {api['name']} {self[name]} "
+
+                    test_command = f"python -m tracy -p {self.globals.get_ttmlir_venv_path()}/bin/ttrt run {bin.file_path} --save-artifacts {command_options}"
+                    print(f"test command for binary={bin.file_path} is: {test_command}")
                     testProcess = subprocess.Popen(
                         [test_command], shell=True, env=env_vars, preexec_fn=os.setsid
                     )
 
                     def signal_handler(sig, frame):
                         os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
-                        captureProcess.terminate()
-                        captureProcess.communicate()
+                        self.tracy_capture_tool_process.terminate()
+                        self.tracy_capture_tool_process.communicate()
                         sys.exit(3)
 
                     signal.signal(signal.SIGINT, signal_handler)
@@ -1152,13 +1185,11 @@ class API:
                     testProcess.communicate()
 
                     try:
-                        captureProcess.communicate(timeout=15)
-                        perf_trace.generate_report(
-                            self.artifacts.get_binary_perf_folder_path(bin)
-                        )
+                        self.tracy_capture_tool_process.communicate(timeout=15)
+                        generate_report(self.artifacts.get_binary_perf_folder_path(bin))
                     except subprocess.TimeoutExpired as e:
-                        captureProcess.terminate()
-                        captureProcess.communicate()
+                        self.tracy_capture_tool_process.terminate()
+                        self.tracy_capture_tool_process.communicate()
                         raise Exception(
                             f"No profiling data could be captured. Please make sure you are on the correct build"
                         )
@@ -1175,6 +1206,14 @@ class API:
 
         def postprocess(self):
             self.logging.debug(f"postprocessing perf API")
+
+            if self["save_artifacts"]:
+                for bin in self.ttnn_binaries:
+                    self.artifacts.save_binary(bin, self.query)
+
+                for bin in self.ttmetal_binaries:
+                    self.artifacts.save_binary(bin, self.query)
+
             self.logging.debug(f"finished postprocessing perf API")
 
         def __str__(self):
