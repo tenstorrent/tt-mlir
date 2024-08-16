@@ -88,6 +88,8 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         // TODO return below, but we need a way to properly create an ArrayAttr:
         // return {OperandConstraint::Any, OperandConstraint::Any};
       }
+      // Returns a tuple of booleans indicating if the op changes layout, grid, format, or memory space.
+      std::tuple<bool, bool, bool, bool> compoundComponents();
     }];
 
     let hasVerifier = 1;

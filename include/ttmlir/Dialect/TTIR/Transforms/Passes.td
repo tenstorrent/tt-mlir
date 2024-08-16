@@ -43,6 +43,15 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleOp"> {
+  let summary = "Split compound layouts.";
+  let description = [{
+    A single to_layout op in ttir can simultaneously perform multiple layout transformations
+    at once, including changing layout, format, or memory space. This pass splits each of
+    these transformation categories into separate to_layout ops.
+  }];
+}
+
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Allocate tensors.";
   let description = [{
