@@ -5,13 +5,11 @@
 # RUN: %python %s | FileCheck %s
 from __future__ import annotations
 
-# from build.python_packages.ttmlir.ir import *
-# from build.python_packages.ttmlir.dialects import tt, ttir
-
+from contextlib import contextmanager
 from typing import List, Dict
 
 from ttmlir.ir import *
-from ttmlir.dialects import tt, ttir
+from ttmlir.dialects import tt, ttir, arith, tensor, func
 
 
 class CustomAttrsAndTypesBuilder:
@@ -40,10 +38,7 @@ class CustomAttrsAndTypesBuilder:
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
 
-    def getRankedTensor(self, shape: List[int], data_type: "tt.DataType"):
-        return RankedTensorType.get(shape, Type.parse(str(data_type), self.ctx), loc=self.cursor)
-
-    def getCoreRangeAttr(self, offset: List[int], size: List[int]) -> "tt.ir.CoreRangeAttr":
+    def getCoreRangeAttr(self, offset: List[int], size: List[int]) -> "tt.CoreRangeAttr":
         return tt.ir.CoreRangeAttr.get(self.ctx, offset, size)
 
     def getCircularBufferAttributesAttr(
@@ -81,8 +76,8 @@ class CustomAttrsAndTypesBuilder:
 
     def getExternalGenericOp(
         self,
-        inputs: List[Tensor],
-        outputs: List[Tensor],
+        inputs: List,
+        outputs: List,
         circular_buffer_attributes: List["tt.ir.CircularBufferAttributesAttr"],
         data_movement_attributes: List["tt.ir.DataMovementAttributesAttr"],
         compute_attributes: List["tt.ir.ComputeAttributesAttr"],
@@ -107,19 +102,46 @@ class GenericOpBuilder:
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
-
         self.types_builder = CustomAttrsAndTypesBuilder(self.ctx)
 
     def create_dummy_tensor(self):
-        return self.types_builder.getRankedTensor([64, 128], tt.DataType.Float32)
+        shape = [64, 128]
+        data_type = str(tt.DataType.Float32)
 
-    def create_dummy_external_generic_op():
-        return ttir.ExternalGenericOp()
+        with self.ctx, self.cursor:
+            return tensor.EmptyOp(shape, Type.parse(data_type))
+
+    def create_dummy_external_generic_op(self):
+        # TODO Not working, I am confused, couldn't untangle it
+        return None
+        with self.ctx, self.cursor:
+            input0 = self.create_dummy_tensor()
+            input1 = self.create_dummy_tensor()
+            output = self.create_dummy_tensor()
+
+            shape = [64, 128]
+            data_type = str(tt.DataType.Float32)
+            operand_constraint = tt.OperandConstraint.AnyDevice
+            return_type = RankedTensorType.get(shape, Type.parse(data_type))
+
+            op = ttir.ExternalGenericOp(
+                [return_type],
+                [input0, input1],
+                [output],
+                circular_buffer_attributes[0],
+                data_movement_attributes[0],
+                compute_attributes[0],
+                IntegerAttr.get(IntegerType.get_signless(32), operand_constraint.value),
+            )
+
+            print(op)
+            return op
 
     def create_dummy_circular_buffer_attributes(self) -> List["tt.ir.CircularBufferAttributesAttr"]:
         all_cores = self.types_builder.getCoreRangeAttr([0, 0], [6, 6])
 
         data_format = tt.DataType.BFloat16
+
         page_size = 2048
         total_size = 2 * page_size
 
@@ -174,29 +196,22 @@ class GenericOpBuilder:
         ]
 
 
+def get_constant(ctx, value: int):
+    u32_ty = IntegerType.get_unsigned(32, ctx)
+    result = arith.constant(u32_ty, value, loc=Location.unknown(ctx))
+    return result
+
+
 if __name__ == "__main__":
     builder = GenericOpBuilder()
 
+    dummy_tensor = builder.create_dummy_tensor()
     circular_buffer_attributes = builder.create_dummy_circular_buffer_attributes()
     data_movement_attributes = builder.create_dummy_data_movement_attributes()
     compute_attributes = builder.create_dummy_compute_attributes()
+    # ext = builder.create_dummy_external_generic_op()
 
-    in0 = builder.create_dummy_tensor()
-    in1 = builder.create_dummy_tensor()
-    out0 = builder.create_dummy_tensor()
-
-    # Create the operation
-    operation = ttir.external_generic(
-        results_=[out0],  # Results of the operation
-        inputs=[in0, in1],  # Inputs to the operation
-        outputs=[out0],  # Outputs of the operation
-        circular_buffer_attributes=circular_buffer_attributes,
-        data_movement_attributes=data_movement_attributes,
-        compute_attributes=compute_attributes,
-        operand_constraints=None,
-        loc=None,  # Optional location
-        ip=None,  # Optional insertion point
-    )
-
-    # Example usage: print or further manipulate the created operation
-    print(operation)
+    print(dummy_tensor)
+    print(circular_buffer_attributes)
+    print(data_movement_attributes)
+    print(compute_attributes)
