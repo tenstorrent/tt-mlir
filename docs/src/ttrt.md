@@ -20,8 +20,8 @@ ttrt --help
 ttrt read
 ttrt run
 ttrt query
-ttrt perf (coming soon)
-ttrt check (coming soon)
+ttrt perf
+ttrt check
 ```
 
 ## Command Line
@@ -77,6 +77,7 @@ Note: It's required to be on a system with silicon and to have a runtime enabled
 ttrt query --help
 ttrt query --save-artifacts
 ttrt query --clean-artifacts
+ttrt query /dir/of/flatbuffers
 ttrt query --save-artifacts --log-file ttrt.log
 ```
 
@@ -96,6 +97,20 @@ ttrt perf --device out.ttnn
 ttrt perf /dir/of/flatbuffers
 ttrt perf /dir/of/flatbuffers --loops 10
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log
+```
+
+### check
+Check a binary file or a directory of binary files against a system desc (by default, uses the host machine)
+Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
+
+```bash
+ttrt check --help
+ttrt check out.ttnn
+ttrt check out.ttnn --system-desc /path/to/system_desc.ttsys
+ttrt check out.ttnn --clean-artifacts
+ttrt check out.ttnn --save-artifacts
+ttrt check out.ttnn --log-file ttrt.log
+ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
 ```
 
 ## ttrt as a python package
