@@ -26,7 +26,7 @@ ttrt check (coming soon)
 
 ## Command Line
 
-There are different ways you can use the APIs under ttrt. The first is via the command line as follows. By default, all logging is saved in `ttrt.log` file. All artifacts are saved under `ttrt-artifacts` folder under `TT_MLIR_HOME` environment variable.
+There are different ways you can use the APIs under ttrt. The first is via the command line as follows. All artifacts are saved under `ttrt-artifacts` folder under `TT_MLIR_HOME` environment variable. By default, all logging is printed to the terminal. You can specify a log file to dump output to.
 
 ### read
 Read sections of a binary file
@@ -43,6 +43,9 @@ ttrt read --section all out.ttnn
 ttrt read --section all out.ttnn --clean-artifacts
 ttrt read --section all out.ttnn --save-artifacts
 ttrt read --section all /dir/of/flatbuffers
+ttrt read system_desc.ttsys
+ttrt read --section system_desc system_desc.ttsys
+ttrt read system_desc.ttsys --log-file ttrt.log
 ```
 
 ### run
@@ -63,6 +66,7 @@ ttrt run --program-index all out.ttnn
 ttrt run --program-index 0 out.ttnn
 ttrt run /dir/of/flatbuffers
 ttrt run /dir/of/flatbuffers --loops 10
+ttrt run /dir/of/flatbuffers --log-file ttrt.log
 ```
 
 ### query
@@ -73,9 +77,10 @@ Note: It's required to be on a system with silicon and to have a runtime enabled
 ttrt query --help
 ttrt query --save-artifacts
 ttrt query --clean-artifacts
+ttrt query --save-artifacts --log-file ttrt.log
 ```
 
-### perf (coming soon)
+### perf
 Run performance mode of a binary file or a directory of binary files
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 
@@ -88,9 +93,9 @@ ttrt perf out.ttnn --loops 10
 ttrt perf --program-index all out.ttnn
 ttrt perf --program-index 0 out.ttnn
 ttrt perf --device out.ttnn
-ttrt perf --generate-params --perf-csv trace.csv
 ttrt perf /dir/of/flatbuffers
 ttrt perf /dir/of/flatbuffers --loops 10
+ttrt perf /dir/of/flatbuffers --log-file ttrt.log
 ```
 
 ## ttrt as a python package

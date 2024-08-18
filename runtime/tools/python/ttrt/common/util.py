@@ -25,7 +25,7 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
 
 
 class Logger:
-    def __init__(self, file_name):
+    def __init__(self, file_name=""):
         import logging
 
         self.logging = logging
@@ -261,7 +261,10 @@ class FileManager:
 
         if self.is_file(path):
             if self.check_file_exists(path):
-                if self.get_file_extension(path) == BinaryTTNN.get_file_extension():
+                if (
+                    self.get_file_extension(path)
+                    == Flatbuffer.get_ttnn_file_extension()
+                ):
                     ttnn_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
@@ -273,7 +276,7 @@ class FileManager:
                     for file in files:
                         if (
                             self.get_file_extension(file)
-                            == BinaryTTNN.get_file_extension()
+                            == Flatbuffer.get_ttnn_file_extension()
                         ):
                             ttnn_files.append(os.path.join(root, file))
                             self.logging.debug(f"found file={os.path.join(root, file)}")
@@ -288,7 +291,10 @@ class FileManager:
 
         if self.is_file(path):
             if self.check_file_exists(path):
-                if self.get_file_extension(path) == BinaryTTMetal.get_file_extension():
+                if (
+                    self.get_file_extension(path)
+                    == Flatbuffer.get_ttmetal_file_extension()
+                ):
                     ttmetal_files.append(path)
                     self.logging.debug(f"found file={path}")
             else:
@@ -300,7 +306,7 @@ class FileManager:
                     for file in files:
                         if (
                             self.get_file_extension(file)
-                            == BinaryTTMetal.get_file_extension()
+                            == Flatbuffer.get_ttmetal_file_extension()
                         ):
                             ttmetal_files.append(os.path.join(root, file))
                             self.logging.debug(f"found file={os.path.join(root, file)}")
@@ -308,6 +314,36 @@ class FileManager:
                 raise Exception(f"an unexpected error occurred: {e}")
 
         return ttmetal_files
+
+    def find_ttsys_binary_paths(self, path):
+        self.logging.debug(f"finding all ttsys files from={path}")
+        ttsys_files = []
+
+        if self.is_file(path):
+            if self.check_file_exists(path):
+                if (
+                    self.get_file_extension(path)
+                    == Flatbuffer.get_ttsys_file_extension()
+                ):
+                    ttsys_files.append(path)
+                    self.logging.debug(f"found file={path}")
+            else:
+                self.logging.info(f"file '{path}' not found - skipping")
+        else:
+            self.check_directory_exists(path)
+            try:
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if (
+                            self.get_file_extension(file)
+                            == Flatbuffer.get_ttsys_file_extension()
+                        ):
+                            ttsys_files.append(os.path.join(root, file))
+                            self.logging.debug(f"found file={os.path.join(root, file)}")
+            except Exception as e:
+                raise Exception(f"an unexpected error occurred: {e}")
+
+        return ttsys_files
 
 
 class Artifacts:
@@ -407,7 +443,11 @@ class Artifacts:
             raise Exception(f"an unexpected error occurred: {e}")
 
 
-class Binary:
+class Flatbuffer:
+    ttnn_file_extension = ".ttnn"
+    ttmetal_file_extension = ".ttm"
+    ttsys_file_extension = ".ttsys"
+
     def __init__(self, logger, file_manager, file_path):
         import ttrt.binary
 
@@ -417,13 +457,7 @@ class Binary:
         self.file_path = file_path
         self.name = self.file_manager.get_file_name(file_path)
         self.extension = self.file_manager.get_file_extension(file_path)
-        self.fbb = ttrt.binary.load_binary_from_path(file_path)
-        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
-        self.programs = []
-
-        for i in range(len(self.fbb_dict["programs"])):
-            program = Binary.Program(i, self.fbb_dict["programs"][i])
-            self.programs.append(program)
+        self.version = None
 
     def check_version(self):
         package_name = "ttrt"
@@ -433,13 +467,41 @@ class Binary:
         except Exception as e:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
-        if package_version != self.fbb.version:
+        if package_version != self.version:
             self.logging.warning(
-                f"{package_name}: v{package_version} does not match flatbuffer: v{self.fbb.version} for flatbuffer: {self.file_path} - skipping this test"
+                f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
             )
             return False
 
         return True
+
+    @staticmethod
+    def get_ttnn_file_extension():
+        return Flatbuffer.ttnn_file_extension
+
+    @staticmethod
+    def get_ttmetal_file_extension():
+        return Flatbuffer.ttmetal_file_extension
+
+    @staticmethod
+    def get_ttsys_file_extension():
+        return Flatbuffer.ttsys_file_extension
+
+
+class Binary(Flatbuffer):
+    def __init__(self, logger, file_manager, file_path):
+        super().__init__(logger, file_manager, file_path)
+
+        import ttrt.binary
+
+        self.fbb = ttrt.binary.load_binary_from_path(file_path)
+        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.version = self.fbb.version
+        self.programs = []
+
+        for i in range(len(self.fbb_dict["programs"])):
+            program = Binary.Program(i, self.fbb_dict["programs"][i])
+            self.programs.append(program)
 
     def check_system_desc(self, query):
         import ttrt.binary
@@ -544,29 +606,12 @@ class Binary:
             raise ValueError(f"unsupported dtype: {dtype}")
 
 
-class BinaryTTNN(Binary):
-    file_extension = ".ttnn"
-
-    def __int__(self, logger, file_manager, file_path):
+class SystemDesc(Flatbuffer):
+    def __init__(self, logger, file_manager, file_path):
         super().__init__(logger, file_manager, file_path)
-        self.logger = logger
-        self.logging = self.logger.get_logger()
-        self.file_manager = file_manager
 
-    @staticmethod
-    def get_file_extension():
-        return BinaryTTNN.file_extension
+        import ttrt.binary
 
-
-class BinaryTTMetal(Binary):
-    file_extension = ".ttm"
-
-    def __int__(self, logger, file_manager, file_path):
-        super().__init__(logger, file_manager, file_path)
-        self.logger = logger
-        self.logging = self.logger.get_logger()
-        self.file_manager = file_manager
-
-    @staticmethod
-    def get_file_extension():
-        return BinaryTTMetal.file_extension
+        self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
+        self.fbb_dict = ttrt.binary.as_dict(self.fbb)
+        self.version = self.fbb.version

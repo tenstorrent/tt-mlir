@@ -53,6 +53,13 @@ class API:
             choices=[True, False],
             help="save all artifacts during run",
         )
+        API.Query.register_arg(
+            name="--log-file",
+            type=str,
+            default="",
+            choices=None,
+            help="log file to dump ttrt output to",
+        )
 
         # register all read arguments
         API.Read.register_arg(
@@ -82,6 +89,13 @@ class API:
             default="",
             choices=None,
             help="flatbuffer binary file",
+        )
+        API.Read.register_arg(
+            name="--log-file",
+            type=str,
+            default="",
+            choices=None,
+            help="log file to dump ttrt output to",
         )
 
         # register all run arguments
@@ -162,6 +176,13 @@ class API:
             choices=None,
             help="flatbuffer binary file",
         )
+        API.Run.register_arg(
+            name="--log-file",
+            type=str,
+            default="",
+            choices=None,
+            help="log file to dump ttrt output to",
+        )
 
         # register all perf arguments
         API.Perf.register_arg(
@@ -191,6 +212,13 @@ class API:
             default="",
             choices=None,
             help="flatbuffer binary file",
+        )
+        API.Perf.register_arg(
+            name="--log-file",
+            type=str,
+            default="",
+            choices=None,
+            help="log file to dump ttrt output to",
         )
         up_stream_apis = API.Run.get_upstream_apis()
         for api in up_stream_apis:
@@ -226,18 +254,6 @@ class API:
         api_only_arg = []
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            self.logger = logging if logging != None else Logger("ttrt.log")
-            self.logging = self.logger.get_logger()
-            self.globals = Globals(self.logger)
-            self.file_manager = FileManager(self.logger)
-            self.artifacts = (
-                artifacts
-                if artifacts != None
-                else Artifacts(self.logger, self.file_manager)
-            )
-            self.system_desc = None
-            self.device_ids = None
-
             for name, attributes in API.Query.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
@@ -249,6 +265,18 @@ class API:
                         self[name] = attributes["default"]
                 else:
                     self[name] = getattr(args, name)
+
+            self.logger = logging if logging != None else Logger(self["log_file"])
+            self.logging = self.logger.get_logger()
+            self.globals = Globals(self.logger)
+            self.file_manager = FileManager(self.logger)
+            self.artifacts = (
+                artifacts
+                if artifacts != None
+                else Artifacts(self.logger, self.file_manager)
+            )
+            self.system_desc = None
+            self.device_ids = None
 
         def preprocess(self):
             self.logging.debug(f"preprocessing query API")
@@ -381,19 +409,6 @@ class API:
         ]
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            self.logger = logging if logging != None else Logger("ttrt.log")
-            self.logging = self.logger.get_logger()
-            self.globals = Globals(self.logger)
-            self.file_manager = FileManager(self.logger)
-            self.artifacts = (
-                artifacts
-                if artifacts != None
-                else Artifacts(self.logger, self.file_manager)
-            )
-            self.read_action_functions = {}
-            self.ttnn_binaries = []
-            self.ttmetal_binaries = []
-
             for name, _ in API.Read.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
@@ -405,6 +420,20 @@ class API:
                         self[name] = attributes["default"]
                 else:
                     self[name] = getattr(args, name)
+
+            self.logger = logging if logging != None else Logger(self["log_file"])
+            self.logging = self.logger.get_logger()
+            self.globals = Globals(self.logger)
+            self.file_manager = FileManager(self.logger)
+            self.artifacts = (
+                artifacts
+                if artifacts != None
+                else Artifacts(self.logger, self.file_manager)
+            )
+            self.read_action_functions = {}
+            self.ttnn_binaries = []
+            self.ttmetal_binaries = []
+            self.system_desc_binaries = []
 
         def preprocess(self):
             self.logging.debug(f"preprocessing read API")
@@ -418,26 +447,35 @@ class API:
             for action in self.read_actions:
                 self.read_action_functions[action] = self[action]
 
-            self.logging.debug(f"finished read API")
+            self.logging.debug(f"finished preprocessing read API")
 
         def check_constraints(self):
             self.logging.debug(f"checking constraints for read API")
 
+            ttsys_binary_paths = self.file_manager.find_ttsys_binary_paths(
+                self["binary"]
+            )
             ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
             ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
                 self["binary"]
             )
 
+            self.logging.debug(f"ttsys_binary_paths={ttsys_binary_paths}")
             self.logging.debug(f"ttnn_binary_paths={ttnn_binary_paths}")
             self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
 
+            for path in ttsys_binary_paths:
+                bin = SystemDesc(self.logger, self.file_manager, path)
+                if bin.check_version():
+                    self.system_desc_binaries.append(bin)
+
             for path in ttnn_binary_paths:
-                bin = BinaryTTNN(self.logger, self.file_manager, path)
+                bin = Binary(self.logger, self.file_manager, path)
                 if bin.check_version():
                     self.ttnn_binaries.append(bin)
 
             for path in ttmetal_binary_paths:
-                bin = BinaryTTMetal(self.logger, self.file_manager, path)
+                bin = Binary(self.logger, self.file_manager, path)
                 if bin.check_version():
                     self.ttmetal_binaries.append(bin)
 
@@ -445,6 +483,12 @@ class API:
 
         def execute(self):
             self.logging.debug(f"executing read API")
+
+            for bin in self.system_desc_binaries:
+                self.logging.info(
+                    f"reading section={self['section']} from binary={bin.file_path}"
+                )
+                self.read_action_functions[self["section"]](bin)
 
             for bin in self.ttnn_binaries:
                 self.logging.info(
@@ -614,19 +658,6 @@ class API:
         api_only_arg = []
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            self.logger = logging if logging != None else Logger("ttrt.log")
-            self.logging = self.logger.get_logger()
-            self.globals = Globals(self.logger)
-            self.file_manager = FileManager(self.logger)
-            self.artifacts = (
-                artifacts
-                if artifacts != None
-                else Artifacts(self.logger, self.file_manager)
-            )
-            self.query = API.Query({}, self.logger, self.artifacts)
-            self.ttnn_binaries = []
-            self.ttmetal_binaries = []
-
             for name, _ in API.Run.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
@@ -638,6 +669,19 @@ class API:
                         self[name] = attributes["default"]
                 else:
                     self[name] = getattr(args, name)
+
+            self.logger = logging if logging != None else Logger(self["log_file"])
+            self.logging = self.logger.get_logger()
+            self.globals = Globals(self.logger)
+            self.file_manager = FileManager(self.logger)
+            self.artifacts = (
+                artifacts
+                if artifacts != None
+                else Artifacts(self.logger, self.file_manager)
+            )
+            self.query = API.Query({}, self.logger, self.artifacts)
+            self.ttnn_binaries = []
+            self.ttmetal_binaries = []
 
         def preprocess(self):
             self.logging.debug(f"preprocessing run API")
@@ -660,7 +704,7 @@ class API:
             )
 
             for path in ttnn_binary_paths:
-                bin = BinaryTTNN(self.logger, self.file_manager, path)
+                bin = Binary(self.logger, self.file_manager, path)
                 if not bin.check_version():
                     continue
 
@@ -679,7 +723,7 @@ class API:
             self.logging.debug(f"finished checking constraints for run API")
 
             for path in ttmetal_binary_paths:
-                bin = BinaryTTMetal(self.logger, self.file_manager, path)
+                bin = Binary(self.logger, self.file_manager, path)
                 if not bin.check_version():
                     continue
 
@@ -805,6 +849,16 @@ class API:
                                         f"Failed: inputs and outputs do not match in binary"
                                     )
                                     self.logging.error(i - o)
+
+                        self.logging.debug(f"input tensors for program={program_index}")
+                        for tensor in program.input_tensors:
+                            self.logging.debug(f"{tensor}\n")
+
+                        self.logging.debug(
+                            f"output tensors for program={program_index}"
+                        )
+                        for tensor in program.output_tensors:
+                            self.logging.debug(f"{tensor}\n")
 
             self.logging.debug(f"executing ttnn binaries")
             _execute(self.ttnn_binaries)
@@ -945,7 +999,19 @@ class API:
         api_only_arg = []
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            self.logger = logging if logging != None else Logger("ttrt.log")
+            for name, _ in API.Perf.registered_args.items():
+                name = name if not name.startswith("-") else name.lstrip("-")
+                name = name.replace("-", "_")
+
+                if type(args) == dict:
+                    if name in args.keys():
+                        self[name] = args[name]
+                    else:
+                        self[name] = attributes["default"]
+                else:
+                    self[name] = getattr(args, name)
+
+            self.logger = logging if logging != None else Logger(self["log_file"])
             self.logging = self.logger.get_logger()
             self.globals = Globals(self.logger)
             self.file_manager = FileManager(self.logger)
@@ -960,18 +1026,6 @@ class API:
             self.tracy_capture_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
             self.tracy_csvexport_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
             self.tracy_capture_tool_process = None
-
-            for name, _ in API.Perf.registered_args.items():
-                name = name if not name.startswith("-") else name.lstrip("-")
-                name = name.replace("-", "_")
-
-                if type(args) == dict:
-                    if name in args.keys():
-                        self[name] = args[name]
-                    else:
-                        self[name] = attributes["default"]
-                else:
-                    self[name] = getattr(args, name)
 
         def preprocess(self):
             self.logging.debug(f"preprocessing perf API")
@@ -999,7 +1053,7 @@ class API:
             )
 
             for path in ttnn_binary_paths:
-                bin = BinaryTTNN(self.logger, self.file_manager, path)
+                bin = Binary(self.logger, self.file_manager, path)
                 if not bin.check_version():
                     continue
 
@@ -1018,7 +1072,7 @@ class API:
             self.logging.debug(f"finished checking constraints for run API")
 
             for path in ttmetal_binary_paths:
-                bin = BinaryTTMetal(self.logger, self.file_manager, path)
+                bin = Binary(self.logger, self.file_manager, path)
                 if not bin.check_version():
                     continue
 
