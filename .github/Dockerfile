@@ -43,6 +43,7 @@ RUN wget https://apt.llvm.org/llvm.sh && \
 # Install python packages
 RUN pip install \
     cmake \
+    pytest \
     torch
 
 # Install Googletest
