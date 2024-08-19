@@ -4,3 +4,7 @@ third_party/tt-metal
 .DS_STORE
 .vscode/*
 .cache
+
+# Ignore generate files
+ttrt.log
+ttrt-artifacts

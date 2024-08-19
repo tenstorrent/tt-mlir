@@ -11,17 +11,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ["ubuntu-22-04"]
-        build: [
-          {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
-          {runs-on: self-hosted, build_type: Release, enable_runtime: ON},
-        ]
+        image:
+          - ubuntu-22-04
+        labels:
+          - n150
+          - n300
+        build:
+          - {runs-on: self-hosted, build_type: Release, enable_runtime: ON}
 
-    runs-on: ${{ matrix.build.runs-on }}
+
+    runs-on:
+      - self-hosted
+      - ${{ matrix.labels }}
 
     container:
       image: ghcr.io/${{ github.repository }}/tt-mlir-${{ matrix.image }}:latest
-      options: --user root
+      options: --user root --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
     - uses: actions/checkout@v4
@@ -79,7 +90,7 @@ jobs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}
+        name: test-reports-${{ matrix.labels }}
         path: build/test/report.xml
 
     - name: Show Test Report
@@ -87,4 +98,20 @@ jobs:
       if: success() || failure()
       with:
         report_paths: build/test/report.xml
-        check_name: MLIR Tests
+        check_name: MLIR Tests ${{ matrix.labels }}
+
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build build -- ttrt
+
+    - name: Ttrt test
+      shell: bash
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+        export SYSTEM_DESC_PATH=$(pwd)/ttrt-artifacts/system_desc.ttsys
+        llvm-lit -v ./build/test/ttmlir/Silicon
+        ttrt run build/test/ttmlir/Silicon --save-artifacts
+        cat ttrt.log || true

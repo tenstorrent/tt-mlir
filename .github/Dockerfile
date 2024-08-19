@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     libgtest-dev \
     cmake \
     ccache \
+    cargo \
     doxygen \
     graphviz \
     patchelf \
@@ -40,7 +41,9 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ln -s /usr/bin/clang++-17 /usr/bin/clang++
 
 # Install python packages
-RUN pip install cmake
+RUN pip install \
+    cmake \
+    torch
 
 # Install Googletest
 RUN git clone https://github.com/google/googletest.git -b release-1.12.1 && \
@@ -78,13 +81,12 @@ RUN source env/activate && \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DTTMLIR_ENABLE_RUNTIME=ON \
     -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
-    cmake --build build --config Release
+    cmake --build build --config Release && \
+    cmake --build build -- check-ttmlir && \
+    cmake --build build -- ttrt
 
 # Run clang-tidy
 RUN cmake --build build -- clang-tidy || true
-
-# Run the tests
-RUN cmake --build build -- check-ttmlir || true
 
 # Clean up the build directory
 RUN rm -rf $BUILD_DIR/tt-mlir
