@@ -264,8 +264,8 @@ def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dimension1,
-                         SI32Attr:$dimension2,
+                         SI32Attr:$dim0,
+                         SI32Attr:$dim1,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
