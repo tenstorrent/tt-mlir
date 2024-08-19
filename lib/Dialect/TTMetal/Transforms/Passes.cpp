@@ -93,6 +93,14 @@ public:
     }
   };
 
+  // This routine calculates the data movement for a tensor layout change by
+  // tracing the walk order of the src and dst affine maps.  The sample routine
+  // is just a helper function that iterates over the tensor shape and calls the
+  // lambda with the current index.  It walks the shape in innermost-major
+  // order. It also coalesces the noc transactions.
+  //
+  // The return value is a map of destination physical cores where each core has
+  // an associated list of noc reads to be performed.
   llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocRead>>
   calculateDataMovement(ArrayRef<std::int64_t> tensorShape,
                         std::int64_t elemSize, AffineMap src,
@@ -123,6 +131,33 @@ public:
     });
 
     return dst2srcMap;
+  }
+
+  void buildNocAsyncRead(mlir::Location loc, std::int64_t inputBaseAddress,
+                         std::int64_t outputBaseAddress,
+                         std::int64_t addressAlignment, NocRead read,
+                         PhysicalCoreCoordMapping const &physicalCoordMapping,
+                         mlir::OpBuilder &nocBuilder) const {
+    assert(read.srcOffset % addressAlignment == 0);
+    assert(read.dstOffset % addressAlignment == 0);
+    assert(read.size % addressAlignment == 0);
+    auto [yPhys, xPhys] = physicalCoordMapping[read.srcCoord];
+    auto y = nocBuilder.create<arith::ConstantOp>(
+        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(yPhys));
+    auto x = nocBuilder.create<arith::ConstantOp>(
+        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(xPhys));
+    auto srcOffset = nocBuilder.create<arith::ConstantOp>(
+        loc, nocBuilder.getI32Type(),
+        nocBuilder.getI32IntegerAttr(inputBaseAddress + read.srcOffset));
+    auto srcRemoteNocAddr =
+        nocBuilder.create<ttkernel::GetNocAddrOp>(loc, x, y, srcOffset);
+    auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
+        loc, nocBuilder.getI32Type(),
+        nocBuilder.getI32IntegerAttr(outputBaseAddress + read.dstOffset));
+    auto size = nocBuilder.create<arith::ConstantOp>(
+        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(read.size));
+    nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemoteNocAddr,
+                                                dstLocalL1Addr, size);
   }
 
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
@@ -179,29 +214,9 @@ public:
       Block *nocBlock = rewriter.createBlock(&metalDispatch.getRegion(i++));
       OpBuilder nocBuilder(nocBlock, nocBlock->begin());
       for (auto s : srcs) {
-        assert(s.srcOffset % addressAlignment == 0);
-        assert(s.dstOffset % addressAlignment == 0);
-        assert(s.size % addressAlignment == 0);
-        auto [yPhys, xPhys] = physicalCoordMapping[s.srcCoord];
-        auto y = nocBuilder.create<arith::ConstantOp>(
-            op.getLoc(), nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(yPhys));
-        auto x = nocBuilder.create<arith::ConstantOp>(
-            op.getLoc(), nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(xPhys));
-        auto srcOffset = nocBuilder.create<arith::ConstantOp>(
-            op.getLoc(), nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(inputBaseAddress + s.srcOffset));
-        auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrOp>(
-            op.getLoc(), x, y, srcOffset);
-        auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
-            op.getLoc(), nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(outputBaseAddress + s.dstOffset));
-        auto size = nocBuilder.create<arith::ConstantOp>(
-            op.getLoc(), nocBuilder.getI32Type(),
-            nocBuilder.getI32IntegerAttr(s.size));
-        nocBuilder.create<ttkernel::NocAsyncReadOp>(
-            op.getLoc(), srcRemoteNocAddr, dstLocalL1Addr, size);
+        buildNocAsyncRead(op.getLoc(), inputBaseAddress, outputBaseAddress,
+                          addressAlignment, s, physicalCoordMapping,
+                          nocBuilder);
       }
       nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
       nocBuilder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
