@@ -10,9 +10,95 @@ cmake --build build -- ttrt
 ttrt --help
 ```
 
-## Generate a flatbuffer file
+### Building runtime mode
+Add the following flags when building the compiler
+```bash
+-DTTMLIR_ENABLE_RUNTIME=ON
+```
 
-See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate a flatbuffer file.
+If you are building with runtime mode on with `-DTTMLIR_ENABLE_RUNTIME=ON`, you will have to install the following packages when using ttrt
+```bash
+pip install torch
+```
+
+### Building perf mode
+Add the following flags when building the compiler
+```bash
+-DTTMLIR_ENABLE_RUNTIME=ON
+-DTT_RUNTIME_ENABLE_PERF_TRACE=ON
+```
+
+If you are building with perf mode on with `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, you will have to install the following packages when using ttrt
+```bash
+pip install torch
+pip install loguru
+pip install pandas
+pip install seaborn
+```
+
+## Generate a flatbuffer file from compiler
+The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
+
+1. Build [ttmlir](./build.md)
+2. Build ttrt (see building section on this page)
+3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+```bash
+ttrt query --save-artifacts
+```
+4. Use ttmlir-opt tool in compiler to feed system descriptor. See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
+```bash
+./build/bin/ttmlir-opt --ttir-load-system-desc="path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
+```
+5. Use ttmlir-translate tool in compiler to generate the flatbuffer executable. See the [ttmlir-translate](./ttmlir-translate.md) documentation for more information on how to generate flatbuffer files.
+```bash
+./build/bin/ttmlir-translate --ttnn-to-flatbuffer ttnn.mlir -o out.ttnn
+```
+6. Run your test cases using ttrt
+```bash
+ttrt run /path/to/out.ttnn
+```
+
+## Generate flatbuffer files using llvm-lit
+There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can use llvm-lit tool to generate the corresponding ttnn and ttm files.
+
+1. Build [ttmlir](./build.md)
+2. Build ttrt (see building section on this page)
+3. Generate ttsys file from the system you want to compile for using ttrt. This will create a `system_desc.ttsys` file under `ttrt-artifacts` folder.
+```bash
+ttrt query --save-artifacts
+```
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When llvm-lit is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this when running llvm-lit.
+5. Generate your test cases. This will generate all your ttnn and ttm files under `build/test/ttmlir/Silicon`. ttnn files have a `.ttnn` file extension and ttmetal files have a `.ttm` extension.
+```bash
+cmake --build build -- check-ttmlir
+```
+6. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run llvm-lit standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct llvm-lit configs into your .mlir file. See section on adding llvm-lit config options inside a .mlir file to create flatbuffer binaries for more info.
+```bash
+llvm-lit -v /path/to/some/test.mlir
+or
+SYSTEM_DESC_PATH=/path/to/system_desc.ttsys llvm-lit -v /path/to/some/test.mlir
+```
+7. Run your test cases using ttrt
+```bash
+ttrt run /path/to/test.ttnn
+ttrt run /path/to/dir/of/flatbuffers
+```
+
+## Adding llvm-lit config options inside a .mlir file to create flatbuffer binaries
+Inside of your .mlir file, you can add certain config options that llvm-lit will use when running against that test case. For the purpose of generating flatbuffer executables, you can add `--ttir-load-system-desc="path=%system_desc_path%"` which will tell llvm-lit to parse the system desc found from the environment flag set by `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. You can also paste a custom path to a system desc file as well.
+
+```bash
+// RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn %s  > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+```
+
+## Versioning
+ttrt and flatbuffers have strict versioning check. When running a flatbuffer against ttrt, you have to make sure the flatbuffer was generated using the same version as ttrt (or vice versa). Major and Minor versions are manually set using github tags when releases are made. Patch versioning is the number of commits from the last major/minor tag.
+
+```bash
+vmajor.minor.patch
+```
 
 ## APIs
 ```bash
@@ -70,14 +156,13 @@ ttrt run /dir/of/flatbuffers --log-file ttrt.log
 ```
 
 ### query
-Query a binary file or a directory of binary files
+Query the system to obtain the system desc file (optionally store it to disk)
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 
 ```bash
 ttrt query --help
 ttrt query --save-artifacts
 ttrt query --clean-artifacts
-ttrt query /dir/of/flatbuffers
 ttrt query --save-artifacts --log-file ttrt.log
 ```
 
@@ -203,3 +288,10 @@ run_instance = API.Run(args=custom_args, logging=custom_logger, artifacts=custom
 
 ## bonus
 - you can specify `SYSTEM_DESC_PATH` with the path to your ttsys file, and lit will automatically generate all the flatbuffer binaries for that system
+
+## FAQ
+Flatbuffer version does not match ttrt version!
+  - ttrt and flatbuffer have strict versioning that is checked during ttrt execution. You will have to generate a flatbuffer using the same version of ttrt (or vice versa). This mean you might have to build on the same branch on which the flatbuffer was generated or regenerate the flatbuffer using your current build.
+
+System desc does not match flatbuffer!
+  - flatbuffers are compiled using a specific system desc (or default values if no system desc is provided). During runtime, the flatbuffer system desc is checked against the current system to ensure the system being run on supports the flatbuffer that was compiled. If you get this error, you will have to regenerate the flatbuffer using the system you want to run on. See generate a flatbuffer file from compiler section on how to do this.
