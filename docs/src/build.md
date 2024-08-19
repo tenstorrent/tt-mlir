@@ -220,8 +220,8 @@ Always | FATAL | ncrisc build failed
 If you got the above error, it means that SFPI or similar component build failed. First, make sure you have GIT LFS setup (e.g. sudo apt-get install git-lfs). Then, try to pull SFPI submodule manually:
 
 ```bash
-cd third_party/tt-mlir/third_party/tt-metal/src/tt-metal
-git submodule foreach 'git lfs fetch --all && git lfs pull’
+cd third_party/tt-metal/src/tt-metal
+git submodule foreach 'git lfs fetch --all && git lfs pull'
 ```
 
 Then, try to build again.
