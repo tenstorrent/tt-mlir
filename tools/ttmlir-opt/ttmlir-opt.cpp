@@ -7,9 +7,6 @@
 #include "mlir/InitAllPasses.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
-#ifdef TTMLIR_ENABLE_STABLEHLO
-#include "stablehlo/dialect/Register.h"
-#endif
 
 #include "ttmlir/RegisterAll.h"
 
@@ -19,9 +16,7 @@ int main(int argc, char **argv) {
 
   mlir::DialectRegistry registry;
   mlir::tt::registerAllDialects(registry);
-#ifdef TTMLIR_ENABLE_STABLEHLO  
-  mlir::stablehlo::registerAllDialects(registry);
-#endif
+
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "ttmlir optimizer driver\n", registry));
 }

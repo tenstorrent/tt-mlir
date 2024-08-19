@@ -1,7 +1,9 @@
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
+include_directories(${TTMLIR_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/build/stablehlo)
 
-get_property(STABLEHLO_LIBS GLOBAL PROPERTY STABLEHLO_LIBS)
 add_mlir_library(TTMLIRStableHLOToTTIR
   StableHLOToTTIR.cpp
 
@@ -12,6 +14,5 @@ add_mlir_library(TTMLIRStableHLOToTTIR
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIRTransformUtils
-  ${STABLEHLO_LIBS}
+  MLIR
 )

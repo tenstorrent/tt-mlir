@@ -1,3 +1,18 @@
 // RUN: ttmlir-opt --show-dialects | FileCheck %s
 // CHECK: Available Dialects:
-// CHECK-SAME: arith,builtin,cf,emitc,func,linalg,ml_program,scf,tensor,tosa,tt,ttir,ttkernel,ttmetal,ttnn,vector
+// CHECK: arith
+// CHECK: builtin
+// CHECK: cf
+// CHECK: emitc
+// CHECK: func
+// CHECK: linalg
+// CHECK: ml_program
+// CHECK: scf
+// CHECK: tensor
+// CHECK: tosa
+// CHECK: tt
+// CHECK: ttir
+// CHECK: ttkernel
+// CHECK: ttmetal
+// CHECK: ttnn
+// CHECK: vector
