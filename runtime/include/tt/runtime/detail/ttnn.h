@@ -39,8 +39,10 @@
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
+
 #define FMT_HEADER_ONLY
 #include "ttnn/device.hpp"
+#include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/creation.hpp"
@@ -58,6 +60,9 @@
 #include "ttmlir/Target/TTNN/Target.h"
 
 namespace tt::runtime::ttnn {
+
+// Default L1 small size to use for the ttnn runtime (32kb).
+constexpr std::size_t kL1SmallSize = 1 << 15;
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 

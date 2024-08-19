@@ -248,6 +248,30 @@ namespace mlir::tt::ttnn {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
 
+::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType biasType =
+      llvm::dyn_cast_or_null<::mlir::RankedTensorType>(getBias().getType());
+
+  if (inputType.getRank() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
+  }
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+  if (biasType) {
+    if (biasType.getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+    auto biasShape = biasType.getShape();
+    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
+      return emitOpError("Bias must only have data on the final dimenstion");
+    }
+  }
+  return success();
+}
+
 ::mlir::LogicalResult AllocOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
       getResult().getType().getEncoding());

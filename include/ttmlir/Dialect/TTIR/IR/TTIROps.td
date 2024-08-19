@@ -377,6 +377,37 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
                          SI32Attr:$dim,
+
+    TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
+    let summary = "Conv2d operation.";
+    let description = [{
+     Applies a 2D convolution over an input image composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation_height,
+                         SI32Attr:$dilation_width,
+                         SI32Attr:$groups,
+                         SI32Attr:$padding_left,
+                         SI32Attr:$padding_right,
+                         SI32Attr:$padding_top,
+                         SI32Attr:$padding_bottom,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);

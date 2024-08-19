@@ -100,6 +100,27 @@ table MatmulOp {
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
+table Conv2dOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  bias: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_height: uint32;
+  kernel_width: uint32;
+  stride_height: uint32;
+  stride_width: uint32;
+  padding_height: uint32;
+  padding_width: uint32;
+  dilation_height: uint32;
+  dilation_width: uint32;
+  groups: uint32;
+}
+
 union OpType {
   OpenDeviceOp,
   CloseDeviceOp,
@@ -112,6 +133,7 @@ union OpType {
   EmbeddingOp,
   SoftmaxOp,
   TransposeOp,
+  Conv2dOp,
   ConcatOp,
   ReshapeOp
 }

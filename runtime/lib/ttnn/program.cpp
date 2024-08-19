@@ -6,11 +6,14 @@
 #include <cstdint>
 #include <list>
 #include <optional>
+#include <string>
 #include <unordered_map>
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttnn/device.hpp"
+#include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "types_generated.h"
@@ -476,6 +479,34 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
 // ANCHOR_END: adding_an_op_matmul_runtime
 
 static void
+run(::tt::target::ttnn::Conv2dOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  auto &input = *liveTensors.at(op->input()->global_id());
+  auto &weight = *liveTensors.at(op->weight()->global_id());
+  std::optional<::ttnn::Tensor> bias =
+      op->bias() ? std::make_optional(*liveTensors.at(op->bias()->global_id()))
+                 : std::nullopt;
+  auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+  config.dtype = input.dtype();
+  config.weights_dtype = weight.dtype();
+
+  ::ttnn::Tensor out =
+      std::get<0>(::ttnn::operations::conv::conv2d::conv2d<::ttnn::Device>(
+          input, weight, &device, op->in_channels(), op->out_channels(),
+          op->batch_size(), op->input_height(), op->input_width(),
+          {op->kernel_height(), op->kernel_width()},
+          {op->stride_height(), op->stride_width()},
+          {op->padding_height(), op->padding_width()},
+          {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
+          config));
+
+  tensorPool.push_back(out);
+  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  return;
+}
+
+static void
 run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
@@ -515,6 +546,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    return run(op->type_as_Conv2dOp(), device, liveTensors, tensorPool);
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return run(op->type_as_ConcatOp(), device, liveTensors, tensorPool);

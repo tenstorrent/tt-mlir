@@ -203,6 +203,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::SumOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MeanOp>>(typeConverter, ctx);
 
+  // Conv ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::Conv2dOp>>(typeConverter, ctx);
+
   // Other ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
