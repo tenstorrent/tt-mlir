@@ -1,0 +1,16 @@
+include(ExternalProject)
+
+ExternalProject_Add(
+  tt-metal
+  PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
+  CMAKE_GENERATOR Ninja
+  CMAKE_ARGS
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+    -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
+  GIT_REPOSITORY https://github.com/openxla/stablehlo.git
+  GIT_TAG v1.5.0
+  GIT_PROGRESS ON
+)
