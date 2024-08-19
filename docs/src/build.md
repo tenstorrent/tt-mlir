@@ -122,15 +122,6 @@ Make sure to have Git LFS installed. You can install it with the following comma
 sudo apt-get install git-lfs
 ```
 
-If you are building performance trace with `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, you will have to install the following packages
-
-```bash
-pip install loguru
-pip install torch
-pip install pandas
-pip install seaborn
-```
-
 ### Ubuntu 22.04
 
 On Ubuntu 22.04 we need to install clang, ninja, and to update the version of cmake because 3.20 is the minimum required for this project.
