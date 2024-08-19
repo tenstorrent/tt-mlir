@@ -360,6 +360,66 @@ def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
     let hasVerifier = 1;
 }
 
+def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
+    let summary = "Conv2d operation.";
+    let description = [{
+     Applies a 2D convolution over an input image composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation_height,
+                         SI32Attr:$dilation_width,
+                         SI32Attr:$groups,
+                         SI32Attr:$padding_left,
+                         SI32Attr:$padding_right,
+                         SI32Attr:$padding_top,
+                         SI32Attr:$padding_bottom,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
+    let description = [{
+      Applies a 2D max pooling over an input signal composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$kernel_height,
+                         SI32Attr:$kernel_width,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation_height,
+                         SI32Attr:$dilation_width,
+                         BoolAttr:$ceil_mode,
+                         SI32Attr:$padding_left,
+                         SI32Attr:$padding_right,
+                         SI32Attr:$padding_top,
+                         SI32Attr:$padding_bottom,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";

@@ -568,6 +568,11 @@ public:
     for (auto &operand : op->getOpOperands()) {
       bool isResult = op.isDpsInit(&operand);
 
+      // @lpanos : TTNN Conv2d moves input, weight, and bias from host to device itself.
+      // Inserting the ToLayoutOp on these operands is thus problematic.
+      if (mlir::isa<Conv2dOp>(op.getOperation()) && !isResult) {
+        continue;
+      }
       auto operandConstraint =
           mlir::cast<OperandConstraintAttr>(
               mlir::cast<TTIROp>(op.getOperation())

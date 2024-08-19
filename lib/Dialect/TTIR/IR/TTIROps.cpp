@@ -187,6 +187,29 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
+::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  
+  if (inputType.getRank() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
+  }
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+  if (!getODSOperands(2).empty()) {
+    ::mlir::RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+  }
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
       getResult().getType().getEncoding());
