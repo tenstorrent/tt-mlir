@@ -55,7 +55,6 @@ jobs:
         -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
         -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
-        -DTTMLIR_ENABLE_STABLEHLO=ON \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
