@@ -133,6 +133,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::GreaterEqual;
   } else if constexpr (std::is_same_v<EltwiseOp, ReluOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Relu;
+  } else if constexpr (std::is_same_v<EltwiseOp, SqrtOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Sqrt;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -233,6 +235,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {
     return createOperation(cache, createEltwiseOp(cache, reluOp), debugString);
+  }
+  if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
+    return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString);
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString);

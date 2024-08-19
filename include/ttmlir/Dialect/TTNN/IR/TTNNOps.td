@@ -63,11 +63,49 @@ class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
+class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise unary op.";
+    let description = [{
+      Eltwise unary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $in, "Value": $out),
+      [{
+        build($_builder, $_state, {out.getType()}, in, out);
+      }]>
+    ];
+}
+
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
+      [{
+        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+      }]>
+    ];
+}
+
+def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise sqrt.";
+    let description = [{
+      Eltwise sqrt operation.
+    }];
+}
+
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
+    let summary = "Eltwise ReLU.";
+    let description = [{
+      Eltwise ReLU operation.
     }];
 }
 
@@ -129,13 +167,6 @@ def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
   let description = [{
     Mean reduction op.
   }];
-}
-
-def TTNN_ReluOp : TTNN_ElementwiseOp<"relu"> {
-    let summary = "Eltwise ReLU.";
-    let description = [{
-      Eltwise ReLU operation.
-    }];
 }
 
 def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {

@@ -149,7 +149,7 @@ namespace mlir::tt {
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
   // clang-format off
-  // ANCHOR: adding_an_op_matmul_rewrite_pattern_set
+  // ANCHOR: op_rewriter_pattern_set
   patterns
       .add<TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
@@ -158,13 +158,14 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
            ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
            ElementwiseBinaryOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
+           ElementwiseBinaryOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            TransposeOpConversionPattern,
            SoftmaxOpConversionPattern,
            MatmulOpConversionPattern
            >(typeConverter, ctx);
-  // ANCHOR_END: adding_an_op_matmul_rewrite_pattern_set
+  // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
 }
 

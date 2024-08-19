@@ -178,6 +178,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Eltwise unary ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::ReluOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::SqrtOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
 
   // Eltwise binary ops

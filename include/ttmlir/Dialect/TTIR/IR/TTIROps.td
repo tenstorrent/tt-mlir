@@ -196,6 +196,13 @@ def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
+def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise square root.";
+    let description = [{
+      Eltwise square root operation.
+    }];
+}
+
 def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{
