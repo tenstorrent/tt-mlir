@@ -5,19 +5,14 @@
 #ifndef TTMLIR_CONVERSION_StableHLOToTTIR_StableHLOToTTIR_H
 #define TTMLIR_CONVERSION_StableHLOToTTIR_StableHLOToTTIR_H
 
+
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::tt {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
-std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass();
-#else
-// define an empty function in case conversion definition does not exist. 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass()
-{
-return std::unique_ptr<OperationPass<ModuleOp>>(nullptr);
-}
+  std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass();
 #endif
 
 } // namespace mlir::tt

@@ -17,7 +17,10 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/Register.h"
+#endif
+
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry
       .insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
@@ -28,12 +31,14 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
               mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
               mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
               mlir::emitc::EmitCDialect>();
-  mlir::stablehlo::registerAllDialects(registry);
+#if TTMLIR_ENABLE_STABLEHLO
+        mlir::stablehlo::registerAllDialects(registry);
+#endif
 }
 
 void mlir::tt::registerAllPasses() {
   // Register all dialect conversion passes
-  
+  //
   mlir::tt::registerTTMLIRConversionPasses();
 
   mlir::tt::ttir::registerPasses();
