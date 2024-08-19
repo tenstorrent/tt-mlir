@@ -7,6 +7,8 @@
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
+PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
+
 namespace mlir::ttmlir::python {
 
 void populatePassesModule(py::module &m) {
@@ -41,11 +43,12 @@ void populatePassesModule(py::module &m) {
     }
   });
 
-  m.def("ttnn_to_flatbuffer", [](MlirModule module) {
-    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-    std::shared_ptr<void> data = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
-    return py::capsule(data.get());
-  });
+  py::class_<std::shared_ptr<void>>(m, "SharedVoidPtr")
+      .def(py::init<>())
+      .def("from_ttnn", [](std::shared_ptr<void> data, MlirModule module) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        data = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
+      });
 }
 
 } // namespace mlir::ttmlir::python
