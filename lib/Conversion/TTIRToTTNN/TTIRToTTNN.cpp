@@ -8,10 +8,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/Support/Casting.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -52,22 +50,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    // Get the DPS operand and delete it's creator op, if it's tensor::emptyOp
-    //
-    Value dpsOperand = adaptor.getOperands().back();
-    ttnn::EmptyOp emptyOp = dpsOperand.getDefiningOp<ttnn::EmptyOp>();
-    if (emptyOp) {
-      rewriter.eraseOp(emptyOp);
-    }
-
-    // Drop the last operand which is the DPS operand.
-    //
-    ValueRange nonDPSOperands = adaptor.getOperands().drop_back();
-
     rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        nonDPSOperands);
+        adaptor.getInput(), adaptor.getOutput());
     return success();
   }
 };

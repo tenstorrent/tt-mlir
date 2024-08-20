@@ -26,18 +26,18 @@
 // }
 
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
-  ttnn::Device &v3 = ttnn::open_device(0);
+  ttnn::device::Device &v3 = ttnn::device::open_device(0);
 
-  ttnn::Tensor v4 = ttnn::empty(v1.shape(), v1.tensor_attributes->dtype,
-                                v1.tensor_attributes->layout, v3);
+  ttnn::Tensor v4 = ttnn::full(v1.shape(), 4.0f, v1.tensor_attributes->dtype,
+                               v1.tensor_attributes->layout, std::ref(v3));
   //   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
 
-  ttnn::Tensor v6 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
-                                v2.tensor_attributes->layout, v3);
+  ttnn::Tensor v6 = ttnn::full(v2.shape(), 6.0f, v2.tensor_attributes->dtype,
+                               v2.tensor_attributes->layout, std::ref(v3));
   //   ttnn::Tensor v7 = ttnn::to_memory_config(v2, v6);
 
-  ttnn::Tensor v9 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
-                                v2.tensor_attributes->layout, v3);
+  ttnn::Tensor v9 = ttnn::full(v2.shape(), 2.0f, v2.tensor_attributes->dtype,
+                               v2.tensor_attributes->layout, std::ref(v3));
   ttnn::multiply(v4, v6, std::nullopt, std::nullopt, v9, std::nullopt,
                  std::nullopt);
   v9 = v9.cpu(); // move to CPU
