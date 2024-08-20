@@ -192,6 +192,40 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
+def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
+    let summary = "Conv2d operation.";
+    let description = [{
+      Conv2d operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$bias,
+                         AnyRankedTensor:$output,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         I32Attr:$kernel_height,
+                         I32Attr:$kernel_width,
+                         I32Attr:$stride_height,
+                         I32Attr:$stride_width,
+                         I32Attr:$padding_height,
+                         I32Attr:$padding_width,
+                         I32Attr:$dilation_vertical,
+                         I32Attr:$dilation_horizontal,
+                         I32Attr:$groups);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_FullOp : TTNN_Op<"full"> {
     let summary = "Full op.";
     let description = [{

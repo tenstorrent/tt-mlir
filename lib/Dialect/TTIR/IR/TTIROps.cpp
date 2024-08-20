@@ -120,6 +120,28 @@
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
+::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType biasType = getBias().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  auto inputShape = inputType.getShape();
+  auto weightShape = weightType.getShape();
+  auto biasShape = biasType.getShape();
+  auto outputShape = outputType.getShape();
+  if (inputShape.size() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
+  }
+  if (weightShape.size() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+  if (biasShape != outputShape and biasShape.size() != 1) {
+    return emitOpError("Bias must be a 1D tensor or match the shape of the output");
+  }
+  return success();
+}
+
+
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
       getResult().getType().getEncoding());

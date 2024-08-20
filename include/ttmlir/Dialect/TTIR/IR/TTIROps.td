@@ -292,6 +292,42 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
+
+def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
+    let summary = "Conv2d operation.";
+    let description = [{
+      Conv2d operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$bias,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$kernel_height,
+                         SI32Attr:$kernel_width,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation,
+                         SI32Attr:$groups,
+                         SI32Attr:$padding_left,
+                         SI32Attr:$padding_right,
+                         SI32Attr:$padding_top,
+                         SI32Attr:$padding_bottom,
+                         SI32Attr:$is_convtranspose2d,
+                         SI32Attr:$output_height_transpose,
+                         SI32Attr:$output_width_transpose,
+                         SI32Attr:$stride_transpose,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)
 //===----------------------------------------------------------------------===//
