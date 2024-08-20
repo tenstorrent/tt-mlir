@@ -57,7 +57,8 @@ public:
 };
 
 struct ConvertStableHLOToTTIRPass
-    : public ttir::impl::ConvertStableHLOToTTIRBase<ConvertStableHLOToTTIRPass> {
+    : public ttir::impl::ConvertStableHLOToTTIRBase<
+          ConvertStableHLOToTTIRPass> {
   void runOnOperation() override {
     mlir::ConversionTarget target(getContext());
 
@@ -69,7 +70,8 @@ struct ConvertStableHLOToTTIRPass
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
 
-    // For now keep the same type assuming StableHLO ops operate on builtin tensor.
+    // For now keep the same type assuming StableHLO ops operate on builtin
+    // tensor.
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) {
       assert(isa<RankedTensorType>(type) &&
@@ -79,9 +81,9 @@ struct ConvertStableHLOToTTIRPass
     RewritePatternSet patterns(&getContext());
 
     // Add conversion patterns.
-    patterns
-        .add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(
-            typeConverter, &getContext());
+    patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::AddOp,
+                                                    mlir::tt::ttir::AddOp>>(
+        typeConverter, &getContext());
 
     // Apply conversion.
     if (failed(

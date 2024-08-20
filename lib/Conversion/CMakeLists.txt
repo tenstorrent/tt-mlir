@@ -9,7 +9,7 @@ endif()
 
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 
-set(link_libs 
+set(link_libs
 TTMLIRTosaToTTIR;
 TTMLIRTTNNToEmitC;
 TTMLIRTTIRToTTNN

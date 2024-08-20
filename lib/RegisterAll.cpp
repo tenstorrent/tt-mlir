@@ -32,7 +32,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
               mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
               mlir::emitc::EmitCDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
-        mlir::stablehlo::registerAllDialects(registry);
+  mlir::stablehlo::registerAllDialects(registry);
 #endif
 }
 
