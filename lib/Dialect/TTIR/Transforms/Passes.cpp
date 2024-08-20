@@ -771,7 +771,7 @@ public:
 };
 
 inline uint64_t getElementSizeBytes(Type ty) {
-  int val = 0;
+  uint64_t val = 0;
   if (isa<TileType>(ty)) {
     auto tileType = mlir::cast<TileType>(ty);
     val = tileType.getSizeBytes();
