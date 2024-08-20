@@ -168,7 +168,42 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add"> {
+class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
+
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        assert(sameRank(getOperands()) &&
+               "For now all operands must have the same rank");
+        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
+        SmallVector<AffineMap> indexingMaps(getNumOperands(),
+                                            builder.getMultiDimIdentityMap(rank));
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};
+      }
+
+      static bool sameRank(mlir::OperandRange operands) {
+        if (operands.empty()) {
+          return true;
+        }
+        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
+        for (auto operand : operands) {
+          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }];
+}
+
+def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
@@ -189,7 +224,7 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.

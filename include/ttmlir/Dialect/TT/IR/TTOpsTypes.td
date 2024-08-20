@@ -237,6 +237,20 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   }];
 }
 
+def TT_BufferAttr : TT_Attr<"Buffer", "buffer", []> {
+  let summary = "Buffer attribute in TT dialect";
+  let description = [{
+    Describes the physical footprint and layout of a buffer in L1. Its memref must also have a shape with rank equal to DeviceAttr grid.
+  }];
+  let parameters = (ins AttrParameter<"MemRefType", "A memref that describes the physical footprint and layout of the buffer. It must also have a shape with rank equal to DeviceAttr grid.">:$memref);
+  let assemblyFormat = "`<` $memref `>`";
+
+  let extraClassDeclaration = [{
+      ::mlir::Type getElementType() const;
+      ::llvm::SmallVector<int64_t> getShape() const;
+  }];
+}
+
 def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
   let summary = "Device attribute in TT dialect";
   let description = [{
