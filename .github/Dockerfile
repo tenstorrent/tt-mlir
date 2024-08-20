@@ -79,8 +79,8 @@ RUN source env/activate && \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \    
     -DTTMLIR_ENABLE_RUNTIME=ON \
-    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
-    -DTTMLIR_ENABLE_STABLEHLO=ON \
+    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+    -DTTMLIR_ENABLE_STABLEHLO=ON && \
     cmake --build build --config Release
 
 # Run clang-tidy
