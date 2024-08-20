@@ -111,6 +111,13 @@ def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     }];
 }
 
+def TTNN_DivOp : TTNN_ElementwiseBinaryOp<"div"> {
+    let summary = "Eltwise divide.";
+    let description = [{
+      Eltwise divide operation.
+    }];
+}
+
 def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
     let summary = "Eltwise subtract.";
     let description = [{

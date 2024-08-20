@@ -233,6 +233,14 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Div: {
+    assert(op->ins()->size() == 2 && "Unsupported number of inputs");
+    ::ttnn::Tensor &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
+    tensorPool.push_back(::ttnn::divide(lhs, rhs));
+    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   /* Eltwise Unary */
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
     assert(op->ins()->size() == 1 && "Unsupported number of inputs");
