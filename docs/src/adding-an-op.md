@@ -124,10 +124,13 @@ graph.
 Inside `runOnOperation` is usually where we define a rewrite pattern set that
 can match much more complicated patterns (nested inside of the `ModuleOp`'s
 [regions](https://mlir.llvm.org/docs/LangRef/#regions))
-than just a single operation.
+than just a single operation. In `runOperation` method you will see the call to
+method `populateTTIRToTTNNPatterns(...)` that actually generates rewrite patterns.
+Method `populateTTIRToTTNNPatterns(...)` is defined
+in `lib/Conversion/TTIRToTTNN/TTIRToTTNN.cpp`.
 
 ```cpp
-{{#include ../../../lib/Conversion/TTIRToTTNN/TTIRToTTNN.cpp:adding_an_op_matmul_rewrite_pattern_set}}
+{{#include ../../../lib/Conversion/TTIRToTTNN/TTIRToTTNN.cpp:op_rewriter_pattern_set}}
 ```
 
 > More information on rewrite patterns and their capabilities can be found in the MLIR documentation [here](https://mlir.llvm.org/docs/PatternRewriter/) and [here](https://mlir.llvm.org/docs/DialectConversion/).

@@ -35,6 +35,7 @@ enum EltwiseOpType: uint32 {
   Subtract = 2,
   Relu = 3,
   GreaterEqual = 4,
+  Sqrt = 5,
 }
 
 table EltwiseOp {
