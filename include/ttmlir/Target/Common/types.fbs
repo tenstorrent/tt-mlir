@@ -16,7 +16,7 @@ enum Arch: uint {
   Blackhole = 2,
 }
 
-enum DataType: ushort {
+enum DataType: uint16 {
   Float32 = 0,
   Float16 = 1,
   BFloat16 = 2,
@@ -106,6 +106,8 @@ table ChipDesc {
   erisc_l1_unreserved_base: uint32;
   dram_unreserved_base: uint32;
   physical_cores: ChipPhysicalCores;
+  supported_data_types: [DataType];
+  supported_tile_sizes: [Dim2d];
 }
 
 struct ChipCoord {

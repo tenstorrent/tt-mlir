@@ -35,6 +35,7 @@ def TT_DataType : I32EnumAttr<"DataType", "TT DataTypes",
                             TT_UInt16,
                             TT_UInt8
                            ]> {
+  let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
   let stringToSymbolFnName = "DataTypeStringToEnum";
   let symbolToStringFnName = "DataTypeEnumToString";

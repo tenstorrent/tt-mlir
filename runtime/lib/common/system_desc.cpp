@@ -5,6 +5,7 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 #include <cstdint>
 #include <vector>
 
@@ -157,6 +158,7 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices;
   std::vector<::tt::target::ChipCapability> chipCapabilities;
+
   // Ignore for now
   std::vector<::tt::target::ChipCoord> chipCoords = {
       ::tt::target::ChipCoord(0, 0, 0, 0)};
@@ -170,12 +172,33 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
     // Extract physical core coordinates for worker, dram, eth cores
     auto chipPhysicalCores = createChipPhysicalCores(device, fbb);
 
+    // The following is temporary place-holder value to be replaced by API
+    // value.
+    std::vector<::tt::target::DataType> supportedDataTypesVector = {
+        ::tt::target::DataType::Float32,     ::tt::target::DataType::Float16,
+        ::tt::target::DataType::BFloat16,    ::tt::target::DataType::BFP_Float8,
+        ::tt::target::DataType::BFP_BFloat8, ::tt::target::DataType::BFP_Float4,
+        ::tt::target::DataType::BFP_BFloat4, ::tt::target::DataType::BFP_Float2,
+        ::tt::target::DataType::BFP_BFloat2, ::tt::target::DataType::UInt32,
+        ::tt::target::DataType::UInt16,      ::tt::target::DataType::UInt8};
+
+    auto supportedDataTypes = fbb.CreateVector(supportedDataTypesVector);
+
+    std::vector<::tt::target::Dim2d> supportedTileSizesVector = {
+        ::tt::target::Dim2d(4, 16),  ::tt::target::Dim2d(16, 16),
+        ::tt::target::Dim2d(32, 16), ::tt::target::Dim2d(4, 32),
+        ::tt::target::Dim2d(16, 32), ::tt::target::Dim2d(32, 32)};
+
+    auto supportedTileSizes =
+        fbb.CreateVectorOfStructs(supportedTileSizesVector);
+
     chipDescs.push_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
         DRAM_ALIGNMENT, L1_UNRESERVED_BASE, ERISC_L1_UNRESERVED_BASE,
-        DRAM_UNRESERVED_BASE, chipPhysicalCores));
+        DRAM_UNRESERVED_BASE, chipPhysicalCores, supportedDataTypes,
+        supportedTileSizes));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

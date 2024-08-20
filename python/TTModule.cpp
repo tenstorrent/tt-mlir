@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
 #include <vector>
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
@@ -10,6 +11,7 @@
 #include "mlir/CAPI/IR.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Target/Common/types_generated.h"
 
 namespace mlir::ttmlir::python {
 void populateTTModule(py::module &m) {
@@ -108,6 +110,12 @@ void populateTTModule(py::module &m) {
             tt::ArchAttr::get(unwrap(ctx), static_cast<tt::Arch>(arch)));
       });
 
+  py::class_<tt::DataTypeAttr>(m, "DataTypeAttr")
+      .def_static("get", [](MlirContext ctx, uint16_t *supportedDataTypes) {
+        return wrap(tt::DataTypeAttr::get(
+            unwrap(ctx), static_cast<tt::DataType>(*supportedDataTypes)));
+      });
+
   py::class_<tt::ChipDescAttr>(m, "ChipDescAttr")
       .def_static(
           "get",
@@ -116,7 +124,9 @@ void populateTTModule(py::module &m) {
              unsigned dramChannelSize, unsigned nocL1AddressAlignBytes,
              unsigned pcieAddressAlignBytes, unsigned nocDRAMAddressAlignBytes,
              unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
-             unsigned dramUnreservedBase, MlirAttribute chipPhysicalCores) {
+             unsigned dramUnreservedBase, MlirAttribute chipPhysicalCores,
+             MlirAttribute supportedDataTypes,
+             MlirAttribute supportedTileSizes) {
             return wrap(tt::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
                 l1Size, numDramChannels, dramChannelSize,
@@ -124,7 +134,9 @@ void populateTTModule(py::module &m) {
                 nocDRAMAddressAlignBytes, l1UnreservedBase,
                 eriscL1UnreservedBase, dramUnreservedBase,
                 mlir::dyn_cast<tt::ChipPhysicalCoresAttr>(
-                    unwrap(chipPhysicalCores))));
+                    unwrap(chipPhysicalCores)),
+                mlir::cast<tt::DataTypeAttr>(unwrap(supportedDataTypes)),
+                mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes))));
           });
 
   py::class_<tt::ChipCoordAttr>(m, "ChipCoordAttr")

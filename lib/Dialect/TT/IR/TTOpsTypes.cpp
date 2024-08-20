@@ -29,6 +29,43 @@ mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
   // Populate a dummy n150
   SmallVector<std::int64_t> gridShape = {8, 8};
+
+  // populate a placeholder for supported tile sizes
+  SmallVector<tt::DataTypeAttr> supported_data_types;
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::Float32));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::Float16));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFloat16));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFP_Float8));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat8));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFP_Float4));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat4));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFP_Float2));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat2));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::UInt32));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::UInt16));
+  supported_data_types.push_back(
+      tt::DataTypeAttr::get(context, tt::DataType::UInt8));
+
+  // populate a placeholder for supported tile sizes
+  SmallVector<tt::TileSizeAttr> supported_tile_sizes;
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 4, 16));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 16));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 16));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 4, 32));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 32));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 32));
+
   SmallVector<CoreCoordAttr> workerCores;
   workerCores.reserve(gridShape[0] * gridShape[1]);
   for (std::int64_t y = 0; y < gridShape[0]; ++y) {
@@ -50,7 +87,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
               context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
               gridShape, 1499136, 12, (1 << 30), 16, 32, 32, 0, 0, 0,
               tt::ChipPhysicalCoresAttr::get(context, workerCores, dramCores,
-                                             {}, {})),
+                                             {}, {}),
+              supported_data_types, supported_tile_sizes),
       },
       // Chip Descriptor Indices
       {
@@ -117,6 +155,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       eth_inactive_cores.emplace_back(
           tt::CoreCoordAttr::get(context, core->y(), core->x()));
     }
+
     // Create ChipPhysicalCoresAttr from the list of CoreCoordAttr instances
     auto chip_physical_cores_attr = tt::ChipPhysicalCoresAttr::get(
         context, worker_cores, dram_cores, eth_cores, eth_inactive_cores);
@@ -134,6 +173,68 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       break;
     }
 
+    std::vector<tt::DataTypeAttr> supported_data_types_attr;
+
+    for (auto it : *(element->supported_data_types())) {
+      switch (it) {
+      case ::tt::target::DataType::Float32:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::Float32));
+        break;
+      case ::tt::target::DataType::Float16:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::Float16));
+        break;
+      case ::tt::target::DataType::BFloat16:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFloat16));
+        break;
+      case ::tt::target::DataType::BFP_Float8:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFP_Float8));
+        break;
+      case ::tt::target::DataType::BFP_BFloat8:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat8));
+        break;
+      case ::tt::target::DataType::BFP_Float4:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFP_Float4));
+        break;
+      case ::tt::target::DataType::BFP_BFloat4:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat4));
+        break;
+      case ::tt::target::DataType::BFP_Float2:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFP_Float2));
+        break;
+      case ::tt::target::DataType::BFP_BFloat2:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::BFP_BFloat2));
+        break;
+      case ::tt::target::DataType::UInt32:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::UInt32));
+        break;
+      case ::tt::target::DataType::UInt16:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::UInt16));
+        break;
+      case ::tt::target::DataType::UInt8:
+        supported_data_types_attr.push_back(
+            tt::DataTypeAttr::get(context, tt::DataType::UInt8));
+        break;
+      }
+    }
+
+    SmallVector<tt::TileSizeAttr> supported_tile_sizes_attr;
+
+    for (auto it : *(element->supported_tile_sizes())) {
+      supported_tile_sizes_attr.push_back(
+          tt::TileSizeAttr::get(context, it->y(), it->x()));
+    }
+
     auto current_chip_desc_attr = tt::ChipDescAttr::get(
         context, tt::ArchAttr::get(context, arch),
         {element->grid_size()->y(), element->grid_size()->x()},
@@ -142,7 +243,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->pcie_address_align_bytes(),
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
-        chip_physical_cores_attr);
+        chip_physical_cores_attr, supported_data_types_attr,
+        supported_tile_sizes_attr);
     chip_desc_list.push_back(current_chip_desc_attr);
   }
 

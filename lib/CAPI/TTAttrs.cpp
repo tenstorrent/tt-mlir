@@ -26,20 +26,29 @@ MlirAttribute ttmlirTTArchAttrGet(MlirContext ctx, uint32_t arch) {
   return wrap(ArchAttr::get(unwrap(ctx), static_cast<Arch>(arch)));
 }
 
+MlirAttribute ttmlirTTDataTypeAttrGet(MlirContext ctx,
+                                      uint16_t *supportedDataTypes) {
+  return wrap(DataTypeAttr::get(unwrap(ctx),
+                                static_cast<DataType>(*supportedDataTypes)));
+}
+
 MlirAttribute ttmlirTTChipDescAttrGet(
     MlirContext ctx, MlirAttribute arch, int64_t *grid, size_t gridSize,
     unsigned l1Size, unsigned numDramChannels, unsigned dramChannelSize,
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
-    MlirAttribute chipPhysicalCores) {
+    MlirAttribute chipPhysicalCores, MlirAttribute *supportedDataTypes,
+    MlirAttribute *supportedTileSizes) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   return wrap(ChipDescAttr::get(
       unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec, l1Size,
       numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
       pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
       eriscL1UnreservedBase, dramUnreservedBase,
-      mlir::dyn_cast<ChipPhysicalCoresAttr>(unwrap(chipPhysicalCores))));
+      mlir::dyn_cast<ChipPhysicalCoresAttr>(unwrap(chipPhysicalCores)),
+      mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
+      mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes))));
 }
 
 MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,

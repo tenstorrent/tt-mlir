@@ -108,6 +108,17 @@ inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &, ArchAttr arch) {
   }
 }
 
+// Overloaded function for DataTypeAttr
+inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &cache,
+                                           const DataTypeAttr &dtypeAttr) {
+  return toFlatbuffer(cache, dtypeAttr.getValue());
+}
+
+inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
+                                        TileSizeAttr tileSize) {
+  return ::tt::target::Dim2d(tileSize.getY(), tileSize.getX());
+}
+
 inline ::tt::target::ChipCapability
 toFlatbuffer(FlatbufferObjectCache &, ChipCapabilityAttr capabilityAttr) {
   auto capabilities = capabilityAttr.getValue();
@@ -233,7 +244,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getPcieAddressAlignBytes(),
       chipDesc.getNocDRAMAddressAlignBytes(), chipDesc.getL1UnreservedBase(),
       chipDesc.getEriscL1UnreservedBase(), chipDesc.getDramUnreservedBase(),
-      toFlatbuffer(cache, chipDesc.getChipPhysicalCores()));
+      toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
+      toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
+      toFlatbuffer(cache, chipDesc.getSupportedTileSizes()));
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>
