@@ -165,13 +165,14 @@ void wait(Event event) {
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::wait(event);
   }
-#elif defined(TT_RUNTIME_ENABLE_TTMETAL)
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::wait(event);
   }
-#else
-  throw std::runtime_error("runtime is not enabled");
 #endif
+  throw std::runtime_error("runtime is not enabled");
 }
 
 } // namespace tt::runtime
