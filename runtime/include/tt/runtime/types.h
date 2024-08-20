@@ -111,14 +111,36 @@ struct Device : public detail::RuntimeCheckedObjectImpl {
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {
-  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  Event(std::shared_ptr<void> handle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime) {}
+
+  bool isTTNNEvent() const {
+    return this->matchesRuntime(DeviceRuntime::TTNN) and this->handle.get();
+  }
+
+  bool isTTMetalEvent() const {
+    return this->matchesRuntime(DeviceRuntime::TTMetal) and this->handle.get();
+  }
 };
 
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
+  Event event;
+
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(Event(nullptr, runtime)) {}
+
+
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
+         DeviceRuntime runtime, Event event)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(event) {}
+
+  // Users need to manually deallocate tensors returned from submit
+  // As the storage is now owned instead of borrowed
+  void deallocate();
 };
 
 } // namespace tt::runtime

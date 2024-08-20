@@ -63,6 +63,10 @@ public:
     return liveTensors.contains(global_id);
   }
 
+  size_t size() const {
+    return liveTensors.size();
+  }
+
 private:
   // A superset of intermedTensors, containing all tensors created by the
   // program and the input/output tensors passed in by the user
@@ -89,6 +93,20 @@ static ::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
+static Tensor toTypeErasedTensor(const ::ttnn::Tensor &tensor) {
+  std::shared_ptr<::ttnn::Tensor> tensorHandle = std::make_shared<::ttnn::Tensor>(tensor);
+  void *dataPtr = isOnHost(*tensorHandle) ? ::tt::tt_metal::get_raw_host_data_ptr(*tensorHandle) : nullptr;
+  return Tensor(tensorHandle, ::tt::runtime::utils::unsafe_borrow_shared(dataPtr), DeviceRuntime::TTNN);
+}
+
+static void tensorMemcpy(::ttnn::Tensor &dst, ::ttnn::Tensor &src) {
+  assert(isOnHost(src) and dst.storage_type() == ::tt::tt_metal::StorageType::BORROWED);
+  void *srcDataPtr = ::tt::tt_metal::get_raw_host_data_ptr(src);
+  void *dstDataPtr = ::tt::tt_metal::get_raw_host_data_ptr(dst);
+  std::uint32_t size = src.volume() * src.element_size();
+  std::memcpy(dstDataPtr, srcDataPtr, size);
+
+}
 static CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
   std::set<CoreRange> coreRanges;
@@ -214,10 +232,9 @@ updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
   return outputTensor;
 }
 
-static void
+static ::ttnn::Tensor
 handleToHostMemoryConfigOp(const ::ttnn::Tensor &inputTensor,
-                           const ::tt::target::TensorRef *outputTensorRef,
-                           ProgramTensorPool &tensorPool) {
+                           const ::tt::target::TensorRef *outputTensorRef) {
   ::ttnn::Tensor result;
   ::ttnn::DataType targetDataTypeTTNN = getDataType(outputTensorRef);
   bool shouldTilize, shouldUntilize;
@@ -232,24 +249,13 @@ handleToHostMemoryConfigOp(const ::ttnn::Tensor &inputTensor,
     result = updateLayoutAndDataType(inputTensor.cpu(), targetDataTypeTTNN,
                                      shouldTilize, shouldUntilize);
   }
-  // copy the output to the output tensor if it exists
-  if (tensorPool.contains(outputTensorRef->global_id())) {
-    ::ttnn::Tensor &outputTensor = tensorPool.at(outputTensorRef->global_id());
-    void *src = ::tt::tt_metal::get_raw_host_data_ptr(result);
-    void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
-    std::uint32_t size = result.volume() * result.element_size();
-    std::memcpy(dst, src, size);
-  } else {
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
-  }
+  return result;
 }
 
-static void
+static ::ttnn::Tensor
 handleToDramMemoryConfigOp(::ttnn::Device &device,
                            const ::ttnn::Tensor &inputTensor,
-                           const ::tt::target::TensorRef *outputTensorRef,
-                           ProgramTensorPool &tensorPool) {
+                           const ::tt::target::TensorRef *outputTensorRef) {
   ::ttnn::DataType targetDataTypeTTNN = getDataType(outputTensorRef);
   ::tt::tt_metal::MemoryConfig targetMemoryConfig =
       createMemoryConfig(outputTensorRef);
@@ -266,24 +272,23 @@ handleToDramMemoryConfigOp(::ttnn::Device &device,
     result = ::ttnn::to_device(result, &device, targetMemoryConfig);
     result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
                                      shouldUntilize);
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    return result;
   } else if (isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
         inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
     result = ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    return result;
+  } else {
+    throw std::runtime_error("Unsupported input tensor storage type");
   }
 }
 
-static void
+static ::ttnn::Tensor
 handleToL1MemoryConfigOp(::ttnn::Device &device,
                          const ::ttnn::Tensor &inputTensor,
-                         const ::tt::target::TensorRef *outputTensorRef,
-                         ProgramTensorPool &tensorPool) {
+                         const ::tt::target::TensorRef *outputTensorRef) {
   ::ttnn::DataType targetDataTypeTTNN = getDataType(outputTensorRef);
   ::tt::tt_metal::MemoryConfig targetMemoryConfig =
       createMemoryConfig(outputTensorRef);
@@ -309,19 +314,43 @@ handleToL1MemoryConfigOp(::ttnn::Device &device,
       result =
           ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
     }
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    return result;
   } else if (isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
         inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
     result = ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    return result;
+  } else {
+    throw std::runtime_error("Unsupported input tensor storage type");
   }
 }
 
+static ::ttnn::Tensor updateTensorMemoryConfig(::ttnn::Device &device,
+                                     const ::ttnn::Tensor &inputTensor,
+                                     const ::tt::target::TensorRef *outputTensorRef) {
+  const ::tt::target::MemoryDesc *targetMemoryDesc =
+      outputTensorRef->desc()->layout()->memory_desc();
+  const ::tt::target::MemorySpace targetMemorySpace =
+      targetMemoryDesc->memory_space();
+
+  switch (targetMemorySpace) {
+  case ::tt::target::MemorySpace::System:
+  case ::tt::target::MemorySpace::SystemMMIO: {
+    return handleToHostMemoryConfigOp(inputTensor, outputTensorRef);
+    break;
+  }
+  case ::tt::target::MemorySpace::DeviceDRAM: {
+    return handleToDramMemoryConfigOp(device, inputTensor, outputTensorRef);
+    break;
+  }
+  case ::tt::target::MemorySpace::DeviceL1: {
+    return handleToL1MemoryConfigOp(device, inputTensor, outputTensorRef);
+    break;
+  }
+  }
+}
 // TODO(bug #272): right now hardcoding tilize/untilize, should determine with
 // tile shape blocked by issue #272
 static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
@@ -335,25 +364,13 @@ static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
       op->out()->desc()->layout()->memory_desc()->tile_shape();
   assert(utils::isValidTileShape(targetTileShape) && "Invalid tile shape");
 
-  const ::tt::target::MemorySpace targetMemorySpace =
-      op->out()->desc()->layout()->memory_desc()->memory_space();
-
-  switch (targetMemorySpace) {
-  // This case should only be used when gathering outputs at the end of the
-  // program
-  case ::tt::target::MemorySpace::System:
-  case ::tt::target::MemorySpace::SystemMMIO: {
-    handleToHostMemoryConfigOp(inputTensor, op->out(), tensorPool);
-    break;
-  }
-  case ::tt::target::MemorySpace::DeviceDRAM: {
-    handleToDramMemoryConfigOp(device, inputTensor, op->out(), tensorPool);
-    break;
-  }
-  case ::tt::target::MemorySpace::DeviceL1: {
-    handleToL1MemoryConfigOp(device, inputTensor, op->out(), tensorPool);
-    break;
-  }
+  ::ttnn::Tensor result = updateTensorMemoryConfig(device, inputTensor, op->out());
+  // copy the output to the output tensor if it exists
+  if (tensorPool.contains(op->out()->global_id()) and tensorPool.at(op->out()->global_id()).storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+    tensorMemcpy(tensorPool.at(op->out()->global_id()), result);
+  } else {
+    tensorPool.insert_or_assign(op->out()->global_id(),
+                                std::move(result));
   }
 }
 
@@ -837,4 +854,58 @@ void runProgram(::ttnn::Device &device,
     run(op, device, tensorPool);
   }
 }
+
+std::vector<Tensor> runProgram(::ttnn::Device &device,
+                               ::tt::target::ttnn::Program const *program,
+                               std::vector<::ttnn::Tensor *> const &inputs) {
+  
+  ProgramTensorPool tensorPool({});
+  int inputIndex = 0;
+
+  // convert inputs to the desired layout/memory config
+  for (::tt::target::TensorRef const *inputRef : *program->inputs()) {
+    const ::ttnn::Tensor *inputTensor = inputs[inputIndex++];
+    ::ttnn::Tensor updatedInputTensor = updateTensorMemoryConfig(device, *inputTensor, inputRef);
+    auto [iter, inserted] = tensorPool.try_emplace(inputRef->global_id(), std::move(updatedInputTensor));
+    assert(inserted && "Duplicate input tensor");
+  }
+
+  for (::tt::target::ttnn::Operation const *op : *program->operations()) {
+    run(op, device, tensorPool);
+  }
+
+  // convert outputs to the desired layout/memory config
+  // then convert them to type erased tensors and return
+  std::vector<Tensor> outputs;
+  for (::tt::target::TensorRef const *outputRef : *program->outputs()) {
+    size_t outputId = outputRef->global_id();
+    assert(tensorPool.contains(outputId) &&
+             "Program output tensor not found in tensorPool");
+    const ::ttnn::Tensor &outputTensor = tensorPool.at(outputId);
+    ::ttnn::Tensor updatedOutputTensor = updateTensorMemoryConfig(device, outputTensor, outputRef);
+    outputs.push_back(toTypeErasedTensor(updatedOutputTensor));
+  }
+
+  return outputs;
+}
+
+Tensor updateProgramTensorLayout(Device device,
+                                 ::tt::target::ttnn::Program const *program,
+                                 std::uint32_t inputIndex,
+                                 Tensor const &input) {
+  TT_FATAL(inputIndex < program->inputs()->size(),
+           "Input index {} out of range {}", inputIndex,
+           program->inputs()->size());
+  const ::tt::target::TensorRef *inputRef = program->inputs()->Get(inputIndex);
+
+  ::ttnn::Device &ttnnDevice = device.as<::ttnn::Device>(DeviceRuntime::TTNN);
+  const ::ttnn::Tensor &ttnnInput =
+      input.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+
+  ::ttnn::Tensor result =
+      updateTensorMemoryConfig(ttnnDevice, ttnnInput, inputRef);
+
+  return toTypeErasedTensor(result);
+}
+
 } // namespace tt::runtime::ttnn

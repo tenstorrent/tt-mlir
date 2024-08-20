@@ -105,6 +105,37 @@ Event submit(Device deviceHandle, Binary executableHandle,
   return Event(nullptr, DeviceRuntime::TTNN);
 }
 
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputHandles) {
+  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN);
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  std::vector<::ttnn::Tensor *> inputs;
+  inputs.reserve(inputHandles.size());
+  for (auto &input : inputHandles) {
+    assert(input.matchesRuntime(DeviceRuntime::TTNN));
+    inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
+  }
+  std::vector<Tensor> outputs = ::tt::runtime::ttnn::runProgram(
+      device, fbb.programs()->Get(programIndex), inputs);
+  return outputs;
+}
+
+Tensor toLayout(Device device, Binary executable, std::uint32_t programIndex,
+                std::uint32_t inputIndex, Tensor const &input) {
+
+  const ::tt::target::ttnn::TTNNBinary *fbb = getBinary(executable);
+
+  TT_FATAL(programIndex < fbb->programs()->size(),
+           "Program index {} out of range {}", programIndex,
+           fbb->programs()->size());
+  const ::tt::target::ttnn::Program *program =
+      fbb->programs()->Get(programIndex);
+
+  return ::tt::runtime::ttnn::updateProgramTensorLayout(device, program,
+                                                        inputIndex, input);
+}
+
 void wait(Event event) {
   // Not implemented
   assert(event.matchesRuntime(DeviceRuntime::TTNN));
