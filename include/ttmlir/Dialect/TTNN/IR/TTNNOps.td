@@ -43,6 +43,21 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let hasVerifier = 1;
 }
 
+// def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+//     let summary = "ToLayout op.";
+//     let description = [{
+//     }];
+
+//     let arguments = (ins AnyRankedTensor:$input,
+//                          //TTNN_Layout:$layout, // TODO: Implement Layout type
+//                          OptionalAttr<TypeAttr>:$dtype,
+//                         //  OptionalAttr<MemoryConfig>:$memory_config,  // TODO: Implement MemoryConfig type
+//                          TT_DeviceAttr:$device);
+//     let results = (outs AnyRankedTensor:$result);
+
+//     let hasVerifier = 1;
+// }
+
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
     let extraClassDeclaration = [{

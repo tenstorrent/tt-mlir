@@ -52,6 +52,15 @@ def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {
   }];
 }
 
+// def TTNN_MemoryConfig : TTNN_Attr<"MemoryConfig", "memory_config"> {
+//   let summary = "TTNN memory config attribute";
+//   let description = [{
+//     TTNN memory config attribute
+//   }];
+
+//   ...
+// }
+
 def TTNN_CoreRangeArrayAttr : TypedArrayAttrBase<TTNN_CoreRangeAttr, "">;
 
 #endif

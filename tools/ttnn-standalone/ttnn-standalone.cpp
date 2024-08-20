@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "impl/buffers/buffer.hpp"
+#include "operations/core/core.hpp"
+#include "tensor/types.hpp"
 #include "ttnn-precompiled.hpp"
 
 // Below is a snippet generated with:
@@ -31,6 +34,20 @@ ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::Tensor v4 = ttnn::empty(v1.shape(), v1.tensor_attributes->dtype,
                                 v1.tensor_attributes->layout, v3);
   //   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
+  //   struct MemoryConfig {
+  //     TensorMemoryLayout memory_layout = TensorMemoryLayout::INTERLEAVED;  //
+  //     Interleave the data across multiple banks BufferType buffer_type =
+  //     BufferType::DRAM;                           // Can be either DRAM or L1
+  //     std::optional<ShardSpec> shard_spec = std::nullopt;
+  //     bool is_sharded() const;
+  //     bool is_l1() const;
+  //     bool is_dram() const;
+  // };
+  // auto q = MemoryConfig();
+  // ttnn::to_layout
+  // q.memory_layout = TensorMemoryLayout::INTERLEAVED;
+
+  // ttnn::to_memory_config(v4, q, std::optional<DataType>());
 
   ttnn::Tensor v6 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
                                 v2.tensor_attributes->layout, v3);

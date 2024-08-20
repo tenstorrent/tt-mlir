@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -12,6 +13,9 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/Casting.h"
+#include <iostream>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/BuiltinTypes.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -46,6 +50,19 @@ public:
 
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
+private:
+  // inline ::tt::MemorySpace toFlatbuffer(::tt::MemorySpace memspace) {
+  //   switch (memspace) {
+  //   case MemorySpace::System:
+  //     return ::tt::target::MemorySpace::System;
+  //   case MemorySpace::SystemMMIO:
+  //     return ::tt::target::MemorySpace::SystemMMIO;
+  //   case MemorySpace::DeviceDRAM:
+  //     return ::tt::target::MemorySpace::DeviceDRAM;
+  //   case MemorySpace::DeviceL1:
+  //     return ::tt::target::MemorySpace::DeviceL1;
+  //   }
+  // }
 public:
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
@@ -60,6 +77,33 @@ public:
     if (emptyOp) {
       rewriter.eraseOp(emptyOp);
     }
+
+    // struct ToLayout {
+    // static Tensor operator()(
+    //     const ttnn::Tensor& tensor_arg,
+    //     const ttnn::Layout layout,
+    //     const std::optional<ttnn::DataType>& dtype = std::nullopt,
+    //     const std::optional<ttnn::MemoryConfig>& memory_config =
+    //     std::nullopt, Device* device = nullptr);
+
+    //   struct MemoryConfig {
+    //     TensorMemoryLayout memory_layout = TensorMemoryLayout::INTERLEAVED;
+    //     // Interleave the data across multiple banks BufferType buffer_type =
+    //     BufferType::DRAM;                           // Can be either DRAM or
+    //     L1 std::optional<ShardSpec> shard_spec = std::nullopt; bool
+    //     is_sharded() const; bool is_l1() const; bool is_dram() const;
+    // };
+    std::cout << "0" << std::endl;
+
+    mlir::RankedTensorType resType = op.getResult().getType();
+    tt::LayoutAttr resAttr = mlir::cast<tt::LayoutAttr>(resType.getEncoding());
+    tt::MemorySpace resMemSpace = resAttr.getMemorySpace();
+    std::cout << tt::stringifyMemorySpace(resMemSpace).str() << std::endl;
+
+    Type tensorDType = resAttr.getMemref().getElementType();
+    (void)tensorDType;
+
+    std::cout << "1" << std::endl;
 
     // Drop the last operand which is the DPS operand.
     //
