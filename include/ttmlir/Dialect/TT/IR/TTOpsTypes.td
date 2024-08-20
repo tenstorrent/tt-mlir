@@ -122,6 +122,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
     static tt::SystemDescAttr getDefault(MLIRContext *context);
     static tt::SystemDescAttr getFromPath(MLIRContext *context, std::string& path);
     unsigned getAddressAlignBytes(unsigned chipIndex = 0) const;
+    unsigned getAddressAlignBytes(MemorySpace memorySpace, unsigned chipIndex = 0) const;
     unsigned getNocL1AddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getNocDRAMAddressAlignBytes(unsigned chipIndex = 0) const;
     unsigned getPcieAddressAlignBytes(unsigned chipIndex = 0) const;
@@ -232,6 +233,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
+      AffineMap projectOnto(ArrayRef<int64_t> logicalTensorShape, GridAttr grid) const;
   }];
 }
 
