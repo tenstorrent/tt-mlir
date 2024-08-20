@@ -26,6 +26,8 @@ jobs:
           context: .github
           file: .github/Dockerfile
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:${{ github.sha }}
             ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
