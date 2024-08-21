@@ -5,9 +5,11 @@
 #include "llvm/ADT/ScopeExit.h"
 
 #include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
+#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -228,6 +230,9 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
     builder.create<emitc::IncludeOp>(module.getLoc(),
                                      "compute_kernel_api/untilize.h",
                                      /*isStandard=*/false);
+    builder.create<emitc::IncludeOp>(module.getLoc(),
+                                     "compute_kernel_api/eltwise_binary.h",
+                                     /*isStandard=*/false);
   }
 
   if (threadTypeAttr.getValue() == ttkernel::ThreadType::Tensix) {
@@ -264,11 +269,29 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
     }
   }
 
+  // Apply scf to emitc conversion next
+  {
+    ConversionTarget target(*module.getContext());
+    target.addLegalDialect<emitc::EmitCDialect>();
+    target.addIllegalDialect<scf::SCFDialect>();
+    RewritePatternSet scfPatterns(module.getContext());
+    populateSCFToEmitCConversionPatterns(scfPatterns);
+    if (failed(
+            applyPartialConversion(module, target, std::move(scfPatterns)))) {
+      return failure();
+    }
+  }
+
   TTKernelToEmitCTypeConverter typeConverter(module.getContext());
   RewritePatternSet patterns(module.getContext());
 
   patterns.add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
                TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,
@@ -277,6 +300,11 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
                TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
