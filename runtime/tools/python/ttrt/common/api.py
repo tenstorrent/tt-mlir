@@ -1267,7 +1267,12 @@ class API:
                         else:
                             command_options += f" {api['name']} {self[name]} "
 
-                    test_command = f"python -m tracy -p {self.globals.get_ttmlir_venv_path()}/bin/ttrt run {bin.file_path} --save-artifacts {command_options}"
+                    library_link_path = self.globals.add_ld_path(
+                        f"{Globals.get_ttmlir_venv_path()}/lib/python3.10/site-packages/ttrt/runtime/"
+                    )
+                    test_env_flags = f"LD_LIBRARY_PATH={library_link_path}"
+
+                    test_command = f"{test_env_flags} python -m tracy -p {self.globals.get_ttmlir_venv_path()}/bin/ttrt run {bin.file_path} --save-artifacts {command_options}"
                     print(f"test command for binary={bin.file_path} is: {test_command}")
                     testProcess = subprocess.Popen(
                         [test_command], shell=True, env=env_vars, preexec_fn=os.setsid

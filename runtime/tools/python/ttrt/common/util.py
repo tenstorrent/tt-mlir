@@ -75,6 +75,11 @@ class Globals:
 
         return False
 
+    def add_ld_path(self, path):
+        current_path = os.getenv("LD_LIBRARY_PATH", "")
+        updated_path = f"{path}:{current_path}"
+        return updated_path
+
     @staticmethod
     def get_ttmlir_home_path():
         return os.environ.get("TT_MLIR_HOME", f"{os.getcwd()}")

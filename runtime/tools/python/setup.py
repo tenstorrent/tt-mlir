@@ -6,6 +6,7 @@ import os
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 import shutil
+import subprocess
 
 TTMLIR_VERSION_MAJOR = os.getenv("TTMLIR_VERSION_MAJOR", "0")
 TTMLIR_VERSION_MINOR = os.getenv("TTMLIR_VERSION_MINOR", "0")
@@ -24,6 +25,7 @@ os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
+enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 
 ext_modules = [
     Pybind11Extension(
@@ -54,6 +56,9 @@ if enable_ttmetal:
     dylibs += ["libtt_metal.so"]
     linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
+if enable_perf:
+    dylibs += ["libtracy.so.0.10.0"]
+
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
@@ -62,6 +67,23 @@ if enable_runtime:
             f"{metallibdir}/{dylib}",
             f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
         )
+        command = [
+            "patchelf",
+            "--set-rpath",
+            "$ORIGIN",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/{dylib}",
+        ]
+
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Command failed with return code {e.returncode}")
     ext_modules.append(
         Pybind11Extension(
             "ttrt.runtime._C",
@@ -79,6 +101,7 @@ if enable_runtime:
                 f"{src_dir}/build/runtime/lib/ttnn",
                 f"{src_dir}/build/runtime/lib/ttmetal",
                 f"{toolchain}/lib",
+                f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
                 f"{metallibdir}",
             ],
             define_macros=[("VERSION_INFO", __version__)],
