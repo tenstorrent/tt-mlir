@@ -447,7 +447,7 @@ class API:
         ]
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            for name, _ in API.Read.registered_args.items():
+            for name, attributes in API.Read.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
 
@@ -696,7 +696,7 @@ class API:
         api_only_arg = []
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            for name, _ in API.Run.registered_args.items():
+            for name, attributes in API.Run.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
 
@@ -1040,7 +1040,7 @@ class API:
         api_only_arg = []
 
         def __init__(self, args={}, logging=None, artifacts=None):
-            for name, _ in API.Perf.registered_args.items():
+            for name, attributes in API.Perf.registered_args.items():
                 name = name if not name.startswith("-") else name.lstrip("-")
                 name = name.replace("-", "_")
 
@@ -1089,49 +1089,78 @@ class API:
                 self.tracy_csvexport_tool_path
             ), f"perf tool={self.tracy_csvexport_tool_path} does not exist - rebuild using perf mode"
 
-            ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
-            ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
-                self["binary"]
-            )
-
-            self.logging.debug(f"ttnn_binary_paths={ttnn_binary_paths}")
-            self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
-
-            for path in ttnn_binary_paths:
-                bin = Binary(self.logger, self.file_manager, path)
+            if "binary" not in self:
+                # Load from Capsule instead. only TTNN Path is supported for now
+                bin = Binary(self.logger, self.file_manager, "", self["capsule"])
                 if not bin.check_version():
-                    continue
+                    self.logger.warning(
+                        "Flatbuffer version not present, are you sure that the binary is valid? - Skipped"
+                    )
+                    return
 
                 if not bin.check_system_desc(self.query):
-                    continue
+                    self.logger.warning(
+                        "System desc does not match, are you sure that the binary is valid? - Skipped"
+                    )
+                    return
 
                 if self["program_index"] != "all":
                     if not bin.check_program_index_exists(int(self["program_index"])):
                         self.logging.warning(
                             f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
                         )
-                        continue
-
+                        return
                 self.ttnn_binaries.append(bin)
+            else:
+                ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(
+                    self["binary"]
+                )
+                ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
+                    self["binary"]
+                )
 
-            self.logging.debug(f"finished checking constraints for run API")
+                self.logging.debug(f"ttnn_binary_paths={ttnn_binary_paths}")
+                self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
 
-            for path in ttmetal_binary_paths:
-                bin = Binary(self.logger, self.file_manager, path)
-                if not bin.check_version():
-                    continue
-
-                if not bin.check_system_desc(self.query):
-                    continue
-
-                if self["program_index"] != "all":
-                    if not bin.check_program_index_exists(int(self["program_index"])):
-                        self.logging.warning(
-                            f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                        )
+                for path in ttnn_binary_paths:
+                    bin = Binary(self.logger, self.file_manager, path)
+                    if not bin.check_version():
                         continue
 
-                self.ttmetal_binaries.append(bin)
+                    if not bin.check_system_desc(self.query):
+                        continue
+
+                    if self["program_index"] != "all":
+                        if not bin.check_program_index_exists(
+                            int(self["program_index"])
+                        ):
+                            self.logging.warning(
+                                f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                            )
+                            continue
+
+                    self.ttnn_binaries.append(bin)
+
+                self.logging.debug(f"finished checking constraints for run API")
+
+                for path in ttmetal_binary_paths:
+                    bin = Binary(self.logger, self.file_manager, path)
+                    if not bin.check_version():
+                        continue
+
+                    if not bin.check_system_desc(self.query):
+                        continue
+
+                    if self["program_index"] != "all":
+                        if not bin.check_program_index_exists(
+                            int(self["program_index"])
+                        ):
+                            self.logging.warning(
+                                f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                            )
+                            continue
+
+                    self.ttmetal_binaries.append(bin)
 
             self.logging.debug(f"finished checking constraints for perf API")
 

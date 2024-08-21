@@ -5,6 +5,7 @@
 from ._C import (
     load_from_path,
     load_binary_from_path,
+    load_binary_from_capsule,
     load_system_desc_from_path,
     Flatbuffer,
 )
