@@ -1,3 +1,6 @@
+include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
+include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
+
 add_subdirectory(CAPI)
 add_subdirectory(Conversion)
 add_subdirectory(Dialect)
@@ -9,18 +12,26 @@ if (TTMLIR_ENABLE_RUNTIME)
     add_subdirectory(SharedLib)
 endif()
 
+set(link_libs
+MLIR
+MLIRTTDialect
+MLIRTTIRDialect
+MLIRTTIRTransforms
+TTMLIRConversions
+MLIRTTIRAnalysis
+MLIRTTNNDialect
+MLIRTTNNTransforms
+MLIRTTKernelDialect
+MLIRTTMetalDialect
+MLIRTTMetalTransforms
+MLIRTTNNPipelines
+)
+
+if (TTMLIR_ENABLE_STABLEHLO)
+list(APPEND link_libs StablehloRegister)
+endif()
+
 add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp
   LINK_LIBS PUBLIC
-    MLIR
-    MLIRTTDialect
-    MLIRTTIRDialect
-    MLIRTTIRTransforms
-    TTMLIRConversions
-    MLIRTTIRAnalysis
-    MLIRTTNNDialect
-    MLIRTTNNTransforms
-    MLIRTTKernelDialect
-    MLIRTTMetalDialect
-    MLIRTTMetalTransforms
-    MLIRTTNNPipelines
+  ${link_libs}
 )

@@ -17,6 +17,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/dialect/Register.h"
+#endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
   registry
@@ -28,6 +31,9 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
               mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
               mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
               mlir::emitc::EmitCDialect>();
+#if TTMLIR_ENABLE_STABLEHLO
+  mlir::stablehlo::registerAllDialects(registry);
+#endif
 }
 
 void mlir::tt::registerAllPasses() {

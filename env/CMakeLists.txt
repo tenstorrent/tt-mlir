@@ -67,4 +67,13 @@ ExternalProject_Add(
     DEPENDS python-venv
 )
 
+ExternalProject_Add(stablehlo
+   PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+   GIT_REPOSITORY https://github.com/openxla/stablehlo.git
+   GIT_TAG v1.5.0
+   CONFIGURE_COMMAND ""
+   BUILD_COMMAND ""
+   INSTALL_COMMAND ""
+)
+
 add_custom_target(llvm-lit ALL COMMAND cp ${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)

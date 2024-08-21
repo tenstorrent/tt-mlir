@@ -771,12 +771,14 @@ public:
 };
 
 inline uint64_t getElementSizeBytes(Type ty) {
+  uint64_t val = 0;
   if (isa<TileType>(ty)) {
     auto tileType = mlir::cast<TileType>(ty);
-    return tileType.getSizeBytes();
+    val = tileType.getSizeBytes();
   } else {
-    return ty.getIntOrFloatBitWidth() / 8;
+    val = ty.getIntOrFloatBitWidth() / 8;
   }
+  return val;
 }
 
 inline uint64_t getMemrefSizeBytes(MemRefType ty) {

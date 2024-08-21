@@ -7,6 +7,11 @@ endif()
 
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
+option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
+
+if (TTMLIR_ENABLE_STABLEHLO)
+  add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
+endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 
@@ -48,6 +53,12 @@ add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)
 
 add_subdirectory(third_party)
+if (TTMLIR_ENABLE_STABLEHLO)
+  set(STABLEHLO_BUILD_EMBEDDED ON)
+  add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
+  include_directories(${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
+  include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
+endif()
 add_subdirectory(include)
 add_subdirectory(lib)
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)

@@ -4,6 +4,7 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+ARG GIT_SHA
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
@@ -61,6 +62,7 @@ RUN mkdir -p $BUILD_DIR && \
 # Clone the project and update submodules
 RUN git clone https://github.com/tenstorrent/tt-mlir.git $BUILD_DIR/tt-mlir && \
     cd $BUILD_DIR/tt-mlir && \
+    git checkout $GIT_SHA && \
     git submodule update --init --recursive -f
 
 # Build the toolchain
@@ -77,7 +79,8 @@ RUN source env/activate && \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DTTMLIR_ENABLE_RUNTIME=ON \
-    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON && \
+    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+    -DTTMLIR_ENABLE_STABLEHLO=ON && \
     cmake --build build --config Release
 
 # Run clang-tidy
