@@ -150,6 +150,13 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
 
+::tt::target::Dim2dRange toFlatbuffer(const ::mlir::tt::CoreRangeAttr& coreRange) {
+  const auto offset = coreRange.getOffset();
+  const auto size = coreRange.getSize();
+  return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
+                                  ::tt::target::Dim2d(size[0], size[1]));
+}
+
 inline flatbuffers::Offset<::tt::target::ChipPhysicalCores>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ChipPhysicalCoresAttr chipPhysicalCores) {
@@ -397,6 +404,20 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
       cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr);
   return ::tt::target::CreateTensorRef(*cache.fbb, cache.global_id++, address,
                                        size, tensorDesc);
+}
+
+inline flatbuffers::Offset<::tt::target::CBConfig>
+circularBufferAttributesAttrToFlatbuffer(FlatbufferObjectCache& cache, const CircularBufferAttributesAttr& cbAttr)
+{
+  auto core_spec = toFlatbuffer(cbAttr.getCoreRange());
+
+  return ::tt::target::CreateCBConfig(*cache.fbb, 
+    static_cast<int32_t>(cbAttr.getCbId()),
+    &core_spec,
+    cbAttr.getTotalSize(),
+    cbAttr.getPageSize(),
+    toFlatbuffer(cache, cbAttr.getDataFormat()),
+    -1 /*globally_allocated_address_*/);
 }
 
 inline flatbuffers::Offset<::tt::target::MLIR>
