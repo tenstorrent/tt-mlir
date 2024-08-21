@@ -375,7 +375,8 @@ public:
         return type;
       }
       auto layout = mlir::cast<LayoutAttr>(type.getEncoding());
-      auto buffer = BufferAttr::get(ctx, layout.getMemref());
+      auto buffer =
+          BufferAttr::get(ctx, layout.getMemref(), BufferAccess::Alias);
       return RankedTensorType::get(buffer.getShape(), type.getElementType(),
                                    buffer);
     });
