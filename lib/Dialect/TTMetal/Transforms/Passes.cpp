@@ -7,6 +7,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
@@ -217,7 +218,6 @@ public:
     auto noc0Attr =
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);
     SmallVector<Attribute> threadTypes(dm.size(), noc0Attr);
-    SmallVector<Attribute> operand_cb_port_mapping;
     SmallVector<Attribute> coreRanges;
     coreRanges.reserve(dm.size());
     for (auto [dstCoord, srcs] : dm) {
@@ -231,8 +231,7 @@ public:
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threadTypes),
-        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+        rewriter.getArrayAttr(threadTypes), threadTypes.size());
 
     int i = 0;
     PhysicalCoreCoordMapping physicalCoordMapping(systemDesc.getChipDescs());
@@ -272,10 +271,6 @@ public:
     auto tensixAttr = rewriter.getAttr<ttkernel::ThreadTypeAttr>(
         ttkernel::ThreadType::Tensix);
     SmallVector<Attribute> threadTypes = {tensixAttr};
-    SmallVector<Attribute> operand_cb_port_mapping = {
-        rewriter.getI64IntegerAttr(0),
-        rewriter.getI64IntegerAttr(16),
-    };
 
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
@@ -285,8 +280,7 @@ public:
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threadTypes),
-        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+        rewriter.getArrayAttr(threadTypes), threadTypes.size());
 
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
@@ -417,17 +411,6 @@ public:
   }
 };
 
-class TTIRToTTMetalReturnRewriter : public OpRewritePattern<ttir::YieldOp> {
-public:
-  using OpRewritePattern<ttir::YieldOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::YieldOp op,
-                                PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttkernel::ReturnOp>(op);
-    return success();
-  }
-};
-
 class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
@@ -442,21 +425,327 @@ public:
     return exists;
   }
 
-  SmallVector<Type> getBlockArgumentTypesAsCBs(
-      mlir::Block::BlockArgListType blockArguments,
-      SmallVector<Attribute> const &operand_cb_port_mapping,
-      PatternRewriter &rewriter) const {
+  ttkernel::CBPort getPort(unsigned argNumber,
+                           std::int64_t numDPSInputs) const {
+    std::int64_t operandInOutPartition = numDPSInputs;
+    std::uint32_t portIdx = 0;
+    if (argNumber < static_cast<unsigned>(operandInOutPartition)) {
+      assert(argNumber < 8 && "Exceeds max 8 input ports");
+      portIdx = ttmlir::utils::enum_as_int(ttkernel::CBPort::In0) + argNumber;
+    } else {
+      assert((argNumber - operandInOutPartition) < 8 &&
+             "Exceeds max 8 output ports");
+      portIdx = ttmlir::utils::enum_as_int(ttkernel::CBPort::Out0) +
+                (argNumber - operandInOutPartition);
+    }
+    std::optional<ttkernel::CBPort> maybePort =
+        ttkernel::symbolizeCBPort(portIdx);
+    assert(maybePort.has_value() && "Expected legal port value");
+    return maybePort.value();
+  }
+
+  // This routine evaluates the memref's affine map with it's shape to return a
+  // single result affine map, e.g.:
+  //  - Given: shape{2, 4} and affine_map<(d0, d1) -> (d0, d1)>
+  //  - Becomes: affine_map<(d0, d1) -> (d0 * 4 + d1)
+  // This is useful for evaluating iterator increment steps between each loop.
+  AffineMap getAffineIterator(MemRefType memref) const {
+    ArrayRef<std::int64_t> shape = memref.getShape();
+    SmallVector<std::int64_t> physShape =
+        memref.getLayout().getAffineMap().compose(shape);
+
+    mlir::AffineExpr resultExpr = getAffineConstantExpr(0, memref.getContext());
+    int volume = 1;
+    for (int i = static_cast<int>(physShape.size()) - 1; i >= 0; i--) {
+      mlir::AffineExpr dimExpr = getAffineDimExpr(i, memref.getContext());
+      mlir::AffineExpr strideExpr =
+          getAffineConstantExpr(volume, memref.getContext());
+      resultExpr = dimExpr * strideExpr + resultExpr;
+      volume *= physShape[i];
+    }
+    return AffineMap::get(physShape.size(), 0, resultExpr, memref.getContext());
+  }
+
+  Value i32(std::int32_t value, OpBuilder &builder) const {
+    return builder
+        .create<arith::ConstantOp>(builder.getUnknownLoc(),
+                                   builder.getI32Type(),
+                                   builder.getI32IntegerAttr(value))
+        .getResult();
+  }
+
+  struct LoopNest {
+    SmallVector<scf::ForOp> loops;
+    SmallVector<Region *> loopRegions;
+    SmallVector<unsigned> blockArgIteratorMapping;
+  };
+
+  // Creates a loop nest that walks the input/output operand tiles in the shard.
+  // Converts this:
+  //   %0 = arith.add(%1, %2) : tensor<2x4x!tile<f32>>, tensor<2x4x!tile<f32>>
+  //          -> tensor<2x4x!tile<f32>>
+  // Into this:
+  //   for (%i0 = 0; %i0 < 2; %i0++)
+  //     for (%i1 = 0; %i1 < 4; %i1++)
+  //       %ii = %i0 * 4 + %i1
+  //       %3 = ttkernel.add_tiles(%1, %2, %ii, %ii)
+  LoopNest createLoopNest(ArrayRef<BlockArgument> blockArguments,
+                          std::int64_t numDPSInputs, OpBuilder &builder) const {
+    Value output = blockArguments[numDPSInputs];
+    ttkernel::CBType outputTy = mlir::cast<ttkernel::CBType>(output.getType());
+    MemRefType outputMemref = outputTy.getMemref();
+    ArrayRef<std::int64_t> outputShape = outputMemref.getShape();
+    AffineMap outputAffineMap = outputMemref.getLayout().getAffineMap();
+
+    // Uniquify the iterators, i.e. operands that have identical access pattern
+    // can be shared.
+    llvm::MapVector<AffineMap, Value> iteratorMaps;
+    auto getOrInsertIterator = [&iteratorMaps, &builder,
+                                this](AffineMap affineIterator) {
+      if (iteratorMaps.find(affineIterator) == iteratorMaps.end()) {
+        iteratorMaps[affineIterator] = i32(0, builder);
+      }
+      return iteratorMaps[affineIterator];
+    };
+
+    // Map block arguments to their respective unique iterators Values
+    SmallVector<Value> iterators;
+    iterators.resize(blockArguments.size());
+    for (BlockArgument operand : blockArguments) {
+      auto cbType = mlir::cast<ttkernel::CBType>(operand.getType());
+      AffineMap affineIterator = getAffineIterator(cbType.getMemref());
+      assert(affineIterator.getNumDims() == outputAffineMap.getNumDims());
+      iterators[operand.getArgNumber()] = getOrInsertIterator(affineIterator);
+    }
+
+    // Map block arguments to their respective unique iterator offset in the
+    // map. This is needed by the caller to know how to wire the iterators into
+    // the ttkernel tile operation.
+    SmallVector<unsigned> blockArgIteratorMapping;
+    blockArgIteratorMapping.resize(blockArguments.size());
+    for (BlockArgument operand : blockArguments) {
+      auto cbType = mlir::cast<ttkernel::CBType>(operand.getType());
+      AffineMap affineIterator = getAffineIterator(cbType.getMemref());
+      auto match = iteratorMaps.find(affineIterator);
+      assert(match != iteratorMaps.end());
+      blockArgIteratorMapping[operand.getArgNumber()] =
+          std::distance(iteratorMaps.begin(), match);
+    }
+
+    // Convert the map data structure into a vector because it's easier to work
+    // with when creating the loop nest below.
+    SmallVector<Value> uniqueIterators;
+    for (auto [affineMap, iterator] : iteratorMaps) {
+      uniqueIterators.push_back(iterator);
+    }
+
+    // Create loop nest
+    // The loop nest is created from outermost to innermost. The innermost loop
+    // is special in the sense that it implements the actual iterator increment
+    // and the tile operation. The outer loops are responsible for fixing up the
+    // iterator offset for the current dimension if there was a stride or we're
+    // accessing the tiles in non-row-major order.
+    //
+    // iterators are just ints that correspond to absolute offsets in the CB.
+    // They walk the order defined by the affine map associated with the memref.
+    LoopNest loopNest;
+    loopNest.blockArgIteratorMapping = blockArgIteratorMapping;
+    SmallVector<scf::ForOp> loops;
+    SmallVector<Region *> loopRegions;
+    SmallVector<SmallVector<Value>> iteratorsNest = {uniqueIterators};
+    for (unsigned dim = 0; dim < outputAffineMap.getNumDims(); ++dim) {
+      OpBuilder regionBuilder(builder);
+      if (!loopNest.loopRegions.empty()) {
+        regionBuilder = OpBuilder(loopNest.loopRegions.back());
+      }
+      // Loop variables, these are decoupled from the iterators
+      Value lowerBound = i32(0, regionBuilder);
+      Value upperBound = i32(outputShape[dim], regionBuilder);
+      Value loopStep = i32(1, regionBuilder);
+      scf::ForOp forOp = regionBuilder.create<scf::ForOp>(
+          output.getLoc(), lowerBound, upperBound, loopStep,
+          iteratorsNest.back());
+      loopNest.loops.push_back(forOp);
+
+      SmallVector<std::int64_t> innerIndexStep(outputAffineMap.getNumDims(), 0);
+      innerIndexStep[dim] = 1;
+
+      bool innerLoop = dim == (outputAffineMap.getNumDims() - 1);
+      if (innerLoop) {
+        OpBuilder innerLoopRegion(loopNest.loops.back().getRegion());
+        SmallVector<Value> innerIndices;
+        int i = 0;
+        for (auto [affineMap, iterator] : iteratorMaps) {
+          // Calculate how far a single step in the inner dim is.
+          SmallVector<std::int64_t> innerOffset =
+              affineMap.compose(innerIndexStep);
+          assert(innerOffset.size() == 1);
+          innerIndices.push_back(innerLoopRegion.create<arith::AddIOp>(
+              output.getLoc(), forOp.getRegionIterArg(i),
+              i32(innerOffset[0], innerLoopRegion)));
+          ++i;
+        }
+        innerLoopRegion.create<scf::YieldOp>(output.getLoc(), innerIndices);
+      }
+
+      // Backpedal and adjust the iterator offset for the current dimension.
+      if (dim > 0) {
+        SmallVector<Value> outerIndices;
+        SmallVector<std::int64_t> outerIndexStep(outputAffineMap.getNumDims(),
+                                                 0);
+        outerIndexStep[dim - 1] = 1;
+        int i = 0;
+        for (auto [affineMap, iterator] : iteratorMaps) {
+          // Calculate how far a single step in the inner dim is.
+          SmallVector<std::int64_t> innerOffset =
+              affineMap.compose(innerIndexStep);
+          assert(innerOffset.size() == 1);
+          // Calculate how far a single step in the outer dim is.
+          SmallVector<std::int64_t> outerOffset =
+              affineMap.compose(outerIndexStep);
+          assert(outerOffset.size() == 1);
+          // Multiply by the number of steps that the inner loop took.
+          // FIXME: test this for higher dims
+          std::int64_t offset =
+              outerOffset[0] - innerOffset[0] * outputShape[dim];
+          outerIndices.push_back(regionBuilder.create<arith::AddIOp>(
+              output.getLoc(), forOp.getResult(i), i32(offset, regionBuilder)));
+          ++i;
+        }
+        regionBuilder.create<scf::YieldOp>(output.getLoc(), outerIndices);
+      }
+
+      loopNest.loopRegions.push_back(&loopNest.loops.back().getRegion());
+      iteratorsNest.emplace_back(forOp.getRegionIterArgs());
+    }
+
+    return loopNest;
+  }
+
+  // Convert arith and math dialect operations into ttkernel init tile
+  // operations. HLK requires the FPU to be initialized before any tile ops get
+  // executed.  We separate the init tile operation from the actual tile
+  // operation so that we can hoist the init tile operation outside of the loop
+  // nest.
+  void convertComputeInitOp(Operation &op, ArrayRef<BlockArgument> cbOperands,
+                            std::int64_t numDpsInputs,
+                            OpBuilder &builder) const {
+    SmallVector<std::int64_t> operandIndices;
+    for (OpOperand &operand : op.getOpOperands()) {
+      operandIndices.push_back(operand.getOperandNumber());
+    }
+    if (mlir::isa<arith::AddFOp>(op)) {
+      builder.create<ttkernel::BinaryOpInitCommonOp>(
+          op.getLoc(), cbOperands[operandIndices[0]],
+          cbOperands[operandIndices[1]], cbOperands[numDpsInputs]);
+      builder.create<ttkernel::AddTilesInitOp>(op.getLoc(),
+                                               cbOperands[operandIndices[0]],
+                                               cbOperands[operandIndices[1]]);
+    } else if (mlir::isa<arith::MulFOp>(op)) {
+      builder.create<ttkernel::BinaryOpInitCommonOp>(
+          op.getLoc(), cbOperands[operandIndices[0]],
+          cbOperands[operandIndices[1]], cbOperands[numDpsInputs]);
+      builder.create<ttkernel::MulTilesInitOp>(op.getLoc(),
+                                               cbOperands[operandIndices[0]],
+                                               cbOperands[operandIndices[1]]);
+    } else {
+      llvm_unreachable("Unhandled conversion");
+    }
+  }
+
+  // Convert arith and math dialect operations into ttkernel tile operations.
+  // Here iterators are the block arguments from the innermost scf.for loop.
+  // The iterators are unique-ified so we need blockArgIteratorMapping to
+  // recover which top level tensor operand is associated with which iterator.
+  void convertComputeOp(Operation &op, ArrayRef<BlockArgument> cbOperands,
+                        ArrayRef<BlockArgument> iterators,
+                        SmallVector<unsigned> blockArgIteratorMapping,
+                        Value dstIndex, OpBuilder &builder) const {
+    SmallVector<std::int64_t> operandIndices;
+    for (OpOperand &operand : op.getOpOperands()) {
+      operandIndices.push_back(operand.getOperandNumber());
+    }
+    if (mlir::isa<arith::AddFOp>(op)) {
+      builder.create<ttkernel::AddTilesOp>(
+          op.getLoc(), cbOperands[operandIndices[0]],
+          cbOperands[operandIndices[1]], iterators[blockArgIteratorMapping[0]],
+          iterators[blockArgIteratorMapping[1]], dstIndex);
+    } else if (mlir::isa<arith::MulFOp>(op)) {
+      builder.create<ttkernel::MulTilesOp>(
+          op.getLoc(), cbOperands[operandIndices[0]],
+          cbOperands[operandIndices[1]], iterators[blockArgIteratorMapping[0]],
+          iterators[blockArgIteratorMapping[1]], dstIndex);
+    } else {
+      llvm_unreachable("Unhandled conversion");
+    }
+  }
+
+  // Convert the original block into a lowered block that contains a fully
+  // expanded loop nest and inner loop that implements the underlying arith or
+  // math operation as a tile operation.
+  void lowerBlock(Block *origBlock, Block *computeBlock,
+                  std::int64_t numDPSInputs) const {
+    Block::OpListType &operations = origBlock->getOperations();
+    assert(operations.size() == 2);
+    Operation::user_range users = operations.front().getUsers();
+    assert(users.begin() != users.end());
+    assert(mlir::isa<ttir::YieldOp>(*users.begin()));
+    assert(computeBlock->getNumArguments() > numDPSInputs);
+    assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
+           "Expected 1 output");
+
+    OpBuilder builder(computeBlock, computeBlock->begin());
+    convertComputeInitOp(operations.front(), computeBlock->getArguments(),
+                         numDPSInputs, builder);
+    LoopNest loopNest =
+        createLoopNest(computeBlock->getArguments(), numDPSInputs, builder);
+    builder.create<ttkernel::ReturnOp>(origBlock->getTerminator()->getLoc());
+
+    // Build the inner loop compute / unpack / pack
+    {
+      Value output = computeBlock->getArgument(numDPSInputs);
+      Region *innerLoopRegion = loopNest.loopRegions.back();
+      ArrayRef<BlockArgument> iterators =
+          loopNest.loops.back().getRegionIterArgs();
+      SmallVector<unsigned> blockArgIteratorMapping =
+          loopNest.blockArgIteratorMapping;
+      OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                                 innerLoopRegion->front().begin());
+      Value dstIndex = i32(0, innerLoopBuilder);
+      innerLoopBuilder.create<ttkernel::TileRegsAcquireOp>(
+          computeBlock->front().getLoc());
+      convertComputeOp(operations.front(), computeBlock->getArguments(),
+                       iterators, blockArgIteratorMapping, dstIndex,
+                       innerLoopBuilder);
+      innerLoopBuilder.create<ttkernel::TileRegsCommitOp>(
+          computeBlock->front().getLoc());
+      innerLoopBuilder.create<ttkernel::TileRegsWaitOp>(
+          computeBlock->front().getLoc());
+      innerLoopBuilder.create<ttkernel::PackTileOp>(
+          computeBlock->front().getLoc(), dstIndex, output,
+          iterators[blockArgIteratorMapping[numDPSInputs]]);
+      innerLoopBuilder.create<ttkernel::TileRegsReleaseOp>(
+          computeBlock->front().getLoc());
+    }
+  }
+
+  SmallVector<Type>
+  getBlockArgumentTypesAsCBs(mlir::OperandRange dispatchOperands,
+                             mlir::Block::BlockArgListType blockArguments,
+                             std::int64_t numDPSInputs,
+                             PatternRewriter &rewriter) const {
     SmallVector<Type> rewrittenBlockArgumentTypes;
     for (auto arg : blockArguments) {
-      auto address = lookupAddress(arg);
-      auto port =
-          mlir::cast<IntegerAttr>(operand_cb_port_mapping[arg.getArgNumber()])
-              .getInt();
+      auto address = lookupAddress(dispatchOperands[arg.getArgNumber()]);
+      assert(address && "Expected valid address");
+      auto port = getPort(arg.getArgNumber(), numDPSInputs);
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
       auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
       auto memref = buffer.getMemref();
-      rewrittenBlockArgumentTypes.push_back(rewriter.getType<ttkernel::CBType>(
-          ttkernel::symbolizeCBPort(port).value(), address, memref));
+      assert(buffer.getBufferAccess() == BufferAccess::Alias &&
+             "Currently only alias mode is supported");
+      rewrittenBlockArgumentTypes.push_back(
+          rewriter.getType<ttkernel::CBType>(port, address, memref));
     }
     return rewrittenBlockArgumentTypes;
   }
@@ -468,66 +757,28 @@ public:
     }
 
     SmallVector<Attribute> threadTypes = {
-        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0),
-        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc1),
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(
             ttkernel::ThreadType::Tensix),
     };
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
-        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
-        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
     };
-    SmallVector<Attribute> operand_cb_port_mapping;
-    for (auto &operand : op->getOpOperands()) {
-      operand_cb_port_mapping.push_back(
-          rewriter.getI64IntegerAttr(operand.getOperandNumber()));
-    }
+
     auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threadTypes),
-        rewriter.getArrayAttr(operand_cb_port_mapping), threadTypes.size());
+        rewriter.getArrayAttr(threadTypes), threadTypes.size());
 
     auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
-        op->getRegion(0).getArguments(), operand_cb_port_mapping, rewriter);
+        op->getOperands(), op->getRegion(0).getArguments(),
+        op.getNumDpsInputs(), rewriter);
 
-    metalDispatch.getRegion(2).takeBody(op->getRegion(0));
-    Block *tensixBlock = &metalDispatch.getRegion(2).front();
-    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(0));
-    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(1));
-
-    int i = 0;
+    Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
     for (auto ty : rewrittenBlockArgumentTypes) {
-      noc0Block->addArgument(ty, op.getLoc());
-      noc1Block->addArgument(ty, op.getLoc());
-      auto arg = tensixBlock->getArgument(i++);
-      arg.setType(ty);
+      tensixBlock->addArgument(ty, op.getLoc());
     }
 
-    {
-      OpBuilder noc0Builder(noc0Block, noc0Block->begin());
-      auto one = noc0Builder.create<arith::ConstantOp>(
-          op.getLoc(), noc0Builder.getI32Type(),
-          noc0Builder.getI32IntegerAttr(1));
-      noc0Builder.create<ttkernel::CBReserveBackOp>(
-          op.getLoc(), noc0Block->getArgument(0), one);
-      noc0Builder.create<ttkernel::CBPushBackOp>(
-          op.getLoc(), noc0Block->getArgument(0), one);
-      noc0Builder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
-    }
-
-    {
-      OpBuilder noc1Builder(noc1Block, noc1Block->begin());
-      auto one = noc1Builder.create<arith::ConstantOp>(
-          op.getLoc(), noc1Builder.getI32Type(),
-          noc1Builder.getI32IntegerAttr(1));
-      noc1Builder.create<ttkernel::CBReserveBackOp>(
-          op.getLoc(), noc1Block->getArgument(0), one);
-      noc1Builder.create<ttkernel::CBPushBackOp>(
-          op.getLoc(), noc1Block->getArgument(0), one);
-      noc1Builder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
-    }
+    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs());
 
     rewriter.replaceOp(op, metalDispatch);
 
@@ -567,9 +818,8 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<TTIRToTTMetalLayoutRewriter, TTIRToTTMetalKernelRewriter,
-                 TTIRToTTMetalReturnRewriter, TTIRToTTMetalDispatchRewriter,
-                 TTIRToTTMetalAllocRewriter, TTIRToTTMetalDeallocRewriter>(
-        &getContext());
+                 TTIRToTTMetalDispatchRewriter, TTIRToTTMetalAllocRewriter,
+                 TTIRToTTMetalDeallocRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();

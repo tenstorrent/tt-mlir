@@ -30,8 +30,7 @@ def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, At
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TTMetal_CoreRangeArrayAttr:$core_ranges,
-                         TTKernel_ThreadTypeArrayAttr:$threadTypes,
-                         ArrayAttr:$operand_cb_port_mapping);
+                         TTKernel_ThreadTypeArrayAttr:$threadTypes);
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region VariadicRegion<AnyRegion>:$regions);
 
