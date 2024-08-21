@@ -25,6 +25,77 @@
 
 namespace mlir::tt::ttmetal {
 
+emitc::OpaqueAttr convertCBPort(Builder &builder, ttkernel::CBPort port) {
+  switch (port) {
+  case ttkernel::CBPort::In0:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in0");
+  case ttkernel::CBPort::In1:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in1");
+  case ttkernel::CBPort::In2:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in2");
+  case ttkernel::CBPort::In3:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in3");
+  case ttkernel::CBPort::In4:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in4");
+  case ttkernel::CBPort::In5:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in5");
+  case ttkernel::CBPort::In6:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in6");
+  case ttkernel::CBPort::In7:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_in7");
+  case ttkernel::CBPort::DataFlow0:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow0");
+  case ttkernel::CBPort::DataFlow1:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow1");
+  case ttkernel::CBPort::DataFlow2:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow2");
+  case ttkernel::CBPort::DataFlow3:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow3");
+  case ttkernel::CBPort::DataFlow4:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow4");
+  case ttkernel::CBPort::DataFlow5:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow5");
+  case ttkernel::CBPort::DataFlow6:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow6");
+  case ttkernel::CBPort::DataFlow7:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::dataflow7");
+  case ttkernel::CBPort::Out0:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out0");
+  case ttkernel::CBPort::Out1:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out1");
+  case ttkernel::CBPort::Out2:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out2");
+  case ttkernel::CBPort::Out3:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out3");
+  case ttkernel::CBPort::Out4:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out4");
+  case ttkernel::CBPort::Out5:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out5");
+  case ttkernel::CBPort::Out6:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out6");
+  case ttkernel::CBPort::Out7:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_out7");
+  case ttkernel::CBPort::Intermed0:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed0");
+  case ttkernel::CBPort::Intermed1:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed1");
+  case ttkernel::CBPort::Intermed2:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed2");
+  case ttkernel::CBPort::Intermed3:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed3");
+  case ttkernel::CBPort::Intermed4:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed4");
+  case ttkernel::CBPort::Intermed5:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed5");
+  case ttkernel::CBPort::Intermed6:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed6");
+  case ttkernel::CBPort::Intermed7:
+    return builder.getType<emitc::OpaqueAttr>("::tt::CB::c_intermed7");
+  }
+  llvm_unreachable("Unknown CBPort");
+  return nullptr;
+}
+
 class TTKernelToEmitCTypeConverter : public TypeConverter {
 public:
   TTKernelToEmitCTypeConverter(MLIRContext *ctx) {
@@ -32,12 +103,17 @@ public:
     addConversion([ctx](mlir::tt::ttkernel::NocAddrType type) -> Type {
       return Builder(ctx).getI64Type();
     });
+    addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
+      return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
+    });
   }
 };
 
 class TTMetalToEmitCFuncArgsRewriter : public OpRewritePattern<func::FuncOp> {
 public:
-  using OpRewritePattern<func::FuncOp>::OpRewritePattern;
+  TTMetalToEmitCFuncArgsRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                                 MLIRContext *ctx)
+      : OpRewritePattern<func::FuncOp>(ctx), typeConverter(&typeConverter) {}
 
   LogicalResult matchAndRewrite(func::FuncOp op,
                                 PatternRewriter &rewriter) const final {
@@ -50,9 +126,9 @@ public:
     rewriter.setInsertionPointToStart(&op.getCallableRegion()->front());
     for (auto arg : blockArgs) {
       auto cb = cast<ttkernel::CBType>(arg.getType());
+      auto cbType = typeConverter->convertType(cb);
       auto var = rewriter.create<emitc::VariableOp>(
-          op.getLoc(), rewriter.getI32Type(),
-          rewriter.getI32IntegerAttr(cb.getPort()));
+          op.getLoc(), cbType, convertCBPort(rewriter, cb.getPort()));
       arg.replaceAllUsesWith(var);
     }
     op.getCallableRegion()->front().eraseArguments(0, blockArgs.size());
@@ -60,12 +136,15 @@ public:
 
     return success();
   }
+
+  TTKernelToEmitCTypeConverter *typeConverter;
 };
 
 class TTMetalToEmitCReturnRewriter
     : public OpRewritePattern<ttkernel::ReturnOp> {
 public:
-  using OpRewritePattern<ttkernel::ReturnOp>::OpRewritePattern;
+  TTMetalToEmitCReturnRewriter(TTKernelToEmitCTypeConverter &, MLIRContext *ctx)
+      : OpRewritePattern<ttkernel::ReturnOp>(ctx) {}
 
   LogicalResult matchAndRewrite(ttkernel::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
@@ -188,9 +267,8 @@ LogicalResult emitDispatchOpRegionAsCpp(DispatchOp origOp,
   TTKernelToEmitCTypeConverter typeConverter(module.getContext());
   RewritePatternSet patterns(module.getContext());
 
-  patterns.add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter>(
-      module.getContext());
-  patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
+  patterns.add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>,

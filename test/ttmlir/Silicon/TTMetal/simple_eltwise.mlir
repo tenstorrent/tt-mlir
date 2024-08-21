@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-to-ttmetal-backend-pipeline --ttmetal-serialize-to-binary="output=%t.ttm" %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 
 func.func @multiply(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
