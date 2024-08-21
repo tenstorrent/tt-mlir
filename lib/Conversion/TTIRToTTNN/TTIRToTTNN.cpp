@@ -153,8 +153,8 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // auto kernel_ty = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    // llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
+    auto kernel_ty = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
 
     auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
@@ -162,15 +162,19 @@ public:
     auto output_ty = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
     llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
 
-
     auto in_channels = rewriter.getI32IntegerAttr(input_shape[input_shape.size()-1]);
     auto out_channels = rewriter.getI32IntegerAttr(output_shape[output_shape.size()-1]);
-    auto batch_size = rewriter.getI32IntegerAttr(input_shape[input_shape.size()-4]);
+
+    auto batch_size = rewriter.getI32IntegerAttr(1);
+    if (input_shape.size() == 4) {
+      batch_size = rewriter.getI32IntegerAttr(input_shape[input_shape.size()-4]);
+    }
+
     auto input_height = rewriter.getI32IntegerAttr(input_shape[input_shape.size()-3]);
     auto input_width = rewriter.getI32IntegerAttr(input_shape[input_shape.size()-2]);
 
-    auto kernel_height = rewriter.getI32IntegerAttr(adaptor.getKernelHeight());
-    auto kernel_width = rewriter.getI32IntegerAttr(adaptor.getKernelWidth());
+    auto kernel_height = rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size()-2]);
+    auto kernel_width = rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size()-2]);
 
     auto stride_height = rewriter.getI32IntegerAttr(adaptor.getStrideHeight());
     auto stride_width = rewriter.getI32IntegerAttr(adaptor.getStrideWidth());
