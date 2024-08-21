@@ -34,13 +34,6 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
-  auto offset = coreRange.getOffset();
-  auto size = coreRange.getSize();
-  return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
-                                  ::tt::target::Dim2d(size[0], size[1]));
-}
-
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
   return ::tt::target::CreateDeviceRef(*cache.fbb, cache.nextGlobalId());
@@ -199,7 +192,7 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
 }
 
 // TODO(pjanevski)
-template <typename GenericOp>
+// template <typename GenericOp>
 ::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
 createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
 
@@ -219,9 +212,10 @@ createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
 
   // circular buffer attributes
   std::vector<::flatbuffers::Offset<::tt::target::CBConfig>> cb_configs;
-  auto cb_attributes = op.getCircularBufferAttributes();
-  for (auto attr : cb_attributes) {
-    llvm::outs() << attr << "\n";
+  for (auto attr : op.getCircularBufferAttributesAttr()) {
+    if (const auto& cbAttr = mlir::dyn_cast<CircularBufferAttributesAttr>(attr)) {
+      cb_configs.push_back(cache.getOrCreate(cbAttr, &circularBufferAttributesAttrToFlatbuffer));
+    }
   }
 
   // compute kernel atrributes
@@ -229,7 +223,10 @@ createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
   return ::tt::target::ttnn::CreateGenericOp(
           *cache.fbb,
           cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(ins),
-          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(outs));
+          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(outs),
+          0, 
+          0,
+          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::CBConfig>>(cb_configs));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>

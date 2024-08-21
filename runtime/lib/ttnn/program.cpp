@@ -326,11 +326,11 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
 }
 
-static CoreRangeSet get_core_range_set(const target::CoreSpec *core_spec) {
-  uint32_t x_start = core_spec->x_start();
-  uint32_t y_start = core_spec->y_start();
-  uint32_t x_size = core_spec->x_size();
-  uint32_t y_size = core_spec->y_size();
+static CoreRangeSet get_core_range_set(const target::Dim2dRange& core_spec) {
+  const uint32_t x_start = core_spec.loc().x();
+  const uint32_t y_start = core_spec.loc().y();
+  const uint32_t x_size = core_spec.size().x();
+  const uint32_t y_size = core_spec.size().y();
   CoreRange cr({x_start, y_start}, {x_start + x_size - 1, y_start + y_size - 1});
   CoreRangeSet crs({cr});
   return crs;
@@ -349,8 +349,8 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
     std::list<::ttnn::Tensor> &tensorPool) {
 
     std::unordered_map<uint8_t, ::ttnn::operations::generic::circular_buffer_attributes_t> circular_buffer_attributes;
-    for (auto cb_config : *op->cb_configs()) {
-        CoreRangeSet crs = get_core_range_set(cb_config->core_spec());
+    for (const auto& cb_config : *op->cb_configs()) {
+        CoreRangeSet crs = get_core_range_set(*cb_config->core_spec());
         
         // TODO(pjanevski): globally allocated addr setup
         circular_buffer_attributes.insert({
@@ -377,7 +377,7 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
         compute_config_defines[one_define->key()->str()] = one_define->val()->str();
       }
 
-      CoreRangeSet crs = get_core_range_set(compute_kernel->core_spec());
+      CoreRangeSet crs = get_core_range_set(*compute_kernel->core_spec());
 
       // TODO(pjanevski): setup runtime args
       // TODO(pjanevski): create struct in .fbs for math fidelity
@@ -412,7 +412,7 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
         dm_config_defines[one_define->key()->str()] = one_define->val()->str();
       }
       
-      CoreRangeSet crs = get_core_range_set(data_movement_kernel->core_spec());
+      CoreRangeSet crs = get_core_range_set(*data_movement_kernel->core_spec());
 
       // TODO(pjanevski): setup runtime args
       ::ttnn::operations::generic::data_movement_attributes_t dm_attr = {

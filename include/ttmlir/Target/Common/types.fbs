@@ -142,16 +142,9 @@ table EventRef {
   global_id: uint32;
 }
 
-table CoreSpec {
-  x_start: uint32;
-  y_start: uint32;
-  x_size: uint32;
-  y_size: uint32;
-}
-
 table CBConfig {
   cb_id : int32;
-  core_spec: CoreSpec;
+  core_spec: Dim2dRange;
   total_size: uint32;
   page_size: uint32;
   data_format: DataType;
@@ -177,7 +170,7 @@ table DataMovementConfig {
 }
 
 table DataMovementAttribute {
-  core_spec: CoreSpec;
+  core_spec: Dim2dRange;
   kernel_path: string;
   data_movement_config: DataMovementConfig;
   runtime_args: [RuntimeArg];
@@ -193,9 +186,8 @@ table ComputeKernelConfig {
 }
 
 table ComputeKernelAttribute {
-  core_spec: CoreSpec;
+  core_spec: Dim2dRange;
   kernel_path: string;
   compute_kernel_config : ComputeKernelConfig;
   runtime_args : [RuntimeArg];
 }
-
