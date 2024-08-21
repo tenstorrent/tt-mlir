@@ -76,8 +76,8 @@ createOp(FlatbufferObjectCache &cache, CloseDeviceOp op) {
 createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
   constexpr uint64_t kHostAllocatedAddress = 0;
   constexpr uint64_t kHostAllocatedSize = 0;
-  auto input = cache.getOrCreate(op.getInput(), tensorValueToFlatbuffer,
-                                 kHostAllocatedAddress, kHostAllocatedSize);
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
   return ::tt::target::ttnn::CreateToMemoryConfigOp(*cache.fbb, input, output);
