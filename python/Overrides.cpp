@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Bindings/Python/Overrides.h"
+#include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 namespace mlir::ttmlir::python {
 

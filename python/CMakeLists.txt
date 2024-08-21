@@ -6,6 +6,10 @@ set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
 
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
+get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
+
 declare_mlir_python_sources(TTMLIRPythonSources)
 declare_mlir_python_sources(TTMLIRPythonExtensions)
 
@@ -40,6 +44,18 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME ttkernel
 )
 
+declare_mlir_python_sources(TTMLIRPythonSources.Overrides
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES overrides.py
+)
+
+declare_mlir_python_sources(TTMLIRPythonSources.Passes
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES passes.py
+)
+
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
   ADD_TO_PARENT TTMLIRPythonExtensions
@@ -48,11 +64,17 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTModule.cpp
     TTKernelModule.cpp
     Overrides.cpp
+    Passes.cpp
   EMBED_CAPI_LINK_LIBS
     MLIRCAPITransforms
     TTMLIRCAPI
   PRIVATE_LINK_LIBS
     LLVMSupport
+    ${dialect_libs}
+    ${conversion_libs}
+    ${translation_libs}
+    MLIR
+    TTMLIRStatic
 )
 
 set(TTMLIR_PYTHON_SOURCES
