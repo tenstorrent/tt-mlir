@@ -67,16 +67,16 @@ There are already existing .mlir test cases under `test/ttmlir/Silicon`. You can
 ```bash
 ttrt query --save-artifacts
 ```
-4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When llvm-lit is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this manually when running llvm-lit.
+4. Export this file in your environment using `export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys`. When llvm-lit is run, it will query this variable and generate the ttnn and ttm files using this system. Optionally, you can also provide this when running llvm-lit.
 5. Generate your test cases. This will generate all your ttnn and ttm files under `build/test/ttmlir/Silicon`. ttnn files have a `.ttnn` file extension and ttmetal files have a `.ttm` extension.
 ```bash
 cmake --build build -- check-ttmlir
 ```
-6. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run llvm-lit standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct llvm-lit configs into your .mlir file. See section on adding llvm-lit config options inside a .mlir file to create flatbuffer binaries for more info. You must also make sure your .mlir test is found within test/ttmlir/Silicon folder (and point lit to the build folder)!
+6. (Optional) If you have a single .mlir file (or a directory of custom .mlir files) that you created using the compiler, and you want to generate the corresponding ttnn and ttm files for it, you can run llvm-lit standalone to the path of your .mlir file or directory of .mlir files to generate the flatbuffer executables. You will have to make sure you add in the correct llvm-lit configs into your .mlir file. See section on adding llvm-lit config options inside a .mlir file to create flatbuffer binaries for more info.
 ```bash
-llvm-lit -v ./build/test/ttmlir/Silicon
+llvm-lit -v /path/to/some/test.mlir
 or
-SYSTEM_DESC_PATH=/path/to/system_desc.ttsys llvm-lit -v ./build/test/ttmlir/Silicon
+SYSTEM_DESC_PATH=/path/to/system_desc.ttsys llvm-lit -v /path/to/some/test.mlir
 ```
 7. Run your test cases using ttrt
 ```bash
@@ -92,9 +92,6 @@ Inside of your .mlir file, you can add certain config options that llvm-lit will
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 ```
-
-## Adding new mlir test cases
-You can copy your .mlir test file (with the appropriate llvm-lit config options for generating flatbuffer binaries) into `test/ttmlir/Silicon`. Then, follow generating flatbuffer files using llvm-lit to generate the executables to run!
 
 ## Versioning
 ttrt and flatbuffers have strict versioning check. When running a flatbuffer against ttrt, you have to make sure the flatbuffer was generated using the same version as ttrt (or vice versa). Major and Minor versions are manually set using github tags when releases are made. Patch versioning is the number of commits from the last major/minor tag.
@@ -289,36 +286,12 @@ run_instance = API.Run(args=custom_args, logging=custom_logger, artifacts=custom
 
 ```
 
+## bonus
+- you can specify `SYSTEM_DESC_PATH` with the path to your ttsys file, and lit will automatically generate all the flatbuffer binaries for that system
+
 ## FAQ
 Flatbuffer version does not match ttrt version!
   - ttrt and flatbuffer have strict versioning that is checked during ttrt execution. You will have to generate a flatbuffer using the same version of ttrt (or vice versa). This mean you might have to build on the same branch on which the flatbuffer was generated or regenerate the flatbuffer using your current build.
 
 System desc does not match flatbuffer!
   - flatbuffers are compiled using a specific system desc (or default values if no system desc is provided). During runtime, the flatbuffer system desc is checked against the current system to ensure the system being run on supports the flatbuffer that was compiled. If you get this error, you will have to regenerate the flatbuffer using the system you want to run on. See generate a flatbuffer file from compiler section on how to do this.
-
-I just want to test and push my commit! What do I do!
-  - follow these steps (on both n150 and n300)
-```bash
-1. Build ttmlir (sample instructions - subject to change)
-source env/activate
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-17 -DCMAKE_CXX_COMPILER=clang++-17 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
-cmake --build build
-
-2. Build ttrt (sample instructions - subject to change)
-cmake --build build -- ttrt
-
-3. Query system
-ttrt query --save-artifacts
-
-4. Export system desc file
-export SYSTEM_DESC_PATH=/path/to/system_desc.ttsys (path dumped in previous command)
-
-5. Generate test cases
-cmake --build build -- check-ttmlir
-
-6. Run test cases
-ttrt run build/test/ttmlir/Silicon
-
-7. (Optional) Run perf test cases
-ttrt perf build/test/ttmlir/Silicon
-```

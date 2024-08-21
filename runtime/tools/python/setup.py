@@ -6,6 +6,7 @@ import os
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 import shutil
+import subprocess
 
 TTMLIR_VERSION_MAJOR = os.getenv("TTMLIR_VERSION_MAJOR", "0")
 TTMLIR_VERSION_MINOR = os.getenv("TTMLIR_VERSION_MINOR", "0")
@@ -62,6 +63,24 @@ if enable_runtime:
             f"{metallibdir}/{dylib}",
             f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
         )
+        command = [
+            "patchelf",
+            "--set-rpath",
+            "$ORIGIN",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/{dylib}",
+        ]
+
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Command failed with return code {e.returncode}")
+
     ext_modules.append(
         Pybind11Extension(
             "ttrt.runtime._C",
