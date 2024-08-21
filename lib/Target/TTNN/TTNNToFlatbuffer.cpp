@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <flatbuffers/buffer.h>
 #include <fstream>
 #include <llvm/Support/Casting.h>
 
@@ -28,6 +29,7 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 
 namespace mlir::tt::ttnn {
 
@@ -213,8 +215,7 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
-// TODO(pjanevski)
-// template <typename GenericOp>
+template <typename GenericOp>
 ::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
 createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
 
@@ -241,13 +242,27 @@ createGenericOp(FlatbufferObjectCache &cache, GenericOp op) {
   }
 
   // compute kernel atrributes
+  std::vector<::flatbuffers::Offset<::tt::target::ComputeKernelAttribute>> compute_kernel_attributes;
+  for (auto attr : op.getComputeAttributesAttr()) {
+    if (const auto& compute_attr = mlir::dyn_cast<ComputeAttributesAttr>(attr)) {
+      compute_kernel_attributes.push_back(cache.getOrCreate(compute_attr, &computeAttributesAttrToFlatbuffer));
+    }
+  }
+
+  // data movement attributes
+  std::vector<::flatbuffers::Offset<::tt::target::DataMovementAttribute>> data_movement_attributes;
+  for (auto attr : op.getDataMovementAttributesAttr()) {
+    if (const auto& data_movement_attr = mlir::dyn_cast<DataMovementAttributesAttr>(attr)) {
+      data_movement_attributes.push_back(cache.getOrCreate(data_movement_attr, &dataMovementAttributesAttrToFlatbuffer));
+    }
+  }
 
   return ::tt::target::ttnn::CreateGenericOp(
           *cache.fbb,
           cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(ins),
           cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::TensorRef>>(outs),
-          0, 
-          0,
+          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::ComputeKernelAttribute>>(compute_kernel_attributes), 
+          cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::DataMovementAttribute>>(data_movement_attributes),
           cache.fbb->CreateVector<::flatbuffers::Offset<::tt::target::CBConfig>>(cb_configs));
 }
 

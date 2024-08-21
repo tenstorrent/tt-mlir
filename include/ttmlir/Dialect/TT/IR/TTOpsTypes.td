@@ -379,6 +379,27 @@ def TT_CircularBufferAttributesAttr : TT_Attr<"CircularBufferAttributes", "circu
 // An array of circular buffer attributes.
 def TT_CircularBufferAttributesArrayAttr : TypedArrayAttrBase<TT_CircularBufferAttributesAttr, "">;
 
+// TODO(pjanevski): I want to swap tensor_glob_id, which is now and index in tensor array
+// with AnyRankedTensor, but it seems it can only be used in DPS ops, explore this further
+
+def TT_RuntimeArgumentAttr : TT_Attr<"RuntimeArgument", "runtime_argument"> {
+  let summary = "Runtime argument for generic op.";
+  let description = [{
+    Runtime argument for tt-metal kernels being run in generic op.
+  }];
+
+  let parameters = (ins
+    "::mlir::BoolAttr" : $ttnn_compute,
+    "RuntimeArgumentType" : $runtime_argument_type,
+    "uint32_t" : $val,
+    "uint32_t" : $argument_index,
+    "uint32_t" : $tensor_glob_id,
+    TT_CoreRangeAttr: $core_range
+  );
+
+  let assemblyFormat = "`<` $ttnn_compute `,` $runtime_argument_type `,` $val `,` $argument_index `,` $tensor_glob_id `,` $core_range `>`";
+}
+
 def TT_DataMovementConfigAttr : TT_Attr<"DataMovementConfig", "data_movement_config"> {
   let summary = "Data movement config.";
   let description = [{
@@ -387,9 +408,10 @@ def TT_DataMovementConfigAttr : TT_Attr<"DataMovementConfig", "data_movement_con
 
   let parameters = (ins 
     "DataMovementType":$data_movement_type,
-    ArrayRefParameter<"uint32_t">:$compile_args);
+    ArrayRefParameter<"uint32_t">:$compile_args,
+    "::mlir::DictionaryAttr":$defines);
 
-  let assemblyFormat = "`<` $data_movement_type `,` `<` $compile_args `>` `>`";
+  let assemblyFormat = "`<` $data_movement_type `,` `<` $compile_args `>` `,` $defines `>`";
 }
 
 def TT_DataMovementAttributesAttr : TT_Attr<"DataMovementAttributes", "data_movement_attributes"> {
@@ -401,10 +423,11 @@ def TT_DataMovementAttributesAttr : TT_Attr<"DataMovementAttributes", "data_move
   let parameters = (ins 
     TT_CoreRangeAttr:$core_range,
     "::mlir::StringAttr":$kernel_path,
-    TT_DataMovementConfigAttr:$data_movement_config);
-    // TODO runtime_args missing
+    TT_DataMovementConfigAttr:$data_movement_config,
+    ArrayRefParameter<"RuntimeArgumentAttr">:$runtime_arguments
+  );
 
-  let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $data_movement_config `>`";
+  let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $data_movement_config `,` `<` $runtime_arguments `>``>`";
 }
 
 // An array of data movement attributes.
@@ -436,15 +459,15 @@ def TT_ComputeAttributesAttr : TT_Attr<"ComputeAttributes", "compute_attributes"
   let parameters = (ins 
     TT_CoreRangeAttr:$core_range,
     "::mlir::StringAttr":$kernel_path,
-    TT_ComputeConfigAttr:$compute_config);
-    // TODO runtime_args missing
+    TT_ComputeConfigAttr:$compute_config,
+    ArrayRefParameter<"RuntimeArgumentAttr">:$runtime_arguments
+  );
 
-  let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $compute_config `>`";
+  let assemblyFormat = "`<` $core_range `,` $kernel_path `,` $compute_config `,` `<` $runtime_arguments `>` `>`";
 }
 
 // An array of compute attributes.
 def TT_ComputeAttributesArrayAttr : TypedArrayAttrBase<TT_ComputeAttributesAttr, "">;
-
 
 //===----------------------------------------------------------------------===//
 // TT type definitions

@@ -5,6 +5,7 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
+#include <mlir/IR/BuiltinAttributes.h>
 #include <type_traits>
 
 #include "flatbuffers/flatbuffers.h"
@@ -150,7 +151,7 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(arch.getShape()[0], arch.getShape()[1]);
 }
 
-::tt::target::Dim2dRange toFlatbuffer(const ::mlir::tt::CoreRangeAttr& coreRange) {
+inline ::tt::target::Dim2dRange toFlatbuffer(const ::mlir::tt::CoreRangeAttr& coreRange) {
   const auto offset = coreRange.getOffset();
   const auto size = coreRange.getSize();
   return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
@@ -418,6 +419,129 @@ circularBufferAttributesAttrToFlatbuffer(FlatbufferObjectCache& cache, const Cir
     cbAttr.getPageSize(),
     toFlatbuffer(cache, cbAttr.getDataFormat()),
     -1 /*globally_allocated_address_*/);
+}
+
+static ::tt::target::MathFidelity toFlatbufferMathFidelity(const MathFidelity math_fidelity) {
+
+    switch(math_fidelity) {
+    case MathFidelity::LoFi:
+      return ::tt::target::MathFidelity::LoFi;
+    case MathFidelity::HiFi2:
+      return ::tt::target::MathFidelity::HiFi2;
+    case MathFidelity::HiFi3:
+      return ::tt::target::MathFidelity::HiFi3;
+    case MathFidelity::HiFi4:
+      return ::tt::target::MathFidelity::HiFi4;
+    case MathFidelity::Invalid:
+      return ::tt::target::MathFidelity::Invalid;
+    }
+
+    return ::tt::target::MathFidelity::Invalid;
+}
+
+static 
+::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<::tt::target::DefineArgument>>>
+toFlatbufferDefineArgument(FlatbufferObjectCache& cache, const ::mlir::DictionaryAttr dictionary) {
+  
+  std::vector<::flatbuffers::Offset<::tt::target::DefineArgument>> define_arguments;
+
+  for (auto named_attr : dictionary.getValue()) {
+    auto converted_string_attr = mlir::dyn_cast<StringAttr>(named_attr.getValue());
+    define_arguments.push_back(
+      ::tt::target::CreateDefineArgument(*cache.fbb,
+                                         cache.fbb->CreateString(named_attr.getName().str()),
+                                         cache.fbb->CreateString(converted_string_attr.str())));
+  }
+
+  return cache.fbb->CreateVector(define_arguments);
+}
+
+static ::tt::target::RuntimeArgType runtimeArgumentToFlatbuffer(const RuntimeArgumentType& runtime_arg_type) {
+
+  switch(runtime_arg_type) {
+    case RuntimeArgumentType::TensorAddr:
+      return ::tt::target::RuntimeArgType::TensorAddr;
+  }
+
+  return ::tt::target::RuntimeArgType::Invalid;
+}
+
+inline flatbuffers::Offset<::tt::target::ComputeKernelAttribute>
+computeAttributesAttrToFlatbuffer(FlatbufferObjectCache& cache, const ComputeAttributesAttr& computeAttr)
+{
+  auto core_spec = toFlatbuffer(computeAttr.getCoreRange());
+
+  std::vector<int32_t> compile_args = std::vector<int32_t>(
+    computeAttr.getComputeConfig().getCompileArgs().begin(),
+    computeAttr.getComputeConfig().getCompileArgs().end()
+  );
+  auto compute_kernel_config = ::tt::target::CreateComputeKernelConfig(*cache.fbb,
+    toFlatbufferMathFidelity(computeAttr.getComputeConfig().getMathFidelity()),
+    computeAttr.getComputeConfig().getFp32DestAccEn().getValue(),
+    computeAttr.getComputeConfig().getPreserveFp32Precision().getValue(),
+    computeAttr.getComputeConfig().getMathApproxMode().getValue(),
+    cache.fbb->CreateVector(compile_args),
+    toFlatbufferDefineArgument(cache, computeAttr.getComputeConfig().getDefines()));
+
+  std::vector<::flatbuffers::Offset<::tt::target::RuntimeArg>> runtime_arguments;
+  for (auto runtime_arg : computeAttr.getRuntimeArguments()) {
+    const auto dim2range = toFlatbuffer(runtime_arg.getCoreRange());
+    runtime_arguments.push_back(
+      ::tt::target::CreateRuntimeArg(*cache.fbb,
+        runtime_arg.getTtnnCompute().getValue(),
+        runtimeArgumentToFlatbuffer(runtime_arg.getRuntimeArgumentType()),
+        runtime_arg.getVal(),
+        runtime_arg.getArgumentIndex(),
+        runtime_arg.getTensorGlobId(),
+        &dim2range
+      )
+    );
+  }
+
+  return ::tt::target::CreateComputeKernelAttribute(*cache.fbb,
+    &core_spec,
+    cache.fbb->CreateString(computeAttr.getKernelPath().str()),
+    compute_kernel_config,
+    cache.fbb->CreateVector(runtime_arguments)
+  );
+}
+
+inline flatbuffers::Offset<::tt::target::DataMovementAttribute>
+dataMovementAttributesAttrToFlatbuffer(FlatbufferObjectCache& cache, const DataMovementAttributesAttr& dataMovementAttr)
+{
+  auto core_spec = toFlatbuffer(dataMovementAttr.getCoreRange());
+
+  std::vector<int32_t> compile_args = std::vector<int32_t>(
+    dataMovementAttr.getDataMovementConfig().getCompileArgs().begin(),
+    dataMovementAttr.getDataMovementConfig().getCompileArgs().end()
+  );
+
+  auto data_movement_config = ::tt::target::CreateDataMovementConfig(*cache.fbb,
+      static_cast<uint32_t>(dataMovementAttr.getDataMovementConfig().getDataMovementType()),
+      cache.fbb->CreateVector(compile_args),
+      toFlatbufferDefineArgument(cache, dataMovementAttr.getDataMovementConfig().getDefines()));
+
+  std::vector<::flatbuffers::Offset<::tt::target::RuntimeArg>> runtime_arguments;
+  for (auto runtime_arg : dataMovementAttr.getRuntimeArguments()) {
+    const auto dim2range = toFlatbuffer(runtime_arg.getCoreRange());
+    runtime_arguments.push_back(
+      ::tt::target::CreateRuntimeArg(*cache.fbb,
+        runtime_arg.getTtnnCompute().getValue(),
+        runtimeArgumentToFlatbuffer(runtime_arg.getRuntimeArgumentType()),
+        runtime_arg.getVal(),
+        runtime_arg.getArgumentIndex(),
+        runtime_arg.getTensorGlobId(),
+        &dim2range
+      )
+    );
+  }
+
+  return ::tt::target::CreateDataMovementAttribute(*cache.fbb, 
+    &core_spec,
+    cache.fbb->CreateString(dataMovementAttr.getKernelPath().str()),
+    data_movement_config,
+    cache.fbb->CreateVector(runtime_arguments)
+  );
 }
 
 inline flatbuffers::Offset<::tt::target::MLIR>

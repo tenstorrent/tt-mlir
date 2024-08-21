@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
+#include <llvm/ADT/ArrayRef.h>
+#include <mlir-c/IR.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <vector>
 
@@ -254,23 +256,40 @@ void populateTTModule(py::module &m) {
 
   py::class_<tt::DataMovementConfigAttr>(m, "DataMovementConfigAttr")
       .def_static("get", [](MlirContext ctx, uint8_t data_movement_type,
-                            std::vector<uint32_t> compile_args) {
+                            std::vector<uint32_t> compile_args,
+                            std::map<std::string, std::string> defines) {
+        auto *context = unwrap(ctx);
+        
+        SmallVector<NamedAttribute> namedAttributes;
+        for (const auto &[name, value] : defines) {
+          namedAttributes.emplace_back(mlir::StringAttr::get(context, name),
+                                       mlir::StringAttr::get(context, value));
+        }
+
         return wrap(tt::DataMovementConfigAttr::get(
             unwrap(ctx), static_cast<tt::DataMovementType>(data_movement_type),
-            compile_args));
+            compile_args, mlir::DictionaryAttr::get(context, namedAttributes)));
       });
 
   py::class_<tt::DataMovementAttributesAttr>(m, "DataMovementAttributesAttr")
       .def_static("get", [](MlirContext ctx, MlirAttribute core_range,
                             std::string kernel_path,
-                            MlirAttribute data_movement_config) {
+                            MlirAttribute data_movement_config,
+                            std::vector<MlirAttribute> mlir_runtime_arguments) {
         auto *context = unwrap(ctx);
+
+        std::vector<tt::RuntimeArgumentAttr> runtime_arguments;
+        for (auto runtime_arg : mlir_runtime_arguments) {
+          runtime_arguments.push_back(
+              mlir::cast<tt::RuntimeArgumentAttr>(unwrap(runtime_arg)));
+        }
 
         return wrap(tt::DataMovementAttributesAttr::get(
             context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
             mlir::StringAttr::get(context, kernel_path),
             mlir::cast<tt::DataMovementConfigAttr>(
-                unwrap(data_movement_config))));
+                unwrap(data_movement_config)),
+            runtime_arguments));
       });
 
   py::class_<tt::ComputeConfigAttr>(m, "ComputeConfigAttr")
@@ -298,13 +317,21 @@ void populateTTModule(py::module &m) {
   py::class_<tt::ComputeAttributesAttr>(m, "ComputeAttributesAttr")
       .def_static("get", [](MlirContext ctx, MlirAttribute core_range,
                             std::string kernel_path,
-                            MlirAttribute compute_config) {
+                            MlirAttribute compute_config,
+                            std::vector<MlirAttribute> mlir_runtime_arguments) {
         auto *context = unwrap(ctx);
+
+        std::vector<tt::RuntimeArgumentAttr> runtime_arguments;
+        for (auto runtime_arg : mlir_runtime_arguments) {
+          runtime_arguments.push_back(
+              mlir::cast<tt::RuntimeArgumentAttr>(unwrap(runtime_arg)));
+        }
 
         return wrap(tt::ComputeAttributesAttr::get(
             context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
             mlir::StringAttr::get(context, kernel_path),
-            mlir::cast<tt::ComputeConfigAttr>(unwrap(compute_config))));
+            mlir::cast<tt::ComputeConfigAttr>(unwrap(compute_config)),
+            runtime_arguments));
       });
 }
 } // namespace mlir::ttmlir::python

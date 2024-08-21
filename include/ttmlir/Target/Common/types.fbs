@@ -51,6 +51,14 @@ enum ChipCapability: uint32 (bit_flags) {
   HostMMIO = 1,
 }
 
+enum MathFidelity : ushort {
+    LoFi = 0,
+    HiFi2 = 1,
+    HiFi3 = 2,
+    HiFi4 = 3,
+    Invalid = 4,
+}
+
 table MemoryDesc {
   shape: [int];
   tile_shape: Dim2d;
@@ -154,10 +162,19 @@ table CBConfig {
   globally_allocated_address : int32;
 }
 
+enum RuntimeArgType : ushort {
+  TensorAddr = 0,
+  Invalid = 1,
+}
+
 table RuntimeArg {
   ttnn_compute : bool;
+  runtime_arg_type : RuntimeArgType;
   val: int32;
+  argument_index: int32;
+  // TODO(pjanevski): can this be tensor ref
   tensor_glob_id : int32;
+  core_range: Dim2dRange;
 }
 
 table DefineArgument {
@@ -166,8 +183,7 @@ table DefineArgument {
 }
 
 table DataMovementConfig {
-  processor: int32;
-  noc: int32;
+  reader_writer: int32;
   compile_args : [int32];
   defines : [DefineArgument];
 }
@@ -180,7 +196,7 @@ table DataMovementAttribute {
 }
 
 table ComputeKernelConfig {
-  math_fidelity: int32;
+  math_fidelity: MathFidelity;
   fp32_dest : bool;
   preserve_fp32 : bool;
   math_approx_mode : bool;

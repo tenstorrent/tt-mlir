@@ -257,4 +257,14 @@ def TT_CB : I32EnumAttr<"CB", "CB Enumeration",
   let cppNamespace = "::mlir::tt";
 }
 
+def TT_TensorAddr : I32EnumAttrCase<"TensorAddr", 0, "tensor_addr">;
+
+def TT_RuntimeArgumentType : I32EnumAttr<"RuntimeArgumentType", "TTIR Runtime Argument type",
+                           [
+                            TT_TensorAddr
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
 #endif

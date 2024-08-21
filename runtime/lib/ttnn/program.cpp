@@ -370,21 +370,24 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
 }
 
-static CoreRangeSet get_core_range_set(const target::Dim2dRange& core_spec) {
-  const uint32_t x_start = core_spec.loc().x();
-  const uint32_t y_start = core_spec.loc().y();
-  const uint32_t x_size = core_spec.size().x();
-  const uint32_t y_size = core_spec.size().y();
-  CoreRange cr({x_start, y_start}, {x_start + x_size - 1, y_start + y_size - 1});
-  CoreRangeSet crs({cr});
-  return crs;
-}
+static int computeTensorRuntimeArgument(
+    const target::RuntimeArgType runtime_argument_type,
+    const int tensor_index, 
+    const std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    const std::list<::ttnn::Tensor> &tensorPool,
+    const ::flatbuffers::Vector<::flatbuffers::Offset<target::TensorRef>>& ins) {
+  
+    switch(runtime_argument_type) {
+      case target::RuntimeArgType::Invalid:
+        assert(false && "Invalid runtime argument type");
+        break;
+      case target::RuntimeArgType::TensorAddr:
+        auto &t = *liveTensors.at(ins[tensor_index]->global_id());
+        return t.buffer()->address();
+        break;
+    }
 
-// TODO(pjanevski): bind all values to DataFormat enum from 
-// tt-metal tt_backend_api_types.hpp. We probably want to move all these
-// functions that are ttnn specific to separate file, maybe utils?
-DataFormat get_tt_metal_dataformat(target::DataType data_format) {
-  return DataFormat::Float32;
+    assert(false && "Invalid runtime argument type");
 }
 
 static void
@@ -392,22 +395,24 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
 
+    std::cout << "Preparing CB attributes" << std::endl;
     std::unordered_map<uint8_t, ::ttnn::operations::generic::circular_buffer_attributes_t> circular_buffer_attributes;
-    for (const auto& cb_config : *op->cb_configs()) {
-        CoreRangeSet crs = get_core_range_set(*cb_config->core_spec());
+    for (auto cb_config : *op->cb_configs()) {
+        CoreRangeSet crs = utils::get_core_range_set(cb_config->core_spec());
         
-        // TODO(pjanevski): globally allocated addr setup
         circular_buffer_attributes.insert({
           cb_config->cb_id(),
           {
               .core_spec = crs,
               .total_size = cb_config->total_size(),
               .page_size = cb_config->page_size(),
-              .data_format = get_tt_metal_dataformat(cb_config->data_format()),
+              .data_format = tt::tt_metal::datatype_to_dataformat_converter(utils::toTTNNDataType(cb_config->data_format())),
           }
         });
     }
+    std::cout << "Finished preparing CB attributes" << std::endl;
 
+    std::cout << "Preparing compute attributes" << std::endl;
     std::vector<::ttnn::operations::generic::compute_attributes_t> compute_attributes;
     for (auto compute_kernel: *op->compute_kernels()) {
       // Convert compile args to vector.
@@ -421,15 +426,13 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
         compute_config_defines[one_define->key()->str()] = one_define->val()->str();
       }
 
-      CoreRangeSet crs = get_core_range_set(*compute_kernel->core_spec());
+      CoreRangeSet crs = utils::get_core_range_set(compute_kernel->core_spec());
 
-      // TODO(pjanevski): setup runtime args
-      // TODO(pjanevski): create struct in .fbs for math fidelity
       ::ttnn::operations::generic::compute_attributes_t compute_kernel_attribute = {
         .core_spec = crs,
         .kernel_path = compute_kernel->kernel_path()->str(),
         .config = ComputeConfig {
-          .math_fidelity = compute_kernel->compute_kernel_config()->math_fidelity() == 0 ? MathFidelity::HiFi4 : MathFidelity::HiFi3,
+          .math_fidelity = utils::toTTNNMathFidelity(compute_kernel->compute_kernel_config()->math_fidelity()),
           .fp32_dest_acc_en = compute_kernel->compute_kernel_config()->fp32_dest(),
           .preserve_fp32_precision = compute_kernel->compute_kernel_config()->preserve_fp32(),  
           .math_approx_mode = compute_kernel->compute_kernel_config()->math_approx_mode(),
@@ -438,10 +441,49 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
         },
         .runtime_args_per_core = {}
       };
+
+      std::cout << "Preparing runtime arguments for compute attributes" << std::endl;
+      for (auto runtime_arg : *compute_kernel->runtime_args()) {
+        const bool ttnn_compute = runtime_arg->ttnn_compute();
+        unsigned int runtime_arg_val;
+
+        if (ttnn_compute) {
+          computeTensorRuntimeArgument(
+              runtime_arg->runtime_arg_type(),
+              runtime_arg->tensor_glob_id(),
+              liveTensors,
+              tensorPool,
+              *op->ins());
+        } else {
+          runtime_arg_val = runtime_arg->val();
+        }
+        
+        const uint32_t x_start = runtime_arg->core_range()->loc().x();
+        const uint32_t y_start = runtime_arg->core_range()->loc().y();
+        const uint32_t x_size = runtime_arg->core_range()->size().x();
+        const uint32_t y_size = runtime_arg->core_range()->size().y();
+
+        for (uint32_t x_curr = x_start; x_curr < x_start + x_size; x_curr++) {
+          for (uint32_t y_curr = y_start; y_curr < y_start + y_size; y_curr++) {
+            CoreCoord coord = {x_curr, y_curr};
+
+            int arg_index = runtime_arg->argument_index();
+            
+            if (arg_index + 1 > (int)compute_kernel_attribute.runtime_args_per_core[coord].size()) {
+              compute_kernel_attribute.runtime_args_per_core[coord].resize(arg_index + 1);
+            }
+            
+            compute_kernel_attribute.runtime_args_per_core[coord][arg_index] = runtime_arg_val;
+          }
+        }
+      }
+      std::cout << "Finished preparing runtime args for compute attributes" << std::endl;
       
       compute_attributes.push_back(compute_kernel_attribute);
     }
+    std::cout << "Finished preparing compute attributes" << std::endl;
     
+    std::cout << "Preparing data movement attributes" << std::endl; 
     std::vector<::ttnn::operations::generic::data_movement_attributes_t> data_movement_attributes;
     for (auto data_movement_kernel : *op->data_movement_kernels()) {
 
@@ -456,23 +498,67 @@ run(::tt::target::ttnn::GenericOp const *op, ::ttnn::device::Device &device,
         dm_config_defines[one_define->key()->str()] = one_define->val()->str();
       }
       
-      CoreRangeSet crs = get_core_range_set(*data_movement_kernel->core_spec());
+      CoreRangeSet crs = utils::get_core_range_set(data_movement_kernel->core_spec());
 
-      // TODO(pjanevski): setup runtime args
+      DataMovementConfig data_movement_config;
+
+      if (data_movement_kernel->data_movement_config()->reader_writer() == 0) {
+        data_movement_config = tt::tt_metal::ReaderDataMovementConfig(compile_args, dm_config_defines);
+      } else {
+        data_movement_config = tt::tt_metal::WriterDataMovementConfig(compile_args, dm_config_defines);
+      }
+
       ::ttnn::operations::generic::data_movement_attributes_t dm_attr = {
         .core_spec = crs,
         .kernel_path = data_movement_kernel->kernel_path()->str(),
-        .config = DataMovementConfig {
-          .processor = data_movement_kernel->data_movement_config()->processor() == 0 ? DataMovementProcessor::RISCV_0 : DataMovementProcessor::RISCV_1,
-          .noc = data_movement_kernel->data_movement_config()->noc() == 0 ? NOC::NOC_0 : NOC::NOC_1,
-          .compile_args = compile_args,
-          .defines = dm_config_defines,
-        },
+        .config = data_movement_config,
         .runtime_args_per_core = {}
       };
       
+      std::cout << "Preparing runtime arguments for data movement attributes" << std::endl;
+      for (auto runtime_arg : *data_movement_kernel->runtime_args()) {
+        const bool ttnn_compute = runtime_arg->ttnn_compute();
+        unsigned int runtime_arg_val;
+
+        if (ttnn_compute) {
+          computeTensorRuntimeArgument(
+              runtime_arg->runtime_arg_type(),
+              runtime_arg->tensor_glob_id(),
+              liveTensors,
+              tensorPool,
+              *op->ins());
+        } else {
+          runtime_arg_val = runtime_arg->val();
+        }
+        
+        const uint32_t x_start = runtime_arg->core_range()->loc().x();
+        const uint32_t y_start = runtime_arg->core_range()->loc().y();
+        const uint32_t x_size = runtime_arg->core_range()->size().x();
+        const uint32_t y_size = runtime_arg->core_range()->size().y();
+
+        for (uint32_t x_curr = x_start; x_curr < x_start + x_size; x_curr++) {
+          for (uint32_t y_curr = y_start; y_curr < y_start + y_size; y_curr++) {
+            CoreCoord coord = {x_curr, y_curr};
+
+            int arg_index = runtime_arg->argument_index();
+            
+            if (arg_index + 1 > (int)dm_attr.runtime_args_per_core[coord].size()) {
+              dm_attr.runtime_args_per_core[coord].resize(arg_index + 1);
+            }
+            
+            dm_attr.runtime_args_per_core[coord][arg_index] = runtime_arg_val;
+          }
+        }
+      }
+
+      std::cout << "Finished preparing runtime args for data movement attributes" << std::endl;
+
       data_movement_attributes.push_back(dm_attr);
     }
+
+    std::cout << "Finished preparing data movement attributes" << std::endl;
+
+    throw("Reached the end of generic op run function...");
 }
 
 // ANCHOR: adding_an_op_matmul_runtime
