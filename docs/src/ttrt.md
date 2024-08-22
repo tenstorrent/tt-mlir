@@ -34,6 +34,7 @@ pip install torch
 pip install loguru
 pip install pandas
 pip install seaborn
+pip install graphviz
 ```
 
 ## Generate a flatbuffer file from compiler
