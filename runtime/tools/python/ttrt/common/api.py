@@ -1064,8 +1064,8 @@ class API:
             self.query = API.Query({}, self.logger, self.artifacts)
             self.ttnn_binaries = []
             self.ttmetal_binaries = []
-            self.tracy_capture_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
-            self.tracy_csvexport_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
+            self.tracy_capture_tool_path = f"{self.globals.get_ttmetal_home_path()}/capture-release"
+            self.tracy_csvexport_tool_path = f"{self.globals.get_ttmetal_home_path()}/csvexport-release"
             self.tracy_capture_tool_process = None
 
         def preprocess(self):

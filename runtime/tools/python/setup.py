@@ -19,7 +19,7 @@ src_dir = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."),
 )
 toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
-metallibdir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build/lib"
+metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
@@ -48,38 +48,30 @@ ext_modules = [
 ]
 
 dylibs = []
+runlibs = []
+perflibs = []
+metallibs = []
+
 linklibs = ["TTBinary", "TTRuntimeSysDesc"]
 if enable_ttnn:
-    dylibs += ["_ttnn.so"]
+    runlibs += ["_ttnn.so"]
     linklibs += ["TTRuntimeTTNN", ":_ttnn.so"]
 
 if enable_ttmetal:
-    dylibs += ["libtt_metal.so"]
+    runlibs += ["libtt_metal.so"]
     linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_perf:
-    dylibs += ["libtracy.so.0.10.0"]
+    runlibs += ["libtracy.so.0.10.0"]
+    perflibs += ["capture-release"]
+    perflibs += ["csvexport-release"]
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
 
-    # copy metal dir folder
-    shutil.copytree(
-            f"{ttmetalhome}/tt_metal",
-            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal",
-            dirs_exist_ok=True
-        )
-
-    # copy runtime dir folder
-    shutil.copytree(
-            f"{ttmetalhome}/runtime",
-            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime",
-            dirs_exist_ok=True
-        )
-
-    for dylib in dylibs:
+    for dylib in runlibs:
         shutil.copy(
-            f"{metallibdir}/{dylib}",
+            f"{metaldir}/lib/{dylib}",
             f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
         )
         command = [
@@ -99,6 +91,50 @@ if enable_runtime:
             )
         except subprocess.CalledProcessError as e:
             print(f"Command failed with return code {e.returncode}")
+
+    for dylib in perflibs:
+        shutil.copy(
+            f"{metaldir}/tools/profiler/bin/{dylib}",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
+        )
+
+    # copy metal dir folder
+    shutil.copytree(
+            f"{ttmetalhome}/tt_metal",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal",
+            dirs_exist_ok=True
+        )
+
+    # copy runtime dir folder
+    shutil.copytree(
+            f"{ttmetalhome}/runtime",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime",
+            dirs_exist_ok=True
+        )
+
+    # copy kernels
+    shutil.copytree(
+            f"{ttmetalhome}/ttnn",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/ttnn",
+            dirs_exist_ok=True
+        )
+
+    import os
+    def package_files(directory):
+        paths = []
+        for (path, directories, filenames) in os.walk(directory):
+            for filename in filenames:
+                paths.append(os.path.join('..', path, filename))
+        return paths
+
+    extra_files_one = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal/")
+    extra_files_two = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime/")
+    extra_files_three = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/ttnn/")
+
+    metallibs += extra_files_one
+    metallibs += extra_files_two
+    metallibs += extra_files_three
+
     ext_modules.append(
         Pybind11Extension(
             "ttrt.runtime._C",
@@ -117,26 +153,23 @@ if enable_runtime:
                 f"{src_dir}/build/runtime/lib/ttmetal",
                 f"{toolchain}/lib",
                 f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
-                f"{metallibdir}",
+                f"{metaldir}/lib",
             ],
             define_macros=[("VERSION_INFO", __version__)],
         )
     )
 
-import os
+dylibs += runlibs
+dylibs += perflibs
+dylibs += metallibs
 
-def package_files(directory):
-    paths = []
-    for (path, directories, filenames) in os.walk(directory):
-        for filename in filenames:
-            paths.append(os.path.join('..', path, filename))
-    return paths
-
-extra_files_one = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal/")
-extra_files_two = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime/")
-
-dylibs += extra_files_one
-dylibs += extra_files_two
+packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
+package_dir={}
+if enable_perf:
+    packages += ["tracy"]
+    packages += ["tt_metal"]
+    package_dir["tracy"] = f"{ttmetalhome}/ttnn/tracy"
+    package_dir["tt_metal"] = f"{ttmetalhome}/tt_metal"
 
 setup(
     name="ttrt",
@@ -148,7 +181,8 @@ setup(
     long_description="",
     ext_modules=ext_modules,
     cmdclass={"build_ext": build_ext},
-    packages=["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"],
+    packages=packages,
+    package_dir=package_dir,
     install_requires=["pybind11"],
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
