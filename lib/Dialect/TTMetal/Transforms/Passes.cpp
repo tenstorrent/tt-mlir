@@ -264,11 +264,13 @@ public:
                             ? inputLayout.getElementSizeBytes()
                             : outputLayout.getElementSizeBytes();
     Type inputCBTy = rewriter.getType<ttkernel::CBType>(
-        inputBaseAddress, 0, mlir::cast<MemRefType>(inputLayout.getMemref()),
-        pageSize, /*num_buffers*/ 1);
+        ttkernel::CBPort::In0, inputBaseAddress,
+        mlir::cast<MemRefType>(inputLayout.getMemref()), pageSize,
+        /*num_buffers*/ 1);
     Type outputCBTy = rewriter.getType<ttkernel::CBType>(
-        outputBaseAddress, 16, mlir::cast<MemRefType>(outputLayout.getMemref()),
-        pageSize, /*num_buffers*/ 1);
+        ttkernel::CBPort::Out0, outputBaseAddress,
+        mlir::cast<MemRefType>(outputLayout.getMemref()), pageSize,
+        /*num_buffers*/ 1);
     tensixBlock->addArgument(inputCBTy, op.getLoc());
     tensixBlock->addArgument(outputCBTy, op.getLoc());
 
@@ -407,8 +409,8 @@ public:
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
       auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
       auto memref = buffer.getMemref();
-      rewrittenBlockArgumentTypes.push_back(
-          rewriter.getType<ttkernel::CBType>(address, port, memref));
+      rewrittenBlockArgumentTypes.push_back(rewriter.getType<ttkernel::CBType>(
+          ttkernel::symbolizeCBPort(port).value(), address, memref));
     }
     return rewrittenBlockArgumentTypes;
   }
