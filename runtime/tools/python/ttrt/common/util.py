@@ -5,6 +5,7 @@
 import os
 import json
 import importlib.machinery
+import importlib.util
 import sys
 import signal
 import os
@@ -13,15 +14,26 @@ import subprocess
 import time
 import socket
 from pkg_resources import get_distribution
-import sys
 import shutil
 
 import ttrt.binary
 
+# environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
     os.environ["LOGGER_LEVEL"] = "FATAL"
 if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
+
+
+def get_ttrt_metal_home_path():
+    package_name = "ttrt"
+    spec = importlib.util.find_spec(package_name)
+    package_path = os.path.dirname(spec.origin)
+    tt_metal_home = f"{package_path}/runtime"
+    return tt_metal_home
+
+
+os.environ["TT_METAL_HOME"] = get_ttrt_metal_home_path()
 
 
 class Logger:
@@ -79,10 +91,6 @@ class Globals:
         current_path = os.getenv("LD_LIBRARY_PATH", "")
         updated_path = f"{path}:{current_path}"
         return updated_path
-
-    @staticmethod
-    def get_ttmlir_home_path():
-        return os.environ.get("TT_MLIR_HOME", f"{os.getcwd()}")
 
     @staticmethod
     def get_ttmlir_venv_path():
@@ -359,7 +367,7 @@ class Artifacts:
         self.artifacts_folder_path = (
             artifacts_folder_path
             if artifacts_folder_path != ""
-            else f"{Globals.get_ttmlir_home_path()}/ttrt-artifacts"
+            else f"{os.getcwd()}/ttrt-artifacts"
         )
 
         self.logging.info(f"setting artifacts folder path={self.artifacts_folder_path}")

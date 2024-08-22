@@ -13,7 +13,6 @@ import subprocess
 import time
 import socket
 from pkg_resources import get_distribution
-import sys
 import shutil
 import atexit
 
@@ -1064,8 +1063,12 @@ class API:
             self.query = API.Query({}, self.logger, self.artifacts)
             self.ttnn_binaries = []
             self.ttmetal_binaries = []
-            self.tracy_capture_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/capture-release"
-            self.tracy_csvexport_tool_path = f"{self.globals.get_ttmlir_home_path()}/third_party/tt-metal/src/tt-metal-build/tools/profiler/bin/csvexport-release"
+            self.tracy_capture_tool_path = (
+                f"{self.globals.get_ttmetal_home_path()}/capture-release"
+            )
+            self.tracy_csvexport_tool_path = (
+                f"{self.globals.get_ttmetal_home_path()}/csvexport-release"
+            )
             self.tracy_capture_tool_process = None
 
         def preprocess(self):
@@ -1137,6 +1140,9 @@ class API:
 
         def execute(self):
             self.logging.debug(f"executing perf API")
+
+            sys.path.append(f"{get_ttrt_metal_home_path()}")
+            sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
 
             import tracy
             import tracy.tracy_state
@@ -1237,13 +1243,19 @@ class API:
                         raise Exception("No available port found")
 
                     env_vars = dict(os.environ)
-                    self.globals.add_global_env("TRACY_PORT", port)
-                    self.globals.add_global_env(
-                        "TT_METAL_DEVICE_PROFILER_DISPATCH", "0"
-                    )
+                    env_vars["TRACY_PORT"] = port
+                    env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
                     if self["device"]:
-                        self.globals.add_global_env("TT_METAL_DEVICE_PROFILER", "1")
+                        env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
+
+                    current_pythonpath = env_vars.get("PYTHONPATH", "")
+                    path1 = f"{get_ttrt_metal_home_path()}"
+                    path2 = f"{get_ttrt_metal_home_path()}/ttnn"
+                    new_pythonpath = (
+                        f"{current_pythonpath}{os.pathsep}{path1}{os.pathsep}{path2}"
+                    )
+                    env_vars["PYTHONPATH"] = new_pythonpath
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {PROFILER_LOGS_DIR / TRACY_FILE_NAME} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
