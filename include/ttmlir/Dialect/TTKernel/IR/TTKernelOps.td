@@ -83,6 +83,66 @@ def TTKernel_ReleaseDstOp : TTKernel_Op<"release_dst"> {
     }];
 }
 
+def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
+    let summary = "tile_regs_acquire";
+    let description = [{
+      Acquire an exclusive lock on the DST register for the MATH thread.
+      This register is an array of 16 tiles of 32x32 elements each.
+      This is a blocking function, i.e. this function will wait until the lock is acquired.
+    }];
+}
+
+def TTKernel_TileRegsCommitOp : TTKernel_Op<"tile_regs_commit"> {
+    let summary = "tile_regs_commit";
+    let description = [{
+      Release lock on DST register by MATH thread. The lock had to be previously acquired with tile_regs_acquire.
+    }];
+}
+
+def TTKernel_TileRegsWaitOp : TTKernel_Op<"tile_regs_wait"> {
+    let summary = "tile_regs_wait";
+    let description = [{
+      Acquire an exclusive lock on the DST register for the PACK thread.
+      It waits for the MATH thread to commit the DST register.
+      This is a blocking function, i.e. this function will wait until the lock is acquired.
+    }];
+}
+
+def TTKernel_TileRegsReleaseOp : TTKernel_Op<"tile_regs_release"> {
+    let summary = "tile_regs_release";
+    let description = [{
+      Release lock on DST register by PACK thread. The lock had to be previously acquired with tile_regs_wait.
+    }];
+}
+
+def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
+    let summary = "PackTile op.";
+    let description = [{
+      Copies a single tile from the DST register buffer at a specified index to a
+      specified CB at a given index. For the out_tile_index to be valid for this
+      call, cb_reserve_back(n) has to be called first to reserve at least some
+      number n > 0 of tiles in the output CB. out_tile_index = 0 then references
+      the first tile in the reserved section of the CB, up to index n - 1, which will
+      then be visible to the consumer in the same order after a cb_push_back call.
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+      This call is blocking and is only available on the compute engine.
+
+      Each subsequent pack call will increment the write pointer in the cb by single
+      tile size. The pointer is then again set to a valid position with space for n
+      reserved tiles by another cb_reserve_back call.
+
+      Operates in tandem with functions cb_reserve_back and cb_push_back.
+
+      A typical use case is first the producer ensures that there is a number of
+      tiles available in the buffer via cb_reserve_back, then the producer uses
+      the pack_tile call to copy a tile from one of DST slots to a slot in
+      reserved space and finally cb_push_back is called to announce visibility of
+      the reserved section of the circular buffer to the consumer.
+    }];
+
+    let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel FPU operations
 //===----------------------------------------------------------------------===//
@@ -121,6 +181,57 @@ def TTKernel_MatmulOp : TTKernel_Op<"matmul"> {
     }];
 
     let arguments = (ins I32:$dst_index);
+}
+
+def TTKernel_BinaryOpInitCommonOp : TTKernel_Op<"binary_op_init_common"> {
+    let summary = "Init function for all binary ops";
+    let description = [{
+      Followed by the specific init required with an opcode (binrary_op_specific_init).
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, TTKernel_CB:$out_cb);
+}
+
+def TTKernel_AddTilesInitOp : TTKernel_Op<"add_tiles_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before add_tiles.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+}
+
+def TTKernel_AddTilesOp : TTKernel_Op<"add_tiles"> {
+    let summary = "Add operation";
+    let description = [{
+      Performs element-wise addition C=A+B of tiles in two CBs at given indices
+      and writes the result to the DST register at index dst_tile_index. The DST
+      register buffer must be in acquired state via *acquire_dst* call. This call
+      is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
+}
+
+def TTKernel_MulTilesInitOp : TTKernel_Op<"mul_tiles_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before mul_tiles.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
+}
+
+def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
+    let summary = "Mul operation";
+    let description = [{
+      Performs element-wise multiplication C=A*B of tiles in two CBs at given
+      indices and writes the result to the DST register at index dst_tile_index.
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
 }
 
 //===----------------------------------------------------------------------===//
