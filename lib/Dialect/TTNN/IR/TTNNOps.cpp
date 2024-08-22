@@ -30,6 +30,29 @@ namespace mlir::tt::ttnn {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttnn::EmbeddingOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // inputType can have any rank
+
+  // weightType must have rank of 2: (dictionary_size, embedding_size)
+  //
+  if (weightType.getRank() != 2) {
+    return emitOpError("Weight must be a 2D tensor");
+  }
+
+  // outputType must have rank of inputType + and additional dimension of
+  // embedding_size
+  //
+  if (outputType.getRank() - inputType.getRank() != 1) {
+    return emitOpError("Output must have one dimension more than input");
+  }
+
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::SoftmaxOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();

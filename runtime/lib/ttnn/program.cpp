@@ -314,6 +314,17 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
 }
 
 static void
+run(::tt::target::ttnn::EmbeddingOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  ::ttnn::Tensor &in0 = *liveTensors.at(op->in0()->global_id());
+  ::ttnn::Tensor &in1 = *liveTensors.at(op->in1()->global_id());
+
+  tensorPool.push_back(::ttnn::embedding(in0, in1));
+  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+}
+
+static void
 run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
@@ -398,6 +409,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return run(op->type_as_ReductionOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    return run(op->type_as_EmbeddingOp(), device, liveTensors, tensorPool);
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
     return run(op->type_as_SoftmaxOp(), device, liveTensors, tensorPool);
