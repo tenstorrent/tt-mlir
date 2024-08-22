@@ -139,4 +139,16 @@ def TT_ChipCapability : I32BitEnumAttr<"ChipCapability", "TT Chip Capabilities",
   let cppNamespace = "::mlir::tt";
 }
 
+def TT_BufferAccessAlias : I32BitEnumAttrCaseBit<"Alias", 0, "alias">;
+def TT_BufferAccessStream : I32BitEnumAttrCaseBit<"Stream", 1, "stream">;
+
+def TT_BufferAccess : I32BitEnumAttr<"BufferAccess", "TT Buffer Access",
+                           [
+                            TT_BufferAccessAlias ,
+                            TT_BufferAccessStream,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
 #endif
