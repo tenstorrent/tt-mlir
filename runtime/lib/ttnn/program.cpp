@@ -185,10 +185,13 @@ run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(
       op->out()->desc()->layout()->memory_desc()->data_type());
-  // TODO: determine layout, hardcoding tile_layout for now
-  auto desiredLayout = ::ttnn::Layout::TILE;
+
+  // TODO: ttnn::empty doesn't work properly with tile layout,
+  // using ROW_MAJOR until we fix it
+  auto desiredLayout = ::ttnn::Layout::ROW_MAJOR;
   auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
       utils::toShapeFromFBShape(*op->out()->desc()->shape())));
+
   tensorPool.push_back(
       ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device));
   // use try emplace here so the program output tensor doesn't get overwritten
