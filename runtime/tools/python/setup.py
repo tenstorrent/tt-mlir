@@ -20,6 +20,7 @@ src_dir = os.environ.get(
 )
 toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
 metallibdir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build/lib"
+ttmetalhome = os.environ.get("TT_METAL_HOME", "")
 
 os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
@@ -61,6 +62,20 @@ if enable_perf:
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
+
+    # copy metal dir folder
+    shutil.copytree(
+            f"{ttmetalhome}/tt_metal",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal",
+            dirs_exist_ok=True
+        )
+
+    # copy runtime dir folder
+    shutil.copytree(
+            f"{ttmetalhome}/runtime",
+            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime",
+            dirs_exist_ok=True
+        )
 
     for dylib in dylibs:
         shutil.copy(
@@ -108,6 +123,21 @@ if enable_runtime:
         )
     )
 
+import os
+
+def package_files(directory):
+    paths = []
+    for (path, directories, filenames) in os.walk(directory):
+        for filename in filenames:
+            paths.append(os.path.join('..', path, filename))
+    return paths
+
+extra_files_one = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal/")
+extra_files_two = package_files(f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime/")
+
+dylibs += extra_files_one
+dylibs += extra_files_two
+
 setup(
     name="ttrt",
     version=__version__,
@@ -124,6 +154,7 @@ setup(
         "console_scripts": ["ttrt = ttrt:main"],
     },
     package_data={"ttrt.runtime": dylibs},
+    #include_package_data=True,
     zip_safe=False,
     python_requires=">=3.7",
 )
