@@ -38,6 +38,7 @@ enum EltwiseOpType: uint32 {
   Sqrt = 5,
   Div = 6,
   Sigmoid = 7,
+  Reciprocal = 8,
 }
 
 table EltwiseOp {

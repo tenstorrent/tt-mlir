@@ -97,6 +97,13 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
+def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
+    let summary = "Eltwise reciprocal.";
+    let description = [{
+      Eltwise reciprocal operation.
+    }];
+}
+
 def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{

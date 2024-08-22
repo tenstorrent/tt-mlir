@@ -245,6 +245,13 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
+def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
+    let summary = "Eltwise reciprocal.";
+    let description = [{
+      Eltwise reciprocal operation.
+    }];
+}
+
 def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{

@@ -10,6 +10,7 @@
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "types_generated.h"
@@ -263,6 +264,13 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     assert(op->ins()->size() == 1 && "Unsupported number of inputs");
     ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
     tensorPool.push_back(::ttnn::sigmoid(in));
+    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
+    assert(op->ins()->size() == 1 && "Unsupported number of inputs");
+    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
+    tensorPool.push_back(::ttnn::reciprocal(in));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
