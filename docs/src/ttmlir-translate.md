@@ -5,7 +5,7 @@ The `ttmlir-translate` translation utility. Unlike `ttmlir-opt` tool which is us
 
 ```bash
 # First, let's run `ttmlir-opt` to convert to proper dialect
-./build/bin/ttmlir-opt --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn --convert-ttnn-to-emitc test/ttmlir/Dialect/TTNN/simple_multiply.mlir -o c.mlir
+./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn --convert-ttnn-to-emitc test/ttmlir/Dialect/TTNN/simple_multiply.mlir -o c.mlir
 
 # Now run `ttmlir-translate` to produce C++ code
 ./build/bin/ttmlir-translate -mlir-to-cpp c.mlir -allow-unregistered-dialect
@@ -13,7 +13,7 @@ The `ttmlir-translate` translation utility. Unlike `ttmlir-opt` tool which is us
 
 Bonus: These two commands can be piped, to avoid writing a `mlir` file to disk, like so:
 ```bash
-./build/bin/ttmlir-opt --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn --convert-ttnn-to-emitc test/ttmlir/Dialect/TTNN/simple_multiply.mlir | ./build/bin/ttmlir-translate -mlir-to-cpp -allow-unregistered-dialect
+./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn --convert-ttnn-to-emitc test/ttmlir/Dialect/TTNN/simple_multiply.mlir | ./build/bin/ttmlir-translate -mlir-to-cpp -allow-unregistered-dialect
 ```
 
 ## Generate flatbuffer file from MLIR
