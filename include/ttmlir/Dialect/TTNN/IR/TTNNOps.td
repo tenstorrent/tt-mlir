@@ -104,6 +104,13 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
+    let summary = "Eltwise sigmoid.";
+    let description = [{
+      Eltwise sigmoid operation.
+    }];
+}
+
 def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{

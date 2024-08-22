@@ -256,6 +256,13 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
+    assert(op->ins()->size() == 1 && "Unsupported number of inputs");
+    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
+    tensorPool.push_back(::ttnn::sigmoid(in));
+    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   }
 }
 
