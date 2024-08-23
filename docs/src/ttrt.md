@@ -10,6 +10,18 @@ cmake --build build -- ttrt
 ttrt --help
 ```
 
+## Installing ttrt as python whls (coming soon)
+1. Download whls
+2. Create a python venv
+```bash
+python -m venv ttrt_env
+source ttrt_env/bin/activate
+```
+3. Install whls
+```bash
+pip install *.whl
+```
+
 ### Building runtime mode
 Add the following flags when building the compiler
 ```bash
@@ -35,6 +47,8 @@ pip install loguru
 pip install pandas
 pip install seaborn
 pip install graphviz
+pip install pyyaml
+pip install click
 ```
 
 ## Generate a flatbuffer file from compiler
