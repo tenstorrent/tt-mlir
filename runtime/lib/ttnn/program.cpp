@@ -317,11 +317,11 @@ static void
 run(::tt::target::ttnn::EmbeddingOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
-  ::ttnn::Tensor &in0 = *liveTensors.at(op->in0()->global_id());
-  ::ttnn::Tensor &in1 = *liveTensors.at(op->in1()->global_id());
+  ::ttnn::Tensor &input = *liveTensors.at(op->input()->global_id());
+  ::ttnn::Tensor &weight = *liveTensors.at(op->weight()->global_id());
 
-  tensorPool.push_back(::ttnn::embedding(in0, in1));
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  tensorPool.push_back(::ttnn::embedding(input, weight));
+  liveTensors.insert_or_assign(op->output()->global_id(), &tensorPool.back());
 }
 
 static void
