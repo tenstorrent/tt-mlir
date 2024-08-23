@@ -274,19 +274,21 @@ public:
     tensixBlock->addArgument(inputCBTy, op.getLoc());
     tensixBlock->addArgument(outputCBTy, op.getLoc());
 
-    int shardTileVolume = 1;
-    for (auto dim : (shouldTilize ? outputLayout.getMemref().getShape()
-                                  : inputLayout.getMemref().getShape())) {
-      shardTileVolume *= dim;
-    }
+    llvm::ArrayRef<int64_t> shardTileShape =
+        (shouldTilize ? outputLayout.getMemref().getShape()
+                      : inputLayout.getMemref().getShape());
 
-    auto numTiles = tensixBuilder.create<arith::ConstantOp>(
-        op.getLoc(), tensixBuilder.getI32Type(),
-        tensixBuilder.getI32IntegerAttr(shardTileVolume));
+    assert(shardTileShape.size() >= 2 && "Tile shape rank must be at least 2");
+
+    // How many tiles should kernel tilize in one block.
+    arith::ConstantOp numTilesPerBlock =
+        tensixBuilder.create<arith::ConstantOp>(
+            op.getLoc(), tensixBuilder.getI32Type(),
+            tensixBuilder.getI32IntegerAttr(shardTileShape.back()));
 
     if (shouldTilize) {
       tensixBuilder.create<ttkernel::TilizeInitOp>(
-          op.getLoc(), tensixBlock->getArgument(0), numTiles,
+          op.getLoc(), tensixBlock->getArgument(0), numTilesPerBlock,
           tensixBlock->getArgument(1));
     } else {
       tensixBuilder.create<ttkernel::UntilizeInitOp>(
@@ -294,14 +296,26 @@ public:
           tensixBlock->getArgument(1));
     }
 
-    if (shouldTilize) {
-      tensixBuilder.create<ttkernel::TilizeBlockOp>(
-          op.getLoc(), tensixBlock->getArgument(0), numTiles,
-          tensixBlock->getArgument(1));
-    } else {
-      tensixBuilder.create<ttkernel::UntilizeBlockOp>(
-          op.getLoc(), tensixBlock->getArgument(0), numTiles,
-          tensixBlock->getArgument(1));
+    uint64_t shardTileVolume = 1;
+    for (int64_t dim : shardTileShape) {
+      shardTileVolume *= dim;
+    }
+    const uint64_t numBlocks = shardTileVolume / shardTileShape.back();
+
+    for (uint iblock = 0; iblock < numBlocks; ++iblock) {
+      if (shouldTilize) {
+        tensixBuilder.create<ttkernel::TilizeBlockOp>(
+            op.getLoc(), tensixBlock->getArgument(0), numTilesPerBlock,
+            tensixBlock->getArgument(1));
+      } else {
+        tensixBuilder.create<ttkernel::UntilizeBlockOp>(
+            op.getLoc(), tensixBlock->getArgument(0), numTilesPerBlock,
+            tensixBlock->getArgument(1));
+      }
+      tensixBuilder.create<ttkernel::CBPopFrontOp>(
+          op.getLoc(), tensixBlock->getArgument(0), numTilesPerBlock);
+      tensixBuilder.create<ttkernel::CBPushBackOp>(
+          op.getLoc(), tensixBlock->getArgument(1), numTilesPerBlock);
     }
 
     tensixBuilder.create<ttkernel::ReturnOp>(op.getLoc());
