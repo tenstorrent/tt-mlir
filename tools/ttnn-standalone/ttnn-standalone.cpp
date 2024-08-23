@@ -29,22 +29,32 @@
 //   return v11;
 // }
 
-ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
+ttnn::Tensor forward(ttnn::Tensor &v1, ttnn::Tensor &v2) {
   ttnn::Device &v3 = ttnn::open_device(0);
 
   // ttnn::Tensor v4 = ttnn::empty(v1.shape(), v1.tensor_attributes->dtype,
   //                               v1.tensor_attributes->layout, v3);
 
   MemoryConfig memConfig = ttnn::MemoryConfig{
-      .memory_layout = ttnn::TensorMemoryLayout::SINGLE_BANK,
+      .memory_layout = ttnn::TensorMemoryLayout::INTERLEAVED,
       .buffer_type = ttnn::BufferType::DRAM,
       // .shard_spec = std::nullopt,
   };
 
-  ttnn::Tensor v4 = ttnn::to_layout(v1, ttnn::Layout::ROW_MAJOR,
-                                    ttnn::DataType::BFLOAT16, memConfig, &v3);
-  ttnn::Tensor v5 = ttnn::to_layout(v2, ttnn::Layout::ROW_MAJOR,
-                                    ttnn::DataType::BFLOAT16, memConfig, &v3);
+  ttnn::Tensor bla = v1.to(ttnn::Layout::TILE);
+
+  ttnn::Tensor v4 = bla.to(&v3, memConfig);
+
+  // ttnn::Tensor v4 = ttnn::to_layout(bla,
+  //                                   ttnn::DataType::BFLOAT16, memConfig,
+  //                                   &v3);
+
+  ttnn::Tensor bla2 = v2.to(ttnn::Layout::TILE);
+  ttnn::Tensor v5 = bla2.to(&v3, memConfig);
+
+  // ttnn::Tensor v5 = ttnn::to_layout(v2, ttnn::Layout::ROW_MAJOR,
+  //                                   ttnn::DataType::BFLOAT16, memConfig,
+  //                                   &v3);
 
   //   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
   //   struct MemoryConfig {
