@@ -17,6 +17,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "llvm/ADT/MapVector.h"
+#include <cstdint>
+#include <llvm/ADT/SmallVector.h>
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -101,27 +103,37 @@ public:
   //
   // The return value is a map of destination physical cores where each core has
   // an associated list of noc reads to be performed.
-  llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocRead>>
-  calculateDataMovement(ArrayRef<std::int64_t> tensorShape,
-                        std::int64_t elemSize, AffineMap src,
-                        AffineMap dst) const {
+  llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>>
+  calculateDataMovement(ArrayRef<int64_t> tensorShape, int64_t elemSize,
+                        AffineMap src, AffineMap dst,
+                        llvm::SmallDenseMap<uint64_t, SmallVector<int64_t>>
+                            postLinearIndexToVisitingIndex) const {
+
     // For now it's just a simple pull model, but eventually we want to leverage
     // both NoCs and the both read and write
-    llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocRead>> dst2srcMap;
+    llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>> dst2srcMap;
     assert(src.getNumResults() == 4);
     assert(dst.getNumResults() == 4);
 
-    ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize](
+    ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize,
+                                          postLinearIndexToVisitingIndex](
                                              ArrayRef<std::int64_t> index) {
-      auto srcResults = src.compose(index);
-      auto dstResults = dst.compose(index);
+      auto hashKey = llvm::hash_combine_range(index.begin(), index.end());
+
+      auto visitingIndexIt = postLinearIndexToVisitingIndex.find(hashKey);
+      assert(visitingIndexIt != postLinearIndexToVisitingIndex.end());
+
+      SmallVector<int64_t> visitingIndex = visitingIndexIt->second;
+      SmallVector<int64_t> srcResults = src.compose(visitingIndex);
+      SmallVector<int64_t> dstResults = dst.compose(visitingIndex);
+
       assert(srcResults.size() == src.getNumResults());
       assert(dstResults.size() == dst.getNumResults());
       PhysicalCoreCoord srcCoord(srcResults);
       PhysicalCoreCoord dstCoord(dstResults);
       std::int64_t srcOffset = srcResults.back() * elemSize;
       std::int64_t dstOffset = dstResults.back() * elemSize;
-      mlir::SmallVector<NocRead> &srcs = dst2srcMap[dstCoord];
+      SmallVector<NocRead> &srcs = dst2srcMap[dstCoord];
       if (not srcs.empty() &&
           srcs.back().isContiguous(srcCoord, srcOffset, dstOffset)) {
         srcs.back().size += elemSize;
@@ -175,12 +187,57 @@ public:
     assert(inputLayout.getPhysicalShape(inputTy.getShape()) ==
                outputLayout.getPhysicalShape(outputTy.getShape()) &&
            "Physical shapes must match for now");
-    AffineMap src =
-        inputLayout.projectOnto(inputTy.getShape(), device.getGrid());
-    AffineMap dst =
-        outputLayout.projectOnto(outputTy.getShape(), device.getGrid());
-    auto dm = calculateDataMovement(
-        inputTy.getShape(), inputLayout.getElementSizeBytes(), src, dst);
+
+    // Shape that will be traversed when calculating the data movement between
+    // layouts.
+    SmallVector<int64_t> inputShape =
+        inputLayout.isTiled() ? inputLayout.getTiledShape(inputTy.getShape())
+                              : SmallVector<int64_t>(inputTy.getShape());
+    SmallVector<int64_t> outputShape =
+        outputLayout.isTiled() ? outputLayout.getTiledShape(outputTy.getShape())
+                               : SmallVector<int64_t>(outputTy.getShape());
+
+    AffineMap inputLinearMap = inputLayout.isTiled()
+                                   ? inputLayout.getTileLinearMap()
+                                   : inputLayout.getLinear();
+    AffineMap outputLinearMap = outputLayout.isTiled()
+                                    ? outputLayout.getTileLinearMap()
+                                    : outputLayout.getLinear();
+
+    if (inputLayout.isTiled()) {
+      assert(inputLinearMap == outputLinearMap &&
+             "Linear maps must be identical");
+      assert(inputShape == outputShape && "Shapes must be identical");
+    }
+
+    // Holds the mapping from the post linear index to the visiting index of the
+    // original tensor shape. It's enough to store single visiting index for
+    // each post linear index.
+    llvm::SmallDenseMap<uint64_t, SmallVector<int64_t>>
+        postLinearIndexToVisitingIndex;
+    ::ttmlir::utils::sample(
+        inputTy.getShape(), [&inputLinearMap, &postLinearIndexToVisitingIndex](
+                                ArrayRef<std::int64_t> index) {
+          assert(index.size() == inputLinearMap.getNumDims());
+          auto postLinearIndex = inputLinearMap.compose(index);
+          auto h = llvm::hash_combine_range(postLinearIndex.begin(),
+                                            postLinearIndex.end());
+          if (postLinearIndexToVisitingIndex.count(h)) {
+            return;
+          }
+          postLinearIndexToVisitingIndex.insert(
+              {h, SmallVector<int64_t>(index)});
+        });
+
+    AffineMap src = inputLayout.projectOnto(inputLinearMap, inputTy.getShape(),
+                                            device.getGrid());
+
+    AffineMap dst = outputLayout.projectOnto(
+        outputLinearMap, outputTy.getShape(), device.getGrid());
+
+    auto dm =
+        calculateDataMovement(inputShape, inputLayout.getElementSizeBytes(),
+                              src, dst, postLinearIndexToVisitingIndex);
 
     auto noc0Attr =
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);
