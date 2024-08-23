@@ -13,8 +13,9 @@ jobs:
       matrix:
         image: ["ubuntu-22-04"]
         build: [
-          {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
-          {runs-on: self-hosted, build_type: Release, enable_runtime: ON},
+          {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF, enable_perf: OFF, name: "offline"},
+          {runs-on: self-hosted, build_type: Release, enable_runtime: ON, enable_perf: OFF, name: "runtime"},
+          {runs-on: self-hosted, build_type: Release, enable_runtime: ON,  enable_perf: ON, name: "perf"},
         ]
 
     runs-on: ${{ matrix.build.runs-on }}
@@ -42,7 +43,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
 
     - name: Configure CMake
       shell: bash
@@ -55,6 +56,7 @@ jobs:
         -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
         -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
+        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
         -S ${{ steps.strings.outputs.work-dir }}
 
@@ -63,6 +65,12 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
+
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- ttrt
 
     - name: Lint
       shell: bash
@@ -77,10 +85,34 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
 
+    - name: Get the latest tag
+      id: get_tag
+      run: |
+        latest_tag=$(git describe --tags --abbrev=0)
+        echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+
+    - name: Get the number of commits since the latest tag
+      id: get_commit_count
+      run: |
+        commit_count=$(git rev-list ${{ env.latest_tag }}..HEAD --count)
+        echo "commit_count=$commit_count" >> $GITHUB_ENV
+
+    - name: Generate version
+      id: generate_version
+      run: |
+        version="${{ env.latest_tag }}.${{ env.commit_count }}"
+        echo "version=$version" >> $GITHUB_ENV
+
+    - name: Upload ttrt whl
+      uses: actions/upload-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.name }}-${{ env.version }}
+        path: build/runtime/tools/python/build/*.whl
+
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}
+        name: test-reports-${{ matrix.build.runs-on }}-runtime-${{ matrix.build.enable_runtime }}-perf-${{ matrix.build.enable_perf }}
         path: build/test/report.xml
 
     - name: Show Test Report

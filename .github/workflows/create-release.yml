@@ -1,0 +1,55 @@
+name: Create release
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get the latest tag
+        id: get_tag
+        run: |
+          latest_tag=$(git describe --tags --abbrev=0)
+          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+
+      - name: Get the number of commits since the latest tag
+        id: get_commit_count
+        run: |
+          commit_count=$(git rev-list ${{ env.latest_tag }}..HEAD --count)
+          echo "commit_count=$commit_count" >> $GITHUB_ENV
+
+      - name: Generate version
+        id: generate_version
+        run: |
+          version="${{ env.latest_tag }}.${{ env.commit_count }}"
+          echo "version=$version" >> $GITHUB_ENV
+
+      - name: Download ttrt offline whls
+        uses: actions/download-artifact@v4
+        with:
+          name: ttrt-whl-offline-${{ env.version }}
+
+      - name: Download ttrt runtime whls
+        uses: actions/download-artifact@v4
+        with:
+          name: ttrt-whl-runtime-${{ env.version }}
+
+      - name: Download ttrt perf whls
+        uses: actions/download-artifact@v4
+        with:
+          name: ttrt-whl-perf-${{ env.version }}
+
+      - uses: softprops/action-gh-release@4634c16e79c963813287e889244c50009e7f0981
+        with:
+          tag_name: ${{ env.version }}
+          name: ${{ env.version }}
+          draft: false
+          prerelease: true
+          files: |
+            ttrt-whl-offline-${{ env.version }}
+            ttrt-whl-runtime-${{ env.version }}
+            ttrt-whl-perf-${{ env.version }}
+          fail_on_unmatched_files: true
