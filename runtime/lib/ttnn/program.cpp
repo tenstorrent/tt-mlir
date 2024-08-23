@@ -424,6 +424,25 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
 }
 
+// Nop is single input, output tensor where input is returned as output.
+bool handleNopProgram(::tt::target::ttnn::Program const *program,
+                      std::vector<::ttnn::Tensor *> const &inputs,
+                      std::vector<::ttnn::Tensor *> const &outputs) {
+
+  bool is_nop = program->inputs()->size() == 1 &&
+                program->outputs()->size() == 1 &&
+                program->inputs()->Get(0)->global_id() ==
+                    program->outputs()->Get(0)->global_id();
+
+  if (is_nop) {
+    void *src = ::tt::tt_metal::get_raw_host_data_ptr(*inputs.at(0));
+    void *dst = ::tt::tt_metal::get_raw_host_data_ptr(*outputs.at(0));
+    std::uint32_t size = outputs[0]->volume() * outputs[0]->element_size();
+    std::memcpy(dst, src, size);
+  }
+  return is_nop;
+}
+
 void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
@@ -434,6 +453,7 @@ void runProgram(::ttnn::Device &device,
   int inputIndex = 0;
   assert(program->inputs()->size() == inputs.size() &&
          "Mismatch between program inputs and input tensors");
+  bool is_nop = handleNopProgram(program, inputs, outputs);
   for (::tt::target::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
@@ -446,7 +466,7 @@ void runProgram(::ttnn::Device &device,
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
-    assert(inserted && "Duplicate output tensor");
+    assert(is_nop || inserted && "Duplicate output tensor");
   }
 
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
