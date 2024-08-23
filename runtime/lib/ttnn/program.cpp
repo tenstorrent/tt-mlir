@@ -256,6 +256,13 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
+    assert(op->ins()->size() == 1 && "Unsupported number of inputs");
+    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
+    tensorPool.push_back(::ttnn::sigmoid(in));
+    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   }
 }
 
@@ -296,7 +303,7 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
 }
 
 static void
-run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::device::Device &device,
+run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
@@ -307,7 +314,7 @@ run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::device::Device &device,
 }
 
 static void
-run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
+run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());

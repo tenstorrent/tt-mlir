@@ -147,6 +147,7 @@ Invoked as part of the rewrite set:
 MatmulOpConversionPattern
 ```
 
+### Note:
 We also need to add this op to the C++ emitter,
 `lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp` see
 `populateTTNNToEmitCPatterns(...)`.

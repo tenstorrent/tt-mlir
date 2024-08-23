@@ -171,7 +171,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::ReluOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::SqrtOp>>(typeConverter, ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::SigmoidOp>>(typeConverter, ctx);
 
   // Eltwise binary ops
   //
@@ -197,6 +197,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::SumOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MeanOp>>(typeConverter, ctx);
+
+  // Other ops
+  patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

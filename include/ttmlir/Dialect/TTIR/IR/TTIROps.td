@@ -252,6 +252,13 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
+    let summary = "Eltwise sigmoid.";
+    let description = [{
+      Eltwise sigmoid operation.
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
