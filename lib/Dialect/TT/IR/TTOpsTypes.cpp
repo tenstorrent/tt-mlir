@@ -278,10 +278,9 @@ static mlir::AffineMap collapsedLinearAffineMap(
     ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
     ::llvm::ArrayRef<int64_t> gridShape,
     ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  assert(shape.size() >= gridShape.size() && "shape must be >= gridShape");
-
+  int64_t numResultsClamped = std::min(shape.size(), gridShape.size());
   auto map = mlir::AffineMap::getMinorIdentityMap(shape.size(),
-                                                  gridShape.size(), context);
+                                                  numResultsClamped, context);
 
   std::int64_t minimumDim = static_cast<std::int64_t>(shape.size());
   for (auto [begin, end] : collapseIntervals) {
@@ -290,6 +289,9 @@ static mlir::AffineMap collapsedLinearAffineMap(
     }
     if (end < 0) {
       end += shape.size();
+    }
+    if (begin == end) {
+      continue;
     }
     assert(end > 0);
     minimumDim = std::min(minimumDim, begin);
@@ -317,6 +319,11 @@ static mlir::AffineMap collapsedLinearAffineMap(
     }
     assert(found && "Dim does not participate in AffineMap RHS");
   }
+
+  while (map.getNumResults() < gridShape.size()) {
+    map = map.insertResult(getAffineConstantExpr(0, context), 0);
+  }
+
   return map;
 }
 
