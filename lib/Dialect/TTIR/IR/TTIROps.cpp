@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include <mlir/IR/BuiltinTypes.h>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -70,6 +71,29 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
     ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
   return buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder,
                                                         block);
+}
+
+::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // inputType can have any rank
+
+  // weightType must have rank of 2: (dictionary_size, embedding_size)
+  //
+  if (weightType.getRank() != 2) {
+    return emitOpError("Weight must be a 2D tensor");
+  }
+
+  // outputType must have rank of inputType + and additional dimension of
+  // embedding_size
+  //
+  if (outputType.getRank() - inputType.getRank() != 1) {
+    return emitOpError("Output must have one dimension more than input");
+  }
+
+  return success();
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {

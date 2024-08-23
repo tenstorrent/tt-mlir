@@ -201,7 +201,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::MeanOp>>(typeConverter, ctx);
 
   // Other ops
+  //
   patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::EmbeddingOp>>(typeConverter,
+                                                              ctx);
 }
 
 } // namespace mlir::tt

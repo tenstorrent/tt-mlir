@@ -194,6 +194,18 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
+template <typename EmbeddingOp>
+::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
+createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto in1 = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
+}
+
 template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
@@ -265,6 +277,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto meanOp = dyn_cast<MeanOp>(op); meanOp) {
     return createOperation(cache, createReductionOp(cache, meanOp),
+                           debugString);
+  }
+  if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
+    return createOperation(cache, createEmbeddingOp(cache, embeddingOp),
                            debugString);
   }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {

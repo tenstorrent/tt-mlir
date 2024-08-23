@@ -185,6 +185,25 @@ def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
   }];
 }
 
+def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
+    let summary = "Embedding op.";
+    let description = [{
+      Embedding operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {
     let summary = "Softmax op.";
     let description = [{

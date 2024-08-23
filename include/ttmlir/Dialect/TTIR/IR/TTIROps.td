@@ -299,6 +299,26 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
   }];
 }
 
+def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
+    let summary = "Embedding op.";
+    let description = [{
+      Embedding operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{

@@ -60,6 +60,12 @@ table ReductionOp {
   keep_dim: bool;
 }
 
+table EmbeddingOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  output: tt.target.TensorRef;
+}
+
 table SoftmaxOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -90,6 +96,7 @@ union OpType {
   EltwiseOp,
   MatmulOp,
   ReductionOp,
+  EmbeddingOp,
   SoftmaxOp,
   TransposeOp
 }
