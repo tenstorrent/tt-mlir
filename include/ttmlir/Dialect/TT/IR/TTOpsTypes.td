@@ -233,7 +233,9 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
-      AffineMap projectOnto(ArrayRef<int64_t> logicalTensorShape, GridAttr grid) const;
+      AffineMap projectOnto(AffineMap linearMap, ArrayRef<int64_t> logicalTensorShape, GridAttr grid) const;
+      AffineMap getTileLinearMap() const;
+      llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
   }];
 }
 

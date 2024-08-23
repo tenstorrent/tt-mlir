@@ -1,0 +1,63 @@
+// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
+// UNSUPPORTED: true
+#l1_ = #tt.memory_space<l1>
+
+#untilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
+#tilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32 x 32, f32>, #l1_>>
+#tilized2x2 = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<1x2x!tt.tile<32 x 32, f32>, #l1_>>
+#untilized2x2 = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<32x64xf32, #l1_>>
+func.func @tilize_reblock_2D(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #untilized2x2> {
+  %0 = tensor.empty() : tensor<64x128xf32, #tilized>
+  %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #untilized>, tensor<64x128xf32, #tilized>) -> tensor<64x128xf32, #tilized>
+  %2 = tensor.empty() : tensor<64x128xf32, #tilized2x2>
+  %3 = "ttir.to_layout"(%1, %2) : (tensor<64x128xf32, #tilized>, tensor<64x128xf32, #tilized2x2>) -> tensor<64x128xf32, #tilized2x2>
+  %4 = tensor.empty() : tensor<64x128xf32, #untilized2x2>
+  %5 = "ttir.to_layout"(%3, %4) : (tensor<64x128xf32, #tilized2x2>, tensor<64x128xf32, #untilized2x2>) -> tensor<64x128xf32, #untilized2x2>
+  return %5 : tensor<64x128xf32, #untilized2x2>
+}
+
+
+#untilized4D = #tt.layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <1x1>, memref<384x128xf32, #l1_>>
+#tilized4D = #tt.layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <1x1>, memref<12x4x!tt.tile<32 x 32, f32>, #l1_>>
+#tilized4D_2x2 = #tt.layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <2x2>, memref<6x2x!tt.tile<32 x 32, f32>, #l1_>>
+#untilized4D_2x2 = #tt.layout<(d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3), undef, <2x2>, memref<192x64xf32, #l1_>>
+func.func @tilize_reblock_4D(%arg0: tensor<2x3x64x128xf32, #untilized4D>) -> tensor<2x3x64x128xf32, #untilized4D_2x2> {
+  %0 = tensor.empty() : tensor<2x3x64x128xf32, #tilized4D>
+  %1 = "ttir.to_layout"(%arg0, %0) : (tensor<2x3x64x128xf32, #untilized4D>, tensor<2x3x64x128xf32, #tilized4D>) -> tensor<2x3x64x128xf32, #tilized4D>
+
+  %2 = tensor.empty() : tensor<2x3x64x128xf32, #tilized4D_2x2>
+  %3 = "ttir.to_layout"(%1, %2) : (tensor<2x3x64x128xf32, #tilized4D>, tensor<2x3x64x128xf32, #tilized4D_2x2>) -> tensor<2x3x64x128xf32, #tilized4D_2x2>
+
+  %4 = tensor.empty() : tensor<2x3x64x128xf32, #untilized4D_2x2>
+  %5 = "ttir.to_layout"(%3, %4) : (tensor<2x3x64x128xf32, #tilized4D_2x2>, tensor<2x3x64x128xf32, #untilized4D_2x2>) -> tensor<2x3x64x128xf32, #untilized4D_2x2>
+
+  return %5 : tensor<2x3x64x128xf32, #untilized4D_2x2>
+}
+
+#untilized_big = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<96x192xf32, #l1_>>
+#tilized_big = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<3x6x!tt.tile<32 x 32, f32>, #l1_>>
+#tilized_big_3x2 = #tt.layout<(d0, d1) -> (d0, d1), undef, <3x2>, memref<1x3x!tt.tile<32 x 32, f32>, #l1_>>
+#tilized_big_3x6 = #tt.layout<(d0, d1) -> (d0, d1), undef, <3x6>, memref<1x1x!tt.tile<32 x 32, f32>, #l1_>>
+func.func @tilize_reblock_big(%arg0: tensor<96x192xf32, #untilized_big>) -> tensor<96x192xf32, #untilized_big> {
+  // move to tilized 1x1
+  %0 = tensor.empty() : tensor<96x192xf32, #tilized_big>
+  %1 = "ttir.to_layout"(%arg0, %0) : (tensor<96x192xf32, #untilized_big>, tensor<96x192xf32, #tilized_big>) -> tensor<96x192xf32, #tilized_big>
+
+  // move to tilized 2x3
+  %2 = tensor.empty() : tensor<96x192xf32, #tilized_big_3x2>
+  %3 = "ttir.to_layout"(%1, %2) : (tensor<96x192xf32, #tilized_big>, tensor<96x192xf32, #tilized_big_3x2>) -> tensor<96x192xf32, #tilized_big_3x2>
+
+  // move to tilized 3x3
+  %4 = tensor.empty() : tensor<96x192xf32, #tilized_big_3x6>
+  %5 = "ttir.to_layout"(%3, %4) : (tensor<96x192xf32, #tilized_big_3x2>, tensor<96x192xf32, #tilized_big_3x6>) -> tensor<96x192xf32, #tilized_big_3x6>
+
+  // move back to tilized 1x1
+  %6 = tensor.empty() : tensor<96x192xf32, #tilized_big>
+  %7 = "ttir.to_layout"(%5, %6) : (tensor<96x192xf32, #tilized_big_3x6>, tensor<96x192xf32, #tilized_big>) -> tensor<96x192xf32, #tilized_big>
+
+  // untilize
+  %8 = tensor.empty() : tensor<96x192xf32, #untilized_big>
+  %9 = "ttir.to_layout"(%7, %8) : (tensor<96x192xf32, #tilized_big>, tensor<96x192xf32, #untilized_big>) -> tensor<96x192xf32, #untilized_big>
+
+  return %9 : tensor<96x192xf32, #untilized_big>
+}
