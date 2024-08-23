@@ -303,7 +303,7 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
 }
 
 static void
-run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::device::Device &device,
+run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
@@ -314,7 +314,7 @@ run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::device::Device &device,
 }
 
 static void
-run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::device::Device &device,
+run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
