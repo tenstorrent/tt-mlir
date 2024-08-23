@@ -64,6 +64,12 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }}
 
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- ttrt
+
     - name: Lint
       shell: bash
       run: |
@@ -76,6 +82,12 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- check-ttmlir
+
+    - name: Upload ttrt whl
+      uses: actions/upload-artifact@v4
+      with:
+        name: ttrt-whl--${{ matrix.build.runs-on }}
+        path: build/runtime/tools/python/build/*.whl
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
