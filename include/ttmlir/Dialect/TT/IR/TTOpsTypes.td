@@ -78,8 +78,35 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
     TT chip_desc attribute
   }];
 
-  let parameters = (ins "ArchAttr":$arch, ArrayRefParameter<"int64_t">:$grid, "unsigned":$l1Size, "unsigned":$numDramChannels, "unsigned":$dramChannelSize, "unsigned":$nocL1AddressAlignBytes, "unsigned":$pcieAddressAlignBytes, "unsigned":$nocDRAMAddressAlignBytes, "ChipPhysicalCoresAttr":$chipPhysicalCores);
-  let assemblyFormat = "`{` `arch` `=` $arch `,` `grid` `=` custom<DimensionList>($grid) `,` `l1_size` `=` $l1Size `,` `num_dram_channels` `=` $numDramChannels `,` `dram_channel_size` `=` $dramChannelSize `,` `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,` `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,` `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes  `,` `physical_cores` `=` $chipPhysicalCores  `}`";
+  let parameters = (ins "ArchAttr":$arch,
+                    ArrayRefParameter<"int64_t">:$grid,
+                    "unsigned":$l1Size,
+                    "unsigned":$numDramChannels,
+                    "unsigned":$dramChannelSize,
+                    "unsigned":$nocL1AddressAlignBytes,
+                    "unsigned":$pcieAddressAlignBytes,
+                    "unsigned":$nocDRAMAddressAlignBytes,
+                    "unsigned":$l1UnreservedBase,
+                    "unsigned":$eriscL1UnreservedBase,
+                    "unsigned":$dramUnreservedBase,
+                    "ChipPhysicalCoresAttr":$chipPhysicalCores);
+  let assemblyFormat = [{`{` `arch` `=` $arch `,`
+                             `grid` `=` custom<DimensionList>($grid) `,`
+                             `l1_size` `=` $l1Size `,`
+                             `num_dram_channels` `=` $numDramChannels `,`
+                             `dram_channel_size` `=` $dramChannelSize `,`
+                             `noc_l1_address_align_bytes` `=` $nocL1AddressAlignBytes `,`
+                             `pcie_address_align_bytes` `=` $pcieAddressAlignBytes `,`
+                             `noc_dram_address_align_bytes` `=` $nocDRAMAddressAlignBytes  `,`
+                             `l1_unreserved_base` `=` $l1UnreservedBase `,`
+                             `erisc_l1_unreserved_base` `=` $eriscL1UnreservedBase `,`
+                             `dram_unreserved_base` `=` $dramUnreservedBase `,`
+                             `physical_cores` `=` $chipPhysicalCores `}`}];
+
+  let extraClassDeclaration = [{
+    unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
+    unsigned getUsableDramChannelSize() const { return getDramChannelSize() - getDramUnreservedBase(); }
+  }];
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
