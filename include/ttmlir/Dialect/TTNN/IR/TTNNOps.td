@@ -6,8 +6,10 @@
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPS_TD
 
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -43,21 +45,18 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let hasVerifier = 1;
 }
 
-// def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
-//     let summary = "ToLayout op.";
-//     let description = [{
-//     }];
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+    let summary = "ToLayout op.";
+    let description = [{
+    }];
 
-//     let arguments = (ins AnyRankedTensor:$input,
-//                          TT_LayoutAttr:$layout, // TODO: Implement Layout type
-//                          OptionalAttr<TypeAttr>:$dtype,
-//                         //  OptionalAttr<MemoryConfig>:$memory_config,  // TODO: Implement MemoryConfig type
-//                          TT_DeviceAttr:$device);
-//     let results = (outs AnyRankedTensor:$result);
-
-//     let hasVerifier = 1;
-// }
-
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_LayoutAttr:$layout,
+                         OptionalAttr<TypeAttr>:$dtype,
+                        //  OptionalAttr<MemoryConfig>:$memory_config,  // TODO: Implement MemoryConfig type
+                         TT_DeviceAttr:$device);
+    let results = (outs AnyRankedTensor:$result);
+}
 
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {

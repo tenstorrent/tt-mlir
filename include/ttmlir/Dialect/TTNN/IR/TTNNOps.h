@@ -14,7 +14,17 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+
+namespace mlir {
+namespace tt {
+namespace ttnn {
+// class CoreRangeAttr;
+class BlatrucAttr;
+} // namespace ttnn
+} // namespace tt
+} // namespace mlir
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"

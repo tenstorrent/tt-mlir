@@ -9,8 +9,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.h.inc"
-
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h.inc"
 

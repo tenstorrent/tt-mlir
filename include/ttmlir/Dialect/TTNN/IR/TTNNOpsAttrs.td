@@ -44,4 +44,8 @@ def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {
 
 def TTNN_CoreRangeArrayAttr : TypedArrayAttrBase<TTNN_CoreRangeAttr, "">;
 
+def TTNN_LayoutAttr : EnumAttr<TTNN_Dialect, TTNN_Layout, "layout"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
