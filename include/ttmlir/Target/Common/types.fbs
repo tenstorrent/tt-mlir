@@ -102,6 +102,9 @@ table ChipDesc {
   noc_l1_address_align_bytes: uint32;
   pcie_address_align_bytes: uint32;
   noc_dram_address_align_bytes: uint32;
+  l1_unreserved_base: uint32;
+  erisc_l1_unreserved_base: uint32;
+  dram_unreserved_base: uint32;
   physical_cores: ChipPhysicalCores;
 }
 

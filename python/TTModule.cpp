@@ -109,20 +109,23 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::ChipDescAttr>(m, "ChipDescAttr")
-      .def_static("get", [](MlirContext ctx, MlirAttribute arch,
-                            std::vector<int64_t> grid, unsigned l1Size,
-                            unsigned numDramChannels, unsigned dramChannelSize,
-                            unsigned nocL1AddressAlignBytes,
-                            unsigned pcieAddressAlignBytes,
-                            unsigned nocDRAMAddressAlignBytes,
-                            MlirAttribute chipPhysicalCores) {
-        return wrap(tt::ChipDescAttr::get(
-            unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid, l1Size,
-            numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
-            pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
-            mlir::dyn_cast<tt::ChipPhysicalCoresAttr>(
-                unwrap(chipPhysicalCores))));
-      });
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAttribute arch, std::vector<int64_t> grid,
+             unsigned l1Size, unsigned numDramChannels,
+             unsigned dramChannelSize, unsigned nocL1AddressAlignBytes,
+             unsigned pcieAddressAlignBytes, unsigned nocDRAMAddressAlignBytes,
+             unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
+             unsigned dramUnreservedBase, MlirAttribute chipPhysicalCores) {
+            return wrap(tt::ChipDescAttr::get(
+                unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
+                l1Size, numDramChannels, dramChannelSize,
+                nocL1AddressAlignBytes, pcieAddressAlignBytes,
+                nocDRAMAddressAlignBytes, l1UnreservedBase,
+                eriscL1UnreservedBase, dramUnreservedBase,
+                mlir::dyn_cast<tt::ChipPhysicalCoresAttr>(
+                    unwrap(chipPhysicalCores))));
+          });
 
   py::class_<tt::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get", [](MlirContext ctx, unsigned rack, unsigned shelf,

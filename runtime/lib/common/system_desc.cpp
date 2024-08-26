@@ -93,6 +93,13 @@ getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
   return allConnections;
 }
 
+static void sort(std::vector<::tt::target::Dim2d> &vec) {
+  std::sort(vec.begin(), vec.end(),
+            [](const ::tt::target::Dim2d &a, const ::tt::target::Dim2d &b) {
+              return a.y() < b.y() || (a.y() == b.y() && a.x() < b.x());
+            });
+}
+
 // Gather all physical cores by type for the device using metal device APIs
 static flatbuffers::Offset<::tt::target::ChipPhysicalCores>
 createChipPhysicalCores(const ::tt::tt_metal::Device *device,
@@ -118,7 +125,7 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
     }
   }
 
-  for (const CoreCoord &logical : device->get_active_ethernet_cores()) {
+  for (const CoreCoord &logical : device->get_active_ethernet_cores(true)) {
     CoreCoord physical = device->ethernet_core_from_logical_core(logical);
     eth_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
   }
@@ -128,6 +135,10 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
     eth_inactive_cores.emplace_back(
         ::tt::target::Dim2d(physical.y, physical.x));
   }
+
+  sort(dram_cores);
+  sort(eth_cores);
+  sort(eth_inactive_cores);
 
   return ::tt::target::CreateChipPhysicalCores(
       fbb, fbb.CreateVectorOfStructs(worker_cores),
@@ -163,7 +174,8 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
-        DRAM_ALIGNMENT, chipPhysicalCores));
+        DRAM_ALIGNMENT, L1_UNRESERVED_BASE, ERISC_L1_UNRESERVED_BASE,
+        DRAM_UNRESERVED_BASE, chipPhysicalCores));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
