@@ -4,6 +4,7 @@ add_custom_target(ttrt-copy-files
 )
 
 add_custom_target(ttrt
+  COMMAND rm -f *.whl
   COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
           TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
           TT_RUNTIME_ENABLE_TTMETAL=${TT_RUNTIME_ENABLE_TTMETAL}

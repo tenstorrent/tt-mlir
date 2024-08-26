@@ -1092,7 +1092,7 @@ class API:
                 self.tracy_csvexport_tool_path
             ), f"perf tool={self.tracy_csvexport_tool_path} does not exist - rebuild using perf mode"
 
-            if "binary" not in self:
+            if not hasattr(self, "binary"):
                 # Load from Capsule instead. only TTNN Path is supported for now
                 bin = Binary(self.logger, self.file_manager, "", self["capsule"])
                 if not bin.check_version():
