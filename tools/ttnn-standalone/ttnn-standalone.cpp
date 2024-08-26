@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
+#include "types.hpp"
 
 // Below is a snippet generated with:
 // ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout
@@ -28,22 +29,27 @@
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::Device &v3 = ttnn::open_device(0);
 
-  ttnn::Tensor v4 = ttnn::empty(v1.shape(), v1.tensor_attributes->dtype,
-                                v1.tensor_attributes->layout, v3);
-  //   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
+  MemoryConfig memConfig = ttnn::MemoryConfig{
+      .memory_layout = ttnn::TensorMemoryLayout::INTERLEAVED,
+      .buffer_type = ttnn::BufferType::DRAM,
+      // .shard_spec = std::nullopt,
+  };
 
-  ttnn::Tensor v6 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
-                                v2.tensor_attributes->layout, v3);
-  //   ttnn::Tensor v7 = ttnn::to_memory_config(v2, v6);
+  ttnn::Tensor v4 = v1.to(ttnn::Layout::TILE);
+  ttnn::Tensor v5 = v4.to(&v3, memConfig);
 
-  ttnn::Tensor v9 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
+  ttnn::Tensor v6 = v2.to(ttnn::Layout::TILE);
+  ttnn::Tensor v7 = v6.to(&v3, memConfig);
+
+  ttnn::Tensor v8 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
                                 v2.tensor_attributes->layout, v3);
-  ttnn::multiply(v4, v6, std::nullopt, std::nullopt, v9, std::nullopt,
+  ttnn::multiply(v5, v7, std::nullopt, std::nullopt, v8, std::nullopt,
                  std::nullopt);
-  v9 = v9.cpu(); // move to CPU
 
+  v8 = v8.cpu(); // move to CPU
   ttnn::close_device(v3);
-  return v9;
+
+  return v8;
 }
 
 int main() {
