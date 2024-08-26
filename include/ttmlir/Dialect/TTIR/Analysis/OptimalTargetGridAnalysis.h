@@ -11,12 +11,12 @@
 namespace mlir::tt::ttir {
 
 struct OptimalTargetGridAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<GridAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
 
   OptimalTargetGridAnalysisInput() : legalGrids() {}
 
   OptimalTargetGridAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<GridAttr>> &&legalGrids)
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &&legalGrids)
       : legalGrids(std::move(legalGrids)) {}
 
   bool operator==(const OptimalTargetGridAnalysisInput &rhs) const {
@@ -32,7 +32,7 @@ struct OptimalTargetGridAnalysisInput {
 //
 class OptimalTargetGridAnalysis
     : public TTIRAnalysis<OptimalTargetGridAnalysisInput,
-                          llvm::DenseMap<Operation *, GridAttr>> {
+                          llvm::DenseMap<Operation *, LayoutAttr>> {
 
 private:
   void analysisImplementation() override;

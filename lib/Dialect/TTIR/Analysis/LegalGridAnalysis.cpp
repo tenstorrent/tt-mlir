@@ -10,15 +10,24 @@ bool LegalGridAnalysis::applyOverrides() {
   // Lookup grid size overrides based on location information for current
   // operation.
   //
+
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
   if (analysisInput.gridSizeOverrides && isa<NameLoc>(op->getLoc())) {
     StringRef loc_str_op_name = mlir::cast<NameLoc>(op->getLoc()).getName();
     auto gridOverride = analysisInput.gridSizeOverrides->find(loc_str_op_name);
     if (gridOverride != analysisInput.gridSizeOverrides->end()) {
-      analysisResult.push_back(GridAttr::get(
-          op->getContext(), ArrayRef<int64_t>(gridOverride->second)));
-      analysisResult.push_back(
+      analysisResult.push_back(layout.withGrid(
+          op->getContext(), tensorShape,
           GridAttr::get(op->getContext(),
-                        {gridOverride->second[0], gridOverride->second[1]}));
+                        ArrayRef<int64_t>(gridOverride->second))));
+      analysisResult.push_back(layout.withGrid(
+          op->getContext(), tensorShape,
+          GridAttr::get(op->getContext(),
+                        {gridOverride->second[0], gridOverride->second[1]})));
       return true;
     }
   }
@@ -31,7 +40,13 @@ void LegalGridAnalysis::analysisImplementation() {
   // check if they are legal based on tensor type and device/chip attributes.
   // For now result of analysis is maximum supported grid size.
   //
-  analysisResult.push_back(
-      GridAttr::get(op->getContext(), analysisInput.maxGrid.getShape()));
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  analysisResult.push_back(layout.withGrid(
+      op->getContext(), tensorShape,
+      GridAttr::get(op->getContext(), analysisInput.maxGrid.getShape())));
 }
 } // namespace mlir::tt::ttir
