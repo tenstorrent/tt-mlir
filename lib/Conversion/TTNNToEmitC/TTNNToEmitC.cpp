@@ -191,6 +191,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::TransposeOp>>(typeConverter,
                                                               ctx);
 
+  patterns.add<DefaultOpConversionPattern<ttnn::ConcatOp>>(typeConverter, ctx);
+
   // Matmul ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
