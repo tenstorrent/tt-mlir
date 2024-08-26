@@ -4,15 +4,21 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/Casting.h"
-#include <llvm/Support/LogicalResult.h>
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -71,19 +77,81 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
-    // Drop the last operand which is the DPS operand.
+    // Get tt::LayoutAttr of the result type
     //
-    ValueRange nonDPSOperands = adaptor.getOperands().drop_back();
+    tt::LayoutAttr ttLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
 
-    if (nonDPSOperands.size() != 1) {
-      return op->emitOpError(
-          "Expected exactly one non-DPS operand for toMemoryConfig op");
+    // Figure out if output tensor is in RowMajor layout or Tile layout
+    // Figure out the data type of the output tensor
+    //
+    mlir::MemRefType memref = ttLayoutAttr.getMemref();
+    Type elementType = memref.getElementType();
+    DataType dtype = DataType::Float32;
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      dtype = elementTypeToDataType(elementType);
     }
-    Value nonDPSOperand = nonDPSOperands.front();
+
+    // Map TT::MemorySpace to TTNN::BufferType
+    //
+    tt::MemorySpace memorySpace = ttLayoutAttr.getMemorySpace();
+    ttnn::BufferType bufferType = ttnn::BufferType::DRAM; // default to DRAM
+    switch (memorySpace) {
+    case tt::MemorySpace::System:
+    case tt::MemorySpace::SystemMMIO:
+      bufferType = ttnn::BufferType::SystemMemory;
+      break;
+    case tt::MemorySpace::DeviceDRAM:
+      bufferType = ttnn::BufferType::DRAM;
+      break;
+    case tt::MemorySpace::DeviceL1:
+      bufferType = ttnn::BufferType::L1;
+      break;
+    }
+
+    // TODO(bug #622):
+    // Default to Interleaved for now, need to read this from TTIR
+    //
+    auto tensorMemoryLayout = ttnn::TensorMemoryLayout::Interleaved;
+
+    // TODO(bug #621):
+    // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
+    // tt::DataTypeAttr::get(op.getContext(), dtype), device)
+    //
+    (void)dtype;
+
+    // Find device to be used for the tensor
+    //
     auto device = getOrInsertDevice(rewriter, op);
-    rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), nonDPSOperand,
+
+    // Create ToLayoutOp
+    //
+    ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+        op.getInput(), ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
         device);
+
+    // Create MemoryConfigAttr
+    //
+    // TODO(bug #620):
+    // Add support for ShardSpec
+    //
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(),
+        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
+
+    // Create ToDeviceOp
+    //
+    rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
+        device, memoryConfigAttr);
     return success();
   }
 };

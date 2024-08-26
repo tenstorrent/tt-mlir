@@ -5,12 +5,15 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -28,6 +31,8 @@ struct ConvertTTIRToTTNNPass
     : public ttir::impl::ConvertTTIRToTTNNBase<ConvertTTIRToTTNNPass> {
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
+    target.addLegalDialect<BuiltinDialect>();
+    target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
@@ -38,10 +43,10 @@ struct ConvertTTIRToTTNNPass
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTNNPatterns(&getContext(), patterns, typeConverter);
 
-    // Full conversion requires explicit handling of FuncOp and ModuleOp, which
-    // should be passed down unmodified so partial conversion is used.
-    if (failed(applyPartialConversion(getOperation(), target,
-                                      std::move(patterns)))) {
+    // Apply full conversion
+    //
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }

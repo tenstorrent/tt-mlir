@@ -12,8 +12,6 @@
 
 using namespace mlir::tt::ttnn;
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.cpp.inc"
-
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.cpp.inc"
 
