@@ -4,6 +4,8 @@ Please include a summary of the changes and the related issue. Please also inclu
 
 - **Issue Number:** (e.g. #123)
 
+## Type of a change
+
 - [ ] Bug fix
 - [ ] New feature
 - [ ] Performance improvement
