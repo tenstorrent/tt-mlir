@@ -465,13 +465,13 @@ class Flatbuffer:
     ttmetal_file_extension = ".ttm"
     ttsys_file_extension = ".ttsys"
 
-    def __init__(self, logger, file_manager, file_path):
+    def __init__(self, logger, file_manager, file_path, capsule=None):
         import ttrt.binary
 
         self.logger = logger
         self.logging = self.logger.get_logger()
         self.file_manager = file_manager
-        self.file_path = file_path
+        self.file_path = file_path if file_path != None else "<binary-from-capsule>"
         self.name = self.file_manager.get_file_name(file_path)
         self.extension = self.file_manager.get_file_extension(file_path)
         self.version = None
@@ -506,12 +506,15 @@ class Flatbuffer:
 
 
 class Binary(Flatbuffer):
-    def __init__(self, logger, file_manager, file_path):
-        super().__init__(logger, file_manager, file_path)
+    def __init__(self, logger, file_manager, file_path, capsule=None):
+        super().__init__(logger, file_manager, file_path, capsule=capsule)
 
         import ttrt.binary
 
-        self.fbb = ttrt.binary.load_binary_from_path(file_path)
+        if not capsule:
+            self.fbb = ttrt.binary.load_binary_from_path(file_path)
+        else:
+            self.fbb = ttrt.binary.load_binary_from_capsule(capsule)
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.version = self.fbb.version
         self.programs = []
