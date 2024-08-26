@@ -7,6 +7,7 @@
 #include <functional>
 #include <list>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -15,6 +16,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
+#include "ttnn/operations/core/core.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "types_generated.h"
@@ -366,6 +368,94 @@ static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
     break;
   }
   }
+}
+
+static void run(::tt::target::ttnn::ToLayoutOp const *op,
+                std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
+                ProgramTensorPool &tensorPool) {
+
+  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
+  assert((isOnHost(inputTensor) or isOnDevice(inputTensor)) &&
+         "Unsupported storage type");
+
+  ::ttnn::Layout layout;
+  switch (op->layout()) {
+  case ::tt::target::TensorLayout::RowMajor:
+    layout = ::ttnn::Layout::ROW_MAJOR;
+    break;
+  case ::tt::target::TensorLayout::Tile:
+    layout = ::ttnn::Layout::TILE;
+    break;
+  case ::tt::target::TensorLayout::Invalid:
+    layout = ::ttnn::Layout::INVALID;
+    break;
+  }
+
+  ::ttnn::Device &device = getDevice(op->device(), devicePool);
+  ::ttnn::Tensor out = ::ttnn::to_layout(inputTensor, layout, std::nullopt,
+                                         std::nullopt, &device);
+
+  tensorPool.try_emplace(op->out()->global_id(), std::move(out));
+}
+
+static void run(::tt::target::ttnn::ToDeviceOp const *op,
+                std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
+                ProgramTensorPool &tensorPool) {
+
+  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
+  assert((isOnHost(inputTensor) or isOnDevice(inputTensor)) &&
+         "Unsupported storage type");
+
+  op->memcfg()->tensor_memory_layout();
+  op->memcfg()->buffer_type();
+
+  ::ttnn::TensorMemoryLayout tensorMemoryLayout;
+  switch (op->memcfg()->tensor_memory_layout()) {
+  case ::tt::target::TensorMemoryLayout::Interleaved:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::INTERLEAVED;
+    break;
+  case ::tt::target::TensorMemoryLayout::SingleBank:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::SINGLE_BANK;
+    break;
+  case ::tt::target::TensorMemoryLayout::HeightSharded:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
+    break;
+  case ::tt::target::TensorMemoryLayout::WidthSharded:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
+    break;
+  case ::tt::target::TensorMemoryLayout::BlockSharded:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+    break;
+  case ::tt::target::TensorMemoryLayout::None:
+    assert(false &&
+           "Unsupported tensor memory layout TensorMemoryLayout::None");
+    break;
+  }
+
+  ::ttnn::BufferType bufferType;
+  switch (op->memcfg()->buffer_type()) {
+  case ::tt::target::BufferType::DRAM:
+    bufferType = ::ttnn::BufferType::DRAM;
+    break;
+  case ::tt::target::BufferType::L1:
+    bufferType = ::ttnn::BufferType::L1;
+    break;
+  case ::tt::target::BufferType::SystemMemory:
+    bufferType = ::ttnn::BufferType::SYSTEM_MEMORY;
+    break;
+  case ::tt::target::BufferType::L1Small:
+    bufferType = ::ttnn::BufferType::L1_SMALL;
+    break;
+  case ::tt::target::BufferType::Trace:
+    bufferType = ::ttnn::BufferType::TRACE;
+    break;
+  }
+
+  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType};
+  ::ttnn::Device &device = getDevice(op->device(), devicePool);
+  ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
+
+  tensorPool.try_emplace(op->out()->global_id(), std::move(out));
 }
 
 static void run(::tt::target::ttnn::EmptyOp const *op,
@@ -806,6 +896,9 @@ run(::tt::target::ttnn::Operation const *op,
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     return run(op->type_as_ToMemoryConfigOp(), devicePool, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    return run(op->type_as_ToLayoutOp(), devicePool, tensorPool);
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return run(op->type_as_EmptyOp(), devicePool, tensorPool);

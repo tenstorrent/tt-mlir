@@ -6,8 +6,10 @@
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPS_TD
 
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -33,6 +35,28 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+    let summary = "ToLayout op.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_LayoutAttr:$layout,
+                         TT_Device:$device);
+    let results = (outs AnyRankedTensor:$result);
+}
+
+def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+    let summary = "ToDevice op.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         TTNN_MemoryConfigAttr:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :

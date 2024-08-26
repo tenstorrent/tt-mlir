@@ -15,6 +15,20 @@ table ToMemoryConfigOp {
   out: tt.target.TensorRef;
 }
 
+table ToLayoutOp {
+  in: tt.target.TensorRef;
+  layout: tt.target.TensorLayout;
+  device: tt.target.DeviceRef;
+  out: tt.target.TensorRef;
+}
+
+table ToDeviceOp {
+  in: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
+  out: tt.target.TensorRef;
+}
+
 table EmptyOp {
   device: tt.target.DeviceRef;
   out: tt.target.TensorRef;
@@ -128,6 +142,8 @@ table DeallocOp {
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
+  ToLayoutOp,
+  ToDeviceOp,
   EmptyOp,
   FullOp,
   EltwiseOp,
