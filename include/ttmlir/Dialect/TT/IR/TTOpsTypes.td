@@ -51,6 +51,10 @@ def TT_ArchAttr : EnumAttr<TT_Dialect, TT_Arch, "arch"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TT_DataTypeAttr : EnumAttr<TT_Dialect, TT_DataType, "supportedDataTypes"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TT_CoreCoordAttr : TT_Attr<"CoreCoord", "core_coord"> {
   let summary = "TT core_coord attribute";
   let description = [{
@@ -59,6 +63,16 @@ def TT_CoreCoordAttr : TT_Attr<"CoreCoord", "core_coord"> {
 
   let parameters = (ins "int64_t":$y, "int64_t":$x);
   let assemblyFormat = "`(` $y `,` $x `)`";
+}
+
+def TT_TileSizeAttr : TT_Attr<"TileSize", "tile_size"> {
+  let summary = "TT tile_size attribute";
+  let description = [{
+    TT tile_size attribute containing a supported Tensix tile shape.
+  }];
+
+  let parameters = (ins "int64_t":$y, "int64_t":$x);
+  let assemblyFormat = "`(` $y `x` $x `)`";
 }
 
 
@@ -89,7 +103,9 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$l1UnreservedBase,
                     "unsigned":$eriscL1UnreservedBase,
                     "unsigned":$dramUnreservedBase,
-                    "ChipPhysicalCoresAttr":$chipPhysicalCores);
+                    "ChipPhysicalCoresAttr":$chipPhysicalCores,
+                    ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
+                    ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `l1_size` `=` $l1Size `,`
@@ -101,7 +117,9 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `l1_unreserved_base` `=` $l1UnreservedBase `,`
                              `erisc_l1_unreserved_base` `=` $eriscL1UnreservedBase `,`
                              `dram_unreserved_base` `=` $dramUnreservedBase `,`
-                             `physical_cores` `=` $chipPhysicalCores `}`}];
+                             `physical_cores` `=` $chipPhysicalCores `,`
+                             `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
+                             `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `}`}];
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
