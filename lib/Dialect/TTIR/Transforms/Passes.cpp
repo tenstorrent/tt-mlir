@@ -931,7 +931,7 @@ public:
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-    llvm::DenseMap<Operation *, std::vector<GridAttr>> legalGrids;
+    llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -969,15 +969,13 @@ public:
 
         RankedTensorType tensorType =
             mlir::cast<RankedTensorType>(op->getResult(0).getType());
-        LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
         llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
         // Update the output layout attribute with the new grid size.
         //
         op->getResult(0).setType(RankedTensorType::get(
             tensorShape, tensorType.getElementType(),
-            layout.withGrid(&getContext(), tensorShape,
-                            optimalTargetGridAnalysis.getResult().at(op))));
+            optimalTargetGridAnalysis.getResult().at(op)));
       });
 
       // Update the function type to reflect the updated return operation's
