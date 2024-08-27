@@ -1,0 +1,19 @@
+ARG GIT_SHA
+ARG FROM_IMAGE=${GIT_SHA:-base}
+ARG FROM_TAG=${GIT_SHA:-latest}
+
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-${FROM_IMAGE}-ubuntu-22-04:${FROM_TAG}
+SHELL ["/bin/bash", "-c"]
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    ssh \
+    sudo \
+    vim
+
+RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
+    chmod -R 777 $TTMLIR_TOOLCHAIN_DIR

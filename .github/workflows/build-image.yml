@@ -3,12 +3,26 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+
+    env:
+      BASE_IMAGE_NAME:      ghcr.io/${{ github.repository }}/tt-mlir-base-ubuntu-22-04
+      CI_IMAGE_NAME:        ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04
+      BASE_IRD_IMAGE_NAME:  ghcr.io/${{ github.repository }}/tt-mlir-base-ird-ubuntu-22-04
+      IRD_IMAGE_NAME:       ghcr.io/${{ github.repository }}/tt-mlir-ird-ubuntu-22-04
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -20,14 +34,52 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push base Docker image
         uses: docker/build-push-action@v6
         with:
           context: .github
-          file: .github/Dockerfile
+          file: .github/Dockerfile.base
           push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
-            ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
+            ${{ env.BASE_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.BASE_IMAGE_NAME}}:latest
+
+      - name: Build and push base IRD Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.ird
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            FROM_IMAGE=base
+          tags: |
+            ${{ env.BASE_IRD_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.BASE_IRD_IMAGE_NAME}}:latest
+
+      - name: Build and push CI Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.ci
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.CI_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.CI_IMAGE_NAME}}:latest
+
+      - name: Build and push IRD Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.ird
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            FROM_IMAGE=ci
+          tags: |
+            ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.IRD_IMAGE_NAME}}:latest
