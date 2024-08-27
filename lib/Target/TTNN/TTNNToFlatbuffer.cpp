@@ -125,33 +125,22 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   auto in0 =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput())); 
-  auto in1 =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getWeight()));
-  auto in2 = op.getODSOperands(2).empty() ? flatbuffers::Offset<::tt::target::TensorRef>() :
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getBias()));
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto in1 = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto in2 = op.getODSOperands(2).empty()
+                 ? flatbuffers::Offset<::tt::target::TensorRef>()
+                 : cache.at<::tt::target::TensorRef>(
+                       getOperandThroughDPSOps(op.getBias()));
   auto output = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateConv2dOp(*cache.fbb, 
-      in0, 
-      in1, 
-      in2, 
-      output, 
-      op.getInChannels(),
-      op.getOutChannels(),
-      op.getBatchSize(),
-      op.getInputHeight(),
-      op.getInputWidth(),
-      op.getKernelHeight(),
-      op.getKernelWidth(),
-      op.getStrideHeight(),
-      op.getStrideWidth(),
-      op.getPaddingHeight(),
-      op.getPaddingWidth(),
-      op.getDilationHeight(),
-      op.getDilationWidth(),
-      op.getGroups()
-      );
+  return ::tt::target::ttnn::CreateConv2dOp(
+      *cache.fbb, in0, in1, in2, output, op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
+      op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
+      op.getPaddingWidth(), op.getDilationHeight(), op.getDilationWidth(),
+      op.getGroups());
 }
 
 template <typename EltwiseOp>

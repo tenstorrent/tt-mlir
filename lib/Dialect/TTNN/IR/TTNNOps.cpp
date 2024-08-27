@@ -147,7 +147,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  
+
   if (inputType.getRank() < 3) {
     return emitOpError("Input must be at least a 3D tensor");
   }

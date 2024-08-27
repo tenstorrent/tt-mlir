@@ -41,6 +41,7 @@
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #define FMT_HEADER_ONLY
 #include "ttnn/device.hpp"
+#include "ttnn/operations/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/creation.hpp"
@@ -49,7 +50,6 @@
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
-#include "ttnn/operations/conv2d/conv2d.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #pragma clang diagnostic pop
