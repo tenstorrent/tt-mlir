@@ -105,9 +105,7 @@ public:
   // an associated list of noc reads to be performed.
   llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>>
   calculateDataMovement(ArrayRef<int64_t> tensorShape, int64_t elemSize,
-                        AffineMap src, AffineMap dst,
-                        llvm::SmallDenseMap<uint64_t, SmallVector<int64_t>>
-                            postLinearIndexToVisitingIndex) const {
+                        AffineMap src, AffineMap dst) const {
 
     // For now it's just a simple pull model, but eventually we want to leverage
     // both NoCs and the both read and write
@@ -115,17 +113,10 @@ public:
     assert(src.getNumResults() == 4);
     assert(dst.getNumResults() == 4);
 
-    ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize,
-                                          postLinearIndexToVisitingIndex](
+    ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize](
                                              ArrayRef<std::int64_t> index) {
-      auto hashKey = llvm::hash_combine_range(index.begin(), index.end());
-
-      auto visitingIndexIt = postLinearIndexToVisitingIndex.find(hashKey);
-      assert(visitingIndexIt != postLinearIndexToVisitingIndex.end());
-
-      SmallVector<int64_t> visitingIndex = visitingIndexIt->second;
-      SmallVector<int64_t> srcResults = src.compose(visitingIndex);
-      SmallVector<int64_t> dstResults = dst.compose(visitingIndex);
+      SmallVector<int64_t> srcResults = src.compose(index);
+      SmallVector<int64_t> dstResults = dst.compose(index);
 
       assert(srcResults.size() == src.getNumResults());
       assert(dstResults.size() == dst.getNumResults());
@@ -197,47 +188,31 @@ public:
         outputLayout.isTiled() ? outputLayout.getTiledShape(outputTy.getShape())
                                : SmallVector<int64_t>(outputTy.getShape());
 
+    assert(inputShape == outputShape && "Shapes must be identical");
+
+    // If tiles are reblocked, the linear maps must be identical.
+    assert(!(inputLayout.isTiled() && outputLayout.isTiled()) ||
+           inputLayout.getLinear() == outputLayout.getLinear());
+
+    // When the layouts are tiled, the linear maps are the identity maps.
+    // Reasoning behind this is that since it's already ensured that scalar
+    // linear maps identical, tensors can be viewed simply as bags of tiles
+    // omitting any affine complexity.
     AffineMap inputLinearMap = inputLayout.isTiled()
-                                   ? inputLayout.getTileLinearMap()
+                                   ? inputLayout.getIdentityTileLinearMap()
                                    : inputLayout.getLinear();
     AffineMap outputLinearMap = outputLayout.isTiled()
-                                    ? outputLayout.getTileLinearMap()
+                                    ? outputLayout.getIdentityTileLinearMap()
                                     : outputLayout.getLinear();
 
-    if (inputLayout.isTiled()) {
-      assert(inputLinearMap == outputLinearMap &&
-             "Linear maps must be identical");
-      assert(inputShape == outputShape && "Shapes must be identical");
-    }
+    AffineMap src =
+        inputLayout.projectOnto(inputLinearMap, inputShape, device.getGrid());
 
-    // Holds the mapping from the post linear index to the visiting index of the
-    // original tensor shape. It's enough to store single visiting index for
-    // each post linear index.
-    llvm::SmallDenseMap<uint64_t, SmallVector<int64_t>>
-        postLinearIndexToVisitingIndex;
-    ::ttmlir::utils::sample(
-        inputTy.getShape(), [&inputLinearMap, &postLinearIndexToVisitingIndex](
-                                ArrayRef<std::int64_t> index) {
-          assert(index.size() == inputLinearMap.getNumDims());
-          auto postLinearIndex = inputLinearMap.compose(index);
-          auto h = llvm::hash_combine_range(postLinearIndex.begin(),
-                                            postLinearIndex.end());
-          if (postLinearIndexToVisitingIndex.count(h)) {
-            return;
-          }
-          postLinearIndexToVisitingIndex.insert(
-              {h, SmallVector<int64_t>(index)});
-        });
+    AffineMap dst = outputLayout.projectOnto(outputLinearMap, outputShape,
+                                             device.getGrid());
 
-    AffineMap src = inputLayout.projectOnto(inputLinearMap, inputTy.getShape(),
-                                            device.getGrid());
-
-    AffineMap dst = outputLayout.projectOnto(
-        outputLinearMap, outputTy.getShape(), device.getGrid());
-
-    auto dm =
-        calculateDataMovement(inputShape, inputLayout.getElementSizeBytes(),
-                              src, dst, postLinearIndexToVisitingIndex);
+    auto dm = calculateDataMovement(
+        inputShape, inputLayout.getElementSizeBytes(), src, dst);
 
     auto noc0Attr =
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);

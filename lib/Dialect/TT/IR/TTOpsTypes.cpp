@@ -324,17 +324,12 @@ calculateLogicalShardShape(::mlir::MLIRContext *context,
                            mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
-  mlir::SmallVector<mlir::AffineExpr> tensorShapeExprs(
-      llvm::map_range(tensorShape, [context](std::int64_t e) {
-        return getAffineConstantExpr(e - 1, context);
-      }));
+  mlir::SmallVector<std::int64_t> logicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
   mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
   for (unsigned i = 0; i < linear.getNumResults(); ++i) {
-    mlir::AffineExpr expr = linear.getResult(i);
-    mlir::AffineExpr constantExpr = expr.replaceDims(tensorShapeExprs);
-    std::int64_t constant =
-        llvm::cast<mlir::AffineConstantExpr>(constantExpr).getValue() + 1;
-    shardShape[i] = (constant + grid.getShape()[i] - 1) / grid.getShape()[i];
+    shardShape[i] =
+        (logicalShape[i] + grid.getShape()[i] - 1) / grid.getShape()[i];
   }
   return shardShape;
 }
@@ -512,58 +507,34 @@ MemorySpace LayoutAttr::getMemorySpace() const {
       .getValue();
 }
 
-// Returns shape of the tensor after tilization is applied.
+// Returns shape of the tensor after tilization is applied to the two inner most
+// dimensions.
 llvm::SmallVector<int64_t>
 LayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
   assert(isTiled() && "Expected a tiled layout");
 
-  auto tileLinearMap = getTileLinearMap();
-
-  return ttmlir::utils::evalShape(tileLinearMap, tensorShape);
-}
-
-// Returns an affine map that maps tensor original dimensions to the tile linear
-// space instead of scalar space.
-// Example:
-// scalar linear: (d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3),
-// tile linear: (d0, d1, d2, d3) -> (d0 * 6 + d1 * 2 + d2 floordiv 32, d3
-// floordiv 32).
-mlir::AffineMap LayoutAttr::getTileLinearMap() const {
-  assert(isTiled() && "Expected a tiled layout");
-
   mlir::AffineMap linear = getLinear();
-  mlir::SmallVector<AffineExpr> tileLinearExprs;
+  uint32_t rank = linear.getNumResults();
+  assert(rank >= 2 && "Expected at least two results in linear map");
+  mlir::AffineExpr y = linear.getResult(rank - 2);
+  mlir::AffineExpr x = linear.getResult(rank - 1);
 
   TileType tileType = mlir::cast<TileType>(getElementType());
   int64_t tileH = tileType.getHeight();
   int64_t tileW = tileType.getWidth();
 
-  mlir::AffineExpr d0 = getAffineDimExpr(0, getContext());
-  mlir::AffineExpr d1 = getAffineDimExpr(1, getContext());
-  tileLinearExprs.push_back(d0.floorDiv(tileH));
-  tileLinearExprs.push_back(d1.floorDiv(tileW));
+  mlir::AffineMap tiled =
+      linear.replace(mlir::DenseMap<mlir::AffineExpr, mlir::AffineExpr>{
+          {y, y.floorDiv(tileH)}, {x, x.floorDiv(tileW)}});
 
-  mlir::AffineMap tilingMap =
-      AffineMap::get(2 /* tile rank */, 0, tileLinearExprs, getContext());
+  return ttmlir::utils::evalShape(tiled, tensorShape);
+}
 
-  // If the linear map has more than two results, drop the first results and
-  // leave the last two. This is needed before composition with the tiling map.
-  // The dropped results are added back after composition.
-  mlir::SmallVector<int64_t> dropPositions;
-  mlir::SmallVector<AffineExpr> droppedResults;
-  assert(linear.getNumResults() >= 2);
-  for (uint i = 0; i < linear.getNumResults() - 2; ++i) {
-    dropPositions.push_back(i);
-    droppedResults.push_back(linear.getResult(i));
-  }
-  mlir::AffineMap linearLastTwoResults = linear.dropResults(dropPositions);
+mlir::AffineMap LayoutAttr::getIdentityTileLinearMap() const {
+  assert(isTiled() && "Expected a tiled layout");
 
-  mlir::AffineMap tiledResultMap = tilingMap.compose(linearLastTwoResults);
-  for (uint i = 0; i < droppedResults.size(); ++i) {
-    tiledResultMap = tiledResultMap.insertResult(droppedResults[i], i);
-  }
-
-  return tiledResultMap;
+  return mlir::AffineMap::getMultiDimIdentityMap(getLinear().getNumResults(),
+                                                 getContext());
 }
 
 // Projects tensor layout onto the device grid. Uses given linear map to derive
