@@ -440,6 +440,11 @@ public:
       if (layout) {
         return type;
       }
+      if (type.getShape().size() == 1) {
+        // Need a minimum TensorGrid of size in order to match the minimum
+        // DeviceGrid size
+        type = RankedTensorType::Builder(type).insertDim(1, 1);
+      }
       // Default to initMemorySpace, the optimizer might decide otherwise
       auto newLayout = LayoutAttr::get(ctx, type, initMemorySpace);
       return RankedTensorType::get(type.getShape(), type.getElementType(),

@@ -394,10 +394,12 @@ static mlir::AffineMap collapsedLinearAffineMap(
     if (end < 0) {
       end += shape.size();
     }
+    if (end < 0) {
+      continue;
+    }
     if (begin == end) {
       continue;
     }
-    assert(end > 0);
     minimumDim = std::min(minimumDim, begin);
     auto collapsed = getAffineConstantExpr(0, context);
     int multiplier = 1;
