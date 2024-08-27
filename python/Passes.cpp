@@ -49,6 +49,16 @@ void populatePassesModule(py::module &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         data = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
       });
+
+  m.def("ttnn_to_flatbuffer_binary", [](MlirModule module) {
+    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+    std::shared_ptr<void> *binary = new std::shared_ptr<void>();
+    *binary = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
+    return py::capsule((void *)binary, [](void *data) {
+      std::shared_ptr<void> *bin = static_cast<std::shared_ptr<void> *>(data);
+      delete bin;
+    });
+  });
 }
 
 } // namespace mlir::ttmlir::python

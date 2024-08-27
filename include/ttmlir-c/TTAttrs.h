@@ -26,7 +26,9 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     MlirContext ctx, MlirAttribute arch, int64_t *grid, size_t gridSize,
     unsigned l1Size, unsigned numDramChannels, unsigned dramChannelSize,
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
-    unsigned nocDRAMAddressAlignBytes);
+    unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
+    unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
+    MlirAttribute chipPhysicalCores);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(
     MlirContext ctx, unsigned rack, unsigned shelf, unsigned y, unsigned x);
