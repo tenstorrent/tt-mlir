@@ -242,8 +242,10 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::CreateBufferCommand const *command) {
-  buffers[command->ref()->global_id()] =
-      createBufferFromTensorRef(device, command->ref());
+  if (buffers.find(command->ref()->global_id()) == buffers.end()) {
+    buffers[command->ref()->global_id()] =
+        createBufferFromTensorRef(device, command->ref());
+  }
 }
 
 void CQExecutor::execute(
@@ -252,7 +254,7 @@ void CQExecutor::execute(
   assert(iter != buffers.end() && "Buffer not allocated");
   assert(iter->second != nullptr && "Buffer already deallocated");
   ::tt::tt_metal::DeallocateBuffer(*iter->second);
-  iter->second.reset();
+  buffers.erase(iter);
 }
 
 void CQExecutor::execute(
