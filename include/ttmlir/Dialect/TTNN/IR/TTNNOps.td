@@ -259,6 +259,8 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttnn
