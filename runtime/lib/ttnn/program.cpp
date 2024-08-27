@@ -387,6 +387,19 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
 }
 
+static void
+run(::tt::target::ttnn::ConcatOp const *op, ::ttnn::Device &device,
+    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
+    std::list<::ttnn::Tensor> &tensorPool) {
+  std::vector<::ttnn::Tensor> inputs;
+  for (const auto &input : *op->inputs()) {
+    inputs.push_back(*liveTensors.at(input->global_id()));
+  }
+  int32_t dim = op->dim();
+  tensorPool.push_back(::ttnn::concat(inputs, dim));
+  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+}
+
 // ANCHOR: adding_an_op_matmul_runtime
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
@@ -440,6 +453,9 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    return run(op->type_as_ConcatOp(), device, liveTensors, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");

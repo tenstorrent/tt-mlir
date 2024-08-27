@@ -150,6 +150,43 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::ConcatOp::verify() {
+  mlir::OperandRange inputs = getInputs();
+  int32_t dim = getDim();
+  mlir::RankedTensorType firstTensor =
+      mlir::cast<mlir::RankedTensorType>(inputs.front().getType());
+  int64_t firstTensorRank = firstTensor.getRank();
+
+  // Check that the dimension `dim` is valid.
+  if (dim < 0 || dim >= firstTensor.getRank()) {
+    return emitOpError() << "Invalid dimension " << dim
+                         << " for concatenation.";
+  }
+
+  // Get the rank of the first input tensor
+  // and check that all input tensors have the same rank
+  // and that all dimensions except `dim` are the same.
+  for (auto input : inputs.drop_front()) {
+    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+
+    // Check if all inputs have the same rank.
+    if (inputType.getRank() != firstTensorRank) {
+      return emitOpError("All input tensors must have the same rank.");
+    }
+
+    // Check that dimensions (except `dim`) are the same.
+    for (int64_t i = 0; i < firstTensorRank; ++i) {
+      if (i != dim && inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
+        return emitOpError() << "All input tensors must have the same "
+                                "dimensions, except for dimension "
+                             << dim << ".";
+      }
+    }
+  }
+
+  return mlir::success();
+}
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();

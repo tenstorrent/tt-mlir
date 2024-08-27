@@ -243,6 +243,26 @@ def TTNN_TransposeOp : TTNN_NamedDPSOp<"transpose"> {
     let hasVerifier = 1;
 }
 
+
+def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
+    let summary = "Concat op.";
+    let description = [{
+      Concat tensors along a given dimension.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,

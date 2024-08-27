@@ -194,6 +194,21 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
+template <typename ConcatOp>
+::flatbuffers::Offset<::tt::target::ttnn::ConcatOp>
+createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  for (auto input : op.getInputs()) {
+    ins.push_back(
+        cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  }
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  int32_t dim = op.getDim();
+
+  return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
+}
+
 template <typename EmbeddingOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
 createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
@@ -291,7 +306,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createTransposeOp(cache, transposeOp),
                            debugString);
   }
-
+  if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {
+    return createOperation(cache, createConcatOp(cache, concatOp), debugString);
+  }
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 

@@ -360,6 +360,26 @@ def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
+    let summary = "Concat op.";
+    let description = [{
+      Concat tensors along a given dimension.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";

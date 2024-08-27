@@ -158,6 +158,20 @@ public:
   }
 };
 
+class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
+public:
+  using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInputs(), adaptor.getOutput(), adaptor.getDim());
+    return success();
+  }
+};
+
 } // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
@@ -199,6 +213,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
+           ConcatOpConversionPattern,
            MatmulOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
