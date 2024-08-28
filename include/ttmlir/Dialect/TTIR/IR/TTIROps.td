@@ -248,6 +248,18 @@ def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
+def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum OP.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
     let description = [{

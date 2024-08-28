@@ -372,93 +372,149 @@ static void run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
   tensorPool.try_emplace(op->out()->global_id(), std::move(out));
 }
 
-static void run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
-                ProgramTensorPool &tensorPool) {
+static void
+getEltwiseBinaryOPInputTensors(::tt::target::ttnn::EltwiseOp const *op,
+                               ProgramTensorPool &tensorPool,
+                               ::ttnn::Tensor **lhs, ::ttnn::Tensor **rhs) {
+  assert(op->ins()->size() == 2 && "Expected 2 inputs");
+  *lhs = &(tensorPool.at(op->ins()->Get(0)->global_id()));
+  *rhs = &(tensorPool.at(op->ins()->Get(1)->global_id()));
+}
+
+static void runEltwiseBinaryOP(
+    ::tt::target::ttnn::EltwiseOp const *op, ProgramTensorPool &tensorPool,
+    std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &, const ::ttnn::Tensor &,
+        const std::optional<const ::ttnn::DataType> &,
+        const std::optional<::tt::tt_metal::MemoryConfig> &,
+        std::optional<::ttnn::Tensor>,
+        std::optional<::ttnn::operations::unary::FusedActivations>,
+        std::optional<::ttnn::operations::unary::UnaryWithParam>)>
+        ttnnOp) {
+
+  ::ttnn::Tensor *lhs = nullptr;
+  ::ttnn::Tensor *rhs = nullptr;
+  getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
 
   ::ttnn::DataType outputDataType = getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       createMemoryConfig(op->out());
+
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
+                              std::nullopt, std::nullopt, std::nullopt);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+}
+
+static void runEltwiseBinaryCompositeOP(
+    ::tt::target::ttnn::EltwiseOp const *op, ProgramTensorPool &tensorPool,
+    std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const ::ttnn::Tensor &,
+                       const std::optional<::tt::tt_metal::MemoryConfig> &)>
+        ttnnOp) {
+
+  ::ttnn::Tensor *lhs = nullptr;
+  ::ttnn::Tensor *rhs = nullptr;
+  getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
+
+  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+      createMemoryConfig(op->out());
+
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+}
+
+static void
+getEltwiseUnaryOPInputTensor(::tt::target::ttnn::EltwiseOp const *op,
+                             ProgramTensorPool &tensorPool,
+                             ::ttnn::Tensor **in) {
+  assert(op->ins()->size() == 1 && "Expected 1 input");
+  *in = &(tensorPool.at(op->ins()->Get(0)->global_id()));
+}
+
+static void runEltwiseUnaryOP(
+    ::tt::target::ttnn::EltwiseOp const *op, ProgramTensorPool &tensorPool,
+    std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &,
+                       const std::optional<::tt::tt_metal::MemoryConfig> &,
+                       const std::optional<::ttnn::Tensor> &)>
+        ttnnOp) {
+
+  ::ttnn::Tensor *in = nullptr;
+  getEltwiseUnaryOPInputTensor(op, tensorPool, &in);
+
+  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+      createMemoryConfig(op->out());
+
+  ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+}
+
+static void runEltwiseUnaryWithFastAndApproximateModeOP(
+    ::tt::target::ttnn::EltwiseOp const *op, ProgramTensorPool &tensorPool,
+    std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const bool,
+                       const std::optional<::tt::tt_metal::MemoryConfig> &,
+                       const std::optional<::ttnn::Tensor> &)>
+        ttnnOp) {
+
+  ::ttnn::Tensor *in = nullptr;
+  getEltwiseUnaryOPInputTensor(op, tensorPool, &in);
+
+  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+      createMemoryConfig(op->out());
+
+  ::ttnn::Tensor out =
+      ttnnOp(*in, false /* parameter */, outputMemoryConfig, std::nullopt);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+}
+
+static void run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
-    assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
-    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
-    ::ttnn::Tensor out =
-        ::ttnn::add(lhs, rhs, outputDataType, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::add);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
-    assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
-    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
-    ::ttnn::Tensor out =
-        ::ttnn::multiply(lhs, rhs, outputDataType, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::multiply);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Subtract: {
-    assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
-    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
-    ::ttnn::Tensor out =
-        ::ttnn::subtract(lhs, rhs, outputDataType, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::subtract);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
-    assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
-    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
-    ::ttnn::Tensor out =
-        ::ttnn::ge(lhs, rhs, outputDataType, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::ge);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
-    assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
-    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
-    ::ttnn::Tensor out =
-        ::ttnn::divide(lhs, rhs, outputDataType, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::divide);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Maximum: {
+    runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::maximum);
     break;
   }
   /* Eltwise Unary */
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
-    assert(op->ins()->size() == 1 && "Expected 1 input");
-    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor out = ::ttnn::relu(in, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::relu);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sqrt: {
-    assert(op->ins()->size() == 1 && "Expected 1 input");
-    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor out = ::ttnn::sqrt(in, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sqrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
-    assert(op->ins()->size() == 1 && "Expected 1 input");
-    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor out = ::ttnn::sigmoid(in, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
-    assert(op->ins()->size() == 1 && "Expected 1 input");
-    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor out = ::ttnn::reciprocal(in, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
-    assert(op->ins()->size() == 1 && "Expected 1 input");
-    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor out = ::ttnn::exp(in, false, outputMemoryConfig);
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
     break;
   }
   }
