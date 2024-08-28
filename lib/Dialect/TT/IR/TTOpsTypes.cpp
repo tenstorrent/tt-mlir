@@ -457,8 +457,7 @@ LayoutAttr LayoutAttr::get(
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
     OOBVal oobVal) {
   if (not grid) {
-    grid = tensorShape.size() == 1 ? GridAttr::get(context, {1})
-                                   : GridAttr::get(context, {1, 1});
+    grid = GridAttr::get(context, tensorShape.size());
   }
 
   auto linear = collapsedLinearAffineMap(context, tensorShape, grid.getShape(),
@@ -480,9 +479,11 @@ LayoutAttr LayoutAttr::get(
 }
 
 LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
-                           MemorySpace memorySpace, Type elementType) {
+                           MemorySpace memorySpace, GridAttr grid,
+                           Type elementType) {
   assert(ty);
-  return get(context, ty.getShape(), elementType, memorySpace, {}, {{0, -1}},
+  assert(grid);
+  return get(context, ty.getShape(), elementType, memorySpace, grid, {{0, -1}},
              OOBVal::Undef);
 }
 

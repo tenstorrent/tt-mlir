@@ -44,6 +44,10 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {
         return GridAttr::get(context, shape, AffineMap::get(context));
       }
+
+      static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
+        return GridAttr::get(context, SmallVector<std::int64_t>(rank, 1));
+      }
   }];
 }
 
@@ -259,6 +263,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace,
+                            GridAttr grid,
                             Type elementType);
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,

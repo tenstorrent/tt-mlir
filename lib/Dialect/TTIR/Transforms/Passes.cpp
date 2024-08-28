@@ -433,15 +433,20 @@ inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
 
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace) {
+  TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
+                                GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, initMemorySpace](RankedTensorType type) -> Type {
+    addConversion([ctx, initMemorySpace,
+                   deviceGrid](RankedTensorType type) -> Type {
       auto layout = type.getEncoding();
       if (layout) {
         return type;
       }
+      std::int64_t deviceGridRank = deviceGrid.getShape().size();
+      // Default to single core grid
+      auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
       // Default to initMemorySpace, the optimizer might decide otherwise
-      auto newLayout = LayoutAttr::get(ctx, type, initMemorySpace);
+      auto newLayout = LayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -526,8 +531,8 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
     return std::nullopt;
   }
 
-  auto desiredLayout =
-      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, desiredElementType);
+  auto desiredLayout = rewriter.getAttr<LayoutAttr>(
+      ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType);
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
@@ -627,8 +632,10 @@ public:
 
   void runOnOperation() final {
     {
-      TTIRLayoutTensorTypeConverter typeConverter(&getContext(),
-                                                  initMemorySpace);
+      auto device = getCurrentScopeDevice(getOperation());
+      assert(device && "Device not found");
+      TTIRLayoutTensorTypeConverter typeConverter(
+          &getContext(), initMemorySpace, device.getGrid());
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
