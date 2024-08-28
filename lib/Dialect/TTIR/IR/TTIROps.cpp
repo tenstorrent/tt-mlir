@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/BuiltinTypes.h>
 
 #define GET_OP_CLASSES
@@ -263,6 +264,45 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   if (has_negative && inputType.getNumElements() % known_dim_product != 0) {
     return emitOpError("Invalid shape: the dimensions do not multiply to the "
                        "total number of elements in the tensor");
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  std::vector<int64_t> inputShape = getInput().getType().getShape().vec();
+
+  if (inputType.getRank() != 4) {
+    return emitOpError()
+           << "Input tensor rank must be 4. Recieved input with rank "
+           << inputType.getRank() << ". Shape: (" << inputShape << ").";
+  }
+
+  if (getOriginalHeight().has_value() != getOriginalWidth().has_value()) {
+    std::string with_value =
+        getOriginalHeight().has_value() ? "original_height" : "original_width";
+    return emitOpError()
+           << "If providing the original height and width as attributes, both "
+              "original_height and original_width must be set. However, only "
+           << with_value << " was provided.";
+  }
+
+  if (getOriginalHeight().has_value() && getOriginalWidth().has_value()) {
+    inputShape[1] = getOriginalHeight().value();
+    inputShape[2] = getOriginalWidth().value();
+  }
+
+  if (getKernelHeight() > inputShape[1]) {
+    return emitOpError() << "Kernel height " << getKernelHeight()
+                         << " is greater than input height " << inputShape[1]
+                         << ". This MaxPool2d configuration is invalid.";
+  }
+
+  if (getKernelWidth() > inputShape[2]) {
+    return emitOpError() << "Kernel width " << getKernelWidth()
+                         << " is greater than input width " << inputShape[2]
+                         << ". This MaxPool2d configuration is invalid.";
   }
 
   return success();

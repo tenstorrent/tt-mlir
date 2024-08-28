@@ -264,6 +264,24 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
 }
 
+template <typename MaxPool2dOp>
+::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dOp>
+createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  return ::tt::target::ttnn::CreateMaxPool2dOp(
+      *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), op.getKernelHeight(), op.getKernelWidth(),
+      op.getStrideHeight(), op.getStrideWidth(), op.getDilationHeight(),
+      op.getDilationWidth(), op.getCeilMode(), op.getPaddingHeight(),
+      op.getPaddingWidth());
+}
+
 template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
@@ -372,6 +390,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
+                           debugString);
+  }
+  if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
+    return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
                            debugString);
   }
   if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {

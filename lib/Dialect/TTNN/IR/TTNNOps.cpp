@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include <llvm/ADT/ArrayRef.h>
 #include <optional>
 
 #define GET_OP_CLASSES
@@ -319,6 +320,54 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
       return emitOpError("Bias must only have data on the final dimenstion");
     }
   }
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  if (getKernelHeight() > getInputHeight()) {
+    return emitOpError() << "Kernel height " << getKernelHeight()
+                         << " is greater than input height " << getInputHeight()
+                         << ". This MaxPool2d configuration is invalid.";
+  }
+
+  if (getKernelWidth() > getInputWidth()) {
+    return emitOpError() << "Kernel width " << getKernelWidth()
+                         << " is greater than input width " << getInputWidth()
+                         << ". This MaxPool2d configuration is invalid.";
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError()
+           << "Input tensor rank must be 4. Recieved input with rank "
+           << inputType.getRank() << ". Shape: (" << inputShape << ").";
+  }
+
+  if (inputShape[0] != 1 || inputShape[1] != 1) {
+    return emitOpError() << "Maxpool input must be in the form (1, 1, N*H*W, "
+                            "C). Recieved shape ("
+                         << inputShape << ").";
+  }
+
+  if (inputShape[2] != getBatchSize() * getInputHeight() * getInputWidth()) {
+    return emitOpError() << "Maxpool shape (" << inputShape
+                         << ") at dim -2 must be equal to N*H*W. However the "
+                            "attributes given are N="
+                         << getBatchSize() << ", H=" << getInputHeight()
+                         << ", W=" << getInputWidth() << ". " << getBatchSize()
+                         << "*" << getInputHeight() << "*" << getInputWidth()
+                         << " != " << inputShape[2] << ".";
+  }
+
+  if (inputShape[3] != getChannels()) {
+    return emitOpError() << "Maxpool shape (" << inputShape
+                         << ") at dim -3 must be equal to C. However the "
+                            "attribute given is C="
+                         << getChannels() << ". " << inputShape[3]
+                         << " != " << getChannels();
+  }
+
   return success();
 }
 
