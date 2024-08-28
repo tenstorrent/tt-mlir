@@ -184,7 +184,74 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
     }
   }
 
-  return mlir::success();
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::ReshapeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  auto shape = getShape();
+  int64_t shape_size = static_cast<int64_t>(shape.size());
+
+  // Check that the shape size matches the rank of the output tensor
+  if (shape_size != static_cast<int64_t>(outputType.getRank())) {
+    return emitOpError("Shape attribute size must match output tensor rank");
+  }
+
+  // Check that the shape attribute is non-empty
+  if (shape_size == 0) {
+    return emitOpError("Shape attribute must be non-empty");
+  }
+
+  // Check that the shape attribute has at most 5 elements
+  if (shape_size > 5) {
+    return emitOpError("Shape attribute must have at most 5 elements");
+  }
+
+  // Cardinality of the input and output tensors must be the same
+  if (inputType.getNumElements() != outputType.getNumElements()) {
+    return emitOpError(
+        "Input and output tensors must have the same number of elements");
+  }
+
+  bool has_negative = false;
+  int64_t known_dim_product = 1;
+  auto outputShape = outputType.getShape();
+
+  // Check that all dimensions are positive except for at most one -1
+  // Check that the non-negative dimensions match the output tensor shape
+  // Calculate the product of the known dimensions
+  for (int64_t i = 0; i < shape_size; i++) {
+    int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
+
+    if (dim_value == -1) {
+      if (has_negative) {
+        return emitOpError("Shape attribute must have at most one -1 element");
+      }
+      has_negative = true;
+    } else {
+      if (dim_value <= 0) {
+        return emitOpError(
+            "All dimensions must be positive except the one with -1");
+      }
+
+      // Ensure that the non-negative dimensions match the output tensor shape
+      if (dim_value != outputShape[i]) {
+        return emitOpError("Shape attribute must match the output tensor shape "
+                           "for dimensions that are not -1");
+      }
+
+      known_dim_product *= dim_value;
+    }
+  }
+
+  // If there's a -1, ensure that it can be inferred correctly
+  if (has_negative && inputType.getNumElements() % known_dim_product != 0) {
+    return emitOpError("Invalid shape: the dimensions do not multiply to the "
+                       "total number of elements in the tensor");
+  }
+
+  return success();
 }
 
 // ANCHOR: adding_an_op_matmul_ttir_verify

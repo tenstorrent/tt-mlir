@@ -85,6 +85,12 @@ table ConcatOp {
  dim: int32;
 }
 
+table ReshapeOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  shape: [int32];
+}
+
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
   in0: tt.target.TensorRef;
@@ -105,7 +111,8 @@ union OpType {
   EmbeddingOp,
   SoftmaxOp,
   TransposeOp,
-  ConcatOp
+  ConcatOp,
+  ReshapeOp
 }
 
 table Operation {

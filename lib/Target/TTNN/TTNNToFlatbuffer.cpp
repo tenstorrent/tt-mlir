@@ -221,6 +221,19 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
 }
 
+template <typename ReshapeOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
+createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  auto shape =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getShape());
+
+  return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
+}
+
 template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
@@ -309,6 +322,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {
     return createOperation(cache, createConcatOp(cache, concatOp), debugString);
   }
+  if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
+    return createOperation(cache, createReshapeOp(cache, reshapeOp),
+                           debugString);
+  }
+
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 

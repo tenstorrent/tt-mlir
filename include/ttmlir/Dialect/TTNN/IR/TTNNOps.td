@@ -263,6 +263,25 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ReshapeOp : TTNN_NamedDPSOp<"reshape"> {
+    let summary = "Reshape op.";
+    let description = [{
+      Reshape tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$shape);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,
