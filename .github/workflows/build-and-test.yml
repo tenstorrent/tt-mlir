@@ -1,0 +1,192 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+
+  build-ttmlir:
+
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {runs-on: self-hosted, enable_perf: OFF, name: "run"},
+          {runs-on: self-hosted, enable_perf: ON, name: "perf"},
+        ]
+
+    runs-on: ${{ matrix.build.runs-on }}
+
+    container:
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
+      options: --user root
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DTTMLIR_ENABLE_RUNTIME=ON \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
+        -DTTMLIR_ENABLE_STABLEHLO=ON \
+        -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Build
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- ttrt
+
+    - name: Upload ttrt whl
+      uses: actions/upload-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.name }}
+        path: build/runtime/tools/python/build/ttrt*.whl
+
+    - name: Upload build folder to archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.name }}
+        path: build
+
+    - name: Get the latest tag
+      shell: bash
+      run: |
+        latest_tag=$(git describe --tags --abbrev=0)
+        latest_tag=${latest_tag#v}
+        echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+        commit_count=$(git rev-list ${{ env.latest_tag }}..HEAD --count)
+        echo "commit_count=$commit_count" >> $GITHUB_ENV
+        version="${{ env.latest_tag }}.${{ env.commit_count }}"
+        echo "version=$version" >> $GITHUB_ENV
+        echo $version
+
+  run-tests:
+    needs: build-ttmlir
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {runs-on: n150, enable_perf: OFF, name: "run"},
+          {runs-on: n150, enable_perf: ON, name: "perf"},
+          {runs-on: n300, enable_perf: OFF, name: "run"},
+          {runs-on: n300, enable_perf: ON, name: "perf"},
+        ]
+
+    runs-on:
+      - self-hosted
+      - ${{ matrix.build.runs-on }}
+
+    container:
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
+      options: --user root --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Use build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.build.name }}
+        path: build
+
+    - name: Config compiler
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B build \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DTTMLIR_ENABLE_RUNTIME=ON \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
+        -DTTMLIR_ENABLE_STABLEHLO=ON \
+
+    - name: Remove existing whls files
+      shell: bash
+      run: |
+        rm -f *.whl
+
+    - name: Download ttrt run whls
+      uses: actions/download-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.name }}
+
+    - name: Install ttrt run whls
+      shell: bash
+      run: |
+        source env/activate
+        pip show ttrt && pip uninstall -y ttrt
+        pip install ttrt-${{ env.version }}*.whl --force-reinstall
+
+    - name: Generate system descriptor
+      shell: bash
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+
+    - name: Generate tests
+      shell: bash
+      run: |
+        source env/activate
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        cmake --build build -- check-ttmlir
+
+    - name: Run tests
+      shell: bash
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${GITHUB_WORKSPACE}/build/test/ttmlir/Silicon

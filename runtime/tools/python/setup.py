@@ -51,6 +51,8 @@ dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
+install_requires = []
+install_requires += ["pybind11"]
 
 linklibs = ["TTBinary", "TTRuntimeSysDesc"]
 if enable_ttnn:
@@ -68,6 +70,7 @@ if enable_perf:
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
+    install_requires += ["torch"]
 
     for dylib in runlibs:
         shutil.copy(
@@ -188,6 +191,12 @@ dylibs += metallibs
 packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
 package_dir = {}
 if enable_perf:
+    install_requires += ["loguru"]
+    install_requires += ["pandas"]
+    install_requires += ["seaborn"]
+    install_requires += ["graphviz"]
+    install_requires += ["pyyaml"]
+    install_requires += ["click"]
     packages += ["tracy"]
     packages += ["tt_metal"]
     package_dir["tracy"] = f"{ttmetalhome}/ttnn/tracy"
@@ -205,7 +214,7 @@ setup(
     cmdclass={"build_ext": build_ext},
     packages=packages,
     package_dir=package_dir,
-    install_requires=["pybind11"],
+    install_requires=install_requires,
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
     },
