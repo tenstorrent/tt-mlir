@@ -98,7 +98,7 @@ struct ConvertStableHLOToTTIRPass
         typeConverter, &getContext());
 
     patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::ExpOp,
-                                                    mlir::tt::ttir::ExpOp>>(
+                                                    mlir::tt::ttir::ExponentialOp>>(
         typeConverter, &getContext());
 
     // Apply conversion.

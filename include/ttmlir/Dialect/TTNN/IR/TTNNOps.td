@@ -118,7 +118,7 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+def TTNN_ExponentialOp : TTNN_ElementwiseUnaryOp<"exponential"> {
     let summary = "Eltwise exponential.";
     let description = [{
       Eltwise exponential operation.
