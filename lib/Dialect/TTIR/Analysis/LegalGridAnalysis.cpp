@@ -3,12 +3,41 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
+#include <mlir/IR/Operation.h>
 
 namespace mlir::tt::ttir {
 
 bool mock_is_output_tensor_legal_for_op(Operation *op, LayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
   return true;
+}
+
+bool tensor_shape_compatible_with_shard(Operation *op, LayoutAttr layout) {
+  // These constraints are implemented seteratelly in every TTNN op.
+  // Almost nothing seems to be shared between EVERY op, so is hard to have any
+  // logic here without the risk of discarding a valid configuraiton.
+  // This logic may be offloaded to the TTNN op interface.
+  
+  // For now we will check if the tilesed tensor dims are divisible by the grid dims.
+  // This will definitly discard possible valid configurations, but is a start.
+
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  long MTiles = 1;
+  if (tensorType.getRank() == 2) {
+    MTiles = (tensorShape[0] + 31) / 32;
+  } else if (tensorType.getRank() > 2) {
+    MTiles = (tensorShape[-2] * tensorShape[-3] + 31) / 32;
+  }
+
+  auto KTIles = (tensorShape[-1] + 31) / 32;
+
+  auto gridR = layout.getGrid().getShape()[0];
+  auto gridC = layout.getGrid().getShape()[1];
+
+  return (MTiles % gridR == 0) && (KTIles % gridC == 0);
 }
 
 bool LegalGridAnalysis::applyOverrides() {
