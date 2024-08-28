@@ -37,6 +37,26 @@ inline ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
   }
 }
 
+inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
+  switch (dataType) {
+  case ::ttnn::DataType::FLOAT32:
+    return ::tt::target::DataType::Float32;
+  case ::ttnn::DataType::BFLOAT16:
+    return ::tt::target::DataType::BFloat16;
+  case ::ttnn::DataType::BFLOAT8_B:
+    return ::tt::target::DataType::BFP_BFloat8;
+  case ::ttnn::DataType::BFLOAT4_B:
+    return ::tt::target::DataType::BFP_BFloat4;
+  case ::ttnn::DataType::UINT32:
+    return ::tt::target::DataType::UInt32;
+  case ::ttnn::DataType::UINT16:
+    return ::tt::target::DataType::UInt16;
+
+  default:
+    throw std::runtime_error("Unsupported data type");
+  }
+}
+
 inline std::vector<uint32_t>
 toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
   return std::vector<uint32_t>(vec.begin(), vec.end());

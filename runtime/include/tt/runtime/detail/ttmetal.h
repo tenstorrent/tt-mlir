@@ -60,6 +60,8 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
                       desc.dataType);
 }
 
+tt::target::DataType getTensorDataType(Tensor tensor);
+
 Device openDevice(std::vector<int> const &deviceIds = {0},
                   std::vector<uint8_t> const &numHWCQs = {});
 

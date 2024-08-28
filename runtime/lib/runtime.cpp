@@ -107,6 +107,21 @@ Tensor createTensor(std::shared_ptr<void> data,
   throw std::runtime_error("runtime is not enabled");
 }
 
+tt::target::DataType getTensorDataType(Tensor tensor) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getTensorDataType(tensor);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getTensorDataType(tensor);
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
 Device openDevice(std::vector<int> const &deviceIds,
                   std::vector<std::uint8_t> const &numHWCQs) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)

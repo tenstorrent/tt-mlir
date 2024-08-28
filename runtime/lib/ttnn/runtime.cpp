@@ -50,6 +50,12 @@ Tensor createTensor(std::shared_ptr<void> data,
   return Tensor(tensor, data, DeviceRuntime::TTNN);
 }
 
+tt::target::DataType getTensorDataType(Tensor tensor) {
+  const ::ttnn::Tensor &nnTensor =
+      tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  return utils::fromTTNNDataType(nnTensor.dtype());
+}
+
 Device openDevice(std::vector<int> const &deviceIds,
                   std::vector<std::uint8_t> const &numHWCQs) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");

@@ -43,6 +43,21 @@ Tensor createTensor(std::shared_ptr<void> data,
                 DeviceRuntime::TTMetal);
 }
 
+tt::target::DataType getTensorDataType(Tensor tensor) {
+  const MetalTensor &metalTensor =
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
+  if (std::holds_alternative<TensorDesc>(metalTensor)) {
+    TensorDesc desc = std::get<TensorDesc>(metalTensor);
+    return desc.dataType;
+  }
+  if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
+          metalTensor)) {
+    throw std::runtime_error("Datatype mapping from buffer not supported yet.");
+  }
+  assert(false && "Unsupported tensor type");
+  return ::tt::target::DataType::Float32;
+}
+
 Device openDevice(std::vector<int> const &deviceIds,
                   std::vector<std::uint8_t> const &numHWCQs) {
   assert(numHWCQs.empty() || numHWCQs.size() == deviceIds.size());
