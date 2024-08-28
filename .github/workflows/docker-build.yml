@@ -3,7 +3,6 @@ name: Build in Docker
 on:
   workflow_dispatch:
   workflow_call:
-  push:
 
 jobs:
 
@@ -15,7 +14,6 @@ jobs:
         image: ["ubuntu-22-04"]
         build: [
           {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
-          {runs-on: self-hosted, build_type: Release, enable_runtime: ON},
           {runs-on: builder, build_type: Release, enable_runtime: ON}
         ]
 
