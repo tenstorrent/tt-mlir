@@ -95,6 +95,9 @@ public:
     } else if constexpr (std::is_same<TTIROpTy, ttir::DivOp>::value) {
       kernelName = "div";
       kernelKind = "eltwise";
+    } else if constexpr (std::is_same<TTIROpTy, ttir::ExpOp>::value) {
+      kernelName = "exp";
+      kernelKind = "eltwise";
     } else {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported Tosa operation for TTIR");
