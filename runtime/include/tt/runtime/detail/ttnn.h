@@ -59,6 +59,8 @@
 
 namespace tt::runtime::ttnn {
 
+constexpr std::size_t kL1SmallSize = 1 << 15;
+
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
 Tensor createTensor(std::shared_ptr<void> data,

@@ -410,32 +410,24 @@ run(::tt::target::ttnn::Conv2dOp const *op, ::ttnn::Device &device,
     std::list<::ttnn::Tensor> &tensorPool) {
   auto &input = *liveTensors.at(op->in0()->global_id());
   auto &weight = *liveTensors.at(op->in1()->global_id());
+  std::optional<::ttnn::Tensor> bias =
+      op->in2() ? std::make_optional(*liveTensors.at(op->in2()->global_id()))
+                : std::nullopt;
   auto config = ::ttnn::operations::conv2d::Conv2dConfig();
   config.dtype = input.dtype();
   config.weights_dtype = weight.dtype();
-  ::ttnn::Tensor ans;
-  if (op->in2()) {
-    auto &bias = *liveTensors.at(op->in2()->global_id());
-    ans = std::get<0>(::ttnn::operations::conv2d::conv2d<::ttnn::Device>(
-        input, weight, &device, op->in_channels(), op->out_channels(),
-        op->batch_size(), op->input_height(), op->input_width(),
-        {op->kernel_height(), op->kernel_width()},
-        {op->stride_height(), op->stride_width()},
-        {op->padding_height(), op->padding_width()},
-        {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
-        config));
-  } else {
-    ans = std::get<0>(::ttnn::operations::conv2d::conv2d<::ttnn::Device>(
-        input, weight, &device, op->in_channels(), op->out_channels(),
-        op->batch_size(), op->input_height(), op->input_width(),
-        {op->kernel_height(), op->kernel_width()},
-        {op->stride_height(), op->stride_width()},
-        {op->padding_height(), op->padding_width()},
-        {op->dilation_height(), op->dilation_width()}, op->groups(),
-        std::nullopt, config));
-  }
 
-  tensorPool.push_back(ans);
+  ::ttnn::Tensor out =
+      std::get<0>(::ttnn::operations::conv2d::conv2d<::ttnn::Device>(
+          input, weight, &device, op->in_channels(), op->out_channels(),
+          op->batch_size(), op->input_height(), op->input_width(),
+          {op->kernel_height(), op->kernel_width()},
+          {op->stride_height(), op->stride_width()},
+          {op->padding_height(), op->padding_width()},
+          {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
+          config));
+
+  tensorPool.push_back(out);
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
   return;
 }
