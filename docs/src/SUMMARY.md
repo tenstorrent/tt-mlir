@@ -12,6 +12,7 @@
   - [ttrt](./ttrt.md)
   - [tt-explorer](./tt-explorer.md)
 - [Flatbuffers](./flatbuffers.md)
+- [CI](./ci.md)
 - [Additional Reading](./additional-reading.md)
 - [Code of Conduct](./code-of-conduct.md)
 
