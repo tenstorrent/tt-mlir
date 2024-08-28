@@ -349,6 +349,7 @@ LogicalResult translateTTNNToFlatbuffer(Operation *op, llvm::raw_ostream &os) {
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);
+  // os << data.get();
   return success();
 }
 } // namespace mlir::tt::ttnn

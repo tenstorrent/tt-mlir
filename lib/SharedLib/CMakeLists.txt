@@ -18,6 +18,7 @@ set(TTMLIR_LIBS
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
     TTMLIRTTNNToEmitC
+    TTMetalTargetFlatbuffer
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.

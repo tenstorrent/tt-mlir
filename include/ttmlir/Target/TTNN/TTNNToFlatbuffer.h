@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TARGET_UTILS_TTNNTOFLATBUFFER_H
-#define TTMLIR_TARGET_UTILS_TTNNTOFLATBUFFER_H
+#ifndef TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H
+#define TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H
 
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
