@@ -63,6 +63,9 @@ if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
     linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
+if enable_ttnn or enable_ttmetal:
+    runlibs += ["libdevice.so", "libnng.so.1", "libuv.so.1"]
+
 if enable_perf:
     runlibs += ["libtracy.so.0.10.0"]
     perflibs += ["capture-release"]

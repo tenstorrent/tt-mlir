@@ -26,6 +26,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   PARENT_SCOPE
 )
 
@@ -47,8 +48,9 @@ ExternalProject_Add(
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
+    -DENABLE_LIBCXX=OFF
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
-  GIT_TAG f6a2e5cb2b857bf4c72401bea68adf98c25bbe47
+  GIT_TAG 516a8917fac17649abbc9052b680894b432b4de6
   GIT_PROGRESS ON
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH}
 )

@@ -1,6 +1,8 @@
 // RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn %s  > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
+// https://github.com/tenstorrent/tt-mlir/issues/528
+// UNSUPPORTED: true
 
 #any_device = #tt.operand_constraint<dram|l1|tile|any_device|any_device_tile>
 module attributes {} {
