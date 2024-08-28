@@ -271,6 +271,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
+      bool isL1MemorySpace() const { return ::mlir::tt::isL1MemorySpace(getMemorySpace()); }
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;
@@ -325,6 +326,10 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
 }
 
 def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_TensorMemoryLayoutAttr : EnumAttr<TT_Dialect, TT_TensorMemoryLayout, "tensor_memory_layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

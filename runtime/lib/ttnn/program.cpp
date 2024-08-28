@@ -46,6 +46,43 @@ static bool isOnDevice(const ::ttnn::Tensor &tensor) {
   return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
 }
 
+static CoreRangeSet toCoreRangeSet(
+    const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
+  std::set<CoreRange> coreRanges;
+  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
+    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
+    // End is inclusive
+    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
+                  coreRange->loc().y() + coreRange->size().y() - 1);
+
+    coreRanges.emplace(start, end);
+  }
+  return CoreRangeSet(coreRanges);
+}
+
+static ::tt::tt_metal::MemoryConfig
+createShardedMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
+  const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
+  const ::flatbuffers::Vector<int32_t> *memoryDescShape =
+      layout->memory_desc()->shape();
+  TT_FATAL(memoryDescShape->size() == 2,
+           "Only 2D shard shape is supported in TTNN backend");
+  CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
+  TT_FATAL(coreRangeSet.size() == 1,
+           "Currently only single core range/grid is supported");
+  std::array<uint32_t, 2> shardShape;
+  std::copy(memoryDescShape->begin(), memoryDescShape->end(),
+            shardShape.begin());
+  ::tt::tt_metal::ShardSpec shardSpec(
+      coreRangeSet, shardShape, ::tt::tt_metal::ShardOrientation::ROW_MAJOR,
+      false);
+  ::tt::tt_metal::TensorMemoryLayout memLayout =
+      utils::toTensorMemoryLayout(layout->memory_desc()->memory_layout());
+  TT_FATAL(memLayout == ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED,
+           "Currently only block sharding is supported");
+  return {memLayout, ::tt::tt_metal::BufferType::L1, shardSpec};
+}
+
 static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
                                       const ::ttnn::DataType &targetDataType) {
   if (isOnHost(input)) {
@@ -167,7 +204,16 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
   // Currently similar to ::tt::target::MemorySpace::DeviceDRAM
   // But will need it's own code path when we add support for sharding
   case ::tt::target::MemorySpace::DeviceL1: {
-    ::tt::tt_metal::MemoryConfig memConfig = ::ttnn::L1_MEMORY_CONFIG;
+    ::tt::target::TensorMemoryLayout memLayout =
+        op->out()->desc()->layout()->memory_desc()->memory_layout();
+    ::tt::tt_metal::MemoryConfig memConfig;
+    if (memLayout == ::tt::target::TensorMemoryLayout::None) {
+      memConfig = ::ttnn::L1_MEMORY_CONFIG;
+    } else {
+      TT_FATAL(memLayout == ::tt::target::TensorMemoryLayout::BlockSharded,
+               "Currently only block sharding is supported for L1 tensors");
+      memConfig = createShardedMemoryConfig(op->out());
+    }
     if (isOnHost(inputTensor)) {
       ::ttnn::Tensor result = inputTensor;
       bool shouldTilize = true;

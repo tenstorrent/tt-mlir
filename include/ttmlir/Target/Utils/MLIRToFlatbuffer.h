@@ -359,6 +359,19 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
     dtype = elementTypeToDataType(elementType);
     elementSize = getElementSizeBytes(dtype);
   }
+
+  // TODO: Update this once the compiler can generate correct sharding
+  // strategies
+  MemorySpace memSpace =
+      mlir::cast<::mlir::tt::MemorySpaceAttr>(memref.getMemorySpace())
+          .getValue();
+  ::tt::target::TensorMemoryLayout memLayout;
+  if (memSpace == MemorySpace::DeviceL1) {
+    memLayout = ::tt::target::TensorMemoryLayout::BlockSharded;
+  } else {
+    memLayout = ::tt::target::TensorMemoryLayout::None;
+  }
+
   std::uint64_t size = elementSize;
   for (auto dim : shapeInt64) {
     size *= dim;
@@ -369,7 +382,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
       toFlatbuffer(
           cache,
           mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
-      size);
+      memLayout, size);
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>

@@ -4,10 +4,10 @@
 
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
-  func.func @forward(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x96xbf16>) -> tensor<64x96xbf16> {
-    %0 = tensor.empty() : tensor<64x96xbf16>
+  func.func @forward(%arg0: tensor<256x512xbf16>, %arg1: tensor<512x320xbf16>) -> tensor<256x320xbf16> {
+    %0 = tensor.empty() : tensor<256x320xbf16>
     // CHECK: %[[C:.*]] = "ttnn.matmul"[[C:.*]]
-    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<64x128xbf16>, tensor<128x96xbf16>, tensor<64x96xbf16>) -> tensor<64x96xbf16>
-    return %1 : tensor<64x96xbf16>
+    %1 = "ttir.matmul"(%arg0, %arg1, %0) <{operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<256x512xbf16>, tensor<512x320xbf16>, tensor<256x320xbf16>) -> tensor<256x320xbf16>
+    return %1 : tensor<256x320xbf16>
   }
 }
