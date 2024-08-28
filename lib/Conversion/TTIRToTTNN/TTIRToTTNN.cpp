@@ -11,8 +11,14 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "llvm/Support/Casting.h"
+#include <iostream>
 #include <llvm/Support/LogicalResult.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Types.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -62,13 +68,87 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
-    // Drop the last operand which is the DPS operand.
+    // Drop the last operand which is the DPS operand
     //
-    ValueRange nonDPSOperands = adaptor.getOperands().drop_back();
+    // ValueRange nonDPSOperands = adaptor.getOperands().drop_back();
 
-    rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        nonDPSOperands);
+    // Get tt::LayoutAttr of the result type
+    //
+    op.getResult().getType().getEncoding().dump();
+    tt::LayoutAttr ttLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+
+    // Figure out if output tensor is in RowMajor layout or Tile layout
+    // Figure out the data type of the outpu tensor
+    //
+    mlir::MemRefType memref = ttLayoutAttr.getMemref();
+    Type elementType = memref.getElementType();
+    DataType dtype = DataType::Float32;
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      dtype = elementTypeToDataType(elementType);
+    }
+
+    // Figure out memory space used for output tensor
+    // TODO: Map to memory config when the type is created
+    //
+    auto qwe = ttLayoutAttr.getMemorySpace();
+    if (qwe == tt::MemorySpace::System) {
+      std::cout << "System" << std::endl;
+    } else if (qwe == tt::MemorySpace::SystemMMIO) {
+      std::cout << "SystemMMIO" << std::endl;
+    } else if (qwe == tt::MemorySpace::DeviceL1) {
+      std::cout << "DeviceL1" << std::endl;
+    } else if (qwe == tt::MemorySpace::DeviceDRAM) {
+      std::cout << "DeviceDRAM" << std::endl;
+    }
+
+    // rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
+    //     op, this->getTypeConverter()->convertType(op.getType()),
+    //     nonDPSOperands);
+    auto device = findDevice(op);
+    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), op.getInput(),
+        ttnn::LayoutAttr::get(op->getContext(), ttnnLayoutEnum),
+        tt::DataTypeAttr::get(op.getContext(), dtype), device);
+    return success();
+  }
+};
+
+class FromToLayoutToTensorToOpConversionPattern
+    : public OpConversionPattern<ttnn::ToLayoutOp> {
+public:
+  using OpConversionPattern<ttnn::ToLayoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::ToLayoutOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Location rootLoc = op.getLoc();
+    auto device = findDevice(op);
+
+    // rewriter.create<ttnn::ToLayoutOp>(rootLoc, op.getType(), op.getInput(),
+    //                                    op.getLayoutAttr(), op.getDtypeAttr(),
+    //                                    op.getDevice());
+    rewriter.create<ttnn::TensorToLayoutOp>(
+        rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
+        device);
+    rewriter.create<ttnn::TensorToLayoutOp>(
+        rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
+        device);
+    // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
+    // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
+    // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
+
+    rewriter.eraseOp(op);
+
+    std::cout << "ENDING" << std::endl;
+
     return success();
   }
 };
@@ -362,7 +442,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   // ANCHOR: op_rewriter_pattern_set
   patterns
-      .add<TensorEmptyConversionPattern,
+      .add<FromToLayoutToTensorToOpConversionPattern,
+           TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
            ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
