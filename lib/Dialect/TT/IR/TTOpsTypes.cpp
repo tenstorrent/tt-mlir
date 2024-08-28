@@ -6,6 +6,7 @@
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -15,8 +16,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
-
-#include "ttmlir/Utils.h"
 
 using namespace mlir::tt;
 
@@ -436,17 +435,12 @@ calculateLogicalShardShape(::mlir::MLIRContext *context,
                            mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
-  mlir::SmallVector<mlir::AffineExpr> tensorShapeExprs(
-      llvm::map_range(tensorShape, [context](std::int64_t e) {
-        return getAffineConstantExpr(e - 1, context);
-      }));
+  mlir::SmallVector<std::int64_t> logicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
   mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
   for (unsigned i = 0; i < linear.getNumResults(); ++i) {
-    mlir::AffineExpr expr = linear.getResult(i);
-    mlir::AffineExpr constantExpr = expr.replaceDims(tensorShapeExprs);
-    std::int64_t constant =
-        llvm::cast<mlir::AffineConstantExpr>(constantExpr).getValue() + 1;
-    shardShape[i] = (constant + grid.getShape()[i] - 1) / grid.getShape()[i];
+    shardShape[i] =
+        (logicalShape[i] + grid.getShape()[i] - 1) / grid.getShape()[i];
   }
   return shardShape;
 }
@@ -624,8 +618,43 @@ MemorySpace LayoutAttr::getMemorySpace() const {
       .getValue();
 }
 
-mlir::AffineMap LayoutAttr::projectOnto(ArrayRef<int64_t> logicalTensorShape,
-                                        GridAttr grid) const {
+// Returns shape of the tensor after tilization is applied to the two inner most
+// dimensions.
+llvm::SmallVector<int64_t>
+LayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
+  assert(isTiled() && "Expected a tiled layout");
+
+  mlir::AffineMap linear = getLinear();
+  uint32_t rank = linear.getNumResults();
+  assert(rank >= 2 && "Expected at least two results in linear map");
+  mlir::AffineExpr y = linear.getResult(rank - 2);
+  mlir::AffineExpr x = linear.getResult(rank - 1);
+
+  TileType tileType = mlir::cast<TileType>(getElementType());
+  int64_t tileH = tileType.getHeight();
+  int64_t tileW = tileType.getWidth();
+
+  mlir::AffineMap tiled =
+      linear.replace(mlir::DenseMap<mlir::AffineExpr, mlir::AffineExpr>{
+          {y, y.floorDiv(tileH)}, {x, x.floorDiv(tileW)}});
+
+  return ttmlir::utils::evalShape(tiled, tensorShape);
+}
+
+mlir::AffineMap LayoutAttr::getIdentityTileLinearMap() const {
+  assert(isTiled() && "Expected a tiled layout");
+
+  return mlir::AffineMap::getMultiDimIdentityMap(getLinear().getNumResults(),
+                                                 getContext());
+}
+
+// Projects tensor layout onto the device grid. Uses given linear map to derive
+// the shard shape and the projection of shard indexes onto the logical grid.
+// Then it composes the logical grid projection with physical grid mapping.
+mlir::AffineMap
+LayoutAttr::projectOnto(mlir::AffineMap linearMap,
+                        llvm::ArrayRef<int64_t> logicalTensorShape,
+                        GridAttr grid) const {
   assert(getGrid().getShape().size() == grid.getShape().size() &&
          "Layout and device grids must have same number of dimensions");
   assert(getLinear().getNumResults() == grid.getShape().size() &&
@@ -636,19 +665,19 @@ mlir::AffineMap LayoutAttr::projectOnto(ArrayRef<int64_t> logicalTensorShape,
            "Layout grid dimensions must be less than or equal to device grid");
   }
 
-  auto linear = getLinear();
-  auto logicalShardShape = calculateLogicalShardShape(
-      getContext(), logicalTensorShape, linear, getGrid());
+  mlir::SmallVector<int64_t> logicalShardShape = calculateLogicalShardShape(
+      getContext(), logicalTensorShape, linearMap, getGrid());
 
   // Compute the projection of the layout onto its own logical grid.
   // Simultaneously compute the indexing of shards within each core.
-  SmallVector<AffineExpr> logicalGridProjection(linear.getNumResults());
-  AffineExpr shardIndexing = getAffineConstantExpr(0, getContext());
+  mlir::SmallVector<AffineExpr> logicalGridProjection(
+      linearMap.getNumResults());
+  mlir::AffineExpr shardIndexing = getAffineConstantExpr(0, getContext());
   int shardVolume = 1;
-  assert(logicalShardShape.size() == linear.getNumResults() &&
+  assert(logicalShardShape.size() == linearMap.getNumResults() &&
          "Logical shard shape and linear map must have same number of dims");
-  for (int i = linear.getNumResults() - 1; i >= 0; i--) {
-    mlir::AffineExpr expr = linear.getResult(i);
+  for (int i = linearMap.getNumResults() - 1; i >= 0; i--) {
+    mlir::AffineExpr expr = linearMap.getResult(i);
     mlir::AffineExpr shardDim =
         getAffineConstantExpr(logicalShardShape[i], getContext());
     mlir::AffineExpr shardVolumeExpr =
@@ -665,7 +694,7 @@ mlir::AffineMap LayoutAttr::projectOnto(ArrayRef<int64_t> logicalTensorShape,
           logicalTensorShape.size(), 0, logicalGridProjection, getContext()));
 
   // Finally we append the indexing of shards within each core.
-  SmallVector<AffineExpr> projection(gridProjection.getResults());
+  mlir::SmallVector<AffineExpr> projection(gridProjection.getResults());
   projection.push_back(shardIndexing);
   return mlir::AffineMap::get(logicalTensorShape.size(), 0, projection,
                               getContext());

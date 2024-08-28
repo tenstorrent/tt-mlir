@@ -17,6 +17,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "llvm/ADT/MapVector.h"
+#include <cstdint>
+#include <llvm/ADT/SmallVector.h>
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -101,27 +103,28 @@ public:
   //
   // The return value is a map of destination physical cores where each core has
   // an associated list of noc reads to be performed.
-  llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocRead>>
-  calculateDataMovement(ArrayRef<std::int64_t> tensorShape,
-                        std::int64_t elemSize, AffineMap src,
-                        AffineMap dst) const {
+  llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>>
+  calculateDataMovement(ArrayRef<int64_t> tensorShape, int64_t elemSize,
+                        AffineMap src, AffineMap dst) const {
+
     // For now it's just a simple pull model, but eventually we want to leverage
     // both NoCs and the both read and write
-    llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocRead>> dst2srcMap;
+    llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>> dst2srcMap;
     assert(src.getNumResults() == 4);
     assert(dst.getNumResults() == 4);
 
     ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize](
                                              ArrayRef<std::int64_t> index) {
-      auto srcResults = src.compose(index);
-      auto dstResults = dst.compose(index);
+      SmallVector<int64_t> srcResults = src.compose(index);
+      SmallVector<int64_t> dstResults = dst.compose(index);
+
       assert(srcResults.size() == src.getNumResults());
       assert(dstResults.size() == dst.getNumResults());
       PhysicalCoreCoord srcCoord(srcResults);
       PhysicalCoreCoord dstCoord(dstResults);
       std::int64_t srcOffset = srcResults.back() * elemSize;
       std::int64_t dstOffset = dstResults.back() * elemSize;
-      mlir::SmallVector<NocRead> &srcs = dst2srcMap[dstCoord];
+      SmallVector<NocRead> &srcs = dst2srcMap[dstCoord];
       if (not srcs.empty() &&
           srcs.back().isContiguous(srcCoord, srcOffset, dstOffset)) {
         srcs.back().size += elemSize;
@@ -175,12 +178,41 @@ public:
     assert(inputLayout.getPhysicalShape(inputTy.getShape()) ==
                outputLayout.getPhysicalShape(outputTy.getShape()) &&
            "Physical shapes must match for now");
+
+    // Shape that will be traversed when calculating the data movement between
+    // layouts.
+    SmallVector<int64_t> inputShape =
+        inputLayout.isTiled() ? inputLayout.getTiledShape(inputTy.getShape())
+                              : SmallVector<int64_t>(inputTy.getShape());
+    SmallVector<int64_t> outputShape =
+        outputLayout.isTiled() ? outputLayout.getTiledShape(outputTy.getShape())
+                               : SmallVector<int64_t>(outputTy.getShape());
+
+    assert(inputShape == outputShape && "Shapes must be identical");
+
+    // If tiles are reblocked, the linear maps must be identical.
+    assert(!(inputLayout.isTiled() && outputLayout.isTiled()) ||
+           inputLayout.getLinear() == outputLayout.getLinear());
+
+    // When the layouts are tiled, the linear maps are the identity maps.
+    // Reasoning behind this is that since it's already ensured that scalar
+    // linear maps identical, tensors can be viewed simply as bags of tiles
+    // omitting any affine complexity.
+    AffineMap inputLinearMap = inputLayout.isTiled()
+                                   ? inputLayout.getIdentityTileLinearMap()
+                                   : inputLayout.getLinear();
+    AffineMap outputLinearMap = outputLayout.isTiled()
+                                    ? outputLayout.getIdentityTileLinearMap()
+                                    : outputLayout.getLinear();
+
     AffineMap src =
-        inputLayout.projectOnto(inputTy.getShape(), device.getGrid());
-    AffineMap dst =
-        outputLayout.projectOnto(outputTy.getShape(), device.getGrid());
+        inputLayout.projectOnto(inputLinearMap, inputShape, device.getGrid());
+
+    AffineMap dst = outputLayout.projectOnto(outputLinearMap, outputShape,
+                                             device.getGrid());
+
     auto dm = calculateDataMovement(
-        inputTy.getShape(), inputLayout.getElementSizeBytes(), src, dst);
+        inputShape, inputLayout.getElementSizeBytes(), src, dst);
 
     auto noc0Attr =
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);

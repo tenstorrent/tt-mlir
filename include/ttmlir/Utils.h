@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "mlir/IR/AffineMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace ttmlir::utils {
@@ -32,6 +33,21 @@ inline void sample(Vector const &shape, Fn fn) {
     fn(index);
   }
 }
+
+template <typename Vector>
+llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
+  mlir::SmallVector<int64_t> lastIndex;
+  for (auto dim : shape) {
+    lastIndex.push_back(dim - 1);
+  }
+
+  auto result = map.compose(lastIndex);
+  for (auto &dim : result) {
+    dim += 1;
+  }
+  return result;
+}
+
 } // namespace ttmlir::utils
 
 #endif
