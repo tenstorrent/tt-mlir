@@ -61,16 +61,77 @@ struct CQBuilder {
   }
 };
 
-::tt::target::metal::SourceType toFlatbuffer(ttkernel::ThreadType threadType) {
+::tt::target::MathFidelity toFlatbuffer(ttkernel::MathFidelity mathFidelity) {
+  switch (mathFidelity) {
+  case ttkernel::MathFidelity::HiFi4:
+    return ::tt::target::MathFidelity::HiFi4;
+  case ttkernel::MathFidelity::HiFi3:
+    return ::tt::target::MathFidelity::HiFi3;
+  case ttkernel::MathFidelity::HiFi2:
+    return ::tt::target::MathFidelity::HiFi2;
+  case ttkernel::MathFidelity::LoFi:
+    return ::tt::target::MathFidelity::LoFi;
+  }
+  assert(false && "Unsupported MathFidelity");
+}
+
+::tt::target::metal::EthType toFlatbuffer(ttkernel::EthType ethType) {
+  switch (ethType) {
+  case ttkernel::EthType::Sender:
+    return ::tt::target::metal::EthType::Sender;
+  case ttkernel::EthType::Receiver:
+    return ::tt::target::metal::EthType::Receiver;
+  }
+  assert(false && "Unsupported EthType");
+}
+
+::tt::target::metal::NocIndex toFlatbuffer(ttkernel::NocIndex nocIndex) {
+  switch (nocIndex) {
+  case ttkernel::NocIndex::Noc0:
+    return ::tt::target::metal::NocIndex::Noc0;
+  case ttkernel::NocIndex::Noc1:
+    return ::tt::target::metal::NocIndex::Noc1;
+  }
+  assert(false && "Unsupported NocIndex");
+}
+
+// Take KernelConfig and return pair of its type and variantized config itself
+std::pair<::tt::target::metal::KernelConfig, ::flatbuffers::Offset<void>>
+toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
+             ::mlir::Attribute kernelConfig) {
+
+  auto kernelConfigIntf =
+      mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig);
+  ttkernel::ThreadType threadType = kernelConfigIntf.getThreadType();
+
   switch (threadType) {
-  case ttkernel::ThreadType::Noc0:
-    return ::tt::target::metal::SourceType::Noc0;
-  case ttkernel::ThreadType::Noc1:
-    return ::tt::target::metal::SourceType::Noc1;
-  case ttkernel::ThreadType::Tensix:
-    return ::tt::target::metal::SourceType::Tensix;
-  case ttkernel::ThreadType::Ethernet:
-    return ::tt::target::metal::SourceType::Ethernet;
+  case ttkernel::ThreadType::Noc: {
+    auto nocConfigAttr = mlir::dyn_cast<ttkernel::NocConfigAttr>(kernelConfig);
+    auto configType = ::tt::target::metal::KernelConfig::NocConfig;
+    auto config = ::tt::target::metal::CreateNocConfig(
+        fbb, toFlatbuffer(nocConfigAttr.getNocIndex()));
+    return std::make_pair(configType, config.Union());
+  }
+  case ttkernel::ThreadType::Tensix: {
+    auto tensixConfigAttr =
+        mlir::dyn_cast<ttkernel::TensixConfigAttr>(kernelConfig);
+    auto configType = ::tt::target::metal::KernelConfig::TensixConfig;
+    auto config = ::tt::target::metal::CreateTensixConfig(
+        fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
+        tensixConfigAttr.getFp32DestAccEn(),
+        tensixConfigAttr.getPreserveFp32Precision(),
+        tensixConfigAttr.getMathApproxMode());
+    return std::make_pair(configType, config.Union());
+  }
+  case ttkernel::ThreadType::Ethernet: {
+    auto ethernetConfigAttr =
+        mlir::dyn_cast<ttkernel::EthernetConfigAttr>(kernelConfig);
+    auto configType = ::tt::target::metal::KernelConfig::EthernetConfig;
+    auto config = ::tt::target::metal::CreateEthernetConfig(
+        fbb, toFlatbuffer(ethernetConfigAttr.getEthType()),
+        toFlatbuffer(ethernetConfigAttr.getNocIndex()));
+    return std::make_pair(configType, config.Union());
+  }
   }
 }
 
@@ -163,10 +224,6 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
                "failed to emit dispatch op regions as cpp");
 
         for (auto &region : dispatchOp.getRegions()) {
-          auto threadType =
-              mlir::cast<ttkernel::ThreadTypeAttr>(
-                  dispatchOp.getThreadTypes()[region.getRegionNumber()])
-                  .getValue();
           std::vector<::tt::target::Dim2dRange> coreRangeSet = {
               toFlatbuffer(mlir::cast<CoreRangeAttr>(
                   dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
@@ -184,10 +241,16 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
           std::string &source = cppKernels[region.getRegionNumber()];
           assert(source.size() > 0 && "empty kernel source");
 
+          // Get pair of kernel's config type and config itself.
+          auto kernelConfig =
+              dispatchOp.getKernelConfigs()[region.getRegionNumber()];
+          auto [kernelConfigType, kernelConfigUnion] =
+              toFlatbuffer(fbb, kernelConfig);
+
           kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
               fbb, ::tt::target::metal::Kernel::KernelSource,
               ::tt::target::metal::CreateKernelSourceDirect(
-                  fbb, toFlatbuffer(threadType), source.c_str())
+                  fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
                   .Union(),
               &coreRangeSet, &cbs, nullptr, nullptr, /* TODO rtargs*/
               nullptr /*TODO debug info*/));

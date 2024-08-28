@@ -236,8 +236,8 @@ public:
                               src, dst, dataMovementType);
 
     auto noc0Attr =
-        rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);
-    SmallVector<Attribute> threadTypes(dm.size(), noc0Attr);
+        rewriter.getAttr<ttkernel::NocConfigAttr>(ttkernel::NocIndex::Noc0);
+    SmallVector<Attribute> kernelConfigs(dm.size(), noc0Attr);
     SmallVector<Attribute> coreRanges;
     coreRanges.reserve(dm.size());
     for (auto [coreCoord, txs] : dm) {
@@ -251,7 +251,7 @@ public:
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threadTypes), threadTypes.size());
+        rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
     int i = 0;
     PhysicalCoreCoordMapping physicalCoordMapping =
@@ -298,10 +298,9 @@ public:
     assert(shouldTilize ^ shouldUntilize);
     assert(inputLayout.getGrid() == outputLayout.getGrid());
 
-    auto tensixAttr = rewriter.getAttr<ttkernel::ThreadTypeAttr>(
-        ttkernel::ThreadType::Tensix);
-    SmallVector<Attribute> threadTypes = {tensixAttr};
-
+    auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
+        ttkernel::MathFidelity::HiFi4, false, false, false);
+    SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
     };
@@ -310,7 +309,7 @@ public:
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threadTypes), threadTypes.size());
+        rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
@@ -790,10 +789,9 @@ public:
       return failure();
     }
 
-    SmallVector<Attribute> threadTypes = {
-        rewriter.getAttr<ttkernel::ThreadTypeAttr>(
-            ttkernel::ThreadType::Tensix),
-    };
+    auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
+        ttkernel::MathFidelity::HiFi4, false, false, false);
+    SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
     };
@@ -801,7 +799,7 @@ public:
     auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr(threadTypes), threadTypes.size());
+        rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
     auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
         op->getOperands(), op->getRegion(0).getArguments(),

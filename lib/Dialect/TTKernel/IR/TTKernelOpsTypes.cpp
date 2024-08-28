@@ -15,6 +15,7 @@ using namespace mlir::tt::ttkernel;
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsEnums.cpp.inc"
 
 #define GET_TYPEDEF_CLASSES
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelAttrInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.cpp.inc"
 
 void TTKernelDialect::registerTypes() {

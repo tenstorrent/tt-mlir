@@ -14,6 +14,8 @@
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h.inc"
 
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelAttrInterfaces.h.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsAttrDefs.h.inc"
 

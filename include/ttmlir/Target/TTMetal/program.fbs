@@ -2,11 +2,41 @@ include "Common/types.fbs";
 
 namespace tt.target.metal;
 
-enum SourceType : ushort {
+enum NocIndex : ushort {
   Noc0 = 0,
   Noc1 = 1,
-  Tensix = 2,
-  Ethernet = 3,
+}
+
+enum EthType : ushort {
+  Sender = 0,
+  Receiver = 1,
+}
+
+table NocConfig {
+  noc_index: NocIndex;
+}
+
+table TensixConfig {
+  math_fidelity: MathFidelity;
+  fp32_dest_acc_en: bool;
+  preserve_fp32_precision: bool;
+  math_approx_mode: bool;
+}
+
+table EthernetConfig {
+  eth_type: EthType;
+  noc_index: NocIndex;
+}
+
+union KernelConfig {
+  NocConfig,
+  TensixConfig,
+  EthernetConfig,
+}
+
+table KernelSource {
+  source: string;
+  config: KernelConfig;
 }
 
 enum BinaryType : ushort {
@@ -21,11 +51,6 @@ enum BinaryType : ushort {
 enum CoreType : ushort {
   WORKER = 0,
   ETH = 1,
-}
-
-table KernelSource {
-  source_type: SourceType;
-  source: string;
 }
 
 table KernelBinary {

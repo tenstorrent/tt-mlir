@@ -157,3 +157,10 @@ table DeviceRef {
 table EventRef {
   global_id: uint32;
 }
+
+enum MathFidelity : uint8 {
+    LoFi          = 0,
+    HiFi2         = 2,
+    HiFi3         = 3,
+    HiFi4         = 4,
+}
