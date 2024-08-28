@@ -18,3 +18,6 @@ jobs:
   docker-build:
     uses: ./.github/workflows/docker-build.yml
     secrets: inherit
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
+    secrets: inherit

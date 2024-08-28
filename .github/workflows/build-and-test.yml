@@ -12,8 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: self-hosted, enable_perf: OFF, name: "run"},
-          {runs-on: self-hosted, enable_perf: ON, name: "perf"},
+          {runs-on: builder, enable_perf: OFF, name: "run"},
+          {runs-on: builder, enable_perf: ON, name: "perf"},
         ]
 
     runs-on: ${{ matrix.build.runs-on }}
