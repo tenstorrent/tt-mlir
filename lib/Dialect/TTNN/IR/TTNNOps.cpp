@@ -203,11 +203,9 @@ namespace mlir::tt::ttnn {
   }
 
   // If there's a -1, ensure that it can be inferred correctly
-  if (has_negative) {
-    if (inputType.getNumElements() % known_dim_product != 0) {
-      return emitOpError("Invalid shape: the dimensions do not multiply to the "
-                         "total number of elements in the tensor");
-    }
+  if (has_negative && inputType.getNumElements() % known_dim_product != 0) {
+    return emitOpError("Invalid shape: the dimensions do not multiply to the "
+                       "total number of elements in the tensor");
   }
 
   return success();
