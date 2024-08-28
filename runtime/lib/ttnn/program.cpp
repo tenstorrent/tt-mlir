@@ -296,6 +296,14 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Exponential: {
+    TT_FATAL(op->ins()->size() == 1, "Expected 1 input, got {}",
+             op->ins()->size());
+    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
+    tensorPool.push_back(::ttnn::exp(in));
+    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    break;
+  }
   }
 }
 

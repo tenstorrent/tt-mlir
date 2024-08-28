@@ -85,21 +85,21 @@ struct ConvertStableHLOToTTIRPass
                                                     mlir::tt::ttir::AddOp>>(
         typeConverter, &getContext());
 
-    patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::SubtractOp,
-                                                    mlir::tt::ttir::SubtractOp>>(
+    patterns.add<StableHLOToTTIROpConversionPattern<
+        mlir::stablehlo::SubtractOp, mlir::tt::ttir::SubtractOp>>(
         typeConverter, &getContext());
 
-    patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::MulOp,
-                                                    mlir::tt::ttir::MultiplyOp>>(
-        typeConverter, &getContext());
+    patterns.add<StableHLOToTTIROpConversionPattern<
+        mlir::stablehlo::MulOp, mlir::tt::ttir::MultiplyOp>>(typeConverter,
+                                                             &getContext());
 
     patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::DivOp,
                                                     mlir::tt::ttir::DivOp>>(
         typeConverter, &getContext());
 
-    patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::ExpOp,
-                                                    mlir::tt::ttir::ExponentialOp>>(
-        typeConverter, &getContext());
+    patterns.add<StableHLOToTTIROpConversionPattern<
+        mlir::stablehlo::ExpOp, mlir::tt::ttir::ExponentialOp>>(typeConverter,
+                                                                &getContext());
 
     // Apply conversion.
     if (failed(
