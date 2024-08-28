@@ -58,7 +58,7 @@ def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleO
   let summary = "Split compound layouts.";
   let description = [{
     A single to_layout op in ttir can simultaneously perform multiple layout transformations
-    at once, including changing layout, format, or memory space. This pass splits each of
+    at once, including changing layout, format, memory space or memory layout. This pass splits each of
     these transformation categories into separate to_layout ops.
   }];
 }

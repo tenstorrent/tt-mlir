@@ -364,14 +364,16 @@ public:
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
 
-    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange] =
-        op.compoundComponents();
+    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+          isMemoryLayoutChange] = op.compoundComponents();
     bool isCompound =
         (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
          static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange)) > 1;
+         static_cast<int>(isMemorySpaceChange) +
+         static_cast<int>(isMemoryLayoutChange)) > 1;
     assert(!isCompound && "Only one change is allowed");
-
+    assert(!isMemoryLayoutChange &&
+           "Tensor memory layout shouldn't change in metal backend");
     if (isMemorySpaceChange) {
       if (inputLayout.isSystemMemorySpace()) {
         assert(outputLayout.isDeviceMemorySpace());
@@ -386,10 +388,13 @@ public:
       }
     } else if (isLayoutChange || isGridChange) {
       return relayout(op, rewriter);
-    } else {
-      assert(isFormatChange);
+    } else if (isFormatChange) {
       return reformat(op, rewriter);
+    } else {
+      assert(isMemoryLayoutChange);
+      assert(false && "Changing tensor memory layout not supported yet");
     }
+
     return failure();
   }
 };

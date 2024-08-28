@@ -719,12 +719,13 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange] =
-        op.compoundComponents();
+    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+          isMemoryLayoutChange] = op.compoundComponents();
     bool isCompound =
         (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
          static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange)) > 1;
+         static_cast<int>(isMemorySpaceChange) +
+         static_cast<int>(isMemoryLayoutChange)) > 1;
 
     if (!isCompound) {
       return failure();
@@ -776,6 +777,13 @@ public:
       bounce(rewriter, op,
              outputLayout.withGrid(rewriter.getContext(), outputType,
                                    inputLayout.getGrid()));
+    } else if (isMemoryLayoutChange) {
+      // Since memory layout is TTNN backend specific (should be undef for metal
+      // always), we can't do anything here Update this if we decide to create
+      // separate modules for different backends
+      assert(false && "Currently we don't support memory layout changes this "
+                      "early in the compiler pipeline");
+      return failure();
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
       // w/ format conversion via streaming supported

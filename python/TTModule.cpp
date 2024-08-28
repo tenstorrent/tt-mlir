@@ -87,7 +87,8 @@ void populateTTModule(py::module &m) {
       .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
       .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
       .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
-      .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape);
+      .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape)
+      .def_property_readonly("memory_layout", &tt::LayoutAttr::getMemLayout);
 
   py::class_<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
@@ -198,6 +199,12 @@ void populateTTModule(py::module &m) {
       .def_static("get", [](MlirContext ctx, uint32_t oobVal) {
         return wrap(
             tt::OOBValAttr::get(unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
+      });
+
+  py::class_<tt::TensorMemoryLayoutAttr>(m, "TensorMemoryLayoutAttr")
+      .def_static("get", [](MlirContext ctx, uint32_t memLayout) {
+        return wrap(tt::TensorMemoryLayoutAttr::get(
+            unwrap(ctx), static_cast<tt::TensorMemoryLayout>(memLayout)));
       });
 
   py::class_<tt::IteratorTypeAttr>(m, "IteratorTypeAttr")

@@ -12,8 +12,7 @@
 namespace tt::runtime::ttnn::utils {
 
 inline bool isValidTileShape(const ::tt::target::Dim2d *shape) {
-  return (shape->x() == 0 and shape->y() == 0) or
-         (shape->x() == 1 and shape->y() == 1) or
+  return (shape->x() == 1 and shape->y() == 1) or
          (shape->x() == 32 and shape->y() == 32);
 }
 
@@ -54,6 +53,23 @@ inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
 
   default:
     throw std::runtime_error("Unsupported data type");
+    
+inline ::tt::tt_metal::TensorMemoryLayout
+toTensorMemoryLayout(::tt::target::TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case ::tt::target::TensorMemoryLayout::Interleaved:
+    return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
+  case ::tt::target::TensorMemoryLayout::SingleBank:
+    return ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK;
+  case ::tt::target::TensorMemoryLayout::HeightSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
+  case ::tt::target::TensorMemoryLayout::WidthSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
+  case ::tt::target::TensorMemoryLayout::BlockSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+
+  default:
+    throw std::runtime_error("Unsupported shard strategy");
   }
 }
 

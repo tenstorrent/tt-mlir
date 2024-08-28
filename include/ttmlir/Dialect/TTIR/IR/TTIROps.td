@@ -72,8 +72,8 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         - Some combination of the above
 
       ```llvm
-      #layout = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>, undef_layout>
+      #layout1 = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>, undef_layout>
       %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
@@ -90,7 +90,7 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         // return {OperandConstraint::Any, OperandConstraint::Any};
       }
       // Returns a tuple of booleans indicating if the op changes layout, grid, format, or memory space.
-      std::tuple<bool, bool, bool, bool> compoundComponents();
+      std::tuple<bool, bool, bool, bool, bool> compoundComponents();
     }];
 
     let hasVerifier = 1;

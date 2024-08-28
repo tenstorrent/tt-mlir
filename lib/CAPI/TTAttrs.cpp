@@ -113,12 +113,13 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
 
 MlirAttribute ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                                     unsigned oobVal, MlirAttribute grid,
-                                    MlirType memref) {
+                                    MlirType memref, unsigned memLayout) {
   mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
   return wrap(LayoutAttr::get(unwrap(ctx), affineMap,
                               static_cast<OOBVal>(oobVal),
                               mlir::cast<GridAttr>(unwrap(grid)),
-                              mlir::cast<MemRefType>(unwrap(memref))));
+                              mlir::cast<MemRefType>(unwrap(memref)),
+                              static_cast<TensorMemoryLayout>(memLayout)));
 }
 
 MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,
@@ -129,6 +130,12 @@ MlirAttribute ttmlirTTMemorySpaceAttrGet(MlirContext ctx,
 
 MlirAttribute ttmlirTTOOBValAttrGet(MlirContext ctx, uint32_t oobVal) {
   return wrap(OOBValAttr::get(unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
+}
+
+MlirAttribute ttmlirTTTensorMemoryLayoutAttrGet(MlirContext ctx,
+                                                uint32_t memLayout) {
+  return wrap(TensorMemoryLayoutAttr::get(
+      unwrap(ctx), static_cast<tt::TensorMemoryLayout>(memLayout)));
 }
 
 MlirAttribute ttmlirTTIteratorTypeAttrGet(MlirContext ctx,
