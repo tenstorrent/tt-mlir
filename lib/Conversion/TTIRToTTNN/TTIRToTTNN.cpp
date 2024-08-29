@@ -129,23 +129,43 @@ public:
   matchAndRewrite(ttnn::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    Location rootLoc = op.getLoc();
+    // Location rootLoc = op.getLoc();
     auto device = findDevice(op);
 
     // rewriter.create<ttnn::ToLayoutOp>(rootLoc, op.getType(), op.getInput(),
     //                                    op.getLayoutAttr(), op.getDtypeAttr(),
     //                                    op.getDevice());
-    rewriter.create<ttnn::TensorToLayoutOp>(
-        rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
+    // rewriter.create<ttnn::TensorToLayoutOp>(
+    //     rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
+    //     device);
+    auto q = rewriter.replaceOpWithNewOp<ttnn::TensorToLayoutOp>(
+        op, op.getType(), op.getInput(), op.getLayoutAttr().getValue(), device);
+    auto w = rewriter.create<ttnn::TensorToLayoutOp>(
+        q->getLoc(), op.getType(), q.getResult(), op.getLayoutAttr().getValue(),
         device);
-    rewriter.create<ttnn::TensorToLayoutOp>(
-        rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
-        device);
+    (void)w;
     // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
     // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
     // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
 
-    rewriter.eraseOp(op);
+    // std::cout << op->getUsers().end() - op->getUsers().begin() << std::endl;
+    // for (Operation *user : op->getUsers()) {
+    //   std::cout << "before" << std::endl;
+    //   user->dump();
+    //   std::cout << "after" << std::endl;
+    // }
+    // // std::cout << op->getUses().end() - op->getUses().begin() << std::endl;
+    // for (auto &use : op->getUses()) {
+    //   std::cout << "before" << std::endl;
+    //   (void)use;// std::cout << use << std::endl;
+    //   std::cout << "after" << std::endl;
+    // }
+
+    // rewriter.replaceAllUsesWith(q.getResult(), w.getResult());
+
+    // rewriter.replaceAllOpUsesWith(op, q);
+    // rewriter.replaceAllUsesWith(op.getResult(), q.getResult());
+    // rewriter.eraseOp(op);
 
     std::cout << "ENDING" << std::endl;
 
