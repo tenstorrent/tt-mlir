@@ -43,9 +43,15 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  std::uint32_t numElements = shape[0] * stride[0];
+  std::vector<std::uint32_t> inputShape = shape;
+  std::uint32_t numElements = 1;
+  if (inputShape.empty()) {
+    inputShape.push_back(1);
+  } else {
+    numElements = shape[0] * stride[0];
+  }
   auto tensor = std::make_shared<::ttnn::Tensor>(
-      createStorage(data.get(), numElements, dataType), shape,
+      createStorage(data.get(), numElements, dataType), inputShape,
       utils::toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
   return Tensor(tensor, data, DeviceRuntime::TTNN);
 }
