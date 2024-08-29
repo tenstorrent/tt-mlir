@@ -97,9 +97,9 @@ struct ConvertStableHLOToTTIRPass
                                                     mlir::tt::ttir::DivOp>>(
         typeConverter, &getContext());
 
-    patterns.add<StableHLOToTTIROpConversionPattern<
-        mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter,
-                                                        &getContext());
+    patterns.add<StableHLOToTTIROpConversionPattern<mlir::stablehlo::ExpOp,
+                                                    mlir::tt::ttir::ExpOp>>(
+        typeConverter, &getContext());
 
     // Apply conversion.
     if (failed(

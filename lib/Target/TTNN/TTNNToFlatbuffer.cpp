@@ -289,8 +289,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString);
   }
   if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
-    return createOperation(cache, createEltwiseOp(cache, expOp)
-                           debugString);
+    return createOperation(cache, createEltwiseOp(cache, expOp), debugString);
   }
   if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
     return createOperation(cache, createEltwiseOp(cache, sigmoidOp),
