@@ -51,6 +51,14 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
                          isMemorySpaceChange);
 }
 
+::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
+  if (getNumOperands() != getRegion().getNumArguments()) {
+    return emitOpError(
+        "The number of op operands and region/block operands must match");
+  }
+  return success();
+}
+
 template <typename OpTy>
 static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
                                             ::mlir::OpBuilder &opBuilder,
