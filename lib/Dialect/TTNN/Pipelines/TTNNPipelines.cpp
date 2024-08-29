@@ -15,7 +15,11 @@ namespace mlir::tt::ttnn {
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
+
+  ttir::TTIRLoadSystemDescOptions systemDescOptions;
+  systemDescOptions.path = options.systemDescPath;
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
+
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::System;

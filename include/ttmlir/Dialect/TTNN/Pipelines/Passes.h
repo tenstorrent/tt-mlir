@@ -87,6 +87,13 @@ struct TTIRToTTNNBackendPipelineOptions
           *this, "override-grid-sizes",
           llvm::cl::desc("Override grid sizes for specific ops."),
           llvm::cl::init(llvm::StringMap<SmallVector<int64_t, 2>>())};
+
+  // Option to provide a system descriptor flatbuffer file to compile against
+  Option<std::string> systemDescPath{
+      *this, "system-desc-path",
+      llvm::cl::desc(
+          "Pass in a system descriptor flatbuffer to compile against."),
+      llvm::cl::init("")};
 };
 
 void createTTIRToTTNNBackendPipeline(
