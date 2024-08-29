@@ -462,7 +462,7 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
   auto &lhs = *liveTensors.at(op->in0()->global_id());
   auto &rhs = *liveTensors.at(op->in1()->global_id());
   tensorPool.push_back(::ttnn::operations::matmul::matmul(
-      lhs, rhs, std::nullopt, ::tt::operations::primary::Matmul{}));
+      lhs, rhs, std::nullopt, ::ttnn::operations::matmul::Matmul{}));
   liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
 }
 // ANCHOR_END: adding_an_op_matmul_runtime

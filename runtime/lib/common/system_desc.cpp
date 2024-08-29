@@ -243,7 +243,8 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   ::tt::tt_metal::DeviceGrid grid =
       std::make_pair(numDevices / numPciDevices, numPciDevices);
   ::tt::tt_metal::DeviceMesh deviceMesh = ::tt::tt_metal::DeviceMesh(
-      grid, deviceIds, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1);
+      grid, deviceIds, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
+      ::tt::tt_metal::DispatchCoreType::WORKER);
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {

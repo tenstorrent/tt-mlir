@@ -40,6 +40,7 @@
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #define FMT_HEADER_ONLY
 #include "impl/device/device_mesh.hpp"
+#include "impl/event/event.hpp"
 #include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop
 
