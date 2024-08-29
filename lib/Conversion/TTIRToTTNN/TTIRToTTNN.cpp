@@ -186,6 +186,44 @@ public:
   }
 };
 
+class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
+public:
+  using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SqueezeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Extract input tensor types
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+
+    // Get the squeeze dimension
+    int32_t dim = adaptor.getDim();
+
+    // Get the shape of the input tensor
+    auto inputShape = inputType.getShape();
+    llvm::SmallVector<int32_t, 4> newShape;
+
+    // Build the new shape by removing the specified dimension
+    for (int64_t i = 0; i < inputType.getRank(); ++i) {
+      if (i == dim) {
+        continue;
+      }
+      newShape.push_back(inputShape[i]);
+    }
+
+    // Create the new shape attribute
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+
+    // Replace the SqueezeOp with a ReshapeOp
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getOutput(), shapeAttr);
+
+    return success();
+  }
+};
+
 } // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
@@ -229,6 +267,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            TransposeOpConversionPattern,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
+           SqueezeOpConversionPattern,
            MatmulOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
