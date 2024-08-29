@@ -401,6 +401,26 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
+    let summary = "Squeeze op.";
+    let description = [{
+      Squeeze tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";
