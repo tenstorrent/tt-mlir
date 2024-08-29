@@ -262,6 +262,49 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::SqueezeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  int32_t dim = getDim();
+
+  // Check that the dimension `dim` is valid.
+  if (dim < 0 || dim >= inputType.getRank()) {
+    return emitOpError() << "Invalid dimension " << dim << " for squeezing.";
+  }
+
+  // Check that the dimension `dim` is 1 in the input tensor.
+  if (inputType.getDimSize(dim) != 1) {
+    return emitOpError() << "Dimension " << dim
+                         << " in the input tensor must be 1.";
+  }
+
+  if (outputType.getRank() == 0) {
+    return emitOpError() << "Output tensor must have at least one dimension.";
+  }
+
+  // Check that the rank of the output tensor is one less than the input tensor.
+  if (outputType.getRank() != inputType.getRank() - 1) {
+    return emitOpError()
+           << "Output tensor rank must be one less than the input tensor rank.";
+  }
+
+  // Check that the dimensions of the output tensor are the same as the input
+  // tensor except for dimension `dim`.
+  for (int64_t i = 0, j = 0; i < inputType.getRank(); ++i) {
+    if (i == dim) {
+      continue;
+    }
+    if (inputType.getDimSize(i) != outputType.getDimSize(j)) {
+      return emitOpError() << "Dimensions of the output tensor must be the "
+                              "same as the input tensor except for dimension "
+                           << dim << ".";
+    }
+    ++j;
+  }
+
+  return success();
+}
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
