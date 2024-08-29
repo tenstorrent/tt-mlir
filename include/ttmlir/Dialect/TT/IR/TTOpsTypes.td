@@ -107,6 +107,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$l1UnreservedBase,
                     "unsigned":$eriscL1UnreservedBase,
                     "unsigned":$dramUnreservedBase,
+                    "unsigned":$dramUnreservedEnd,
                     "ChipPhysicalCoresAttr":$chipPhysicalCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes);
@@ -121,13 +122,14 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `l1_unreserved_base` `=` $l1UnreservedBase `,`
                              `erisc_l1_unreserved_base` `=` $eriscL1UnreservedBase `,`
                              `dram_unreserved_base` `=` $dramUnreservedBase `,`
+                             `dram_unreserved_end` `=` $dramUnreservedEnd `,`
                              `physical_cores` `=` $chipPhysicalCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
                              `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `}`}];
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
-    unsigned getUsableDramChannelSize() const { return getDramChannelSize() - getDramUnreservedBase(); }
+    unsigned getUsableDramChannelSize() const { return getDramUnreservedEnd() - getDramUnreservedBase(); }
   }];
 }
 

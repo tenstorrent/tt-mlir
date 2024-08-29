@@ -244,6 +244,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getPcieAddressAlignBytes(),
       chipDesc.getNocDRAMAddressAlignBytes(), chipDesc.getL1UnreservedBase(),
       chipDesc.getEriscL1UnreservedBase(), chipDesc.getDramUnreservedBase(),
+      chipDesc.getDramUnreservedEnd(),
       toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()));
