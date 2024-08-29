@@ -266,7 +266,7 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTIR_ExponentialOp: TTIR_ElementwiseUnaryOp<"exponential"> {
+def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential op.";
     let description = [{
       Eltwise exponential operation.
