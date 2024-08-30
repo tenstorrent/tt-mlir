@@ -25,7 +25,9 @@ void OptimalTargetGridAnalysis::analysisImplementation() {
   // Placeholder: pick the first legal grid.
   //
   for (auto opGrids : analysisInput.legalGrids) {
-    analysisResult[opGrids.first] = opGrids.second[0];
+    if (not opGrids.second.empty()) {
+      analysisResult[opGrids.first] = opGrids.second[0];
+    }
   }
 }
 } // namespace mlir::tt::ttir

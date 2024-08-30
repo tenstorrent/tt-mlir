@@ -1095,9 +1095,11 @@ public:
 
         // Update the output layout attribute with the new grid size.
         //
-        op->getResult(0).setType(RankedTensorType::get(
-            tensorShape, tensorType.getElementType(),
-            optimalTargetGridAnalysis.getResult().at(op)));
+        if (optimalTargetGridAnalysis.getResult().contains(op)) {
+          op->getResult(0).setType(RankedTensorType::get(
+              tensorShape, tensorType.getElementType(),
+              optimalTargetGridAnalysis.getResult().at(op)));
+        }
       });
 
       // Update the function type to reflect the updated return operation's
