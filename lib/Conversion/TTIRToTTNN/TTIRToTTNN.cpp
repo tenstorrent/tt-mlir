@@ -286,6 +286,71 @@ public:
 };
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
+public:
+  using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto kernel_ty =
+        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
+
+    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+
+    auto output_ty =
+        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+
+    auto in_channels =
+        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 1]);
+    auto out_channels =
+        rewriter.getI32IntegerAttr(output_shape[output_shape.size() - 1]);
+    auto batch_size =
+        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 4]);
+    auto input_height =
+        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 3]);
+    auto input_width =
+        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 2]);
+
+    auto kernel_height =
+        rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size() - 2]);
+    auto kernel_width =
+        rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size() - 1]);
+
+    auto stride_height = rewriter.getI32IntegerAttr(adaptor.getStrideHeight());
+    auto stride_width = rewriter.getI32IntegerAttr(adaptor.getStrideWidth());
+
+    assert(
+        adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
+        "TTNN only supports padding height/width attributes. Thus, padding_top "
+        "must equal padding_bottom for the op to execute as expected.");
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
+           "TTNN only supports padding height/width attributes. Thus, "
+           "padding_left must equal padding_right for the op to execute as "
+           "expected.");
+    auto padding_height = rewriter.getI32IntegerAttr(adaptor.getPaddingTop());
+    auto padding_width = rewriter.getI32IntegerAttr(adaptor.getPaddingRight());
+
+    auto dilation_height =
+        rewriter.getI32IntegerAttr(adaptor.getDilationHeight());
+    auto dilation_width =
+        rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
+    auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getOutput(), in_channels, out_channels, batch_size, input_width,
+        input_height, kernel_height, kernel_width, stride_height, stride_width,
+        padding_height, padding_width, dilation_height, dilation_width, groups);
+    return success();
+  }
+};
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -314,7 +379,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReshapeOpConversionPattern,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
-           MatmulOpConversionPattern
+           MatmulOpConversionPattern,
+           Conv2dOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

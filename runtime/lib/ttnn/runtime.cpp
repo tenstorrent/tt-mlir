@@ -60,7 +60,7 @@ Device openDevice(std::vector<int> const &deviceIds,
                   std::vector<std::uint8_t> const &numHWCQs) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   assert(numHWCQs.empty() && "HWCQs are not supported for now");
-  auto &device = ::ttnn::open_device(deviceIds.front());
+  auto &device = ::ttnn::open_device(deviceIds.front(), kL1SmallSize);
   return Device::borrow(device, DeviceRuntime::TTNN);
 }
 
