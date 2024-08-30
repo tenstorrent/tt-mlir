@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal %s | FileCheck %s
 // UNSUPPORTED: true
 #l1_ = #tt.memory_space<l1>
 
