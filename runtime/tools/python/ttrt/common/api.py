@@ -314,6 +314,8 @@ class API:
             )
             self.system_desc = None
             self.device_ids = None
+            self.report = {}
+            self.results = Results(self.logger, self.file_manager)
 
         def preprocess(self):
             self.logging.debug(f"preprocessing query API")
@@ -343,6 +345,14 @@ class API:
                 ) = ttrt.runtime.get_current_system_desc()
                 self.logging.info(self.system_desc.as_json())
             except Exception as e:
+                test_result = {
+                    "result": "error",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+                self.results.add_result(test_result)
+                self.results.save_results()
                 raise Exception(f"an unexpected error occurred: {e}")
 
             self.logging.debug(f"finished executing query API")
@@ -352,6 +362,15 @@ class API:
 
             if self["save_artifacts"]:
                 self.artifacts.save_system_desc(self.system_desc)
+
+            test_result = {
+                "result": "pass",
+                "exception": "",
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+            }
+            self.results.add_result(test_result)
+            self.results.save_results()
 
             self.logging.debug(f"finished postprocessing query API")
 
@@ -471,6 +490,7 @@ class API:
             self.ttnn_binaries = []
             self.ttmetal_binaries = []
             self.system_desc_binaries = []
+            self.results = Results(self.logger, self.file_manager)
 
         def preprocess(self):
             self.logging.debug(f"preprocessing read API")
@@ -502,19 +522,49 @@ class API:
             self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
 
             for path in ttsys_binary_paths:
-                bin = SystemDesc(self.logger, self.file_manager, path)
-                if bin.check_version():
-                    self.system_desc_binaries.append(bin)
+                try:
+                    bin = SystemDesc(self.logger, self.file_manager, path)
+                    if bin.check_version():
+                        self.system_desc_binaries.append(bin)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path, 
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                    }
+                    self.results.add_result(test_result)
 
             for path in ttnn_binary_paths:
-                bin = Binary(self.logger, self.file_manager, path)
-                if bin.check_version():
-                    self.ttnn_binaries.append(bin)
+                try:
+                    bin = Binary(self.logger, self.file_manager, path)
+                    if bin.check_version():
+                        self.ttnn_binaries.append(bin)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path, 
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                    }
+                    self.results.add_result(test_result)
 
             for path in ttmetal_binary_paths:
-                bin = Binary(self.logger, self.file_manager, path)
-                if bin.check_version():
-                    self.ttmetal_binaries.append(bin)
+                try:
+                    bin = Binary(self.logger, self.file_manager, path)
+                    if bin.check_version():
+                        self.ttmetal_binaries.append(bin)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path, 
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                    }
+                    self.results.add_result(test_result)
 
             self.logging.debug(f"finished checking constraints for read API")
 
@@ -522,22 +572,52 @@ class API:
             self.logging.debug(f"executing read API")
 
             for bin in self.system_desc_binaries:
-                self.logging.info(
-                    f"reading section={self['section']} from binary={bin.file_path}"
-                )
-                self.read_action_functions[self["section"]](bin)
+                try:
+                    self.logging.info(
+                        f"reading section={self['section']} from binary={bin.file_path}"
+                    )
+                    self.read_action_functions[self["section"]](bin)
+                except Exception as e:
+                    test_result = {
+                        "file_path": bin.file_path, 
+                        "result": "error",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                    }
+                    self.results.add_result(test_result)
 
             for bin in self.ttnn_binaries:
-                self.logging.info(
-                    f"reading section={self['section']} from binary={bin.file_path}"
-                )
-                self.read_action_functions[self["section"]](bin)
+                try:
+                    self.logging.info(
+                        f"reading section={self['section']} from binary={bin.file_path}"
+                    )
+                    self.read_action_functions[self["section"]](bin)
+                except Exception as e:
+                    test_result = {
+                        "file_path": bin.file_path, 
+                        "result": "error",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                    }
+                    self.results.add_result(test_result)
 
             for bin in self.ttmetal_binaries:
-                self.logging.info(
-                    f"reading section={self['section']} from binary={bin.file_path}"
-                )
-                self.read_action_functions[self["section"]](bin)
+                try:
+                    self.logging.info(
+                        f"reading section={self['section']} from binary={bin.file_path}"
+                    )
+                    self.read_action_functions[self["section"]](bin)
+                except Exception as e:
+                    test_result = {
+                        "file_path": bin.file_path, 
+                        "result": "error",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                    }
+                    self.results.add_result(test_result)
 
             self.logging.debug(f"finished executing read API")
 
@@ -550,6 +630,29 @@ class API:
 
                 for bin in self.ttmetal_binaries:
                     self.artifacts.save_binary(bin)
+
+
+            for bin in self.ttnn_binaries:
+                test_result = {
+                    "file_path": bin.file_path, 
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+                self.results.add_result(test_result)
+
+            for bin in self.ttmetal_binaries:
+                test_result = {
+                    "file_path": bin.file_path, 
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+                self.results.add_result(test_result)
+
+            self.results.save_results()
 
             self.logging.debug(f"finished postprocessing read API")
 
@@ -573,66 +676,87 @@ class API:
             self.logging.debug(f"finished read API")
 
         def all(self, binary):
-            return self.logging.info(binary.fbb.as_json())
+            try:
+                self.logging.info(binary.fbb.as_json())
+            except Exception as e:
+                raise Exception(f"failed to read all for binary={binary.file_path}")
 
         def version(self, binary):
-            return self.logging.info(
-                f"\nversion: {binary.fbb.version}\ntt-mlir git hash: {binary.fbb.ttmlir_git_hash}"
-            )
+            try:
+                self.logging.info(
+                    f"\nversion: {binary.fbb.version}\ntt-mlir git hash: {binary.fbb.ttmlir_git_hash}"
+                )
+            except Exception as e:
+                raise Exception(f"failed to read version for binary={binary.file_path}")
 
         def system_desc(self, binary):
-            import ttrt.binary
+            try:
+                import ttrt.binary
 
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
-            return self.logging.info(json.dumps(bin_dict["system_desc"], indent=2))
+                bin_dict = ttrt.binary.as_dict(binary.fbb)
+                return self.logging.info(json.dumps(bin_dict["system_desc"], indent=2))
+            except Exception as e:
+                raise Exception(f"failed to read system_desc for binary={binary.file_path}")
 
         def mlir(self, binary):
-            import ttrt.binary
+            try:
+                import ttrt.binary
 
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+                bin_dict = ttrt.binary.as_dict(binary.fbb)
 
-            for i, program in enumerate(bin_dict["programs"]):
-                if "debug_info" not in program:
+                for i, program in enumerate(bin_dict["programs"]):
+                    if "debug_info" not in program:
+                        self.logging.info(
+                            f"no debug info found for program:{program['name']}"
+                        )
+                        continue
                     self.logging.info(
-                        f"no debug info found for program:{program['name']}"
+                        f"program[{i}]:{program['name']}-{program['debug_info']['mlir']['name']}"
                     )
-                    continue
-                self.logging.info(
-                    f"program[{i}]:{program['name']}-{program['debug_info']['mlir']['name']}"
-                )
-                self.logging.info(f"\n{program['debug_info']['mlir']['source']}")
+                    self.logging.info(f"\n{program['debug_info']['mlir']['source']}")
+            except Exception as e:
+                raise Exception(f"failed to read mlir for binary={binary.file_path}")
 
         def cpp(self, binary):
-            import ttrt.binary
+            try:
+                import ttrt.binary
 
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+                bin_dict = ttrt.binary.as_dict(binary.fbb)
 
-            for i, program in enumerate(bin_dict["programs"]):
-                if "debug_info" not in program:
-                    self.logging.info(
-                        f"no debug info found for program:{program['name']}"
-                    )
-                    continue
-                self.logging.info(f"program[{i}]:{program['name']}")
-                self.logging.info(f"\n{program['debug_info']['cpp']}")
+                for i, program in enumerate(bin_dict["programs"]):
+                    if "debug_info" not in program:
+                        self.logging.info(
+                            f"no debug info found for program:{program['name']}"
+                        )
+                        continue
+                    self.logging.info(f"program[{i}]:{program['name']}")
+                    self.logging.info(f"\n{program['debug_info']['cpp']}")
+            except Exception as e:
+                raise Exception(f"failed to read cpp for binary={binary.file_path}")
 
         def inputs(self, binary):
-            import ttrt.binary
+            try:
+                import ttrt.binary
 
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+                bin_dict = ttrt.binary.as_dict(binary.fbb)
 
-            for program in bin_dict["programs"]:
-                self.logging.info(f"program:{program['name']}")
-                self.logging.info(f"\n{json.dumps(program['inputs'], indent=2)}")
+                for program in bin_dict["programs"]:
+                    self.logging.info(f"program:{program['name']}")
+                    self.logging.info(f"\n{json.dumps(program['inputs'], indent=2)}")
+            except Exception as e:
+                raise Exception(f"failed to read inputs for binary={binary.file_path}")
 
         def outputs(self, binary):
-            import ttrt.binary
+            try:
+                import ttrt.binary
 
-            bin_dict = ttrt.binary.as_dict(binary.fbb)
+                bin_dict = ttrt.binary.as_dict(binary.fbb)
 
-            for program in bin_dict["programs"]:
-                self.logging.info(f"program:{program['name']}")
-                self.logging.info(f"\n{json.dumps(program['outputs'], indent=2)}")
+                for program in bin_dict["programs"]:
+                    self.logging.info(f"program:{program['name']}")
+                    self.logging.info(f"\n{json.dumps(program['outputs'], indent=2)}")
+            except Exception as e:
+                raise Exception(f"failed to read outputs for binary={binary.file_path}")
 
         @staticmethod
         def register_arg(name, type, default, choices, help, api_only=True):
@@ -719,6 +843,7 @@ class API:
             self.query = API.Query({}, self.logger, self.artifacts)
             self.ttnn_binaries = []
             self.ttmetal_binaries = []
+            self.results = Results(self.logger, self.file_manager)
 
         def preprocess(self):
             self.logging.debug(f"preprocessing run API")
@@ -745,34 +870,124 @@ class API:
 
             for path in ttnn_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
-                if not bin.check_version():
+                try:
+                    bin.check_version()
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "seed": self["seed"],
+                        "init": self["init"],
+                        "rtol": self["rtol"],
+                        "atol": self["atol"],
+                        "loops": self["loops"],
+                        "program_index": self["program_index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
-                if not bin.check_system_desc(self.query):
+                try:
+                    bin.check_system_desc(self.query)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "seed": self["seed"],
+                        "init": self["init"],
+                        "rtol": self["rtol"],
+                        "atol": self["atol"],
+                        "loops": self["loops"],
+                        "program_index": self["program_index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
                 if self["program_index"] != "all":
                     if not bin.check_program_index_exists(int(self["program_index"])):
-                        self.logging.warning(
-                            f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                        )
+                        message = f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                        self.logging.warning(message)
+                        test_result = {
+                            "file_path": path,
+                            "result": "skip",
+                            "exception": message,
+                            "log_file": self.logger.file_name,
+                            "artifacts": self.artifacts.artifacts_folder_path,
+                            "seed": self["seed"],
+                            "init": self["init"],
+                            "rtol": self["rtol"],
+                            "atol": self["atol"],
+                            "loops": self["loops"],
+                            "program_index": self["program_index"],
+                        }
+                        self.results.add_result(test_result)
                         continue
 
                 self.ttnn_binaries.append(bin)
 
             for path in ttmetal_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
-                if not bin.check_version():
+                try:
+                    bin.check_version()
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "seed": self["seed"],
+                        "init": self["init"],
+                        "rtol": self["rtol"],
+                        "atol": self["atol"],
+                        "loops": self["loops"],
+                        "program_index": self["program_index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
-                if not bin.check_system_desc(self.query):
+                try:
+                    bin.check_system_desc(self.query)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "seed": self["seed"],
+                        "init": self["init"],
+                        "rtol": self["rtol"],
+                        "atol": self["atol"],
+                        "loops": self["loops"],
+                        "program_index": self["program_index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
                 if self["program_index"] != "all":
                     if not bin.check_program_index_exists(int(self["program_index"])):
-                        self.logging.warning(
-                            f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                        )
+                        message = f"program index={int(self['program_index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                        self.logging.warning(message)
+                        test_result = {
+                            "file_path": path,
+                            "result": "skip",
+                            "exception": message,
+                            "log_file": self.logger.file_name,
+                            "artifacts": self.artifacts.artifacts_folder_path,
+                            "seed": self["seed"],
+                            "init": self["init"],
+                            "rtol": self["rtol"],
+                            "atol": self["atol"],
+                            "loops": self["loops"],
+                            "program_index": self["program_index"],
+                        }
+                        self.results.add_result(test_result)
                         continue
 
                 self.ttmetal_binaries.append(bin)
@@ -799,106 +1014,123 @@ class API:
                 atexit.register(lambda: ttrt.runtime.close_device(device))
 
                 for bin in binaries:
-                    self.logging.info(f"evaluating binary={bin.file_path}")
+                    try:
+                        self.logging.info(f"evaluating binary={bin.file_path}")
 
-                    program_indices = []
-                    if self["program_index"] == "all":
-                        program_indices.extend(range(bin.get_num_programs()))
-                    else:
-                        program_indices.append(int(self["program_index"]))
+                        program_indices = []
+                        if self["program_index"] == "all":
+                            program_indices.extend(range(bin.get_num_programs()))
+                        else:
+                            program_indices.append(int(self["program_index"]))
 
-                    for program_index in program_indices:
-                        self.logging.debug(
-                            f"evaluating program={program_index} for binary={bin.file_path}"
-                        )
-
-                        program = bin.get_program(program_index)
-                        program.populate_inputs(
-                            API.Run.TorchInitilizer.get_initilizer(self["init"])
-                        )
-                        program.populate_outputs(
-                            API.Run.TorchInitilizer.get_initilizer("zeros")
-                        )
-
-                        total_inputs = []
-                        total_outputs = []
-                        for loop in range(self["loops"]):
+                        for program_index in program_indices:
                             self.logging.debug(
-                                f"generating inputs/outputs for loop={loop+1}/{self['loops']} for binary={bin.file_path}"
+                                f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
-                            inputs = []
-                            outputs = []
-                            for i in program.input_tensors:
-                                inputs.append(
-                                    ttrt.runtime.create_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
-                                    )
+                            program = bin.get_program(program_index)
+                            program.populate_inputs(
+                                API.Run.TorchInitilizer.get_initilizer(self["init"])
+                            )
+                            program.populate_outputs(
+                                API.Run.TorchInitilizer.get_initilizer("zeros")
+                            )
+
+                            total_inputs = []
+                            total_outputs = []
+                            for loop in range(self["loops"]):
+                                self.logging.debug(
+                                    f"generating inputs/outputs for loop={loop+1}/{self['loops']} for binary={bin.file_path}"
                                 )
 
-                            for i in program.output_tensors:
-                                outputs.append(
-                                    ttrt.runtime.create_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
+                                inputs = []
+                                outputs = []
+                                for i in program.input_tensors:
+                                    inputs.append(
+                                        ttrt.runtime.create_tensor(
+                                            i.data_ptr(),
+                                            list(i.shape),
+                                            list(i.stride()),
+                                            i.element_size(),
+                                            Binary.Program.to_data_type(i.dtype),
+                                        )
                                     )
+
+                                for i in program.output_tensors:
+                                    outputs.append(
+                                        ttrt.runtime.create_tensor(
+                                            i.data_ptr(),
+                                            list(i.shape),
+                                            list(i.stride()),
+                                            i.element_size(),
+                                            Binary.Program.to_data_type(i.dtype),
+                                        )
+                                    )
+
+                                total_inputs.append(inputs)
+                                total_outputs.append(outputs)
+
+                            event = None
+                            for loop in range(self["loops"]):
+                                self.logging.debug(
+                                    f"starting loop={loop+1}/{self['loops']} for binary={bin.file_path}"
                                 )
 
-                            total_inputs.append(inputs)
-                            total_outputs.append(outputs)
+                                event = ttrt.runtime.submit(
+                                    device,
+                                    bin.fbb,
+                                    program_index,
+                                    total_inputs[loop],
+                                    total_outputs[loop],
+                                )
 
-                        event = None
-                        for loop in range(self["loops"]):
-                            self.logging.debug(
-                                f"starting loop={loop+1}/{self['loops']} for binary={bin.file_path}"
-                            )
+                                self.logging.debug(
+                                    f"finished loop={loop+1}/{self['loops']} for binary={bin.file_path}"
+                                )
 
-                            event = ttrt.runtime.submit(
-                                device,
-                                bin.fbb,
-                                program_index,
-                                total_inputs[loop],
-                                total_outputs[loop],
-                            )
+                            ttrt.runtime.wait(event)
 
-                            self.logging.debug(
-                                f"finished loop={loop+1}/{self['loops']} for binary={bin.file_path}"
-                            )
+                            if self["identity"]:
+                                self.logging.debug(
+                                    f"checking identity with rtol={self['rtol']} and atol={self['atol']}"
+                                )
 
-                        ttrt.runtime.wait(event)
-
-                        if self["identity"]:
-                            self.logging.debug(
-                                f"checking identity with rtol={self['rtol']} and atol={self['atol']}"
-                            )
-
-                            for i, o in zip(
-                                program.input_tensors, program.output_tensors
-                            ):
-                                if not torch.allclose(
-                                    i, o, rtol=self["rtol"], atol=self["atol"]
+                                for i, o in zip(
+                                    program.input_tensors, program.output_tensors
                                 ):
-                                    self.logging.error(
-                                        f"Failed: inputs and outputs do not match in binary"
-                                    )
-                                    self.logging.error(i - o)
+                                    if not torch.allclose(
+                                        i, o, rtol=self["rtol"], atol=self["atol"]
+                                    ):
+                                        self.logging.error(
+                                            f"Failed: inputs and outputs do not match in binary"
+                                        )
+                                        self.logging.error(i - o)
 
-                        self.logging.debug(f"input tensors for program={program_index}")
-                        for tensor in program.input_tensors:
-                            self.logging.debug(f"{tensor}\n")
+                            self.logging.debug(f"input tensors for program={program_index}")
+                            for tensor in program.input_tensors:
+                                self.logging.debug(f"{tensor}\n")
 
-                        self.logging.debug(
-                            f"output tensors for program={program_index}"
-                        )
-                        for tensor in program.output_tensors:
-                            self.logging.debug(f"{tensor}\n")
+                            self.logging.debug(
+                                f"output tensors for program={program_index}"
+                            )
+                            for tensor in program.output_tensors:
+                                self.logging.debug(f"{tensor}\n")
+                    except Exception as e:
+                        test_result = {
+                            "file_path": bin.file_path,
+                            "result": "error",
+                            "exception": str(e),
+                            "log_file": self.logger.file_name,
+                            "artifacts": self.artifacts.artifacts_folder_path,
+                            "seed": self["seed"],
+                            "init": self["init"],
+                            "rtol": self["rtol"],
+                            "atol": self["atol"],
+                            "loops": self["loops"],
+                            "program_index": self["program_index"],
+                        }
+                        self.results.add_result(test_result)
+                        continue
 
             self.logging.debug(f"executing ttnn binaries")
             _execute(self.ttnn_binaries)
@@ -919,6 +1151,40 @@ class API:
 
                 for bin in self.ttmetal_binaries:
                     self.artifacts.save_binary(bin, self.query)
+
+            for bin in self.ttnn_binaries:
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "seed": self["seed"],
+                    "init": self["init"],
+                    "rtol": self["rtol"],
+                    "atol": self["atol"],
+                    "loops": self["loops"],
+                    "program_index": self["program_index"],
+                }
+                self.results.add_result(test_result)
+
+            for bin in self.ttmetal_binaries:
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "seed": self["seed"],
+                    "init": self["init"],
+                    "rtol": self["rtol"],
+                    "atol": self["atol"],
+                    "loops": self["loops"],
+                    "program_index": self["program_index"],
+                }
+                self.results.add_result(test_result)
+
+            self.results.save_results()
 
             self.logging.debug(f"finished postprocessing run API")
 

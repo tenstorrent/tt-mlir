@@ -485,9 +485,7 @@ class Flatbuffer:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
         if package_version != self.version:
-            self.logging.warning(
-                f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
-            )
+            raise Exception(f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test")
             return False
 
         return True
@@ -531,7 +529,7 @@ class Binary(Flatbuffer):
                 self.fbb_dict["system_desc"]
                 != query.get_system_desc_as_dict()["system_desc"]
             ):
-                self.logging.info(
+                raise Exception(
                     f"system desc for device did not match flatbuffer: {self.file_path} - skipping this test"
                 )
                 return False
@@ -635,3 +633,17 @@ class SystemDesc(Flatbuffer):
         self.fbb = ttrt.binary.load_system_desc_from_path(file_path)
         self.fbb_dict = ttrt.binary.as_dict(self.fbb)
         self.version = self.fbb.version
+
+class Results():
+    def __init__(self, logger, file_manager):
+        self.logger = logger
+        self.logging = self.logger.get_logger()
+        self.file_manager = file_manager if file_manager != None else file_manager
+        self.results = []
+
+    def add_result(self, result):
+        self.results.append(result)
+    
+    def save_results(self):
+        with open("results.json", 'w') as file:
+            json.dump(self.results, file, indent=2)
