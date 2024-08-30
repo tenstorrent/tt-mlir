@@ -74,13 +74,15 @@ void LegalGridAnalysis::analysisImplementation() {
   // This implementation is a placeholder and is meant to just enable testing of
   // other components.
 
-  // Skip mlir ops.
+  // Process only TTIR ops.
   if (not llvm::isa<TTIROp>(op)) {
     return;
   }
   // Skip operations that don't have output tensors.
-  if (llvm::isa<ToLayoutOp>(op) || llvm::isa<DeallocOp>(op) ||
-      llvm::isa<YieldOp>(op)) {
+  if (op->getNumResults() == 0) {
+    return;
+  }
+  if (llvm::isa<ToLayoutOp>(op)) {
     return;
   }
 
