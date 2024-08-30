@@ -200,6 +200,10 @@ public:
     // Get the squeeze dimension
     int32_t dim = adaptor.getDim();
 
+    if (dim < 0) {
+      dim += inputType.getRank();
+    }
+
     // Get the shape of the input tensor
     auto inputShape = inputType.getShape();
     llvm::SmallVector<int32_t, 4> newShape;
