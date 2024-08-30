@@ -267,6 +267,10 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   ::mlir::RankedTensorType outputType = getOutput().getType();
   int32_t dim = getDim();
 
+  if (dim < 0) {
+    dim += inputType.getRank();
+  }
+
   // Check that the dimension `dim` is valid.
   if (dim < 0 || dim >= inputType.getRank()) {
     return emitOpError() << "Invalid dimension " << dim << " for squeezing.";
