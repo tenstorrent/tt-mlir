@@ -96,8 +96,7 @@ public:
       kernelName = "div";
       kernelKind = "eltwise";
     } else {
-      return rewriter.notifyMatchFailure(op,
-                                         "Unsupported Tosa operation for TTIR");
+      return rewriter.notifyMatchFailure(op, "Unsupported operation for TTIR");
     }
     assert(kernelName.size() > 0);
 
