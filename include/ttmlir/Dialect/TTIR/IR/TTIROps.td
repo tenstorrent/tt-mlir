@@ -428,6 +428,26 @@ def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
     let hasVerifier = 1;
 }
 
+def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
+    let summary = "Unsqueeze op.";
+    let description = [{
+      Unsqueeze tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";

@@ -193,7 +193,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SqueezeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Extract input tensor types
+    // Extract input tensor type
     ::mlir::RankedTensorType inputType =
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
 
@@ -216,6 +216,50 @@ public:
     auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
 
     // Replace the SqueezeOp with a ReshapeOp
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getOutput(), shapeAttr);
+
+    return success();
+  }
+};
+
+class UnsqueezeOpConversionPattern
+    : public OpConversionPattern<ttir::UnsqueezeOp> {
+public:
+  using OpConversionPattern<ttir::UnsqueezeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::UnsqueezeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Extract input tensor type
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+
+    // Get the unsqueeze dimension
+    int32_t dim = adaptor.getDim();
+
+    // Convert negative dim to its positive equivalent
+    if (dim < 0) {
+      dim += inputType.getRank() + 1;
+    }
+
+    // Get the shape of the input tensor
+    auto inputShape = inputType.getShape();
+    llvm::SmallVector<int32_t, 5> newShape;
+
+    // Insert the new dimension
+    for (int i = 0; i < inputType.getRank(); ++i) {
+      if (i == dim) {
+        newShape.push_back(1);
+      }
+      newShape.push_back(inputShape[i]);
+    }
+
+    // Create the new shape attribute
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+
+    // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getOutput(), shapeAttr);
@@ -269,6 +313,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
            SqueezeOpConversionPattern,
+           UnsqueezeOpConversionPattern,
            MatmulOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set

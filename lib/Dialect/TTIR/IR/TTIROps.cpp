@@ -305,6 +305,51 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::UnsqueezeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  int32_t dim = getDim();
+
+  // Convert negative dim to its positive equivalent
+  if (dim < 0) {
+    dim += inputType.getRank() + 1;
+  }
+
+  // Check that the dim is within the bounds of the input tensor
+  if (dim > inputType.getRank() || dim < 0) {
+    return emitOpError(
+        "Dimension attribute must be within the bounds of the input tensor");
+  }
+
+  // Check that the output tensor has one more dimension than the input tensor
+  if (outputType.getRank() != inputType.getRank() + 1) {
+    return emitOpError(
+        "Output tensor must have one more dimension than the input tensor");
+  }
+
+  // and that the dimension added is of size 1
+  if (outputType.getDimSize(dim) != 1) {
+    return emitOpError("Dimension added must be of size 1");
+  }
+
+  // All dimensions of the input tensor must be the same as the output tensor
+  // except for the dimension added
+  for (int64_t i = 0, j = 0; i < outputType.getRank(); ++i) {
+    if (i == dim) {
+      continue;
+    }
+
+    if (inputType.getDimSize(j) != outputType.getDimSize(i)) {
+      return emitOpError("All dimensions of the input tensor must be the same "
+                         "as the output tensor except for the dimension added");
+    }
+
+    j++;
+  }
+
+  return success();
+}
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
