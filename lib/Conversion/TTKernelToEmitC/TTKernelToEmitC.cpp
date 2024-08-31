@@ -13,8 +13,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include <llvm/ADT/ScopeExit.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/IRMapping.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Target/Cpp/CppEmitter.h>
@@ -185,6 +189,8 @@ public:
   matchAndRewrite(ttkernel::ReturnOp op, ttkernel::ReturnOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     if (!isa<func::FuncOp>(op.getOperation()->getParentOp())) {
+      llvm::errs() << "Not inside of func op "
+                   << op.getOperation()->getParentOp()->getName() << "\n";
       return rewriter.notifyMatchFailure(op, "Not inside of func op");
     }
     rewriter.replaceOpWithNewOp<func::ReturnOp>(op, ValueRange());
@@ -242,230 +248,263 @@ struct ConvertTTKernelToEmitCPass
     : public ttkernel::impl::ConvertTTKernelToEmitCBase<
           ConvertTTKernelToEmitCPass> {
 
+  /*
+    this conversion should work solely on tt kernel ops
+    they shouuld be wrapped inside module op
+    for testing we can create suitable mlir with those ops
+    for production we will carve out each dispatch op's region in a new module
+    op and run conversion
+  */
+
   void runOnOperation() override {
     auto moduleOp = getOperation();
-    // mlir::ConversionTarget target(getContext());
 
-    // target.addLegalDialect<emitc::EmitCDialect>();
+    OpBuilder builder(moduleOp);
 
-    moduleOp.walk([&](ttmetal::DispatchOp dispatchOp) {
-      llvm::outs() << "Found dispatch op\n";
-      dispatchOp->print(llvm::outs());
+    // module->setDiscardableAttr(builder.getStringAttr("ttkernel.thread_type"),
+    //                            ttkernel::ThreadTypeAttr::get(moduleOp->getContext(),
+    //                            threadType));
 
-      // auto cleanupDispatchClone =
-      //     llvm::make_scope_exit([&dispatchOp] { dispatchOp->erase(); });
+    // assert(module);
 
-      OpBuilder builder(dispatchOp.getOperation());
+    Block *firstBlock = moduleOp.getBody();
 
-      int regionNumber = 0;
-      for (auto &region : dispatchOp->getRegions()) {
-        auto threadTypeAttr = mlir::cast<ttkernel::ThreadTypeAttr>(
-            dispatchOp.getThreadTypes()[regionNumber++]);
-        llvm::outs() << "region number: " << regionNumber
-                     << " ---- starting conversion --------\n\n";
+    llvm::SmallVector<Operation *> fBodyOps;
 
-        // builder.setInsertionPoint(&region.getBlocks().front(),
-        // region.getBlocks().front().begin()); issue is every next region is
-        // inserted at the end of the previous we must separate them in
-        // different functions
+    IRMapping irMapper;
+    for (Operation &op : firstBlock->getOperations()) {
+      fBodyOps.push_back(builder.clone(op, irMapper));
+    }
 
-        // Replace the original block with a the new block containing a module
-        // op
-        auto module = builder.create<mlir::ModuleOp>(
-            mlir::UnknownLoc::get(dispatchOp.getContext()),
-            ttkernel::stringifyThreadType(threadTypeAttr.getValue()));
-        // // cleanup causes hang in compile time
-        // auto cleanupFreeModule =
-        //     llvm::make_scope_exit([&module] { module->erase(); });
-        auto &moduleBlock = module.getBodyRegion().front();
+    for (auto &[k, v] : irMapper.getValueMap()) {
+      llvm::outs() << "key: ";
+      k.print(llvm::outs());
+      llvm::outs() << " value: ";
+      v.print(llvm::outs());
+      llvm::outs() << "\n";
+    }
 
-        module->setDiscardableAttr(
-            builder.getStringAttr("ttkernel.thread_type"), threadTypeAttr);
-        // start inserting in the module itself, at the end we will move the
-        // insertion point after this module
-        builder.setInsertionPointToStart(&moduleBlock);
-
-        assert(module);
-
-        // builder.setInsertionPoint(region.takeBody(Region ))
-
-        builder.create<emitc::IncludeOp>(module.getLoc(), "cstdint",
-                                         /*isStandard=*/true);
-        if (threadTypeAttr.getValue() == ttkernel::ThreadType::Noc0 ||
-            threadTypeAttr.getValue() == ttkernel::ThreadType::Noc1) {
-          builder.create<emitc::IncludeOp>(module.getLoc(), "dataflow_api.h",
-                                           /*isStandard=*/false);
-        }
-        if (threadTypeAttr.getValue() == ttkernel::ThreadType::Tensix) {
-          builder.create<emitc::IncludeOp>(module.getLoc(),
-                                           "compute_kernel_api/common.h",
-                                           /*isStandard=*/false);
-          builder.create<emitc::IncludeOp>(module.getLoc(),
-                                           "compute_kernel_api/tilize.h",
-                                           /*isStandard=*/false);
-          builder.create<emitc::IncludeOp>(module.getLoc(),
-                                           "compute_kernel_api/untilize.h",
-                                           /*isStandard=*/false);
-          builder.create<emitc::IncludeOp>(
-              module.getLoc(), "compute_kernel_api/eltwise_binary.h",
-              /*isStandard=*/false);
-        }
-
-        if (threadTypeAttr.getValue() == ttkernel::ThreadType::Tensix) {
-          builder.create<emitc::VerbatimOp>(module.getLoc(),
-                                            "namespace NAMESPACE {");
-        }
-
-        // Create a new func op and move the existing block into it.
-        auto func = builder.create<func::FuncOp>(
-            module.getLoc(), "kernel_main",
-            builder.getType<FunctionType>(region.getArgumentTypes(),
-                                          TypeRange()));
-
-        llvm::outs() << "created funcOp ";
-        func.print(llvm::outs());
+    for (auto fbodyOp : fBodyOps) {
+      fbodyOp->print(llvm::outs());
+      llvm::outs() << "\n";
+      for (auto operand : fbodyOp->getOperands()) {
+        operand.print(llvm::outs());
         llvm::outs() << "\n";
-
-        for (auto arg : func.getArguments()) {
-          arg.print(llvm::outs());
+        if (irMapper.contains(operand)) {
+          llvm::outs() << "found in irMapper\n";
+          irMapper.lookup(operand).print(llvm::outs());
           llvm::outs() << "\n";
         }
+      }
+    }
 
-        Block *entryBlock = func.addEntryBlock();
-        Region *funcBody = entryBlock->getParent();
-        IRMapping irMapper;
-
-        funcBody->takeBody(region);
-        llvm::outs() << "funcBody->dump() before conversion\n";
-        funcBody->front().print(llvm::outs());
+    for (auto &op : firstBlock->getOperations()) {
+      if (irMapper.contains(&op)) {
+        llvm::outs() << "found in irMapper\n";
+        irMapper.lookup(&op)->print(llvm::outs());
         llvm::outs() << "\n";
 
-        if (threadTypeAttr.getValue() == ttkernel::ThreadType::Tensix) {
-          builder.create<emitc::VerbatimOp>(module.getLoc(),
-                                            "void MAIN { kernel_main(); }");
-          builder.create<emitc::VerbatimOp>(module.getLoc(), "}");
-        }
-
-        // Apply arith to emitc conversion first
-        {
-          llvm::outs() << "Applying arith to emitc conversion\n";
-          ConversionTarget target(*module.getContext());
-          target.addLegalDialect<emitc::EmitCDialect>();
-          target.addIllegalDialect<arith::ArithDialect>();
-          RewritePatternSet arithPatterns(module.getContext());
-          TypeConverter arithTypeConverter;
-          arithTypeConverter.addConversion([](Type type) { return type; });
-          populateArithToEmitCPatterns(arithTypeConverter, arithPatterns);
-          if (failed(applyPartialConversion(module, target,
-                                            std::move(arithPatterns)))) {
-            signalPassFailure();
-            return;
-          }
-        }
-
-        // Apply scf to emitc conversion next
-        {
-          llvm::outs() << "Applying scf to emitc conversion\n";
-          ConversionTarget target(*module.getContext());
-          target.addLegalDialect<emitc::EmitCDialect>();
-          target.addIllegalDialect<scf::SCFDialect>();
-          RewritePatternSet scfPatterns(module.getContext());
-          populateSCFToEmitCConversionPatterns(scfPatterns);
-          if (failed(applyPartialConversion(module, target,
-                                            std::move(scfPatterns)))) {
-            signalPassFailure();
-            return;
-          }
-        }
-
-        {
-          llvm::outs() << "Applying ttmetal to emitc conversion\n";
-          TTKernelToEmitCTypeConverter typeConverter(module.getContext());
-          RewritePatternSet patterns(module.getContext());
-          ConversionTarget target(*module.getContext());
-          target.addLegalDialect<emitc::EmitCDialect>();
-          target.addLegalDialect<ttmetal::TTMetalDialect>();
-          target.addLegalOp<mlir::ModuleOp>();
-          // target.addLegalOp<func::FuncOp>();
-          // target.addIllegalOp<func::FuncOp>();
-          target.addDynamicallyLegalOp<func::FuncOp>(
-              [&](func::FuncOp op) -> bool {
-                // Converting func op (kernel main) will result it having 0
-                // arguments. At that point it becomes legal.
-                return op.getNumArguments() == 0;
-              });
-          target.addLegalOp<func::ReturnOp>();
-          // target.addLegalOp<mlir::UnrealizedConversionCastOp>();
-          target.addIllegalDialect<ttkernel::TTKernelDialect>();
-
-          patterns.add<TTMetalToEmitCFuncArgsRewriter>(typeConverter,
-                                                       module.getContext());
-          patterns.add<TTMetalToEmitCReturnRewriter>(typeConverter,
-                                                     module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>>(
-              typeConverter, module.getContext());
-          patterns
-              .add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>>(
-                  typeConverter, module.getContext());
-          patterns
-              .add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>>(
-                  typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>>(
-              typeConverter, module.getContext());
-          patterns
-              .add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>>(
-                  typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>>(
-              typeConverter, module.getContext());
-          patterns.add<
-              TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>>(
-              typeConverter, module.getContext());
-          patterns.add<
-              TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>>(
-              typeConverter, module.getContext());
-          patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>>(
-              typeConverter, module.getContext());
-          patterns.add<
-              TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>>(
-              typeConverter, module.getContext());
-          if (failed(
-                  applyFullConversion(module, target, std::move(patterns)))) {
-            signalPassFailure();
-            return;
-          }
-        }
-
-        builder.setInsertionPointAfter(module);
+        op.replaceAllUsesWith(irMapper.lookup(&op));
       }
-    });
+    }
+
+    builder.createBlock(&moduleOp.getBodyRegion());
+
+    // builder.setInsertionPointToStart(&moduleOp.getBodyRegion().front());
+    builder.create<emitc::IncludeOp>(moduleOp.getLoc(), "cstdint",
+                                     /*isStandard=*/true);
+    if (threadType.getValue() == ttkernel::ThreadType::Noc0 ||
+        threadType.getValue() == ttkernel::ThreadType::Noc1) {
+      builder.create<emitc::IncludeOp>(moduleOp.getLoc(), "dataflow_api.h",
+                                       /*isStandard=*/false);
+    }
+    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+      builder.create<emitc::IncludeOp>(moduleOp.getLoc(),
+                                       "compute_kernel_api/common.h",
+                                       /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(moduleOp.getLoc(),
+                                       "compute_kernel_api/tilize.h",
+                                       /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(moduleOp.getLoc(),
+                                       "compute_kernel_api/untilize.h",
+                                       /*isStandard=*/false);
+      builder.create<emitc::IncludeOp>(moduleOp.getLoc(),
+                                       "compute_kernel_api/eltwise_binary.h",
+                                       /*isStandard=*/false);
+    }
+
+    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+      builder.create<emitc::VerbatimOp>(moduleOp.getLoc(),
+                                        "namespace NAMESPACE {");
+    }
+
+    auto &region = moduleOp->getRegions().front();
+
+    // moduleOp.emitRemark("region size: " +
+    // std::to_string(moduleOp->getNumRegions())); llvm::errs() << "region size:
+    // " << moduleOp->getNumRegions() << "\n";
+
+    // Create a new func op and move the existing block into it.
+    // builder.createBlock(&region);
+
+    auto func = builder.create<func::FuncOp>(
+        moduleOp.getLoc(), "kernel_main",
+        builder.getType<FunctionType>(region.getArgumentTypes(), TypeRange()));
+
+    Block *entryBlock = func.addEntryBlock();
+    // Region *funcBody = entryBlock->getParent();
+    // IRMapping irMapper;
+
+    for (Operation *fop : fBodyOps) {
+      entryBlock->push_back(fop);
+    }
+
+    // func->emitRemark("threadType: " +
+    // stringifyThreadType(threadType.getValue()));
+
+    // funcBody->takeBody(region);
+
+    // region.cloneInto(funcBody, irMapper);
+    // std::string f;
+    // llvm::raw_string_ostream ff(f);
+    // func->print(ff);
+    // func.emitRemark("my body : \n" + ff.str());
+
+    // func->emitRemark("threadType: " +
+    // stringifyThreadType(threadType.getValue()));
+
+    OpBuilder funcBuilder = OpBuilder::atBlockEnd(entryBlock);
+    funcBuilder.setInsertionPointAfter(func);
+    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+      funcBuilder.create<emitc::VerbatimOp>(moduleOp.getLoc(),
+                                            "void MAIN { kernel_main(); }");
+      funcBuilder.create<emitc::VerbatimOp>(moduleOp.getLoc(), "}");
+    }
+
+    firstBlock->erase();
+
+    // Apply arith to emitc conversion first
+    {
+      llvm::errs() << "Applying arith to emitc conversion\n";
+      ConversionTarget target(*moduleOp.getContext());
+      target.addLegalDialect<emitc::EmitCDialect>();
+      target.addIllegalDialect<arith::ArithDialect>();
+      RewritePatternSet arithPatterns(moduleOp.getContext());
+      TypeConverter arithTypeConverter;
+      arithTypeConverter.addConversion([](Type type) { return type; });
+      populateArithToEmitCPatterns(arithTypeConverter, arithPatterns);
+      if (failed(
+              applyPartialConversion(func, target, std::move(arithPatterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    // Apply scf to emitc conversion next
+    {
+      llvm::errs() << "Applying scf to emitc conversion\n";
+      ConversionTarget target(*moduleOp.getContext());
+      target.addLegalDialect<emitc::EmitCDialect>();
+      target.addIllegalDialect<scf::SCFDialect>();
+      RewritePatternSet scfPatterns(moduleOp.getContext());
+      populateSCFToEmitCConversionPatterns(scfPatterns);
+      if (failed(
+              applyPartialConversion(func, target, std::move(scfPatterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    {
+      llvm::outs() << "Applying ttmetal to emitc conversion\n";
+      TTKernelToEmitCTypeConverter typeConverter(moduleOp.getContext());
+      RewritePatternSet patterns(moduleOp.getContext());
+      ConversionTarget target(*moduleOp.getContext());
+      target.addLegalDialect<emitc::EmitCDialect>();
+      target.addLegalDialect<ttmetal::TTMetalDialect>();
+      target.addLegalOp<mlir::ModuleOp>();
+      // target.addLegalOp<func::FuncOp>();
+      // target.addIllegalOp<func::FuncOp>();
+      target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) -> bool {
+        // Converting func op (kernel main) will result it having 0
+        // arguments. At that point it becomes legal.
+        return op.getNumArguments() == 0;
+      });
+      target.addLegalOp<func::ReturnOp>();
+      // target.addLegalOp<mlir::UnrealizedConversionCastOp>();
+      target.addIllegalDialect<ttkernel::TTKernelDialect>();
+
+      patterns.add<TTMetalToEmitCFuncArgsRewriter>(typeConverter,
+                                                   moduleOp.getContext());
+      patterns.add<TTMetalToEmitCReturnRewriter>(typeConverter,
+                                                 moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsReleaseOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::PackTileOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBPushBackOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBPopFrontOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBReserveBackOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::CBWaitFrontOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeInitOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeInitOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::TilizeBlockOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::UntilizeBlockOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns
+          .add<TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>>(
+              typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns
+          .add<TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>>(
+              typeConverter, moduleOp.getContext());
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>>(
+          typeConverter, moduleOp.getContext());
+      patterns
+          .add<TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>>(
+              typeConverter, moduleOp.getContext());
+      if (failed(applyFullConversion(func, target, std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    // builder.setInsertionPointAfter(module);
+
+    // newDispatchOp->moveBefore(dispatchOp);
+    // dispatchOp->replaceAllUsesWith(newDispatchOp);
+    // dispatchOp->erase();
+
+    // for (Operation &op : block->getOperations()) {
+    //   op.erase();
+    // }
+    // firstBlock->erase();
   }
 };
 
