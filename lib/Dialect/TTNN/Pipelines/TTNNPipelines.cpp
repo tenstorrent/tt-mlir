@@ -23,6 +23,7 @@ void createTTIRToTTNNBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::System;
+  layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceDRAM;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
 
   if (options.gridSetPassEnabled) {

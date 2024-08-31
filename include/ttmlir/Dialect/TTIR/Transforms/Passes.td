@@ -47,6 +47,10 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
           "::mlir::tt::MemorySpace",
           /*default=*/"::mlir::tt::MemorySpace::System",
            "Set the initial memory space for tensors to start in">,
+    Option<"defaultMemorySpace", "default-memory-space",
+          "::mlir::tt::MemorySpace",
+          /*default=*/"::mlir::tt::MemorySpace::DeviceDRAM",
+           "Set the default memory space for layout pass to prefer for operation operands, if not constrained">,
   ];
 }
 

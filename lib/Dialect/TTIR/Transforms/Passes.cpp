@@ -420,12 +420,30 @@ inline MemorySpace getMemorySpace(RankedTensorType ty) {
   return getMemorySpace(layout);
 }
 
-inline MemorySpace uppermostMemorySpace(OperandConstraint operandConstraint) {
-  if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1)) {
-    return MemorySpace::DeviceL1;
+inline OperandConstraint
+memorySpaceAsOperandConstraint(MemorySpace memorySpace) {
+  switch (memorySpace) {
+  case MemorySpace::System:
+  case MemorySpace::SystemMMIO:
+    return OperandConstraint::System;
+  case MemorySpace::DeviceDRAM:
+    return OperandConstraint::DRAM;
+  case MemorySpace::DeviceL1:
+    return OperandConstraint::L1;
+  }
+}
+
+inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
+                                       MemorySpace defaultMemorySpace) {
+  if (bitEnumContainsAny(operandConstraint,
+                         memorySpaceAsOperandConstraint(defaultMemorySpace))) {
+    return defaultMemorySpace;
   }
   if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM)) {
     return MemorySpace::DeviceDRAM;
+  }
+  if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1)) {
+    return MemorySpace::DeviceL1;
   }
   return MemorySpace::System;
 }
@@ -547,8 +565,10 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint) {
-  auto desiredMemorySpace = uppermostMemorySpace(operandConstraint);
+                 OperandConstraint operandConstraint,
+                 MemorySpace defaultMemorySpace) {
+  auto desiredMemorySpace =
+      getLegalMemorySpace(operandConstraint, defaultMemorySpace);
   bool tiled =
       !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
   return createToLayoutOp(rewriter, loc, input, desiredMemorySpace, tiled);
@@ -557,8 +577,10 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 class TTIRLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
-  using OpInterfaceRewritePattern<
-      DestinationStyleOpInterface>::OpInterfaceRewritePattern;
+  TTIRLayoutDPSOperandsRewriter(MLIRContext *ctx,
+                                MemorySpace defaultMemorySpace)
+      : OpInterfaceRewritePattern<DestinationStyleOpInterface>(ctx),
+        defaultMemorySpace(defaultMemorySpace) {}
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
@@ -582,8 +604,9 @@ public:
               mlir::cast<TTIROp>(op.getOperation())
                   .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
-      auto desiredLayout = createToLayoutOp(rewriter, op.getLoc(),
-                                            operand.get(), operandConstraint);
+      auto desiredLayout =
+          createToLayoutOp(rewriter, op.getLoc(), operand.get(),
+                           operandConstraint, defaultMemorySpace);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -599,6 +622,9 @@ public:
 
     return modified ? success() : failure();
   }
+
+private:
+  MemorySpace defaultMemorySpace;
 };
 
 class TTIRLayoutFuncReturnRewriter
@@ -650,7 +676,8 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutDPSOperandsRewriter>(&getContext());
+      patterns.add<TTIRLayoutDPSOperandsRewriter>(&getContext(),
+                                                  defaultMemorySpace);
       patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(),
                                                  initMemorySpace);
       FrozenRewritePatternSet patternSet(std::move(patterns));
