@@ -18,6 +18,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -145,6 +146,26 @@ public:
   }
 };
 
+//
+class TensorToLayoutOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::TensorToLayoutOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      ttnn::TensorToLayoutOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttnn::TensorToLayoutOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // auto inputTy = srcOp.input().getType();
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
+        nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -159,6 +180,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
+  patterns.add<TensorToLayoutOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>>(
       typeConverter, ctx);
 
