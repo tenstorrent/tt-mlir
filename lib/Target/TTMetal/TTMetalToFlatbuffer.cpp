@@ -2,24 +2,25 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <fstream>
+#include <cassert>
 #include <memory>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/Support/LLVM.h>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/Transforms/KernelsToCpp.h"
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -153,13 +154,14 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
 
         std::vector<::flatbuffers::Offset<::tt::target::metal::KernelDesc>>
             kernels;
+
+        llvm::SmallVector<std::string> cppKernels(dispatchOp->getNumRegions());
+        llvm::LogicalResult success =
+            emitDispatchOpRegionsAsCpp(dispatchOp, cppKernels);
+        assert(success.succeeded() &&
+               "failed to emit dispatch op regions as cpp");
+
         for (auto &region : dispatchOp.getRegions()) {
-          std::string source;
-          llvm::raw_string_ostream os(source);
-          auto result = emitDispatchOpRegionAsCpp(dispatchOp,
-                                                  region.getRegionNumber(), os);
-          assert(succeeded(result) &&
-                 "failed to emit dispatch op region as cpp");
           auto threadType =
               mlir::cast<ttkernel::ThreadTypeAttr>(
                   dispatchOp.getThreadTypes()[region.getRegionNumber()])
@@ -177,6 +179,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
                 ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
                                           cbType.getAddress(), cbDesc));
           }
+
+          std::string &source = cppKernels[region.getRegionNumber()];
+          assert(source.size() > 0 && "empty kernel source");
+
           kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
               fbb, ::tt::target::metal::Kernel::KernelSource,
               ::tt::target::metal::CreateKernelSourceDirect(
@@ -274,7 +280,9 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
 LogicalResult translateTTMetalToFlatbuffer(Operation *op,
                                            llvm::raw_ostream &os) {
   std::shared_ptr<void> data = translateModuleToFlatbuffer(op);
-  os << data.get();
+  std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
+      static_cast<const uint8_t *>(data.get()));
+  os.write(reinterpret_cast<char const *>(data.get()), size);
   return success();
 }
 

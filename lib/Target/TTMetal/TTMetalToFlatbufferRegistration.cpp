@@ -22,7 +22,7 @@ void registerTTMetalToFlatbuffer() {
       [](DialectRegistry &registry) {
         registry.insert<mlir::tt::TTDialect, mlir::tt::ttmetal::TTMetalDialect,
                         mlir::tt::ttkernel::TTKernelDialect,
-                        mlir::func::FuncDialect, mlir::emitc::EmitCDialect>();
+                        mlir::emitc::EmitCDialect, mlir::func::FuncDialect>();
       });
 }
 

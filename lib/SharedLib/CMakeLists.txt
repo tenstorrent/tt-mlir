@@ -7,6 +7,7 @@ set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY)
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
+    TTMetalTargetFlatbuffer
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
@@ -18,7 +19,6 @@ set(TTMLIR_LIBS
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
     TTMLIRTTNNToEmitC
-    TTMetalTargetFlatbuffer
 )
 
 # We supply empty.cpp because CMake does not allow creating a library without sources.
