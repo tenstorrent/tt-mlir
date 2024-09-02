@@ -289,19 +289,23 @@ toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
   ::ttmlir::utils::sample(
       tensorGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {
         SmallVector<std::int64_t> coreCoord = mapping.compose(virtualCoreCoord);
-        assert(coreCoord.size() == 3 && "expected a 2D core");
-        assert(coreCoord[0] == 0 && "expected single device");
+        assert(coreCoord.size() == PhysGridResultIdx::NumIndices &&
+               "expected a 2D core");
+        assert(coreCoord[PhysGridResultIdx::DeviceIdx] == 0 &&
+               "expected single device");
         if (!coreRangeSet.empty() &&
-            ((coreRangeSet.back().loc().y() == coreCoord[1]) &&
+            ((coreRangeSet.back().loc().y() ==
+              coreCoord[PhysGridResultIdx::CoreCoordY]) &&
              (coreRangeSet.back().loc().x() + coreRangeSet.back().size().x()) ==
-                 coreCoord[2])) {
+                 coreCoord[PhysGridResultIdx::CoreCoordX])) {
           coreRangeSet.back() = ::tt::target::Dim2dRange(
               coreRangeSet.back().loc(),
               ::tt::target::Dim2d(coreRangeSet.back().size().y(),
                                   coreRangeSet.back().size().x() + 1));
         } else {
           coreRangeSet.push_back(::tt::target::Dim2dRange(
-              ::tt::target::Dim2d(coreCoord[1], coreCoord[2]),
+              ::tt::target::Dim2d(coreCoord[PhysGridResultIdx::CoreCoordY],
+                                  coreCoord[PhysGridResultIdx::CoreCoordX]),
               ::tt::target::Dim2d(1, 1)));
         }
         if (coreRangeSet.size() > 1 &&
@@ -401,7 +405,7 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
   auto strideInt64 = layoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getGrid());
+      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
   return ::tt::target::CreateLayoutDescDirect(
       *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
       &coreRangeSet,
