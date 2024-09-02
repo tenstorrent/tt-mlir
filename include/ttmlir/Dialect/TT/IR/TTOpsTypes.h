@@ -12,6 +12,25 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.h.inc"
 
 namespace mlir::tt {
+struct PhysGridResultIdx {
+  enum : int64_t {
+    DeviceIdx = 0,
+    CoreCoordY = 1,
+    CoreCoordX = 2,
+    NumIndices = 3,
+  };
+};
+
+struct MemoryMapResultIdx {
+  enum : int64_t {
+    DeviceIdx = 0,
+    CoreCoordY = 1,
+    CoreCoordX = 2,
+    ShardOffset = 3,
+    NumIndices = 4,
+  };
+};
+
 inline bool isSystemMemorySpace(MemorySpace memorySpace) {
   return memorySpace == MemorySpace::System ||
          memorySpace == MemorySpace::SystemMMIO;

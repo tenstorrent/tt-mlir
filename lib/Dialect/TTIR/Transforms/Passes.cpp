@@ -665,7 +665,7 @@ public:
       auto device = getCurrentScopeDevice(getOperation());
       assert(device && "Device not found");
       TTIRLayoutTensorTypeConverter typeConverter(
-          &getContext(), initMemorySpace, device.getGrid());
+          &getContext(), initMemorySpace, device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
@@ -840,14 +840,16 @@ inline uint64_t getTensorMemrefSizeBytes(RankedTensorType ty) {
 
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
   struct SimpleAllocator {
-    static constexpr uint64_t kBaseAddress = 1llu << 18llu;
     uint64_t addressAlignment;
+    SmallVector<uint64_t> currPtr;
 
-    SimpleAllocator(uint64_t addressAlignment)
-        : addressAlignment(addressAlignment) {}
-
-    SmallVector<uint64_t> currPtr = SmallVector<uint64_t>(
-        getMaxEnumValForMemorySpace() + 1llu, kBaseAddress);
+    SimpleAllocator(uint64_t l1BaseAddress, uint64_t dramBaseAddress,
+                    uint64_t addressAlignment)
+        : addressAlignment(addressAlignment) {
+      currPtr = SmallVector<uint64_t>(getMaxEnumValForMemorySpace() + 1llu);
+      currPtr[static_cast<uint32_t>(MemorySpace::DeviceL1)] = l1BaseAddress;
+      currPtr[static_cast<uint32_t>(MemorySpace::DeviceDRAM)] = dramBaseAddress;
+    }
 
     uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
       if (isSystemMemorySpace(memorySpace)) {
@@ -896,12 +898,17 @@ public:
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
+    SystemDescAttr systemDesc = getCurrentScopeSystemDesc(module);
+    ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
+
     module->walk([&](func::FuncOp func) {
       assert(func.getBody().hasOneBlock());
       auto systemDesc = getCurrentScopeSystemDesc(func);
       assert(systemDesc);
       auto addressAlignment = systemDesc.getAddressAlignBytes();
-      SimpleAllocator allocator(addressAlignment);
+      SimpleAllocator allocator(chipDesc.getL1UnreservedBase(),
+                                chipDesc.getDramUnreservedBase(),
+                                addressAlignment);
       Liveness liveness(func.getOperation());
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
@@ -964,7 +971,7 @@ public:
     assert(moduleOp->hasAttr(tt::DeviceAttr::name));
     GridAttr max_grid =
         mlir::cast<tt::DeviceAttr>(moduleOp->getAttr(tt::DeviceAttr::name))
-            .getGrid();
+            .getWorkerGrid();
 
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));

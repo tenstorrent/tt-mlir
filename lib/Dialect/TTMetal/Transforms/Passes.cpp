@@ -78,20 +78,23 @@ class TTIRToTTMetalLayoutRewriter : public OpRewritePattern<ttir::ToLayoutOp> {
 public:
   using OpRewritePattern<ttir::ToLayoutOp>::OpRewritePattern;
 
-  struct NocRead {
-    PhysicalCoreCoord srcCoord;
+  struct NocTx {
+    enum class Type { Read, Write };
+
+    Type type;
+    PhysicalCoreCoord coreCoord;
     std::int64_t srcOffset = 0;
     std::int64_t dstOffset = 0;
     std::int64_t size = 0;
 
-    NocRead(PhysicalCoreCoord srcCoord, std::int64_t srcOffset,
-            std::int64_t dstOffset, std::int64_t size)
-        : srcCoord(srcCoord), srcOffset(srcOffset), dstOffset(dstOffset),
-          size(size) {}
+    NocTx(Type type, PhysicalCoreCoord coreCoord, std::int64_t srcOffset,
+          std::int64_t dstOffset, std::int64_t size)
+        : type(type), coreCoord(coreCoord), srcOffset(srcOffset),
+          dstOffset(dstOffset), size(size) {}
 
     bool isContiguous(PhysicalCoreCoord nextCoord, std::int64_t nextSrcOffset,
                       std::int64_t nextDstOffset) const {
-      return (nextCoord == srcCoord) && (nextSrcOffset == srcOffset + size) &&
+      return (nextCoord == coreCoord) && (nextSrcOffset == srcOffset + size) &&
              (nextDstOffset == dstOffset + size);
     }
   };
@@ -102,66 +105,71 @@ public:
   // lambda with the current index.  It walks the shape in innermost-major
   // order. It also coalesces the noc transactions.
   //
-  // The return value is a map of destination physical cores where each core has
-  // an associated list of noc reads to be performed.
-  llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>>
-  calculateDataMovement(ArrayRef<int64_t> tensorShape, int64_t elemSize,
-                        AffineMap src, AffineMap dst) const {
+  // The return value is a map of physical cores where each core has
+  // an associated list of noc reads/writes to be performed.
+  llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>>
+  calculateDataMovement(ArrayRef<int64_t> tensorShape, std::int64_t elemSize,
+                        AffineMap src, AffineMap dst, NocTx::Type type) const {
+    bool read = type == NocTx::Type::Read;
+    llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>> txMap;
+    assert(src.getNumResults() == MemoryMapResultIdx::NumIndices);
+    assert(dst.getNumResults() == MemoryMapResultIdx::NumIndices);
 
-    // For now it's just a simple pull model, but eventually we want to leverage
-    // both NoCs and the both read and write
-    llvm::MapVector<PhysicalCoreCoord, SmallVector<NocRead>> dst2srcMap;
-    assert(src.getNumResults() == 4);
-    assert(dst.getNumResults() == 4);
-
-    ::ttmlir::utils::sample(tensorShape, [&dst2srcMap, src, dst, elemSize](
-                                             ArrayRef<std::int64_t> index) {
+    ::ttmlir::utils::sample(tensorShape, [&txMap, src, dst, elemSize, read,
+                                          type](ArrayRef<std::int64_t> index) {
       SmallVector<int64_t> srcResults = src.compose(index);
       SmallVector<int64_t> dstResults = dst.compose(index);
-
       assert(srcResults.size() == src.getNumResults());
       assert(dstResults.size() == dst.getNumResults());
       PhysicalCoreCoord srcCoord(srcResults);
       PhysicalCoreCoord dstCoord(dstResults);
       std::int64_t srcOffset = srcResults.back() * elemSize;
       std::int64_t dstOffset = dstResults.back() * elemSize;
-      SmallVector<NocRead> &srcs = dst2srcMap[dstCoord];
-      if (not srcs.empty() &&
-          srcs.back().isContiguous(srcCoord, srcOffset, dstOffset)) {
-        srcs.back().size += elemSize;
+      SmallVector<NocTx> &txs = txMap[read ? dstCoord : srcCoord];
+      if (not txs.empty() && txs.back().isContiguous(read ? srcCoord : dstCoord,
+                                                     srcOffset, dstOffset)) {
+        txs.back().size += elemSize;
       } else {
-        srcs.push_back(NocRead(srcCoord, srcOffset, dstOffset, elemSize));
+        txs.push_back(NocTx(type, read ? srcCoord : dstCoord, srcOffset,
+                            dstOffset, elemSize));
       }
     });
 
-    return dst2srcMap;
+    return txMap;
   }
 
-  void buildNocAsyncRead(mlir::Location loc, std::int64_t inputBaseAddress,
-                         std::int64_t outputBaseAddress,
-                         std::int64_t addressAlignment, NocRead read,
-                         PhysicalCoreCoordMapping const &physicalCoordMapping,
-                         mlir::OpBuilder &nocBuilder) const {
-    assert(read.srcOffset % addressAlignment == 0);
-    assert(read.dstOffset % addressAlignment == 0);
-    assert(read.size % addressAlignment == 0);
-    auto [yPhys, xPhys] = physicalCoordMapping[read.srcCoord];
+  void buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
+                       std::int64_t outputBaseAddress,
+                       std::int64_t addressAlignment, NocTx nocTx,
+                       PhysicalCoreCoordMapping const &physicalCoordMapping,
+                       mlir::OpBuilder &nocBuilder) const {
+    assert(nocTx.srcOffset % addressAlignment == 0);
+    assert(nocTx.dstOffset % addressAlignment == 0);
+    assert(nocTx.size % addressAlignment == 0);
+    auto [yPhys, xPhys] = physicalCoordMapping[nocTx.coreCoord];
     auto y = nocBuilder.create<arith::ConstantOp>(
         loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(yPhys));
     auto x = nocBuilder.create<arith::ConstantOp>(
         loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(xPhys));
-    auto srcOffset = nocBuilder.create<arith::ConstantOp>(
+    auto srcLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
         loc, nocBuilder.getI32Type(),
-        nocBuilder.getI32IntegerAttr(inputBaseAddress + read.srcOffset));
-    auto srcRemoteNocAddr =
-        nocBuilder.create<ttkernel::GetNocAddrOp>(loc, x, y, srcOffset);
+        nocBuilder.getI32IntegerAttr(inputBaseAddress + nocTx.srcOffset));
     auto dstLocalL1Addr = nocBuilder.create<arith::ConstantOp>(
         loc, nocBuilder.getI32Type(),
-        nocBuilder.getI32IntegerAttr(outputBaseAddress + read.dstOffset));
+        nocBuilder.getI32IntegerAttr(outputBaseAddress + nocTx.dstOffset));
     auto size = nocBuilder.create<arith::ConstantOp>(
-        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(read.size));
-    nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemoteNocAddr,
-                                                dstLocalL1Addr, size);
+        loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(nocTx.size));
+    if (nocTx.type == NocTx::Type::Read) {
+      auto srcRemoteNocAddr =
+          nocBuilder.create<ttkernel::GetNocAddrOp>(loc, x, y, srcLocalL1Addr);
+      nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemoteNocAddr,
+                                                  dstLocalL1Addr, size);
+    } else {
+      auto dstRemoteNocAddr =
+          nocBuilder.create<ttkernel::GetNocAddrOp>(loc, x, y, dstLocalL1Addr);
+      nocBuilder.create<ttkernel::NocAsyncWriteOp>(loc, srcLocalL1Addr,
+                                                   dstRemoteNocAddr, size);
+    }
   }
 
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
@@ -169,7 +177,6 @@ public:
     auto outputTy = mlir::cast<RankedTensorType>(op.getType());
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
-    assert(inputLayout.getMemorySpace() == outputLayout.getMemorySpace());
     tt::DeviceAttr device = op.getDevice();
     assert(device);
     tt::SystemDescAttr systemDesc = op.getSystemDesc();
@@ -206,22 +213,34 @@ public:
                                     ? outputLayout.getIdentityTileLinearMap()
                                     : outputLayout.getLinear();
 
-    AffineMap src =
-        inputLayout.projectOnto(inputLinearMap, inputShape, device.getGrid());
+    assert(inputLayout.getMemorySpace() == MemorySpace::DeviceL1 ||
+           outputLayout.getMemorySpace() == MemorySpace::DeviceL1 &&
+               "DRAM <-> DRAM is not supported yet");
+    NocTx::Type dataMovementType =
+        outputLayout.getMemorySpace() == MemorySpace::DeviceL1
+            ? NocTx::Type::Read
+            : NocTx::Type::Write;
 
-    AffineMap dst = outputLayout.projectOnto(outputLinearMap, outputShape,
-                                             device.getGrid());
+    AffineMap src = inputLayout.projectOnto(
+        inputLinearMap,
+        device.getMapForMemorySpace(inputLayout.getMemorySpace()), inputShape);
 
-    auto dm = calculateDataMovement(
-        inputShape, inputLayout.getElementSizeBytes(), src, dst);
+    AffineMap dst = outputLayout.projectOnto(
+        outputLinearMap,
+        device.getMapForMemorySpace(outputLayout.getMemorySpace()),
+        outputShape);
+
+    auto dm =
+        calculateDataMovement(inputShape, inputLayout.getElementSizeBytes(),
+                              src, dst, dataMovementType);
 
     auto noc0Attr =
         rewriter.getAttr<ttkernel::ThreadTypeAttr>(ttkernel::ThreadType::Noc0);
     SmallVector<Attribute> threadTypes(dm.size(), noc0Attr);
     SmallVector<Attribute> coreRanges;
     coreRanges.reserve(dm.size());
-    for (auto [dstCoord, srcs] : dm) {
-      SmallVector<int64_t> offset = {dstCoord.y, dstCoord.x};
+    for (auto [coreCoord, txs] : dm) {
+      SmallVector<int64_t> offset = {coreCoord.y, coreCoord.x};
       SmallVector<int64_t> size = {1, 1};
       coreRanges.push_back(
           rewriter.getAttr<ttmetal::CoreRangeAttr>(offset, size));
@@ -234,22 +253,32 @@ public:
         rewriter.getArrayAttr(threadTypes), threadTypes.size());
 
     int i = 0;
-    PhysicalCoreCoordMapping physicalCoordMapping(systemDesc.getChipDescs());
+    PhysicalCoreCoordMapping physicalCoordMapping =
+        PhysicalCoreCoordMapping::getMemorySpaceMapping(
+            device.getChipIds(), systemDesc.getChipDescs(),
+            dataMovementType == NocTx::Type::Read
+                ? inputLayout.getMemorySpace()
+                : outputLayout.getMemorySpace());
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
     assert(inputBaseAddress);
     assert(outputBaseAddress);
     assert(inputBaseAddress % addressAlignment == 0);
     assert(outputBaseAddress % addressAlignment == 0);
-    for (auto [dstCoord, srcs] : dm) {
+    for (auto [coreCoord, txs] : dm) {
       Block *nocBlock = rewriter.createBlock(&metalDispatch.getRegion(i++));
       OpBuilder nocBuilder(nocBlock, nocBlock->begin());
-      for (auto s : srcs) {
-        buildNocAsyncRead(op.getLoc(), inputBaseAddress, outputBaseAddress,
-                          addressAlignment, s, physicalCoordMapping,
-                          nocBuilder);
+      NocTx::Type type = txs.front().type;
+      for (auto tx : txs) {
+        assert(tx.type == type);
+        buildNocAsyncTx(op.getLoc(), inputBaseAddress, outputBaseAddress,
+                        addressAlignment, tx, physicalCoordMapping, nocBuilder);
       }
-      nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      if (type == NocTx::Type::Read) {
+        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      } else {
+        nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      }
       nocBuilder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
     }
 
@@ -366,10 +395,9 @@ public:
 
     auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange] =
         op.compoundComponents();
-    bool isCompound =
-        (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
-         static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange)) > 1;
+    bool isCompound = (static_cast<int>(isLayoutChange) +
+                       static_cast<int>(isGridChange || isMemorySpaceChange) +
+                       static_cast<int>(isFormatChange)) > 1;
     assert(!isCompound && "Only one change is allowed");
 
     if (isMemorySpaceChange) {
@@ -382,7 +410,7 @@ public:
         rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
             op, outputTy, op.getInput(), op.getOutput());
       } else {
-        assert(false && "L1 <-> DRAM not supported yet");
+        return relayout(op, rewriter);
       }
     } else if (isLayoutChange || isGridChange) {
       return relayout(op, rewriter);
