@@ -17,6 +17,11 @@ namespace mlir::tt::ttnn {
 constexpr int TTNN_TILE_HEIGHT = 32;
 constexpr int TTNN_TILE_WIDTH = 32;
 
+static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
+  return layout == ::mlir::tt::TensorMemoryLayout::Interleaved ||
+         ::mlir::tt::isShardedMemoryLayout(layout);
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::ToMemoryConfigOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getResult().getType();
@@ -30,12 +35,26 @@ constexpr int TTNN_TILE_WIDTH = 32;
   if (not outputLayout) {
     return emitOpError("Output tensor type missing layout attribute");
   }
+  ::mlir::tt::MemorySpace outputMemorySpace = outputLayout.getMemorySpace();
+  ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
+      outputLayout.getMemLayout();
+  if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::UndefLayout) {
+    return emitOpError("System memory space only supports undef memory layout");
+  } else if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
+             !isValidDeviceLayout(outputMemoryLayout)) {
+    return emitOpError("Device memory space only supports interleaved or "
+                       "sharded memory layouts");
+  }
 
-  // This will always be false for now until the compiler optimizer supports it
-  // Sharding will be implicitly inferred in runtime for now
+  if (outputMemorySpace == MemorySpace::DeviceDRAM &&
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::Interleaved) {
+    return emitOpError(
+        "Device DRAM memory space only supports interleaved memory layout");
+  }
+
   if (outputLayout.isSharded()) {
-    if (outputLayout.getMemLayout() !=
-        ::mlir::tt::TensorMemoryLayout::BlockSharded) {
+    if (outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::BlockSharded) {
       return emitOpError("Currently only block sharding is supported for "
                          "sharded memory layouts");
     }

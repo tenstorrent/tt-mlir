@@ -76,26 +76,39 @@ createShardedMemoryConfig(const CoreRangeSet &coreRangeSet,
   return {memLayout, ::tt::tt_metal::BufferType::L1, shardSpec};
 }
 
-// TODO (jnie) #518: Compiler should generate correct mem configs in the future
-// Until that's supported, infer l1 memory layout implicitly
 static ::tt::tt_metal::MemoryConfig
-inferL1MemoryConfig(const ::tt::target::TensorRef *tensorRef) {
+createL1MemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
+  const ::tt::target::TensorMemoryLayout targetMemoryLayout =
+      layout->memory_desc()->memory_layout();
+  TT_FATAL(
+      targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved or
+          targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded,
+      "Only interleaved and block sharded memory layouts are supported for L1 "
+      "tensors");
+
   const ::flatbuffers::Vector<int32_t> *memoryDescShape =
       layout->memory_desc()->shape();
   TT_FATAL(memoryDescShape->size() == 2,
            "Only 2D shard shape is supported in TTNN backend");
+
   CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
   TT_FATAL(coreRangeSet.size() == 1,
            "Currently only single core range/grid is supported");
+
+  if (targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved) {
+    return ::ttnn::L1_MEMORY_CONFIG;
+  }
+
   std::array<uint32_t, 2> shardShape;
   std::copy(memoryDescShape->begin(), memoryDescShape->end(),
             shardShape.begin());
-  // Can't shard, return default interleaved mem config
-  if (shardShape[0] % ::tt::constants::TILE_HEIGHT != 0 or
-      shardShape[1] % ::tt::constants::TILE_WIDTH != 0) {
-    return ::ttnn::L1_MEMORY_CONFIG;
-  }
+  TT_FATAL(shardShape[0] % ::tt::constants::TILE_HEIGHT == 0 and
+               shardShape[1] % ::tt::constants::TILE_WIDTH != 0,
+           "Shard shape ({}, {}) does not divide tile shape ({}, {}) evenly",
+           shardShape[0], shardShape[1], ::tt::constants::TILE_HEIGHT,
+           ::tt::constants::TILE_WIDTH);
+
   return createShardedMemoryConfig(coreRangeSet, shardShape);
 }
 
@@ -216,7 +229,8 @@ static void handleToL1MemoryConfigOp(
     const ::ttnn::DataType &targetDataTypeTTNN,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
-  ::tt::tt_metal::MemoryConfig memConfig = inferL1MemoryConfig(outputTensorRef);
+  ::tt::tt_metal::MemoryConfig memConfig =
+      createL1MemoryConfig(outputTensorRef);
   bool shouldTilize, shouldUntilize;
   if (isOnHost(inputTensor)) {
     ::ttnn::Tensor result = inputTensor;

@@ -474,11 +474,11 @@ LayoutAttr LayoutAttr::get(
 
 LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
                            MemorySpace memorySpace, GridAttr grid,
-                           Type elementType) {
+                           Type elementType, TensorMemoryLayout memLayout) {
   assert(ty);
   assert(grid);
   return get(context, ty.getShape(), elementType, memorySpace, grid, {{0, -1}},
-             OOBVal::Undef, TensorMemoryLayout::UndefLayout);
+             OOBVal::Undef, memLayout);
 }
 
 // From the logical shape of the tensor and the affine map of the layout,

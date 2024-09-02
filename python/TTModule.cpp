@@ -21,14 +21,14 @@ void populateTTModule(py::module &m) {
                      uint32_t memorySpaceValue, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals,
-                     uint32_t oobValValue) {
+                     uint32_t oobValValue, uint32_t memLayoutValue) {
                     return wrap(tt::LayoutAttr::get(
                         unwrap(ctx),
                         mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
                         static_cast<tt::MemorySpace>(memorySpaceValue),
                         mlir::cast<tt::GridAttr>(unwrap(grid)),
-                        collapseIntervals,
-                        static_cast<tt::OOBVal>(oobValValue)));
+                        collapseIntervals, static_cast<tt::OOBVal>(oobValValue),
+                        static_cast<tt::TensorMemoryLayout>(memLayoutValue)));
                   })
       .def_static("with_grid",
                   [](MlirContext ctx, MlirAttribute self,

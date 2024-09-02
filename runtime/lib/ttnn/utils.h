@@ -53,7 +53,9 @@ inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
 
   default:
     throw std::runtime_error("Unsupported data type");
-    
+  }
+}
+
 inline ::tt::tt_metal::TensorMemoryLayout
 toTensorMemoryLayout(::tt::target::TensorMemoryLayout memLayout) {
   switch (memLayout) {

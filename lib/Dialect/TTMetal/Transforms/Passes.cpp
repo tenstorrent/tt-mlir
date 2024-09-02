@@ -388,13 +388,10 @@ public:
       }
     } else if (isLayoutChange || isGridChange) {
       return relayout(op, rewriter);
-    } else if (isFormatChange) {
-      return reformat(op, rewriter);
     } else {
-      assert(isMemoryLayoutChange);
-      assert(false && "Changing tensor memory layout not supported yet");
+      assert(isFormatChange);
+      return reformat(op, rewriter);
     }
-
     return failure();
   }
 };

@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
+#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICKERNEL
@@ -448,6 +449,29 @@ inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
   return MemorySpace::System;
 }
 
+inline TensorMemoryLayout
+getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
+                           MemorySpace targetMemorySpace) {
+  if (targetMemorySpace == MemorySpace::System) {
+    return TensorMemoryLayout::UndefLayout;
+  }
+
+  std::map<OperandConstraint, TensorMemoryLayout> validLayoutsMap = {
+      {OperandConstraint::Interleaved, TensorMemoryLayout::Interleaved},
+      {OperandConstraint::SingleBank, TensorMemoryLayout::SingleBank},
+      {OperandConstraint::HeightSharded, TensorMemoryLayout::HeightSharded},
+      {OperandConstraint::WidthSharded, TensorMemoryLayout::WidthSharded},
+      {OperandConstraint::BlockSharded, TensorMemoryLayout::BlockSharded}};
+
+  for (const auto &[constraintLayout, memLayout] : validLayoutsMap) {
+    if (bitEnumContainsAny(operandConstraint, constraintLayout)) {
+      return memLayout;
+    }
+  }
+
+  return TensorMemoryLayout::UndefLayout;
+}
+
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
@@ -532,24 +556,28 @@ public:
   const TypeConverter *converter;
 };
 
-static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
-                                             Location loc, Value input,
-                                             MemorySpace desiredMemorySpace,
-                                             bool tiled) {
+static std::optional<Value>
+createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                 MemorySpace desiredMemorySpace,
+                 TensorMemoryLayout desiredMemLayout, bool tiled) {
+
   auto ty = mlir::cast<RankedTensorType>(input.getType());
   auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
   auto currMemorySpace = currLayout.getMemorySpace();
   auto currElementType = currLayout.getElementType();
+  auto currMemLayout = currLayout.getMemLayout();
   auto desiredElementType =
       tiled ? rewriter.getType<TileType>(ty.getElementType())
             : ty.getElementType();
   if (currMemorySpace == desiredMemorySpace &&
-      currElementType == desiredElementType) {
+      currElementType == desiredElementType &&
+      currMemLayout == desiredMemLayout) {
     return std::nullopt;
   }
 
-  auto desiredLayout = rewriter.getAttr<LayoutAttr>(
-      ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType);
+  auto desiredLayout =
+      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
+                                   desiredElementType, desiredMemLayout);
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
@@ -569,9 +597,14 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  MemorySpace defaultMemorySpace) {
   auto desiredMemorySpace =
       getLegalMemorySpace(operandConstraint, defaultMemorySpace);
+
+  auto desiredMemoryLayout =
+      getLegalTensorMemoryLayout(operandConstraint, desiredMemorySpace);
+
   bool tiled =
       !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
-  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace, tiled);
+  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace,
+                          desiredMemoryLayout, tiled);
 }
 
 class TTIRLayoutDPSOperandsRewriter
@@ -641,8 +674,14 @@ public:
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
       bool tiled = false;
-      if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                         initMemorySpace, tiled);
+      TensorMemoryLayout initMemoryLayout = TensorMemoryLayout::UndefLayout;
+      if (initMemorySpace != MemorySpace::System &&
+          initMemorySpace != MemorySpace::SystemMMIO) {
+        initMemoryLayout = TensorMemoryLayout::Interleaved;
+      }
+      if (auto layout =
+              createToLayoutOp(rewriter, op.getLoc(), operand.get(),
+                               initMemorySpace, initMemoryLayout, tiled);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -778,12 +817,9 @@ public:
              outputLayout.withGrid(rewriter.getContext(), outputType,
                                    inputLayout.getGrid()));
     } else if (isMemoryLayoutChange) {
-      // Since memory layout is TTNN backend specific (should be undef for metal
-      // always), we can't do anything here Update this if we decide to create
-      // separate modules for different backends
-      assert(false && "Currently we don't support memory layout changes this "
-                      "early in the compiler pipeline");
-      return failure();
+      bounce(rewriter, op,
+             inputLayout.withMemoryLayout(rewriter.getContext(),
+                                          outputLayout.getMemLayout()));
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
       // w/ format conversion via streaming supported
