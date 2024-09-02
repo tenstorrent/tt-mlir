@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
+
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -18,8 +20,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "llvm/ADT/MapVector.h"
-#include <cstdint>
-#include <llvm/ADT/SmallVector.h>
+#include "llvm/ADT/SmallVector.h"
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -44,7 +45,7 @@ namespace mlir::tt::ttmetal {
 static uint64_t lookupAddress(Value value) {
   auto blockArg = mlir::dyn_cast<BlockArgument>(value);
   if (blockArg) {
-    auto funcOp = blockArg.getOwner()->getParentOp();
+    auto *funcOp = blockArg.getOwner()->getParentOp();
     if (mlir::isa<func::FuncOp>(funcOp)) {
       auto argAlloc = mlir::cast<ArgumentAllocationAttr>(
           mlir::cast<ArrayAttr>(funcOp->getDiscardableAttr(
@@ -528,7 +529,7 @@ public:
     for (BlockArgument operand : blockArguments) {
       auto cbType = mlir::cast<ttkernel::CBType>(operand.getType());
       AffineMap affineIterator = getAffineIterator(cbType.getMemref());
-      auto match = iteratorMaps.find(affineIterator);
+      auto *match = iteratorMaps.find(affineIterator);
       assert(match != iteratorMaps.end());
       blockArgIteratorMapping[operand.getArgNumber()] =
           std::distance(iteratorMaps.begin(), match);

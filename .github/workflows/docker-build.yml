@@ -69,7 +69,6 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build.build_type }} -- clang-tidy
-      continue-on-error: true
 
     - name: Run Test
       shell: bash

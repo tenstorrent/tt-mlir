@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <fstream>
+
 #include <llvm/Support/Casting.h>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"

@@ -120,7 +120,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   fbb.read(static_cast<char *>(buffer.get()), size);
 
   // Read relevant information from binary
-  auto binary_system_desc =
+  auto const *binary_system_desc =
       ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
   auto const *binary_chip_desc = binary_system_desc->chip_descs();
   auto const *binary_chip_desc_indices =
@@ -131,11 +131,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
-  for (auto element : *binary_chip_desc) {
-
+  for (auto const *element : *binary_chip_desc) {
     std::vector<tt::CoreCoordAttr> worker_cores, dram_cores, eth_cores,
         eth_inactive_cores;
-    auto physical_cores = element->physical_cores();
+    auto const *physical_cores = element->physical_cores();
 
     // Populate all vecrors with CoreCoordAttr instances
     for (auto const &core : *physical_cores->worker()) {
@@ -229,7 +228,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
     SmallVector<tt::TileSizeAttr> supported_tile_sizes_attr;
 
-    for (auto it : *(element->supported_tile_sizes())) {
+    for (auto const *it : *(element->supported_tile_sizes())) {
       supported_tile_sizes_attr.push_back(
           tt::TileSizeAttr::get(context, it->y(), it->x()));
     }
@@ -274,14 +273,14 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Acquire chip coordinates
   std::vector<tt::ChipCoordAttr> chip_coordinate_list;
-  for (auto element : *binary_chip_coords) {
+  for (auto const *element : *binary_chip_coords) {
     auto chip_coordinate_attr = tt::ChipCoordAttr::get(
         context, element->rack(), element->shelf(), element->y(), element->x());
     chip_coordinate_list.push_back(chip_coordinate_attr);
   }
 
   std::vector<tt::ChipChannelAttr> chip_channel_list;
-  for (auto element : *chip_channel_connections) {
+  for (auto const *element : *chip_channel_connections) {
     std::vector<int64_t> ethernet_core_coord0_vec = {
         element->ethernet_core_coord0().y(),
         element->ethernet_core_coord0().x()};
