@@ -37,9 +37,14 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 }
 
 void mlir::tt::registerAllPasses() {
-  // Register all dialect conversion passes
-  //
+  // Register all dialect conversion passes.
   mlir::tt::registerTTMLIRConversionPasses();
+
+  // Registering -remove-dead-values built-in mlir pass to optimize out the
+  // unused OPs/operands after conversion.
+  mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
+    return mlir::createRemoveDeadValuesPass();
+  });
 
   mlir::tt::ttir::registerPasses();
   mlir::tt::ttnn::registerPasses();

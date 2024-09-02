@@ -51,6 +51,7 @@ table EltwiseOp {
 enum ReductionOpType: uint32 {
   Sum = 0,
   Mean = 1,
+  Max = 2,
 }
 
 table ReductionOp {
