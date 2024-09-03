@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: builder
 
     env:
       BASE_IMAGE_NAME:      ghcr.io/${{ github.repository }}/tt-mlir-base-ubuntu-22-04
