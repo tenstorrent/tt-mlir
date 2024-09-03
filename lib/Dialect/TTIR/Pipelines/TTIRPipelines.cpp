@@ -30,8 +30,7 @@ void createStableHLOToTTIRPipeline(
 
 void registerTTIRPipelines() {
 #ifdef TTMLIR_ENABLE_STABLEHLO
-  mlir::PassPipelineRegistration<
-      StableHLOToTTIRPipelineOptions>(
+  mlir::PassPipelineRegistration<StableHLOToTTIRPipelineOptions>(
       "stablehlo-to-ttir-pipeline",
       "Pipeline lowering stablehlo to ttir dialect.",
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
