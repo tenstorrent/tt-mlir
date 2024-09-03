@@ -74,7 +74,6 @@ public:
 
     // Get tt::LayoutAttr of the result type
     //
-    op.getResult().getType().getEncoding().dump();
     tt::LayoutAttr ttLayoutAttr =
         mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
 
@@ -98,15 +97,16 @@ public:
     // TODO: Map to memory config when the type is created
     //
     auto qwe = ttLayoutAttr.getMemorySpace();
-    if (qwe == tt::MemorySpace::System) {
-      std::cout << "System" << std::endl;
-    } else if (qwe == tt::MemorySpace::SystemMMIO) {
-      std::cout << "SystemMMIO" << std::endl;
-    } else if (qwe == tt::MemorySpace::DeviceL1) {
-      std::cout << "DeviceL1" << std::endl;
-    } else if (qwe == tt::MemorySpace::DeviceDRAM) {
-      std::cout << "DeviceDRAM" << std::endl;
-    }
+    (void)qwe;
+    // if (qwe == tt::MemorySpace::System) {
+    //   std::cout << "System" << std::endl;
+    // } else if (qwe == tt::MemorySpace::SystemMMIO) {
+    //   std::cout << "SystemMMIO" << std::endl;
+    // } else if (qwe == tt::MemorySpace::DeviceL1) {
+    //   std::cout << "DeviceL1" << std::endl;
+    // } else if (qwe == tt::MemorySpace::DeviceDRAM) {
+    //   std::cout << "DeviceDRAM" << std::endl;
+    // }
 
     // rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
     //     op, this->getTypeConverter()->convertType(op.getType()),
@@ -114,7 +114,7 @@ public:
     auto device = findDevice(op);
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(op.getType()), op.getInput(),
-        ttnn::LayoutAttr::get(op->getContext(), ttnnLayoutEnum),
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
         tt::DataTypeAttr::get(op.getContext(), dtype), device);
     return success();
   }
@@ -138,11 +138,11 @@ public:
     // rewriter.create<ttnn::TensorToLayoutOp>(
     //     rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
     //     device);
-    auto q = rewriter.replaceOpWithNewOp<ttnn::TensorToLayoutOp>(
-        op, op.getType(), op.getInput(), op.getLayoutAttr().getValue(), device);
-    auto w = rewriter.create<ttnn::TensorToLayoutOp>(
-        q->getLoc(), op.getType(), q.getResult(), op.getLayoutAttr().getValue(),
-        device);
+    auto q = rewriter.create<ttnn::TensorToLayoutOp>(
+        op->getLoc(), op.getType(), op.getInput(),
+        op.getLayoutAttr().getValue(), device);
+    auto w = rewriter.replaceOpWithNewOp<ttnn::TensorToLayoutOp>(
+        op, op.getType(), q.getResult(), op.getLayoutAttr().getValue(), device);
     (void)w;
     // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
     // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
@@ -166,8 +166,6 @@ public:
     // rewriter.replaceAllOpUsesWith(op, q);
     // rewriter.replaceAllUsesWith(op.getResult(), q.getResult());
     // rewriter.eraseOp(op);
-
-    std::cout << "ENDING" << std::endl;
 
     return success();
   }

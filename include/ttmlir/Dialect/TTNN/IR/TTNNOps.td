@@ -52,7 +52,7 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TTNN_LayoutAttr:$layout,
-                         OptionalAttr<TT_DataType>:$dtype,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
                         //  OptionalAttr<MemoryConfig>:$memory_config,  // TODO: Implement MemoryConfig type
                          TT_Device:$device);
     let results = (outs AnyRankedTensor:$result);
