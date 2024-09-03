@@ -24,6 +24,7 @@ MLIRTTNNTransforms
 MLIRTTKernelDialect
 MLIRTTMetalDialect
 MLIRTTMetalTransforms
+MLIRTTIRPipelines
 MLIRTTNNPipelines
 )
 
