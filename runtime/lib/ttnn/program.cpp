@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <optional>
 #include <string>
@@ -457,35 +458,42 @@ static void run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
   }
 }
 
+static void runReductionOp(
+    ::tt::target::ttnn::ReductionOp const *op, ProgramTensorPool &tensorPool,
+    std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &,
+        const std::optional<std::variant<int, std::vector<int>>> &, const bool,
+        const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
+        ttnnOp) {
+  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
+
+  const auto *dim_arg_fb_ptr = op->dim_arg();
+  std::optional<vector<int>> dim_arg =
+      dim_arg_fb_ptr ? std::make_optional(std::vector<int>(
+                           dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
+                     : std::nullopt;
+
+  ::ttnn::Tensor out =
+      ttnnOp(in, dim_arg, op->keep_dim(), std::nullopt /* memory_config_arg */,
+             std::nullopt /* compute_kernel_config */, 1.0f /* scalar */);
+
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+}
+
 static void run(::tt::target::ttnn::ReductionOp const *op,
                 ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
-    const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-
-    const auto *dim_arg_fb_ptr = op->dim_arg();
-    std::optional<vector<int>> dim_arg =
-        dim_arg_fb_ptr ? std::make_optional(std::vector<int>(
-                             dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
-                       : std::nullopt;
-
-    ::ttnn::Tensor out = ::ttnn::sum(in, dim_arg, op->keep_dim());
-
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runReductionOp(op, tensorPool, ::ttnn::sum);
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {
-    const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-
-    const auto *dim_arg_fb_ptr = op->dim_arg();
-    std::optional<vector<int>> dim_arg =
-        dim_arg_fb_ptr ? std::make_optional(std::vector<int>(
-                             dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
-                       : std::nullopt;
-
-    ::ttnn::Tensor out = ::ttnn::mean(in, dim_arg, op->keep_dim());
-
-    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+    runReductionOp(op, tensorPool, ::ttnn::mean);
+    break;
+  }
+  case ::tt::target::ttnn::ReductionOpType::Max: {
+    runReductionOp(op, tensorPool, ::ttnn::max);
     break;
   }
   }
