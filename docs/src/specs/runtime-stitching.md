@@ -13,8 +13,8 @@ between the compiler and the runtime.
 
 ### Simple Example
 ```
-mod_a = pybuda.compile(PyTorch_module_a)
-mod_b = pybuda.compile(PyTorch_module_b)
+mod_a = forge.compile(PyTorch_module_a)
+mod_b = forge.compile(PyTorch_module_b)
 
 for i in range(10):
     outs_a = mod_a(ins_a)
@@ -26,15 +26,15 @@ for i in range(10):
 `mod_a` it should be completely unaware that `mod_b` will take place and vice-versa.
 In order to achieve this we propose a new runtime concept called stitching:
 
-- pybuda invokes compile step for `mod_a`, tt-mlir compiler determines where the
+- forge invokes compile step for `mod_a`, tt-mlir compiler determines where the
   inputs (`ins_a`) should live, host, device dram, device l1. tt-mlir returns
-  metadata to pybuda describing where it wants the tensors to reside before invoking
+  metadata to forge describing where it wants the tensors to reside before invoking
   flatbuffer submission.
-- pybuda invokes compile step for `mod_b`, same happens as bullet 1
-- `mod_a` is invoked at runtime, pybuda runtime needs to inspect the compiler metadata
+- forge invokes compile step for `mod_b`, same happens as bullet 1
+- `mod_a` is invoked at runtime, forge runtime needs to inspect the compiler metadata
   to determine where the tensors should live.  Runtime manually invokes a new data
   copy command to get the tenors to the correct memory space / correct memory address.
-- pybuda runtime invokes `mod_a` program submit
+- forge runtime invokes `mod_a` program submit
 - `mod_b` is invoked at runtime, this time it might be that the compiler left
   the tensor outputs in L1, so no data copy is needed to start running `mod_b`
   since the inputs are already in the correct location.
