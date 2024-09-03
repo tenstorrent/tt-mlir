@@ -449,7 +449,7 @@ LayoutAttr LayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, MemorySpace memorySpace, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
-    OOBVal oobVal) {
+    OOBVal oobVal, TensorMemoryLayout memLayout) {
   if (not grid) {
     grid = GridAttr::get(context, tensorShape.size());
   }
@@ -459,26 +459,26 @@ LayoutAttr LayoutAttr::get(
   auto shardShape =
       calculateLogicalShardShape(context, tensorShape, linear, grid);
   auto memref = buildMemRef(context, shardShape, elementType, memorySpace);
-  return get(context, linear, oobVal, grid, memref);
+  return get(context, linear, oobVal, grid, memref, memLayout);
 }
 
 LayoutAttr LayoutAttr::get(
     ::mlir::MLIRContext *context, RankedTensorType ty, MemorySpace memorySpace,
     GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
-    OOBVal oobVal) {
+    OOBVal oobVal, TensorMemoryLayout memLayout) {
   assert(ty);
   return get(context, ty.getShape(), ty.getElementType(), memorySpace, grid,
-             collapseIntervals, oobVal);
+             collapseIntervals, oobVal, memLayout);
 }
 
 LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
                            MemorySpace memorySpace, GridAttr grid,
-                           Type elementType) {
+                           Type elementType, TensorMemoryLayout memLayout) {
   assert(ty);
   assert(grid);
   return get(context, ty.getShape(), elementType, memorySpace, grid, {{0, -1}},
-             OOBVal::Undef);
+             OOBVal::Undef, memLayout);
 }
 
 // From the logical shape of the tensor and the affine map of the layout,
@@ -573,6 +573,13 @@ mlir::Type LayoutAttr::getScalarElementType() const {
   return elementType;
 }
 
+bool LayoutAttr::hasShardedTensorMemoryLayout() const {
+  return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
+         (getMemLayout() == TensorMemoryLayout::HeightSharded or
+          getMemLayout() == TensorMemoryLayout::WidthSharded or
+          getMemLayout() == TensorMemoryLayout::BlockSharded);
+}
+
 bool LayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
 }
@@ -590,7 +597,7 @@ LayoutAttr LayoutAttr::withGrid(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(context, tensorShape, getElementType(), getMemorySpace(), grid,
-             collapseIntervals, getOobVal());
+             collapseIntervals, getOobVal(), getMemLayout());
 }
 
 LayoutAttr LayoutAttr::withGrid(
@@ -604,14 +611,24 @@ LayoutAttr LayoutAttr::withElementType(::mlir::MLIRContext *context,
                                        Type elementType) {
   return LayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), elementType, getMemorySpace()));
+      buildMemRef(context, getShardShape(), elementType, getMemorySpace()),
+      getMemLayout());
 }
 
 LayoutAttr LayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                        MemorySpace memorySpace) {
   return LayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), getElementType(), memorySpace));
+      buildMemRef(context, getShardShape(), getElementType(), memorySpace),
+      getMemLayout());
+}
+
+LayoutAttr LayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                        TensorMemoryLayout memLayout) {
+  return LayoutAttr::get(
+      context, getLinear(), getOobVal(), getGrid(),
+      buildMemRef(context, getShardShape(), getElementType(), getMemorySpace()),
+      memLayout);
 }
 
 MemorySpace LayoutAttr::getMemorySpace() const {

@@ -433,6 +433,24 @@ memorySpaceAsOperandConstraint(MemorySpace memorySpace) {
   }
 }
 
+inline OperandConstraint
+memoryLayoutAsOperandConstraint(TensorMemoryLayout memoryLayout) {
+  switch (memoryLayout) {
+  case TensorMemoryLayout::NoneLayout:
+    return OperandConstraint::NoneLayout;
+  case TensorMemoryLayout::Interleaved:
+    return OperandConstraint::Interleaved;
+  case TensorMemoryLayout::SingleBank:
+    return OperandConstraint::SingleBank;
+  case TensorMemoryLayout::HeightSharded:
+    return OperandConstraint::HeightSharded;
+  case TensorMemoryLayout::WidthSharded:
+    return OperandConstraint::WidthSharded;
+  case TensorMemoryLayout::BlockSharded:
+    return OperandConstraint::BlockSharded;
+  }
+}
+
 inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
                                        MemorySpace defaultMemorySpace) {
   if (bitEnumContainsAny(operandConstraint,
@@ -446,6 +464,39 @@ inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
     return MemorySpace::DeviceL1;
   }
   return MemorySpace::System;
+}
+
+inline TensorMemoryLayout
+getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
+                           MemorySpace targetMemorySpace,
+                           TensorMemoryLayout defaultDeviceMemLayout) {
+  if (defaultDeviceMemLayout == TensorMemoryLayout::NoneLayout) {
+    return TensorMemoryLayout::NoneLayout;
+  }
+  if (isSystemMemorySpace(targetMemorySpace)) {
+    return TensorMemoryLayout::NoneLayout;
+  } else {
+    assert(isDeviceMemorySpace(targetMemorySpace));
+    if (bitEnumContainsAny(operandConstraint, memoryLayoutAsOperandConstraint(
+                                                  defaultDeviceMemLayout))) {
+      return defaultDeviceMemLayout;
+    }
+  }
+
+  std::map<OperandConstraint, TensorMemoryLayout> validLayoutsMap = {
+      {OperandConstraint::Interleaved, TensorMemoryLayout::Interleaved},
+      {OperandConstraint::SingleBank, TensorMemoryLayout::SingleBank},
+      {OperandConstraint::HeightSharded, TensorMemoryLayout::HeightSharded},
+      {OperandConstraint::WidthSharded, TensorMemoryLayout::WidthSharded},
+      {OperandConstraint::BlockSharded, TensorMemoryLayout::BlockSharded}};
+
+  for (const auto &[constraintLayout, memLayout] : validLayoutsMap) {
+    if (bitEnumContainsAny(operandConstraint, constraintLayout)) {
+      return memLayout;
+    }
+  }
+
+  return TensorMemoryLayout::NoneLayout;
 }
 
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
@@ -532,24 +583,28 @@ public:
   const TypeConverter *converter;
 };
 
-static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
-                                             Location loc, Value input,
-                                             MemorySpace desiredMemorySpace,
-                                             bool tiled) {
+static std::optional<Value>
+createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
+                 MemorySpace desiredMemorySpace,
+                 TensorMemoryLayout desiredMemLayout, bool tiled) {
+
   auto ty = mlir::cast<RankedTensorType>(input.getType());
   auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
   auto currMemorySpace = currLayout.getMemorySpace();
   auto currElementType = currLayout.getElementType();
+  auto currMemLayout = currLayout.getMemLayout();
   auto desiredElementType =
       tiled ? rewriter.getType<TileType>(ty.getElementType())
             : ty.getElementType();
   if (currMemorySpace == desiredMemorySpace &&
-      currElementType == desiredElementType) {
+      currElementType == desiredElementType &&
+      currMemLayout == desiredMemLayout) {
     return std::nullopt;
   }
 
-  auto desiredLayout = rewriter.getAttr<LayoutAttr>(
-      ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType);
+  auto desiredLayout =
+      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
+                                   desiredElementType, desiredMemLayout);
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
@@ -566,21 +621,29 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  OperandConstraint operandConstraint,
-                 MemorySpace defaultMemorySpace) {
+                 MemorySpace defaultMemorySpace,
+                 TensorMemoryLayout defaultDeviceMemoryLayout) {
   auto desiredMemorySpace =
       getLegalMemorySpace(operandConstraint, defaultMemorySpace);
+
+  auto desiredMemoryLayout = getLegalTensorMemoryLayout(
+      operandConstraint, desiredMemorySpace, defaultDeviceMemoryLayout);
+
   bool tiled =
       !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
-  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace, tiled);
+  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace,
+                          desiredMemoryLayout, tiled);
 }
 
 class TTIRLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
   TTIRLayoutDPSOperandsRewriter(MLIRContext *ctx,
-                                MemorySpace defaultMemorySpace)
+                                MemorySpace defaultMemorySpace,
+                                TensorMemoryLayout defaultDeviceMemoryLayout)
       : OpInterfaceRewritePattern<DestinationStyleOpInterface>(ctx),
-        defaultMemorySpace(defaultMemorySpace) {}
+        defaultMemorySpace(defaultMemorySpace),
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
@@ -604,9 +667,9 @@ public:
               mlir::cast<TTIROp>(op.getOperation())
                   .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
-      auto desiredLayout =
-          createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                           operandConstraint, defaultMemorySpace);
+      auto desiredLayout = createToLayoutOp(
+          rewriter, op.getLoc(), operand.get(), operandConstraint,
+          defaultMemorySpace, defaultDeviceMemoryLayout);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -625,14 +688,17 @@ public:
 
 private:
   MemorySpace defaultMemorySpace;
+  TensorMemoryLayout defaultDeviceMemoryLayout;
 };
 
 class TTIRLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
-  TTIRLayoutFuncReturnRewriter(MLIRContext *ctx, MemorySpace initMemorySpace)
+  TTIRLayoutFuncReturnRewriter(MLIRContext *ctx, MemorySpace initMemorySpace,
+                               TensorMemoryLayout defaultDeviceMemoryLayout)
       : OpRewritePattern<mlir::func::ReturnOp>(ctx),
-        initMemorySpace(initMemorySpace) {}
+        initMemorySpace(initMemorySpace),
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
 
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
@@ -641,8 +707,13 @@ public:
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
       bool tiled = false;
-      if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                                         initMemorySpace, tiled);
+      TensorMemoryLayout initMemoryLayout = TensorMemoryLayout::NoneLayout;
+      if (isDeviceMemorySpace(initMemorySpace)) {
+        initMemoryLayout = defaultDeviceMemoryLayout;
+      }
+      if (auto layout =
+              createToLayoutOp(rewriter, op.getLoc(), operand.get(),
+                               initMemorySpace, initMemoryLayout, tiled);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -654,6 +725,7 @@ public:
 
 private:
   MemorySpace initMemorySpace;
+  TensorMemoryLayout defaultDeviceMemoryLayout;
 };
 
 class TTIRLayout : public impl::TTIRLayoutBase<TTIRLayout> {
@@ -676,10 +748,10 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutDPSOperandsRewriter>(&getContext(),
-                                                  defaultMemorySpace);
-      patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(),
-                                                 initMemorySpace);
+      patterns.add<TTIRLayoutDPSOperandsRewriter>(
+          &getContext(), defaultMemorySpace, defaultDeviceMemoryLayout);
+      patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
+                                                 defaultDeviceMemoryLayout);
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
@@ -719,12 +791,12 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange] =
-        op.compoundComponents();
-    bool isCompound =
-        (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
-         static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange)) > 1;
+    auto components = op.compoundComponents();
+    bool isCompound = (static_cast<int>(components.isLayoutChange) +
+                       static_cast<int>(components.isGridChange) +
+                       static_cast<int>(components.isFormatChange) +
+                       static_cast<int>(components.isMemorySpaceChange) +
+                       static_cast<int>(components.isMemoryLayoutChange)) > 1;
 
     if (!isCompound) {
       return failure();
@@ -763,19 +835,23 @@ public:
                inputLayout.withElementType(rewriter.getContext(),
                                            outputLayout.getElementType()));
       }
-    } else if (isLayoutChange && inputLayout.isTiled()) {
+    } else if (components.isLayoutChange && inputLayout.isTiled()) {
       // For now to flexibly support layout changes, we need to bounce to scalar
       // first
       bounce(rewriter, op,
              inputLayout.withElementType(rewriter.getContext(),
                                          inputLayout.getScalarElementType()));
-    } else if (isGridChange) {
-      assert(!isLayoutChange &&
+    } else if (components.isGridChange) {
+      assert(!components.isLayoutChange &&
              "Changing layout and grid at the same time is currently "
              "not supported");
       bounce(rewriter, op,
              outputLayout.withGrid(rewriter.getContext(), outputType,
                                    inputLayout.getGrid()));
+    } else if (components.isMemoryLayoutChange) {
+      bounce(rewriter, op,
+             inputLayout.withMemoryLayout(rewriter.getContext(),
+                                          outputLayout.getMemLayout()));
     } else {
       // Note we should eventually support DRAM <-> DRAM, or System <-> System
       // w/ format conversion via streaming supported

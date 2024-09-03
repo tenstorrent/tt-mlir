@@ -51,11 +51,21 @@ enum ChipCapability: uint32 (bit_flags) {
   HostMMIO = 1,
 }
 
+enum TensorMemoryLayout: ushort {
+  NoneLayout = 0,
+  Interleaved = 1,
+  SingleBank = 2,
+  HeightSharded = 3,
+  WidthSharded = 4,
+  BlockSharded = 5,
+}
+
 table MemoryDesc {
   shape: [int];
   tile_shape: Dim2d;
   data_type: DataType;
   memory_space: MemorySpace;
+  memory_layout: TensorMemoryLayout;
   size: uint64;
 }
 

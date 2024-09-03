@@ -39,6 +39,8 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
         os << "any_device";
       } else if (value == OperandConstraint::AnyDeviceTile) {
         os << "any_device_tile";
+      } else if (value == OperandConstraint::L1BlockSharded) {
+        os << "l1_block_sharded";
       } else {
         os << "operand_constraint";
       }

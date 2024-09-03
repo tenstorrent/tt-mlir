@@ -22,6 +22,16 @@ inline bool isDeviceMemorySpace(MemorySpace memorySpace) {
          memorySpace == MemorySpace::DeviceL1;
 }
 
+inline bool isL1MemorySpace(MemorySpace memorySpace) {
+  return memorySpace == MemorySpace::DeviceL1;
+}
+
+inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
+  return layout == TensorMemoryLayout::HeightSharded ||
+         layout == TensorMemoryLayout::WidthSharded ||
+         layout == TensorMemoryLayout::BlockSharded;
+}
+
 inline void printDimensionList(::mlir::AsmPrinter &printer,
                                ::llvm::ArrayRef<int64_t> shape) {
   printer.printDimensionList(shape);

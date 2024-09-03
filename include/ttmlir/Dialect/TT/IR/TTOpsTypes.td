@@ -245,8 +245,9 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
                         AttrParameter<"OOBVal", "A tracked out of bounds value that fills padding space.">:$oob_val,
                         AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
-                        AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref);
-  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref `>`";
+                        AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
+                        AttrParameter<"TensorMemoryLayout", "The layout of the tensor in memory.">:$mem_layout);
+  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref`,` $mem_layout `>`";
 
   let extraClassDeclaration = [{
       static LayoutAttr get(::mlir::MLIRContext *context,
@@ -255,18 +256,21 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
+                            OOBVal oobVal = OOBVal::Undef,
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::NoneLayout);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
+                            OOBVal oobVal = OOBVal::Undef,
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::NoneLayout);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace,
                             GridAttr grid,
-                            Type elementType);
+                            Type elementType,
+                            TensorMemoryLayout memLayout);
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,
@@ -274,10 +278,11 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                           ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
       LayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
-
+      LayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
+      bool hasShardedTensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;
@@ -334,6 +339,10 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
 }
 
 def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_TensorMemoryLayoutAttr : EnumAttr<TT_Dialect, TT_TensorMemoryLayout, "tensor_memory_layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

@@ -31,6 +31,24 @@ inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
+inline ::tt::target::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &, TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case TensorMemoryLayout::NoneLayout:
+    return ::tt::target::TensorMemoryLayout::NoneLayout;
+  case TensorMemoryLayout::Interleaved:
+    return ::tt::target::TensorMemoryLayout::Interleaved;
+  case TensorMemoryLayout::SingleBank:
+    return ::tt::target::TensorMemoryLayout::SingleBank;
+  case TensorMemoryLayout::HeightSharded:
+    return ::tt::target::TensorMemoryLayout::HeightSharded;
+  case TensorMemoryLayout::WidthSharded:
+    return ::tt::target::TensorMemoryLayout::WidthSharded;
+  case TensorMemoryLayout::BlockSharded:
+    return ::tt::target::TensorMemoryLayout::BlockSharded;
+  }
+}
+
 inline std::uint64_t getElementSizeBytes(DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
@@ -344,7 +362,8 @@ arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline flatbuffers::Offset<::tt::target::MemoryDesc>
-memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
+memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
+                       ::mlir::tt::TensorMemoryLayout memLayout) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -360,6 +379,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
     dtype = elementTypeToDataType(elementType);
     elementSize = getElementSizeBytes(dtype);
   }
+
   std::uint64_t size = elementSize;
   for (auto dim : shapeInt64) {
     size *= dim;
@@ -370,7 +390,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
       toFlatbuffer(
           cache,
           mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
-      size);
+      toFlatbuffer(cache, memLayout), size);
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
@@ -385,7 +405,8 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
   return ::tt::target::CreateLayoutDescDirect(
       *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
       &coreRangeSet,
-      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer));
+      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
+                        layoutAttr.getMemLayout()));
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>

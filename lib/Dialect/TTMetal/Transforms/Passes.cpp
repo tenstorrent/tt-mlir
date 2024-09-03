@@ -364,15 +364,17 @@ public:
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
 
-    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange] =
-        op.compoundComponents();
-    bool isCompound =
-        (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
-         static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange)) > 1;
-    assert(!isCompound && "Only one change is allowed");
+    auto components = op.compoundComponents();
+    bool isCompound = (static_cast<int>(components.isLayoutChange) +
+                       static_cast<int>(components.isGridChange) +
+                       static_cast<int>(components.isFormatChange) +
+                       static_cast<int>(components.isMemorySpaceChange) +
+                       static_cast<int>(components.isMemoryLayoutChange)) > 1;
 
-    if (isMemorySpaceChange) {
+    assert(!isCompound && "Only one change is allowed");
+    assert(!components.isMemoryLayoutChange &&
+           "Tensor memory layout shouldn't change in metal backend");
+    if (components.isMemorySpaceChange) {
       if (inputLayout.isSystemMemorySpace()) {
         assert(outputLayout.isDeviceMemorySpace());
         rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
@@ -384,10 +386,10 @@ public:
       } else {
         assert(false && "L1 <-> DRAM not supported yet");
       }
-    } else if (isLayoutChange || isGridChange) {
+    } else if (components.isLayoutChange || components.isGridChange) {
       return relayout(op, rewriter);
     } else {
-      assert(isFormatChange);
+      assert(components.isFormatChange);
       return reformat(op, rewriter);
     }
     return failure();
@@ -841,6 +843,8 @@ void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
   layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
+  layoutOptions.defaultDeviceMemoryLayout =
+      mlir::tt::TensorMemoryLayout::NoneLayout;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());
