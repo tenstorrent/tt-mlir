@@ -364,17 +364,17 @@ public:
     auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
     auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
 
-    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-          isMemoryLayoutChange] = op.compoundComponents();
-    bool isCompound =
-        (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
-         static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange) +
-         static_cast<int>(isMemoryLayoutChange)) > 1;
+    auto components = op.compoundComponents();
+    bool isCompound = (static_cast<int>(components.isLayoutChange) +
+                       static_cast<int>(components.isGridChange) +
+                       static_cast<int>(components.isFormatChange) +
+                       static_cast<int>(components.isMemorySpaceChange) +
+                       static_cast<int>(components.isMemoryLayoutChange)) > 1;
+
     assert(!isCompound && "Only one change is allowed");
-    assert(!isMemoryLayoutChange &&
+    assert(!components.isMemoryLayoutChange &&
            "Tensor memory layout shouldn't change in metal backend");
-    if (isMemorySpaceChange) {
+    if (components.isMemorySpaceChange) {
       if (inputLayout.isSystemMemorySpace()) {
         assert(outputLayout.isDeviceMemorySpace());
         rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
@@ -386,10 +386,10 @@ public:
       } else {
         assert(false && "L1 <-> DRAM not supported yet");
       }
-    } else if (isLayoutChange || isGridChange) {
+    } else if (components.isLayoutChange || components.isGridChange) {
       return relayout(op, rewriter);
     } else {
-      assert(isFormatChange);
+      assert(components.isFormatChange);
       return reformat(op, rewriter);
     }
     return failure();

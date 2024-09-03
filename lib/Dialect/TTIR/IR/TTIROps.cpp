@@ -32,7 +32,7 @@
   return success();
 }
 
-std::tuple<bool, bool, bool, bool, bool>
+mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputLayout =
       mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
@@ -49,8 +49,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
       inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
   bool isMemoryLayoutChange =
       inputLayout.getMemLayout() != outputLayout.getMemLayout();
-  return std::make_tuple(isLayoutChange, isGridChange, isFormatChange,
-                         isMemorySpaceChange, isMemoryLayoutChange);
+  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+          isMemoryLayoutChange};
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {

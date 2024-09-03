@@ -47,7 +47,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
                        "sharded memory layouts");
   }
 
-  if (outputMemorySpace == MemorySpace::DeviceDRAM &&
+  if (outputMemorySpace == ::mlir::tt::MemorySpace::DeviceDRAM &&
       outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::Interleaved) {
     return emitOpError(
         "Device DRAM memory space only supports interleaved memory layout");

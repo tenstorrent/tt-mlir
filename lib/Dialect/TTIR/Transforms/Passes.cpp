@@ -22,7 +22,6 @@
 #include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-#include <iostream>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICKERNEL
@@ -792,13 +791,12 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto [isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-          isMemoryLayoutChange] = op.compoundComponents();
-    bool isCompound =
-        (static_cast<int>(isLayoutChange) + static_cast<int>(isGridChange) +
-         static_cast<int>(isFormatChange) +
-         static_cast<int>(isMemorySpaceChange) +
-         static_cast<int>(isMemoryLayoutChange)) > 1;
+    auto components = op.compoundComponents();
+    bool isCompound = (static_cast<int>(components.isLayoutChange) +
+                       static_cast<int>(components.isGridChange) +
+                       static_cast<int>(components.isFormatChange) +
+                       static_cast<int>(components.isMemorySpaceChange) +
+                       static_cast<int>(components.isMemoryLayoutChange)) > 1;
 
     if (!isCompound) {
       return failure();
@@ -837,20 +835,20 @@ public:
                inputLayout.withElementType(rewriter.getContext(),
                                            outputLayout.getElementType()));
       }
-    } else if (isLayoutChange && inputLayout.isTiled()) {
+    } else if (components.isLayoutChange && inputLayout.isTiled()) {
       // For now to flexibly support layout changes, we need to bounce to scalar
       // first
       bounce(rewriter, op,
              inputLayout.withElementType(rewriter.getContext(),
                                          inputLayout.getScalarElementType()));
-    } else if (isGridChange) {
-      assert(!isLayoutChange &&
+    } else if (components.isGridChange) {
+      assert(!components.isLayoutChange &&
              "Changing layout and grid at the same time is currently "
              "not supported");
       bounce(rewriter, op,
              outputLayout.withGrid(rewriter.getContext(), outputType,
                                    inputLayout.getGrid()));
-    } else if (isMemoryLayoutChange) {
+    } else if (components.isMemoryLayoutChange) {
       bounce(rewriter, op,
              inputLayout.withMemoryLayout(rewriter.getContext(),
                                           outputLayout.getMemLayout()));

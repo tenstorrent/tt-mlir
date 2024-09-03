@@ -104,7 +104,7 @@ createL1MemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   std::copy(memoryDescShape->begin(), memoryDescShape->end(),
             shardShape.begin());
   TT_FATAL(shardShape[0] % ::tt::constants::TILE_HEIGHT == 0 and
-               shardShape[1] % ::tt::constants::TILE_WIDTH != 0,
+               shardShape[1] % ::tt::constants::TILE_WIDTH == 0,
            "Shard shape ({}, {}) does not divide tile shape ({}, {}) evenly",
            shardShape[0], shardShape[1], ::tt::constants::TILE_HEIGHT,
            ::tt::constants::TILE_WIDTH);
