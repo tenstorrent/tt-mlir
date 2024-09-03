@@ -124,15 +124,15 @@ void populateTTModule(py::module &m) {
              unsigned dramChannelSize, unsigned nocL1AddressAlignBytes,
              unsigned pcieAddressAlignBytes, unsigned nocDRAMAddressAlignBytes,
              unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
-             unsigned dramUnreservedBase, MlirAttribute chipPhysicalCores,
-             MlirAttribute supportedDataTypes,
+             unsigned dramUnreservedBase, unsigned dramUnreservedEnd,
+             MlirAttribute chipPhysicalCores, MlirAttribute supportedDataTypes,
              MlirAttribute supportedTileSizes) {
             return wrap(tt::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
                 l1Size, numDramChannels, dramChannelSize,
                 nocL1AddressAlignBytes, pcieAddressAlignBytes,
                 nocDRAMAddressAlignBytes, l1UnreservedBase,
-                eriscL1UnreservedBase, dramUnreservedBase,
+                eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,
                 mlir::dyn_cast<tt::ChipPhysicalCoresAttr>(
                     unwrap(chipPhysicalCores)),
                 mlir::cast<tt::DataTypeAttr>(unwrap(supportedDataTypes)),

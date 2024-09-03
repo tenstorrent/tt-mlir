@@ -148,6 +148,31 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
       fbb.CreateVectorOfStructs(eth_inactive_cores));
 }
 
+// Calculate the end of the DRAM region that is not usable by compiler.  This
+// upper region of memory is where kernel programs get allocated to.  This
+// function intends to estimate some conservative max number.
+static std::uint32_t
+calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
+  CoreCoord deviceGridSize = device->logical_grid_size();
+  CoreCoord dramGridSize = device->dram_grid_size();
+  std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
+                             device->get_active_ethernet_cores().size();
+  std::uint32_t totalDramCores = dramGridSize.x * dramGridSize.y;
+  std::uint32_t programCarveOutPerCore = L1_UNRESERVED_BASE;
+  std::uint32_t totalProgramCarveOut = programCarveOutPerCore * totalCores;
+  // The total carve out can be interleaved between all dram channels
+  std::uint32_t programCarveOutDramSpace =
+      (totalProgramCarveOut + totalDramCores - 1) / totalDramCores;
+  static_assert(DRAM_ALIGNMENT > 0);
+  static_assert((DRAM_ALIGNMENT & (DRAM_ALIGNMENT - 1)) == 0);
+  assert(programCarveOutDramSpace < device->dram_size_per_channel());
+  std::uint32_t dramUnreservedEnd =
+      device->dram_size_per_channel() - programCarveOutDramSpace;
+  // Align to DRAM_ALIGNMENT
+  dramUnreservedEnd = dramUnreservedEnd & ~(DRAM_ALIGNMENT - 1);
+  return dramUnreservedEnd;
+}
+
 static std::unique_ptr<::tt::runtime::SystemDesc>
 getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
   std::vector<::tt::tt_metal::Device *> devices = deviceMesh.get_devices();
@@ -192,13 +217,15 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
     auto supportedTileSizes =
         fbb.CreateVectorOfStructs(supportedTileSizesVector);
 
+    auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
+
     chipDescs.push_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
         DRAM_ALIGNMENT, L1_UNRESERVED_BASE, ERISC_L1_UNRESERVED_BASE,
-        DRAM_UNRESERVED_BASE, chipPhysicalCores, supportedDataTypes,
-        supportedTileSizes));
+        DRAM_UNRESERVED_BASE, dramUnreservedEnd, chipPhysicalCores,
+        supportedDataTypes, supportedTileSizes));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

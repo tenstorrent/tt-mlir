@@ -84,7 +84,7 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {
           tt::ChipDescAttr::get(
               context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
-              gridShape, 1499136, 12, (1 << 30), 16, 32, 32, 0, 0, 0,
+              gridShape, 1499136, 12, (1 << 30), 16, 32, 32, 0, 0, 0, (1 << 30),
               tt::ChipPhysicalCoresAttr::get(context, workerCores, dramCores,
                                              {}, {}),
               supported_data_types, supported_tile_sizes),
@@ -242,8 +242,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->pcie_address_align_bytes(),
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
-        chip_physical_cores_attr, supported_data_types_attr,
-        supported_tile_sizes_attr);
+        element->dram_unreserved_end(), chip_physical_cores_attr,
+        supported_data_types_attr, supported_tile_sizes_attr);
     chip_desc_list.push_back(current_chip_desc_attr);
   }
 
