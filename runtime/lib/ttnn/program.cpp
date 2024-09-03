@@ -64,16 +64,19 @@ static CoreRangeSet toCoreRangeSet(
 }
 
 static ::tt::tt_metal::MemoryConfig
-createShardedMemoryConfig(const CoreRangeSet &coreRangeSet,
+createShardedMemoryConfig(const ::tt::target::TensorMemoryLayout memLayout,
+                          const CoreRangeSet &coreRangeSet,
                           const std::array<uint32_t, 2> &shardShape) {
   ::tt::tt_metal::ShardSpec shardSpec(
       coreRangeSet, shardShape, ::tt::tt_metal::ShardOrientation::ROW_MAJOR,
       false);
+  ::tt::tt_metal::TensorMemoryLayout ttnnMemLayout =
+      utils::toTTNNTensorMemoryLayout(memLayout);
   // TODO (jnie): Hardcoding to block sharded for now
   // Add support for other types once compiler supports it
-  ::tt::tt_metal::TensorMemoryLayout memLayout =
-      ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
-  return {memLayout, ::tt::tt_metal::BufferType::L1, shardSpec};
+  assert(ttnnMemLayout == ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED &&
+         "Only block sharded supported for now");
+  return {ttnnMemLayout, ::tt::tt_metal::BufferType::L1, shardSpec};
 }
 
 static ::tt::tt_metal::MemoryConfig
@@ -109,7 +112,8 @@ createL1MemoryConfig(const ::tt::target::TensorRef *tensorRef) {
            shardShape[0], shardShape[1], ::tt::constants::TILE_HEIGHT,
            ::tt::constants::TILE_WIDTH);
 
-  return createShardedMemoryConfig(coreRangeSet, shardShape);
+  return createShardedMemoryConfig(targetMemoryLayout, coreRangeSet,
+                                   shardShape);
 }
 
 static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,

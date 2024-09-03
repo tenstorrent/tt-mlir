@@ -83,7 +83,8 @@ struct CQBuilder {
 
 ::flatbuffers::Offset<::tt::target::CBDesc>
 cbTypeToFlatbuffer(FlatbufferObjectCache &cache, ttkernel::CBType cbType) {
-  auto memref = cache.getOrCreate(cbType.getMemref(), memrefAttrToFlatbuffer);
+  auto memref = cache.getOrCreate(cbType.getMemref(), memrefAttrToFlatbuffer,
+                                  ::mlir::tt::TensorMemoryLayout::NoneLayout);
   return ::tt::target::CreateCBDesc(
       *cache.fbb,
       static_cast<std::underlying_type_t<ttkernel::CBPort>>(cbType.getPort()),

@@ -56,6 +56,25 @@ inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
   }
 }
 
+inline ::tt::tt_metal::TensorMemoryLayout
+toTTNNTensorMemoryLayout(::tt::target::TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case ::tt::target::TensorMemoryLayout::Interleaved:
+    return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
+  case ::tt::target::TensorMemoryLayout::SingleBank:
+    return ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK;
+  case ::tt::target::TensorMemoryLayout::HeightSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
+  case ::tt::target::TensorMemoryLayout::WidthSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
+  case ::tt::target::TensorMemoryLayout::BlockSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+
+  default:
+    throw std::runtime_error("Unsupported memory layout");
+  }
+}
+
 inline std::vector<uint32_t>
 toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
   return std::vector<uint32_t>(vec.begin(), vec.end());
