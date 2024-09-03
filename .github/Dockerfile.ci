@@ -1,5 +1,6 @@
 ARG GIT_SHA
 ARG FROM_TAG=${GIT_SHA:-latest}
+ARG PROJECT_NAME=tt-mlir
 
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG}
 SHELL ["/bin/bash", "-c"]
@@ -11,12 +12,12 @@ RUN mkdir -p $BUILD_DIR && \
     mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
 # Clone the project and update submodules
-RUN git clone https://github.com/tenstorrent/tt-mlir.git $BUILD_DIR/tt-mlir && \
-    cd $BUILD_DIR/tt-mlir && \
+RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
+    cd $BUILD_DIR/$PROJECT_NAME && \
     git checkout $GIT_SHA
 
 # Build the toolchain
-WORKDIR $BUILD_DIR/tt-mlir
+WORKDIR $BUILD_DIR/$PROJECT_NAME
 RUN cmake -B env/build env && \
     cmake --build env/build
 
@@ -45,4 +46,4 @@ RUN cmake --build build -- clang-tidy || true
 RUN cmake --build build -- check-ttmlir
 
 # Clean up the build directory
-RUN rm -rf $BUILD_DIR/tt-mlir
+RUN rm -rf $BUILD_DIR/$PROJECT_NAME
