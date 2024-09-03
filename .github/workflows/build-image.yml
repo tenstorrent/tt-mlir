@@ -21,6 +21,9 @@ jobs:
 
     steps:
 
+      - name: Fix permissions
+        run: sudo chmod 777 -R $GITHUB_WORKSPACE
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
