@@ -52,32 +52,22 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TTNN_LayoutAttr:$layout,
-                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                        //  OptionalAttr<TT_DataTypeAttr>:$dtype,
                         //  OptionalAttr<MemoryConfig>:$memory_config,  // TODO: Implement MemoryConfig type
                          TT_Device:$device);
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_TensorToLayoutOp : TTNN_Op<"tensor_to_layout"> {
-    let summary = "TensorToLayout op.";
+def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+    let summary = "ToDevice op.";
     let description = [{
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_LayoutAttr:$layout,
                          TT_Device:$device);
+                         // TTNN_MemoryConfig:$memory_config);  // TODO: Implement MemoryConfig type
     let results = (outs AnyRankedTensor:$result);
 }
-
-// def TTNN_TensorToMemCfgOp : TTNN_Op<"tensor_to_mem_cfg"> {
-//     let summary = "TensorToMemCfg op.";
-//     let description = [{
-//     }];
-
-//     let arguments = (ins AnyRankedTensor:$input,
-//                          TT_Device:$device);
-//     let results = (outs AnyRankedTensor:$result);
-// }
 
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {

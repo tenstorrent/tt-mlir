@@ -34,7 +34,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
-    target.addIllegalOp<ttnn::ToLayoutOp>();
+    // target.addIllegalOp<ttnn::ToLayoutOp>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     TypeConverter typeConverter;

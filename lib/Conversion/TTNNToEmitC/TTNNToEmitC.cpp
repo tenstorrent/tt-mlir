@@ -106,7 +106,6 @@ public:
       : TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp>(
             typeConverter, context, benefit) {}
 
-public:
   LogicalResult
   matchAndRewrite(ttnn::OpenDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -133,7 +132,6 @@ public:
       : TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp>(
             typeConverter, context, benefit) {}
 
-public:
   LogicalResult
   matchAndRewrite(ttnn::CloseDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -146,17 +144,45 @@ public:
   }
 };
 
+// ToLayoutOp conversion pattern
 //
-class TensorToLayoutOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::TensorToLayoutOp> {
+class ToLayoutOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp> {
+
 public:
-  using TTNNToEmitCBaseOpConversionPattern<
-      ttnn::TensorToLayoutOp>::TTNNToEmitCBaseOpConversionPattern;
+  ToLayoutOpConversionPattern(const TypeConverter &typeConverter,
+                              MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp>(typeConverter,
+                                                             context, benefit) {
+  }
 
   LogicalResult
-  matchAndRewrite(ttnn::TensorToLayoutOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(ttnn::ToLayoutOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // auto inputTy = srcOp.input().getType();
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
+        nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// ToDeviceOp conversion pattern
+//
+class ToDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp> {
+
+public:
+  ToDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                              MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp>(typeConverter,
+                                                             context, benefit) {
+  }
+
+  LogicalResult
+  matchAndRewrite(ttnn::ToDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
@@ -180,7 +206,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
-  patterns.add<TensorToLayoutOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ToLayoutOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ToDeviceOpConversionPattern>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>>(
       typeConverter, ctx);
 

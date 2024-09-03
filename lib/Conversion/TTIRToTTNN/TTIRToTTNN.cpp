@@ -78,7 +78,7 @@ public:
         mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
 
     // Figure out if output tensor is in RowMajor layout or Tile layout
-    // Figure out the data type of the outpu tensor
+    // Figure out the data type of the output tensor
     //
     mlir::MemRefType memref = ttLayoutAttr.getMemref();
     Type elementType = memref.getElementType();
@@ -96,77 +96,33 @@ public:
     // Figure out memory space used for output tensor
     // TODO: Map to memory config when the type is created
     //
-    auto qwe = ttLayoutAttr.getMemorySpace();
-    (void)qwe;
-    // if (qwe == tt::MemorySpace::System) {
+    tt::MemorySpace memorySpace = ttLayoutAttr.getMemorySpace();
+    (void)memorySpace;
+    // if (memorySpace == tt::MemorySpace::System) {
     //   std::cout << "System" << std::endl;
-    // } else if (qwe == tt::MemorySpace::SystemMMIO) {
+    // } else if (memorySpace == tt::MemorySpace::SystemMMIO) {
     //   std::cout << "SystemMMIO" << std::endl;
-    // } else if (qwe == tt::MemorySpace::DeviceL1) {
+    // } else if (memorySpace == tt::MemorySpace::DeviceL1) {
     //   std::cout << "DeviceL1" << std::endl;
-    // } else if (qwe == tt::MemorySpace::DeviceDRAM) {
+    // } else if (memorySpace == tt::MemorySpace::DeviceDRAM) {
     //   std::cout << "DeviceDRAM" << std::endl;
     // }
 
-    // rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
-    //     op, this->getTypeConverter()->convertType(op.getType()),
-    //     nonDPSOperands);
-    auto device = findDevice(op);
-    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), op.getInput(),
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
-        tt::DataTypeAttr::get(op.getContext(), dtype), device);
-    return success();
-  }
-};
-
-class FromToLayoutToTensorToOpConversionPattern
-    : public OpConversionPattern<ttnn::ToLayoutOp> {
-public:
-  using OpConversionPattern<ttnn::ToLayoutOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttnn::ToLayoutOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    // Location rootLoc = op.getLoc();
     auto device = findDevice(op);
 
-    // rewriter.create<ttnn::ToLayoutOp>(rootLoc, op.getType(), op.getInput(),
-    //                                    op.getLayoutAttr(), op.getDtypeAttr(),
-    //                                    op.getDevice());
-    // rewriter.create<ttnn::TensorToLayoutOp>(
-    //     rootLoc, op.getType(), op.getInput(), op.getLayoutAttr().getValue(),
-    //     device);
-    auto q = rewriter.create<ttnn::TensorToLayoutOp>(
-        op->getLoc(), op.getType(), op.getInput(),
-        op.getLayoutAttr().getValue(), device);
-    auto w = rewriter.replaceOpWithNewOp<ttnn::TensorToLayoutOp>(
-        op, op.getType(), q.getResult(), op.getLayoutAttr().getValue(), device);
-    (void)w;
-    // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
-    // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
-    // rewriter.create<ttnn::EmptyOp>(rootLoc, op.getType(), op.getDevice());
+    // TODO: Add ttnn::Tensor(tensor, dtype) call once tt-metal is updated
+    // tt::DataTypeAttr::get(op.getContext(), dtype), device)
+    (void)dtype;
 
-    // std::cout << op->getUsers().end() - op->getUsers().begin() << std::endl;
-    // for (Operation *user : op->getUsers()) {
-    //   std::cout << "before" << std::endl;
-    //   user->dump();
-    //   std::cout << "after" << std::endl;
-    // }
-    // // std::cout << op->getUses().end() - op->getUses().begin() << std::endl;
-    // for (auto &use : op->getUses()) {
-    //   std::cout << "before" << std::endl;
-    //   (void)use;// std::cout << use << std::endl;
-    //   std::cout << "after" << std::endl;
-    // }
+    ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+        op.getInput(), ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
+        device);
 
-    // rewriter.replaceAllUsesWith(q.getResult(), w.getResult());
-
-    // rewriter.replaceAllOpUsesWith(op, q);
-    // rewriter.replaceAllUsesWith(op.getResult(), q.getResult());
-    // rewriter.eraseOp(op);
-
+    // TODO: Create MemoryConfig
+    rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
+        device);
     return success();
   }
 };
@@ -460,7 +416,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   // ANCHOR: op_rewriter_pattern_set
   patterns
-      .add<FromToLayoutToTensorToOpConversionPattern,
+      .add<
            TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
            ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
