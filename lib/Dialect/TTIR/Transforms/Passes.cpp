@@ -436,8 +436,8 @@ memorySpaceAsOperandConstraint(MemorySpace memorySpace) {
 inline OperandConstraint
 memoryLayoutAsOperandConstraint(TensorMemoryLayout memoryLayout) {
   switch (memoryLayout) {
-  case TensorMemoryLayout::NoneLayout:
-    return OperandConstraint::NoneLayout;
+  case TensorMemoryLayout::None:
+    return OperandConstraint::None;
   case TensorMemoryLayout::Interleaved:
     return OperandConstraint::Interleaved;
   case TensorMemoryLayout::SingleBank:
@@ -470,11 +470,11 @@ inline TensorMemoryLayout
 getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
                            MemorySpace targetMemorySpace,
                            TensorMemoryLayout defaultDeviceMemLayout) {
-  if (defaultDeviceMemLayout == TensorMemoryLayout::NoneLayout) {
-    return TensorMemoryLayout::NoneLayout;
+  if (defaultDeviceMemLayout == TensorMemoryLayout::None) {
+    return TensorMemoryLayout::None;
   }
   if (isSystemMemorySpace(targetMemorySpace)) {
-    return TensorMemoryLayout::NoneLayout;
+    return TensorMemoryLayout::None;
   } else {
     assert(isDeviceMemorySpace(targetMemorySpace));
     if (bitEnumContainsAny(operandConstraint, memoryLayoutAsOperandConstraint(
@@ -496,7 +496,7 @@ getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
     }
   }
 
-  return TensorMemoryLayout::NoneLayout;
+  return TensorMemoryLayout::None;
 }
 
 class TTIRLayoutTensorTypeConverter : public TypeConverter {
@@ -707,7 +707,7 @@ public:
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
       bool tiled = false;
-      TensorMemoryLayout initMemoryLayout = TensorMemoryLayout::NoneLayout;
+      TensorMemoryLayout initMemoryLayout = TensorMemoryLayout::None;
       if (isDeviceMemorySpace(initMemorySpace)) {
         initMemoryLayout = defaultDeviceMemoryLayout;
       }
