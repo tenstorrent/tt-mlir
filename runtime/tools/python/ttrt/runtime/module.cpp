@@ -13,7 +13,8 @@ PYBIND11_MODULE(_C, m) {
   m.doc() = "ttrt.runtime python extension for interacting with the "
             "Tenstorrent devies";
 
-  py::class_<tt::runtime::Device>(m, "Device");
+  py::class_<tt::runtime::Device>(m, "Device")
+      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
   py::enum_<::tt::target::DataType>(m, "DataType")

@@ -68,6 +68,8 @@ Device openDevice(std::vector<int> const &deviceIds = {0},
 
 void closeDevice(Device device);
 
+void deallocateBuffers(Device device);
+
 Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);

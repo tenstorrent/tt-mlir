@@ -900,6 +900,8 @@ class API:
                             )
                             for tensor in program.output_tensors:
                                 self.logging.debug(f"{tensor}\n")
+
+                            device.deallocate_buffers()
                 finally:
                     ttrt.runtime.close_device(device)
 

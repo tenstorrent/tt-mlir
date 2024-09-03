@@ -26,6 +26,21 @@ DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTMetal;
 DeviceRuntime globalCurrentRuntime = DeviceRuntime::Disabled;
 #endif
 
+void deallocateBuffers(Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::deallocateBuffers(device);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::deallocateBuffers(device);
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
