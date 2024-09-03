@@ -75,8 +75,7 @@ public:
 
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
-class ElementwiseBinaryOpConversionPattern
-    : public OpConversionPattern<TTIROpTy> {
+class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
   using OpConversionPattern<TTIROpTy>::OpConversionPattern;
 
@@ -364,16 +363,16 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns
       .add<TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
-           ElementwiseBinaryOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
+           ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
+           ElementwiseOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
+           ElementwiseOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
+           ElementwiseOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
+           ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
+           ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
+           ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
+           ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
+           ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
+           ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            EmbeddingOpConversionPattern,
