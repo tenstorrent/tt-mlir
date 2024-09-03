@@ -78,6 +78,13 @@ void closeDevice(Device device) {
   }
 }
 
+void deallocateBuffers(Device deviceHandle) {
+  DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>(DeviceRuntime::TTMetal);
+  for (::tt::tt_metal::Device *device : deviceMesh) {
+    device->deallocate_buffers();
+  }
+}
+
 static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
                  std::shared_ptr<::tt::tt_metal::Event>>
 prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,

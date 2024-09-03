@@ -69,6 +69,10 @@ void closeDevice(Device device) {
   ::ttnn::close_device(ttnn_device);
 }
 
+void deallocateBuffers(Device deviceHandle) {
+  deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN).deallocate_buffers();
+}
+
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
