@@ -129,12 +129,13 @@ def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 1, "dram">;
 def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 2, "l1">;
 def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 3, "scalar">;
 def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 4, "tile">;
-def TT_OperandConstraintInterleaved : I32BitEnumAttrCaseBit<"Interleaved", 5, "interleaved">;
-def TT_OperandConstraintSingleBank : I32BitEnumAttrCaseBit<"SingleBank", 6, "single_bank">;
-def TT_OperandConstraintHeightSharded : I32BitEnumAttrCaseBit<"HeightSharded", 7, "height_sharded">;
-def TT_OperandConstraintWidthSharded : I32BitEnumAttrCaseBit<"WidthSharded", 8, "width_sharded">;
-def TT_OperandConstraintBlockSharded : I32BitEnumAttrCaseBit<"BlockSharded", 9, "block_sharded">;
-def TT_OperandConstraintAnyLayout : I32BitEnumAttrCaseGroup<"AnyLayout", [TT_OperandConstraintInterleaved, TT_OperandConstraintSingleBank, TT_OperandConstraintHeightSharded, TT_OperandConstraintWidthSharded, TT_OperandConstraintBlockSharded], "any_layout">;
+def TT_OperandConstraintUndefLayout : I32BitEnumAttrCaseBit<"UndefLayout", 5, "undef_layout">;
+def TT_OperandConstraintInterleaved : I32BitEnumAttrCaseBit<"Interleaved", 6, "interleaved">;
+def TT_OperandConstraintSingleBank : I32BitEnumAttrCaseBit<"SingleBank", 7, "single_bank">;
+def TT_OperandConstraintHeightSharded : I32BitEnumAttrCaseBit<"HeightSharded", 8, "height_sharded">;
+def TT_OperandConstraintWidthSharded : I32BitEnumAttrCaseBit<"WidthSharded", 9, "width_sharded">;
+def TT_OperandConstraintBlockSharded : I32BitEnumAttrCaseBit<"BlockSharded", 10, "block_sharded">;
+def TT_OperandConstraintAnyLayout : I32BitEnumAttrCaseGroup<"AnyLayout", [TT_OperandConstraintUndefLayout, TT_OperandConstraintInterleaved, TT_OperandConstraintSingleBank, TT_OperandConstraintHeightSharded, TT_OperandConstraintWidthSharded, TT_OperandConstraintBlockSharded], "any_layout">;
 def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintSystem, TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any">;
 def TT_OperandConstraintAnyDevice : I32BitEnumAttrCaseGroup<"AnyDevice", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device">;
 def TT_OperandConstraintAnyDeviceTile : I32BitEnumAttrCaseGroup<"AnyDeviceTile", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device_tile">;
@@ -146,6 +147,7 @@ def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Const
                             TT_OperandConstraintL1,
                             TT_OperandConstraintScalar,
                             TT_OperandConstraintTile,
+                            TT_OperandConstraintUndefLayout,
                             TT_OperandConstraintInterleaved,
                             TT_OperandConstraintSingleBank,
                             TT_OperandConstraintHeightSharded,

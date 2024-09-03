@@ -434,6 +434,24 @@ memorySpaceAsOperandConstraint(MemorySpace memorySpace) {
   }
 }
 
+inline OperandConstraint
+memoryLayoutAsOperandConstraint(TensorMemoryLayout memoryLayout) {
+  switch (memoryLayout) {
+  case TensorMemoryLayout::UndefLayout:
+    return OperandConstraint::UndefLayout;
+  case TensorMemoryLayout::Interleaved:
+    return OperandConstraint::Interleaved;
+  case TensorMemoryLayout::SingleBank:
+    return OperandConstraint::SingleBank;
+  case TensorMemoryLayout::HeightSharded:
+    return OperandConstraint::HeightSharded;
+  case TensorMemoryLayout::WidthSharded:
+    return OperandConstraint::WidthSharded;
+  case TensorMemoryLayout::BlockSharded:
+    return OperandConstraint::BlockSharded;
+  }
+}
+
 inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
                                        MemorySpace defaultMemorySpace) {
   if (bitEnumContainsAny(operandConstraint,
@@ -451,9 +469,19 @@ inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
 
 inline TensorMemoryLayout
 getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
-                           MemorySpace targetMemorySpace) {
-  if (targetMemorySpace == MemorySpace::System) {
+                           MemorySpace targetMemorySpace,
+                           TensorMemoryLayout defaultDeviceMemLayout) {
+  if (defaultDeviceMemLayout == TensorMemoryLayout::UndefLayout) {
     return TensorMemoryLayout::UndefLayout;
+  }
+  if (isSystemMemorySpace(targetMemorySpace)) {
+    return TensorMemoryLayout::UndefLayout;
+  } else {
+    assert(isDeviceMemorySpace(targetMemorySpace));
+    if (bitEnumContainsAny(operandConstraint, memoryLayoutAsOperandConstraint(
+                                                  defaultDeviceMemLayout))) {
+      return defaultDeviceMemLayout;
+    }
   }
 
   std::map<OperandConstraint, TensorMemoryLayout> validLayoutsMap = {
@@ -594,12 +622,13 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  OperandConstraint operandConstraint,
-                 MemorySpace defaultMemorySpace) {
+                 MemorySpace defaultMemorySpace,
+                 TensorMemoryLayout defaultDeviceMemoryLayout) {
   auto desiredMemorySpace =
       getLegalMemorySpace(operandConstraint, defaultMemorySpace);
 
-  auto desiredMemoryLayout =
-      getLegalTensorMemoryLayout(operandConstraint, desiredMemorySpace);
+  auto desiredMemoryLayout = getLegalTensorMemoryLayout(
+      operandConstraint, desiredMemorySpace, defaultDeviceMemoryLayout);
 
   bool tiled =
       !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
@@ -611,9 +640,11 @@ class TTIRLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
   TTIRLayoutDPSOperandsRewriter(MLIRContext *ctx,
-                                MemorySpace defaultMemorySpace)
+                                MemorySpace defaultMemorySpace,
+                                TensorMemoryLayout defaultDeviceMemoryLayout)
       : OpInterfaceRewritePattern<DestinationStyleOpInterface>(ctx),
-        defaultMemorySpace(defaultMemorySpace) {}
+        defaultMemorySpace(defaultMemorySpace),
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
@@ -637,9 +668,9 @@ public:
               mlir::cast<TTIROp>(op.getOperation())
                   .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
-      auto desiredLayout =
-          createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                           operandConstraint, defaultMemorySpace);
+      auto desiredLayout = createToLayoutOp(
+          rewriter, op.getLoc(), operand.get(), operandConstraint,
+          defaultMemorySpace, defaultDeviceMemoryLayout);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -658,14 +689,17 @@ public:
 
 private:
   MemorySpace defaultMemorySpace;
+  TensorMemoryLayout defaultDeviceMemoryLayout;
 };
 
 class TTIRLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
-  TTIRLayoutFuncReturnRewriter(MLIRContext *ctx, MemorySpace initMemorySpace)
+  TTIRLayoutFuncReturnRewriter(MLIRContext *ctx, MemorySpace initMemorySpace,
+                               TensorMemoryLayout defaultDeviceMemoryLayout)
       : OpRewritePattern<mlir::func::ReturnOp>(ctx),
-        initMemorySpace(initMemorySpace) {}
+        initMemorySpace(initMemorySpace),
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
 
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
@@ -675,9 +709,8 @@ public:
       // otherwise
       bool tiled = false;
       TensorMemoryLayout initMemoryLayout = TensorMemoryLayout::UndefLayout;
-      if (initMemorySpace != MemorySpace::System &&
-          initMemorySpace != MemorySpace::SystemMMIO) {
-        initMemoryLayout = TensorMemoryLayout::Interleaved;
+      if (isDeviceMemorySpace(initMemorySpace)) {
+        initMemoryLayout = defaultDeviceMemoryLayout;
       }
       if (auto layout =
               createToLayoutOp(rewriter, op.getLoc(), operand.get(),
@@ -693,6 +726,7 @@ public:
 
 private:
   MemorySpace initMemorySpace;
+  TensorMemoryLayout defaultDeviceMemoryLayout;
 };
 
 class TTIRLayout : public impl::TTIRLayoutBase<TTIRLayout> {
@@ -715,10 +749,10 @@ public:
     }
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTIRLayoutDPSOperandsRewriter>(&getContext(),
-                                                  defaultMemorySpace);
-      patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(),
-                                                 initMemorySpace);
+      patterns.add<TTIRLayoutDPSOperandsRewriter>(
+          &getContext(), defaultMemorySpace, defaultDeviceMemoryLayout);
+      patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
+                                                 defaultDeviceMemoryLayout);
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
