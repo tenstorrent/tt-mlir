@@ -3,6 +3,8 @@ add_library(TTMLIRConversions INTERFACE)
 add_subdirectory(TosaToTTIR)
 add_subdirectory(TTNNToEmitC)
 add_subdirectory(TTIRToTTNN)
+add_subdirectory(TTKernelToEmitC)
+
 if (TTMLIR_ENABLE_STABLEHLO)
 add_subdirectory(StableHLOToTTIR)
 endif()
@@ -10,9 +12,10 @@ endif()
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 
 set(link_libs
-TTMLIRTosaToTTIR;
-TTMLIRTTNNToEmitC;
+TTMLIRTosaToTTIR
+TTMLIRTTNNToEmitC
 TTMLIRTTIRToTTNN
+TTMLIRTTKernelToEmitC
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)

@@ -20,7 +20,7 @@ static bool insideDispatchOpRegion(mlir::Operation *op) {
   if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp)) {
     return true;
   }
-  if (dyn_cast_or_null<func::FuncOp>(parentOp) and
+  if (dyn_cast_or_null<func::FuncOp>(parentOp) &&
       dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp())) {
     return true;
   }

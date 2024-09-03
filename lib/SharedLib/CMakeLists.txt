@@ -7,6 +7,7 @@ set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY)
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
+    TTMetalTargetFlatbuffer
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
