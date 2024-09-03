@@ -252,7 +252,7 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType biasType =
-      llvm::dyn_cast_or_null<::mlir::RankedTensorType>(getBias().getType());
+      getBias().getImpl() ? getBias().getType() : nullptr;
 
   if (inputType.getRank() < 3) {
     return emitOpError("Input must be at least a 3D tensor");
