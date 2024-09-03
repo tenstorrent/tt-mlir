@@ -346,8 +346,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString);
   }
   if (auto maxOp = dyn_cast<MaxOp>(op); maxOp) {
-    return createOperation(cache, createReductionOp(cache, maxOp),
-                           debugString);
+    return createOperation(cache, createReductionOp(cache, maxOp), debugString);
   }
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
     return createOperation(cache, createEmbeddingOp(cache, embeddingOp),
