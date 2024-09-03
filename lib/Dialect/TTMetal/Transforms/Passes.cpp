@@ -844,7 +844,7 @@ void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
   layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
   layoutOptions.defaultDeviceMemoryLayout =
-      mlir::tt::TensorMemoryLayout::UndefLayout;
+      mlir::tt::TensorMemoryLayout::NoneLayout;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());

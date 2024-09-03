@@ -257,14 +257,14 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef,
-                            TensorMemoryLayout memLayout = TensorMemoryLayout::UndefLayout);
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::NoneLayout);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef,
-                            TensorMemoryLayout memLayout = TensorMemoryLayout::UndefLayout);
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::NoneLayout);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace,
@@ -282,7 +282,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
-      bool isSharded() const;
+      bool hasShardedTensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;

@@ -573,7 +573,7 @@ mlir::Type LayoutAttr::getScalarElementType() const {
   return elementType;
 }
 
-bool LayoutAttr::isSharded() const {
+bool LayoutAttr::hasShardedTensorMemoryLayout() const {
   return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
          (getMemLayout() == TensorMemoryLayout::HeightSharded or
           getMemLayout() == TensorMemoryLayout::WidthSharded or

@@ -18,7 +18,7 @@ def getTensorMemoryLayout(memorySpace):
     ):
         return tt.TensorMemoryLayout.Interleaved
     else:
-        return tt.TensorMemoryLayout.UndefLayout
+        return tt.TensorMemoryLayout.NoneLayout
 
 
 def createTensorLayout(

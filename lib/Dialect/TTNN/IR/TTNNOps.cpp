@@ -39,7 +39,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
       outputLayout.getMemLayout();
   if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
-      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::UndefLayout) {
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::NoneLayout) {
     return emitOpError("System memory space only supports undef memory layout");
   } else if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
              !isValidDeviceLayout(outputMemoryLayout)) {
@@ -53,7 +53,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
         "Device DRAM memory space only supports interleaved memory layout");
   }
 
-  if (outputLayout.isSharded()) {
+  if (outputLayout.hasShardedTensorMemoryLayout()) {
     if (outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::BlockSharded) {
       return emitOpError("Currently only block sharding is supported for "
                          "sharded memory layouts");
