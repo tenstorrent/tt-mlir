@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
-#include "types.hpp"
 
 // Below is a snippet generated with:
 // ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout
@@ -35,11 +34,12 @@ ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
       // .shard_spec = std::nullopt,
   };
 
-  ttnn::Tensor v4 = v1.to(ttnn::Layout::TILE);
-  ttnn::Tensor v5 = v4.to(&v3, memConfig);
-
-  ttnn::Tensor v6 = v2.to(ttnn::Layout::TILE);
-  ttnn::Tensor v7 = v6.to(&v3, memConfig);
+  ttnn::Tensor v4 =
+      ttnn::to_layout(v1, ttnn::Layout::TILE, std::nullopt, std::nullopt, &v3);
+  ttnn::Tensor v5 = ttnn::to_device(v4, &v3, memConfig);
+  ttnn::Tensor v6 =
+      ttnn::to_layout(v2, ttnn::Layout::TILE, std::nullopt, std::nullopt, &v3);
+  ttnn::Tensor v7 = ttnn::to_device(v6, &v3, memConfig);
 
   ttnn::Tensor v8 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
                                 v2.tensor_attributes->layout, v3);

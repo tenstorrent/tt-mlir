@@ -82,8 +82,11 @@ target_link_directories(ttnn-standalone PRIVATE
 target_link_libraries(ttnn-standalone PRIVATE
     # Metalium
     tt_metal
+    device
     yaml-cpp
     pthread
+    # nng
+    # uv
 
     # TTNN
     # _ttnn  # Why doesn't this work?
