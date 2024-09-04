@@ -39,6 +39,54 @@ ttnn::Tensor untilize(ttnn::Tensor const &input) {
 
 namespace tt::runtime::ttnn {
 
+class ProgramTensorPool {
+public:
+  ProgramTensorPool(
+      std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &&liveTensors)
+      : liveTensors(liveTensors) {}
+
+  auto try_emplace(std::uint32_t global_id, ::ttnn::Tensor &&tensor) {
+    auto it = liveTensors.find(global_id);
+    if (it != liveTensors.end()) {
+      return std::make_pair(it, false);
+    }
+    assert(!intermedTensors.contains(global_id));
+    intermedTensors.try_emplace(global_id, tensor);
+    return liveTensors.try_emplace(global_id, &intermedTensors.at(global_id));
+  }
+
+  auto insert_or_assign(std::uint32_t global_id, ::ttnn::Tensor &&tensor) {
+    intermedTensors.insert_or_assign(global_id, tensor);
+    return liveTensors.insert_or_assign(global_id,
+                                        &intermedTensors.at(global_id));
+  }
+
+  ::ttnn::Tensor &at(std::uint32_t global_id) {
+    assert(liveTensors.contains(global_id));
+    return *liveTensors.at(global_id);
+  }
+
+  size_t erase(std::uint32_t global_id) {
+    assert(liveTensors.contains(global_id) &&
+           intermedTensors.contains(global_id));
+    intermedTensors.erase(global_id);
+    return liveTensors.erase(global_id);
+  }
+
+  bool contains(std::uint32_t global_id) const {
+    return liveTensors.contains(global_id);
+  }
+
+private:
+  // A superset of intermedTensors, containing all tensors created by the
+  // program and the input/output tensors passed in by the user
+  std::unordered_map<std::uint32_t, ::ttnn::Tensor *> liveTensors;
+
+  // A subset of liveTensors, containing any intermediate tensors created by the
+  // program
+  std::unordered_map<std::uint32_t, ::ttnn::Tensor> intermedTensors;
+};
+
 static bool isOnHost(const ::ttnn::Tensor &tensor) {
   // Currently only supports borrowed or owned host storage
   return tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED or
@@ -165,11 +213,11 @@ updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
   return outputTensor;
 }
 
-static void handleToHostMemoryConfigOp(
-    const ::ttnn::Tensor &inputTensor,
-    const ::ttnn::DataType &targetDataTypeTTNN, uint32_t outputGlobalId,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void
+handleToHostMemoryConfigOp(const ::ttnn::Tensor &inputTensor,
+                           const ::ttnn::DataType &targetDataTypeTTNN,
+                           uint32_t outputGlobalId,
+                           ProgramTensorPool &tensorPool) {
   ::ttnn::Tensor result;
   bool shouldTilize, shouldUntilize;
   if (isOnHost(inputTensor)) {
@@ -184,23 +232,21 @@ static void handleToHostMemoryConfigOp(
                                      shouldTilize, shouldUntilize);
   }
   // copy the output to the output tensor if it exists
-  if (liveTensors.contains(outputGlobalId)) {
-    ::ttnn::Tensor &outputTensor = *liveTensors.at(outputGlobalId);
+  if (tensorPool.contains(outputGlobalId)) {
+    ::ttnn::Tensor &outputTensor = tensorPool.at(outputGlobalId);
     void *src = ::tt::tt_metal::get_raw_host_data_ptr(result);
     void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
     std::uint32_t size = result.volume() * result.element_size();
     std::memcpy(dst, src, size);
   } else {
-    tensorPool.push_back(result);
-    liveTensors.insert_or_assign(outputGlobalId, &tensorPool.back());
+    tensorPool.insert_or_assign(outputGlobalId, std::move(result));
   }
 }
 
 static void handleToDramMemoryConfigOp(
     ::ttnn::Device &device, const ::ttnn::Tensor &inputTensor,
     const ::ttnn::DataType &targetDataTypeTTNN, uint32_t outputGlobalId,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    ProgramTensorPool &tensorPool) {
   ::tt::tt_metal::MemoryConfig memConfig = ::ttnn::DRAM_MEMORY_CONFIG;
   bool shouldTilize, shouldUntilize;
   if (isOnHost(inputTensor)) {
@@ -215,25 +261,21 @@ static void handleToDramMemoryConfigOp(
     result = ::ttnn::to_device(result, &device, memConfig);
     result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
                                      shouldUntilize);
-    tensorPool.push_back(result);
-    liveTensors.insert_or_assign(outputGlobalId, &tensorPool.back());
+    tensorPool.insert_or_assign(outputGlobalId, std::move(result));
   } else if (isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
         inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
     result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
-    tensorPool.push_back(result);
-    liveTensors.insert_or_assign(outputGlobalId, &tensorPool.back());
+    tensorPool.insert_or_assign(outputGlobalId, std::move(result));
   }
 }
 
 static void handleToL1MemoryConfigOp(
     ::ttnn::Device &device, const ::ttnn::Tensor &inputTensor,
     const ::tt::target::TensorRef *outputTensorRef,
-    const ::ttnn::DataType &targetDataTypeTTNN,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    const ::ttnn::DataType &targetDataTypeTTNN, ProgramTensorPool &tensorPool) {
   ::tt::tt_metal::MemoryConfig memConfig =
       createL1MemoryConfig(outputTensorRef);
   bool shouldTilize, shouldUntilize;
@@ -256,29 +298,25 @@ static void handleToL1MemoryConfigOp(
                                        shouldUntilize);
       result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
     }
-    tensorPool.push_back(result);
-    liveTensors.insert_or_assign(outputTensorRef->global_id(),
-                                 &tensorPool.back());
+    tensorPool.insert_or_assign(outputTensorRef->global_id(),
+                                std::move(result));
   } else if (isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
         inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
     result = ::ttnn::to_memory_config(result, memConfig, std::nullopt);
-    tensorPool.push_back(result);
-    liveTensors.insert_or_assign(outputTensorRef->global_id(),
-                                 &tensorPool.back());
+    tensorPool.insert_or_assign(outputTensorRef->global_id(),
+                                std::move(result));
   }
 }
 
 // TODO(bug #272): right now hardcoding tilize/untilize, should determine with
 // tile shape blocked by issue #272
-static void
-run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void run(::tt::target::ttnn::ToMemoryConfigOp const *op,
+                ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
 
-  const ::ttnn::Tensor &inputTensor = *liveTensors.at(op->in0()->global_id());
+  const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in0()->global_id());
   assert(isOnHost(inputTensor) or
          isOnDevice(inputTensor) && "Unsupported storage type");
 
@@ -299,26 +337,24 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
   case ::tt::target::MemorySpace::System:
   case ::tt::target::MemorySpace::SystemMMIO: {
     handleToHostMemoryConfigOp(inputTensor, targetDataTypeTTNN,
-                               op->out()->global_id(), liveTensors, tensorPool);
+                               op->out()->global_id(), tensorPool);
     break;
   }
   case ::tt::target::MemorySpace::DeviceDRAM: {
     handleToDramMemoryConfigOp(device, inputTensor, targetDataTypeTTNN,
-                               op->out()->global_id(), liveTensors, tensorPool);
+                               op->out()->global_id(), tensorPool);
     break;
   }
   case ::tt::target::MemorySpace::DeviceL1: {
     handleToL1MemoryConfigOp(device, inputTensor, op->out(), targetDataTypeTTNN,
-                             liveTensors, tensorPool);
+                             tensorPool);
     break;
   }
   }
 }
 
-static void
-run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
   ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(
       op->out()->desc()->layout()->memory_desc()->data_type());
 
@@ -328,104 +364,104 @@ run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
   auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
       utils::toShapeFromFBShape(*op->out()->desc()->shape())));
 
-  tensorPool.push_back(
-      ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device));
+  ::ttnn::Tensor out =
+      ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device);
   // use try emplace here so the program output tensor doesn't get overwritten
-  liveTensors.try_emplace(op->out()->global_id(), &tensorPool.back());
+  tensorPool.try_emplace(op->out()->global_id(), std::move(out));
 }
 
-static void
-run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
     assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
-    auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
-    tensorPool.push_back(::ttnn::add(lhs, rhs));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
+    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
+    ::ttnn::Tensor out = ::ttnn::add(lhs, rhs);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
     assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
-    auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
-    tensorPool.push_back(::ttnn::multiply(lhs, rhs));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+
+    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
+    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
+    ::ttnn::Tensor out = ::ttnn::multiply(lhs, rhs);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Subtract: {
     assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
-    auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
-    tensorPool.push_back(::ttnn::subtract(lhs, rhs));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+
+    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
+    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
+    ::ttnn::Tensor out = ::ttnn::subtract(lhs, rhs);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
     assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    ::ttnn::Tensor &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
-    tensorPool.push_back(::ttnn::ge(lhs, rhs));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+
+    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
+    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
+    ::ttnn::Tensor out = ::ttnn::ge(lhs, rhs);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
     assert(op->ins()->size() == 2 && "Expected 2 inputs");
-    ::ttnn::Tensor &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
-    ::ttnn::Tensor &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
-    tensorPool.push_back(::ttnn::divide(lhs, rhs));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+
+    const ::ttnn::Tensor &lhs = tensorPool.at(op->ins()->Get(0)->global_id());
+    const ::ttnn::Tensor &rhs = tensorPool.at(op->ins()->Get(1)->global_id());
+    ::ttnn::Tensor out = ::ttnn::divide(lhs, rhs);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   /* Eltwise Unary */
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
     assert(op->ins()->size() == 1 && "Expected 1 input");
-    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
-    tensorPool.push_back(::ttnn::relu(in));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor out = ::ttnn::relu(in);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sqrt: {
     assert(op->ins()->size() == 1 && "Expected 1 input");
-    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
-    tensorPool.push_back(::ttnn::sqrt(in));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor out = ::ttnn::sqrt(in);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
     assert(op->ins()->size() == 1 && "Expected 1 input");
-    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
-    tensorPool.push_back(::ttnn::sigmoid(in));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor out = ::ttnn::sigmoid(in);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
     assert(op->ins()->size() == 1 && "Expected 1 input");
-    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
-    tensorPool.push_back(::ttnn::reciprocal(in));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor out = ::ttnn::reciprocal(in);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
     assert(op->ins()->size() == 1 && "Expected 1 input");
-    ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
-    tensorPool.push_back(::ttnn::exp(in));
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    const ::ttnn::Tensor &in = tensorPool.at(op->ins()->Get(0)->global_id());
+    ::ttnn::Tensor out = ::ttnn::exp(in);
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   }
 }
 
-static void
-run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void run(::tt::target::ttnn::ReductionOp const *op,
+                ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
-    auto &in = *liveTensors.at(op->in()->global_id());
+    const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
 
     const auto *dim_arg_fb_ptr = op->dim_arg();
     std::optional<vector<int>> dim_arg =
@@ -433,13 +469,13 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
                              dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
                        : std::nullopt;
 
-    tensorPool.push_back(::ttnn::sum(in, dim_arg, op->keep_dim()));
+    ::ttnn::Tensor out = ::ttnn::sum(in, dim_arg, op->keep_dim());
 
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {
-    auto &in = *liveTensors.at(op->in()->global_id());
+    const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
 
     const auto *dim_arg_fb_ptr = op->dim_arg();
     std::optional<vector<int>> dim_arg =
@@ -447,9 +483,9 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
                              dim_arg_fb_ptr->begin(), dim_arg_fb_ptr->end()))
                        : std::nullopt;
 
-    tensorPool.push_back(::ttnn::mean(in, dim_arg, op->keep_dim()));
+    ::ttnn::Tensor out = ::ttnn::mean(in, dim_arg, op->keep_dim());
 
-    liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+    tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
     break;
   }
   }
@@ -472,11 +508,9 @@ static ::ttnn::Tensor invoke_reshape(const ::ttnn::Tensor &tensor,
   return ::ttnn::reshape(tensor, vectorToArray<Rank>(shape));
 }
 
-static void
-run(::tt::target::ttnn::ReshapeOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
-  auto &in = *liveTensors.at(op->in()->global_id());
+static void run(::tt::target::ttnn::ReshapeOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
 
@@ -486,56 +520,51 @@ run(::tt::target::ttnn::ReshapeOp const *op, ::ttnn::Device &device,
   constexpr int32_t Rank4 = 4;
   constexpr int32_t Rank5 = 5;
 
+  ::ttnn::Tensor out;
   switch (fbShape->size()) {
   case Rank1:
-    tensorPool.push_back(invoke_reshape<Rank1>(in, shape));
+    out = invoke_reshape<Rank1>(in, shape);
     break;
   case Rank2:
-    tensorPool.push_back(invoke_reshape<Rank2>(in, shape));
+    out = invoke_reshape<Rank2>(in, shape);
     break;
   case Rank3:
-    tensorPool.push_back(invoke_reshape<Rank3>(in, shape));
+    out = invoke_reshape<Rank3>(in, shape);
     break;
   case Rank4:
-    tensorPool.push_back(invoke_reshape<Rank4>(in, shape));
+    out = invoke_reshape<Rank4>(in, shape);
     break;
   case Rank5:
-    tensorPool.push_back(invoke_reshape<Rank5>(in, shape));
+    out = invoke_reshape<Rank5>(in, shape);
     break;
   default:
     throw std::invalid_argument("Unsupported rank for reshape");
   }
 
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
 }
 
-static void
-run(::tt::target::ttnn::EmbeddingOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
-  ::ttnn::Tensor &input = *liveTensors.at(op->input()->global_id());
-  ::ttnn::Tensor &weight = *liveTensors.at(op->weight()->global_id());
+static void run(::tt::target::ttnn::EmbeddingOp const *op,
+                ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
+  const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
 
-  tensorPool.push_back(::ttnn::embedding(input, weight));
-  liveTensors.insert_or_assign(op->output()->global_id(), &tensorPool.back());
+  ::ttnn::Tensor out = ::ttnn::embedding(input, weight);
+  tensorPool.insert_or_assign(op->output()->global_id(), std::move(out));
 }
 
-static void
-run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
-  ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
+static void run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   int32_t dimension = op->dimension();
 
-  tensorPool.push_back(::ttnn::softmax(in, dimension));
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  ::ttnn::Tensor out = ::ttnn::softmax(in, dimension);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
 }
 
-static void
-run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
-  ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
+static void run(::tt::target::ttnn::TransposeOp const *op,
+                ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();
   auto input_rank = in.get_shape().rank();
@@ -557,44 +586,38 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
   // Ideally this would use ttnn::transpose, but since ttnn::transpose doesn't
   // work at the moment, we use this temporary solution.
   auto unsqueezed_input = ::ttnn::unsqueeze_to_4D(in);
-  tensorPool.push_back(::ttnn::permute(unsqueezed_input, dimensionOrder));
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  ::ttnn::Tensor out = ::ttnn::permute(unsqueezed_input, dimensionOrder);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
 }
 
-static void
-run(::tt::target::ttnn::ConcatOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void run(::tt::target::ttnn::ConcatOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
   std::vector<::ttnn::Tensor> inputs;
   for (const auto &input : *op->inputs()) {
-    inputs.push_back(*liveTensors.at(input->global_id()));
+    inputs.push_back(tensorPool.at(input->global_id()));
   }
   int32_t dim = op->dim();
-  tensorPool.push_back(::ttnn::concat(inputs, dim));
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  ::ttnn::Tensor out = ::ttnn::concat(inputs, dim);
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
 }
 
 // ANCHOR: adding_an_op_matmul_runtime
-static void
-run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
-  auto &lhs = *liveTensors.at(op->in0()->global_id());
-  auto &rhs = *liveTensors.at(op->in1()->global_id());
-  tensorPool.push_back(::ttnn::operations::matmul::matmul(
-      lhs, rhs, std::nullopt, ::ttnn::operations::matmul::Matmul{}));
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+static void run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &lhs = tensorPool.at(op->in0()->global_id());
+  const ::ttnn::Tensor &rhs = tensorPool.at(op->in1()->global_id());
+  ::ttnn::Tensor out = ::ttnn::operations::matmul::matmul(
+      lhs, rhs, std::nullopt, ::ttnn::operations::matmul::Matmul{});
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
 }
 // ANCHOR_END: adding_an_op_matmul_runtime
 
-static void
-run(::tt::target::ttnn::Conv2dOp const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
-  auto &input = *liveTensors.at(op->input()->global_id());
-  auto &weight = *liveTensors.at(op->weight()->global_id());
+static void run(::tt::target::ttnn::Conv2dOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
+  const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   std::optional<::ttnn::Tensor> bias =
-      op->bias() ? std::make_optional(*liveTensors.at(op->bias()->global_id()))
+      op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = input.dtype();
@@ -610,15 +633,20 @@ run(::tt::target::ttnn::Conv2dOp const *op, ::ttnn::Device &device,
           {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
           config));
 
-  tensorPool.push_back(out);
-  liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
   return;
 }
 
-static void
-run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
-    std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+static void run(::tt::target::ttnn::DeallocOp const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
+  bool force = true;
+  ::ttnn::Tensor &tensor = tensorPool.at(op->in()->global_id());
+  tensor.deallocate(force);
+  tensorPool.erase(op->in()->global_id());
+}
+
+static void run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
+                ProgramTensorPool &tensorPool) {
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::OpenDeviceOp: {
     // Skip for now, do we want device externally supplied?
@@ -629,40 +657,43 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
-    return run(op->type_as_ToMemoryConfigOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_ToMemoryConfigOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
-    return run(op->type_as_EmptyOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_EmptyOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     // Skip for now, we need an empty op
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
-    return run(op->type_as_EltwiseOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_EltwiseOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::MatmulOp: {
-    return run(op->type_as_MatmulOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_MatmulOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
-    return run(op->type_as_ReductionOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_ReductionOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    return run(op->type_as_EmbeddingOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_EmbeddingOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
-    return run(op->type_as_SoftmaxOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_SoftmaxOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
-    return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_TransposeOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
-    return run(op->type_as_Conv2dOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_Conv2dOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
-    return run(op->type_as_ConcatOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_ConcatOp(), device, tensorPool);
   case ::tt::target::ttnn::OpType::ReshapeOp: {
-    return run(op->type_as_ReshapeOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_ReshapeOp(), device, tensorPool);
+  }
+  case ::tt::target::ttnn::OpType::DeallocOp: {
+    return run(op->type_as_DeallocOp(), device, tensorPool);
   }
   default:
     throw std::runtime_error("Unsupported operation type");
@@ -694,7 +725,6 @@ void runProgram(::ttnn::Device &device,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs) {
   std::unordered_map<std::uint32_t, ::ttnn::Tensor *> liveTensors;
-  std::list<::ttnn::Tensor> tensorPool;
 
   int inputIndex = 0;
   assert(program->inputs()->size() == inputs.size());
@@ -713,8 +743,9 @@ void runProgram(::ttnn::Device &device,
     assert((is_nop || inserted) && "Duplicate output tensor");
   }
 
+  ProgramTensorPool tensorPool(std::move(liveTensors));
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
-    run(op, device, liveTensors, tensorPool);
+    run(op, device, tensorPool);
   }
 }
 } // namespace tt::runtime::ttnn
