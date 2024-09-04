@@ -91,21 +91,23 @@ void LegalGridAnalysis::analysisImplementation() {
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
 
-  // L1 Interleaved (same as above).
-  LayoutAttr l1Interleaved =
-      layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1);
-  if (mock_is_output_tensor_legal_for_op(op, l1Interleaved)) {
-    analysisResult.push_back(l1Interleaved);
-  }
-
   // DRAM
   // No grid is set since the tensor is not sharded.
   // TODO(odjuricic): We need to set grid here since it will be used as the
   // compute gird. (not implemented in runtime atm)
   LayoutAttr dram =
-      layout.withMemorySpace(op->getContext(), MemorySpace::DeviceDRAM);
+      layout.withMemorySpace(op->getContext(), MemorySpace::DeviceDRAM)
+          .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved);
   if (mock_is_output_tensor_legal_for_op(op, dram)) {
     analysisResult.push_back(dram);
+  }
+
+  // L1 Interleaved (same as above).
+  LayoutAttr l1Interleaved =
+      layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1)
+          .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved);
+  if (mock_is_output_tensor_legal_for_op(op, l1Interleaved)) {
+    analysisResult.push_back(l1Interleaved);
   }
 
   // L1 Sharded
@@ -114,12 +116,15 @@ void LegalGridAnalysis::analysisImplementation() {
   std::vector<LayoutAttr> shardedResults;
 
   // Block Sharded
-  for (auto width = 2; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
-    for (auto height = 2; height <= analysisInput.maxGrid.getShape()[1];
+  for (auto width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
+    for (auto height = 1; height <= analysisInput.maxGrid.getShape()[1];
          ++height) {
-      shardedResults.push_back(shardedBase.withGrid(
-          op->getContext(), tensorType,
-          GridAttr::get(op->getContext(), {width, height})));
+      shardedResults.push_back(
+          shardedBase
+              .withGrid(op->getContext(), tensorType,
+                        GridAttr::get(op->getContext(), {width, height}))
+              .withMemoryLayout(op->getContext(),
+                                TensorMemoryLayout::BlockSharded));
     }
   }
 
@@ -130,15 +135,21 @@ void LegalGridAnalysis::analysisImplementation() {
   // runtime implementation on what to produce here.
   for (auto height = 2; height <= numCores; ++height) {
     shardedResults.push_back(
-        shardedBase.withGrid(op->getContext(), tensorType,
-                             GridAttr::get(op->getContext(), {height, 1})));
+        shardedBase
+            .withGrid(op->getContext(), tensorType,
+                      GridAttr::get(op->getContext(), {height, 1}))
+            .withMemoryLayout(op->getContext(),
+                              TensorMemoryLayout::HeightSharded));
   }
 
   // Width Sharded
   for (auto width = 2; width <= numCores; ++width) {
     shardedResults.push_back(
-        shardedBase.withGrid(op->getContext(), tensorType,
-                             GridAttr::get(op->getContext(), {1, width})));
+        shardedBase
+            .withGrid(op->getContext(), tensorType,
+                      GridAttr::get(op->getContext(), {1, width}))
+            .withMemoryLayout(op->getContext(),
+                              TensorMemoryLayout::WidthSharded));
   }
 
   // Filter layouts based on output tensor legality for current op.
