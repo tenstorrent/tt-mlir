@@ -34,8 +34,8 @@ inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
 inline ::tt::target::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &, TensorMemoryLayout memLayout) {
   switch (memLayout) {
-  case TensorMemoryLayout::NoneLayout:
-    return ::tt::target::TensorMemoryLayout::NoneLayout;
+  case TensorMemoryLayout::None:
+    return ::tt::target::TensorMemoryLayout::None;
   case TensorMemoryLayout::Interleaved:
     return ::tt::target::TensorMemoryLayout::Interleaved;
   case TensorMemoryLayout::SingleBank:

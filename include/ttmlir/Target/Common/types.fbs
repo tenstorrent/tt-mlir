@@ -52,7 +52,7 @@ enum ChipCapability: uint32 (bit_flags) {
 }
 
 enum TensorMemoryLayout: ushort {
-  NoneLayout = 0,
+  None = 0,
   Interleaved = 1,
   SingleBank = 2,
   HeightSharded = 3,

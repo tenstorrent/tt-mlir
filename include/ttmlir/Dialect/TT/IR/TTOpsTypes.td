@@ -246,8 +246,8 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                         AttrParameter<"OOBVal", "A tracked out of bounds value that fills padding space.">:$oob_val,
                         AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
                         AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
-                        AttrParameter<"TensorMemoryLayout", "The layout of the tensor in memory.">:$mem_layout);
-  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref`,` $mem_layout `>`";
+                        DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::None", "The layout of the tensor in memory.">:$mem_layout);
+  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref (`,` $mem_layout^)? `>`";
 
   let extraClassDeclaration = [{
       static LayoutAttr get(::mlir::MLIRContext *context,
@@ -257,14 +257,14 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef,
-                            TensorMemoryLayout memLayout = TensorMemoryLayout::NoneLayout);
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::None);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef,
-                            TensorMemoryLayout memLayout = TensorMemoryLayout::NoneLayout);
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::None);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace,

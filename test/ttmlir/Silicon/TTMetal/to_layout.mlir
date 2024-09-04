@@ -4,8 +4,8 @@
 
 #l1_ = #tt.memory_space<l1>
 
-#layout = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x16xf32, #l1_>, none_layout>
-#layout1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<2x8xf32, #l1_>, none_layout>
+#layout = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x16xf32, #l1_>>
+#layout1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<2x8xf32, #l1_>>
 func.func @simple(%arg0: tensor<4x16xf32, #layout>) -> tensor<4x16xf32, #layout1> {
   %0 = tensor.empty() : tensor<4x16xf32, #layout1>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
@@ -13,8 +13,8 @@ func.func @simple(%arg0: tensor<4x16xf32, #layout>) -> tensor<4x16xf32, #layout1
   return %1 : tensor<4x16xf32, #layout1>
 }
 
-#untilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>, none_layout>
-#tilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32 x 32, f32>, #l1_>, none_layout>
+#untilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
+#tilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32 x 32, f32>, #l1_>>
 func.func @tilize(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #untilized> {
   %0 = tensor.empty() : tensor<64x128xf32, #tilized>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]

@@ -40,7 +40,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
       outputLayout.getMemLayout();
   if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
-      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::NoneLayout) {
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::None) {
     return emitOpError("System memory space only supports undef memory layout");
   } else if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
              !isValidDeviceLayout(outputMemoryLayout)) {
