@@ -15,5 +15,19 @@ RUN apt-get update && apt-get install -y \
     sudo \
     vim
 
+# Create a directory for the toolchain and set permissions
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
     chmod -R 777 $TTMLIR_TOOLCHAIN_DIR
+
+# Install GDB 14.2
+RUN sudo apt install libmpfr-dev -y
+    wget https://ftp.gnu.org/gnu/gdb/gdb-14.2.tar.gz
+    tar -xvf gdb-14.2.tar.gz
+    cd gdb-14.2
+    ./configure
+    make -j$(nproc)
+    sudo make install    
+    cd ..
+    rm -rf gdb-14.2 gdb-14.2.tar.gz
+    gdb --version
+    
