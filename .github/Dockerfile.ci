@@ -35,15 +35,19 @@ RUN source env/activate && \
     -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
     -DTTMLIR_ENABLE_STABLEHLO=ON
 
-RUN cmake --build build --config Release
+RUN source env/activate && \
+    cmake --build build --config Release
 
-RUN cmake --build build -- ttrt
+RUN source env/activate && \
+    cmake --build build -- ttrt
 
 # Run clang-tidy
-RUN cmake --build build -- clang-tidy || true
+RUN source env/activate && \
+    cmake --build build -- clang-tidy || true
 
 # Run the tests
-RUN cmake --build build -- check-ttmlir
+RUN source env/activate && \
+    cmake --build build -- check-ttmlir
 
 # Clean up the build directory
 RUN rm -rf $BUILD_DIR/$PROJECT_NAME
