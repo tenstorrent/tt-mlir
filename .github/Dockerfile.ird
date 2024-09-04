@@ -27,7 +27,7 @@ RUN sudo apt install libmpfr-dev -y && \
     cd gdb-14.2 && \
     ./configure && \
     make -j$(nproc) && \
-    sudo make install && \ 
+    sudo make install && \
     cd ..  && \
     rm -rf gdb-14.2 gdb-14.2.tar.gz  && \
     gdb --version
