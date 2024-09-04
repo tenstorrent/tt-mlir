@@ -61,6 +61,25 @@ void populatePassesModule(py::module &m) {
       delete bin;
     });
   });
+
+  m.def("ttnn_to_flatbuffer_file",
+        [](MlirModule module, std::string &filepath) {
+          mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+          std::error_code fileError;
+          llvm::raw_fd_ostream file(filepath, fileError);
+
+          if (fileError) {
+            throw std::runtime_error("Failed to open file: " + filepath +
+                                     ". Error: " + fileError.message());
+          }
+
+          if (mlir::failed(
+                  mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file))) {
+            throw std::runtime_error("Failed to write flatbuffer to file: " +
+                                     filepath);
+          }
+        });
 }
 
 } // namespace mlir::ttmlir::python
