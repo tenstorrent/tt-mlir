@@ -13,6 +13,7 @@ ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN apt-get update && apt-get install -y \
     ssh \
     sudo \
+    wget \
     vim
 
 # Create a directory for the toolchain and set permissions
@@ -30,4 +31,3 @@ RUN sudo apt install libmpfr-dev -y
     cd ..
     rm -rf gdb-14.2 gdb-14.2.tar.gz
     gdb --version
-    
