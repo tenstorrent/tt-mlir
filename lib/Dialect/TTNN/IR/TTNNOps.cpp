@@ -42,8 +42,10 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
       outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::None) {
     return emitOpError("System memory space only supports undef memory layout");
-  } else if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
-             !isValidDeviceLayout(outputMemoryLayout)) {
+  }
+
+  if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
+      !isValidDeviceLayout(outputMemoryLayout)) {
     return emitOpError("Device memory space only supports interleaved or "
                        "sharded memory layouts");
   }

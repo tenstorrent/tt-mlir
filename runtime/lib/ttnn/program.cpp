@@ -27,13 +27,14 @@
 // some reason a static_assert fails when this is called from within our
 // namespace.
 ttnn::Tensor tilize(ttnn::Tensor const &input) {
+  // NOLINTNEXTLINE
   return ttnn::to_layout(input, ::ttnn::TILE_LAYOUT, std::nullopt, std::nullopt,
-                         (Device *)nullptr);
+                         static_cast<Device *>(nullptr));
 }
 
 ttnn::Tensor untilize(ttnn::Tensor const &input) {
   return ttnn::to_layout(input, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
-                         std::nullopt, (Device *)nullptr);
+                         std::nullopt, static_cast<Device *>(nullptr));
 }
 
 namespace tt::runtime::ttnn {
@@ -84,20 +85,20 @@ createL1MemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::tt::target::TensorMemoryLayout targetMemoryLayout =
       layout->memory_desc()->memory_layout();
-  TT_FATAL(
-      targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved or
-          targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded,
+  assert(
+      (targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved or
+       targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded) &&
       "Only interleaved and block sharded memory layouts are supported for L1 "
       "tensors");
 
   const ::flatbuffers::Vector<int32_t> *memoryDescShape =
       layout->memory_desc()->shape();
-  TT_FATAL(memoryDescShape->size() == 2,
-           "Only 2D shard shape is supported in TTNN backend");
+  assert(memoryDescShape->size() == 2 &&
+         "Only 2D shard shape is supported in TTNN backend");
 
   CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
-  TT_FATAL(coreRangeSet.size() == 1,
-           "Currently only single core range/grid is supported");
+  assert(coreRangeSet.size() == 1 &&
+         "Currently only single core range/grid is supported");
 
   if (targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved) {
     return ::ttnn::L1_MEMORY_CONFIG;
@@ -106,11 +107,9 @@ createL1MemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   std::array<uint32_t, 2> shardShape;
   std::copy(memoryDescShape->begin(), memoryDescShape->end(),
             shardShape.begin());
-  TT_FATAL(shardShape[0] % ::tt::constants::TILE_HEIGHT == 0 and
-               shardShape[1] % ::tt::constants::TILE_WIDTH == 0,
-           "Shard shape ({}, {}) does not divide tile shape ({}, {}) evenly",
-           shardShape[0], shardShape[1], ::tt::constants::TILE_HEIGHT,
-           ::tt::constants::TILE_WIDTH);
+  assert((shardShape[0] % ::tt::constants::TILE_HEIGHT == 0 and
+          shardShape[1] % ::tt::constants::TILE_WIDTH == 0) &&
+         "Shard shape does not divide tile shape evenly");
 
   return createShardedMemoryConfig(targetMemoryLayout, coreRangeSet,
                                    shardShape);
@@ -120,7 +119,9 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
                                       const ::ttnn::DataType &targetDataType) {
   if (isOnHost(input)) {
     return ::ttnn::to_dtype(input, targetDataType);
-  } else if (isOnDevice(input)) {
+  }
+
+  if (isOnDevice(input)) {
     if (input.get_layout() != ::ttnn::TILE_LAYOUT) {
       // typecast op requires tilized tensor
       ::ttnn::Tensor converted =
@@ -129,12 +130,12 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
       return ::untilize(converted);
     }
     return ::ttnn::typecast(input, targetDataType);
-  } else {
-    throw std::runtime_error("Unsupported storage type");
   }
+
+  throw std::runtime_error("Unsupported storage type");
 }
 
-/* TODO: Blocked by issue #272, ideal flow is to determine tilize/untilize with
+/* TODO(bug #272), ideal flow is to determine tilize/untilize with
  * tile_shape */
 static ::ttnn::Tensor
 updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
@@ -151,8 +152,8 @@ updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
   // const bool shouldUntilize = (targetTileX != 32 or targetTileY != 32) and
   //                             inputTensor.get_layout() ==
   //                             ::ttnn::TILE_LAYOUT;
-  TT_FATAL(not(shouldTilize and shouldUntilize),
-           "Cannot tilize and untilize tensor at the same time");
+  assert(not(shouldTilize and shouldUntilize) &&
+         "Cannot tilize and untilize tensor at the same time");
   if (shouldTilize) {
     outputTensor = ::tilize(outputTensor);
   } else if (shouldUntilize) {
@@ -270,22 +271,20 @@ static void handleToL1MemoryConfigOp(
   }
 }
 
-// TODO: right now hardcoding tilize/untilize, should determine with tile shape
-// blocked by issue #272
+// TODO(bug #272): right now hardcoding tilize/untilize, should determine with
+// tile shape blocked by issue #272
 static void
 run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
     std::list<::ttnn::Tensor> &tensorPool) {
 
   const ::ttnn::Tensor &inputTensor = *liveTensors.at(op->in0()->global_id());
-  TT_FATAL(isOnHost(inputTensor) or isOnDevice(inputTensor),
-           "Unsupported storage type {}", inputTensor.storage_type());
+  assert(isOnHost(inputTensor) or
+         isOnDevice(inputTensor) && "Unsupported storage type");
 
   const ::tt::target::Dim2d *targetTileShape =
       op->out()->desc()->layout()->memory_desc()->tile_shape();
-  TT_FATAL(utils::isValidTileShape(targetTileShape),
-           "Invalid tile shape ({}, {})", targetTileShape->x(),
-           targetTileShape->y());
+  assert(utils::isValidTileShape(targetTileShape) && "Invalid tile shape");
 
   ::tt::target::DataType targetDataType =
       op->out()->desc()->layout()->memory_desc()->data_type();
@@ -323,7 +322,7 @@ run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
   ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(
       op->out()->desc()->layout()->memory_desc()->data_type());
 
-  // TODO: ttnn::empty doesn't work properly with tile layout,
+  // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
   // using ROW_MAJOR until we fix it
   auto desiredLayout = ::ttnn::Layout::ROW_MAJOR;
   auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
@@ -342,8 +341,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
-    TT_FATAL(op->ins()->size() == 2, "Expected 2 inputs, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 2 && "Expected 2 inputs");
     auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::add(lhs, rhs));
@@ -351,8 +349,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
-    TT_FATAL(op->ins()->size() == 2, "Expected 2 inputs, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 2 && "Expected 2 inputs");
     auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::multiply(lhs, rhs));
@@ -360,8 +357,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Subtract: {
-    TT_FATAL(op->ins()->size() == 2, "Expected 2 inputs, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 2 && "Expected 2 inputs");
     auto &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::subtract(lhs, rhs));
@@ -369,8 +365,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
-    TT_FATAL(op->ins()->size() == 2, "Expected 2 inputs, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 2 && "Expected 2 inputs");
     ::ttnn::Tensor &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     ::ttnn::Tensor &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::ge(lhs, rhs));
@@ -378,8 +373,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
-    TT_FATAL(op->ins()->size() == 2, "Expected 2 inputs, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 2 && "Expected 2 inputs");
     ::ttnn::Tensor &lhs = *liveTensors.at(op->ins()->Get(0)->global_id());
     ::ttnn::Tensor &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::divide(lhs, rhs));
@@ -388,40 +382,35 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
   }
   /* Eltwise Unary */
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
-    TT_FATAL(op->ins()->size() == 1, "Expected 1 input, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 1 && "Expected 1 input");
     ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
     tensorPool.push_back(::ttnn::relu(in));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sqrt: {
-    TT_FATAL(op->ins()->size() == 1, "Expected 1 input, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 1 && "Expected 1 input");
     ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
     tensorPool.push_back(::ttnn::sqrt(in));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
-    TT_FATAL(op->ins()->size() == 1, "Expected 1 input, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 1 && "Expected 1 input");
     ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
     tensorPool.push_back(::ttnn::sigmoid(in));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
-    TT_FATAL(op->ins()->size() == 1, "Expected 1 input, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 1 && "Expected 1 input");
     ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
     tensorPool.push_back(::ttnn::reciprocal(in));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
-    TT_FATAL(op->ins()->size() == 1, "Expected 1 input, got {}",
-             op->ins()->size());
+    assert(op->ins()->size() == 1 && "Expected 1 input");
     ::ttnn::Tensor &in = *liveTensors.at(op->ins()->Get(0)->global_id());
     tensorPool.push_back(::ttnn::exp(in));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
@@ -708,24 +697,20 @@ void runProgram(::ttnn::Device &device,
   std::list<::ttnn::Tensor> tensorPool;
 
   int inputIndex = 0;
-  TT_FATAL(program->inputs()->size() == inputs.size(),
-           "Program expects {} inputs, found {} in input tensors vector",
-           program->inputs()->size(), inputs.size());
+  assert(program->inputs()->size() == inputs.size());
   bool is_nop = handleNopProgram(program, inputs, outputs);
   for (::tt::target::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
-    TT_FATAL(inserted, "Duplicate input tensor");
+    assert(inserted && "Duplicate input tensor");
   }
 
   int outputIndex = 0;
-  TT_FATAL(program->outputs()->size() == outputs.size(),
-           "Program expects {} outputs, found {} in output tensors vector",
-           program->outputs()->size(), outputs.size());
+  assert(program->outputs()->size() == outputs.size());
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
-    TT_FATAL(is_nop || inserted, "Duplicate output tensor");
+    assert((is_nop || inserted) && "Duplicate output tensor");
   }
 
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {

@@ -263,8 +263,8 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   size_t numPciDevices = ::tt::tt_metal::GetNumPCIeDevices();
-  TT_FATAL(numDevices % numPciDevices == 0,
-           "Unexpected non-rectangular grid of devices");
+  assert(numDevices % numPciDevices == 0 &&
+         "Unexpected non-rectangular grid of devices");
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
   ::tt::tt_metal::DeviceGrid grid =

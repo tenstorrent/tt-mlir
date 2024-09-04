@@ -1,17 +1,22 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#ifndef TT_RUNTIME_ENABLE_TTNN
-#error "TT_RUNTIME_ENABLE_TTNN must be defined"
-#endif
+
+#include <cstring>
+#include <filesystem>
+#include <memory>
+#include <string>
+
+#include <gtest/gtest.h>
+
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
-#include <cstring>
-#include <filesystem>
-#include <gtest/gtest.h>
-#include <memory>
-#include <string>
+
+#ifndef TT_RUNTIME_ENABLE_TTNN
+#error "TT_RUNTIME_ENABLE_TTNN must be defined"
+#endif
+
 TEST(TTNNSubtract, Equal) {
   const char *fbPath = std::getenv("TTMLIR_SUBTRACT_FB_PATH");
   assert(fbPath && "Path to subtract flatbuffer must be provided");

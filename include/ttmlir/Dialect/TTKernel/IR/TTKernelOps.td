@@ -70,10 +70,6 @@ def TTKernel_AcquireDstOp : TTKernel_Op<"acquire_dst"> {
     let description = [{
       Aquire dest operation
     }];
-
-    //TODO: Add MemRefAttr
-    //let arguments = (ins MemRefAttr:$view);
-    //let hasVerifier = 1;
 }
 
 def TTKernel_ReleaseDstOp : TTKernel_Op<"release_dst"> {

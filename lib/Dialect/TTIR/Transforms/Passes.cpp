@@ -473,14 +473,15 @@ getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
   if (defaultDeviceMemLayout == TensorMemoryLayout::None) {
     return TensorMemoryLayout::None;
   }
+
   if (isSystemMemorySpace(targetMemorySpace)) {
     return TensorMemoryLayout::None;
-  } else {
-    assert(isDeviceMemorySpace(targetMemorySpace));
-    if (bitEnumContainsAny(operandConstraint, memoryLayoutAsOperandConstraint(
-                                                  defaultDeviceMemLayout))) {
-      return defaultDeviceMemLayout;
-    }
+  }
+
+  assert(isDeviceMemorySpace(targetMemorySpace));
+  if (bitEnumContainsAny(operandConstraint, memoryLayoutAsOperandConstraint(
+                                                defaultDeviceMemLayout))) {
+    return defaultDeviceMemLayout;
   }
 
   std::map<OperandConstraint, TensorMemoryLayout> validLayoutsMap = {

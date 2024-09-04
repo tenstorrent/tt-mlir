@@ -18,6 +18,7 @@
 namespace tt::runtime {
 
 namespace detail {
+// NOLINTBEGIN
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTNN;
 #elif defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -25,6 +26,7 @@ DeviceRuntime globalCurrentRuntime = DeviceRuntime::TTMetal;
 #else
 DeviceRuntime globalCurrentRuntime = DeviceRuntime::Disabled;
 #endif
+// NOLINTEND
 
 void deallocateBuffers(Device device) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
@@ -40,7 +42,6 @@ void deallocateBuffers(Device device) {
 #endif
   throw std::runtime_error("runtime is not enabled");
 }
-
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {

@@ -2,10 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-
 #include <cstdint>
+
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/ValueRange.h>
 

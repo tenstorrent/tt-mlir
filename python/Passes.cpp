@@ -28,7 +28,7 @@ void populatePassesModule(py::module &m) {
         mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
         ctx->appendDialectRegistry(registry);
 
-        const auto pipeline =
+        const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
 
         mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)>
@@ -53,6 +53,7 @@ void populatePassesModule(py::module &m) {
       });
 
   m.def("ttnn_to_flatbuffer_binary", [](MlirModule module) {
+    // NOLINTBEGIN
     mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
     std::shared_ptr<void> *binary = new std::shared_ptr<void>();
     *binary = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
@@ -60,6 +61,7 @@ void populatePassesModule(py::module &m) {
       std::shared_ptr<void> *bin = static_cast<std::shared_ptr<void> *>(data);
       delete bin;
     });
+    // NOLINTEND
   });
 }
 
