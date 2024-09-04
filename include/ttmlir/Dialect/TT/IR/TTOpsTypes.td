@@ -290,7 +290,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
-      AffineMap projectOnto(AffineMap linearMap, ArrayRef<int64_t> logicalTensorShape, GridAttr grid) const;
+      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap, ArrayRef<int64_t> logicalTensorShape) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
   }];
@@ -321,18 +321,33 @@ def TT_BufferAttr : TT_Attr<"Buffer", "buffer", []> {
 }
 
 def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
-  let summary = "Device attribute in TT dialect";
+  let summary = "Device attribute in TT dialect.";
   let description = [{
+    Describes the physical layout of a device in the system and is made up of a few components:
+    - A grid attribute that describes the device's compute grid shape.  It not only describes the shape of the compute grid, but also
+      carries an affine map that describes how the logical grid maps to the physical grid.
+    - Two affine maps that describe how a tensor layout's linear attribute maps to the L1 and DRAM memory spaces.
+    - An array of chip ids that this device is made up of.
   }];
-  let parameters = (ins TT_GridAttr:$grid, ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` qualified($grid) `,` `[` $chipIds `]` `>`";
+  let parameters = (ins TT_GridAttr:$workerGrid,
+                        "AffineMap":$l1Map,
+                        "AffineMap":$dramMap,
+                        ArrayRefParameter<"unsigned">:$chipIds);
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `chipIds` `=` `[` $chipIds `]` `>`";
 
   let extraClassDeclaration = [{
-      static DeviceAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap physicalGridMapping, ArrayRef<unsigned> chipIds) {
-        return DeviceAttr::get(context, GridAttr::get(context, shape, physicalGridMapping), chipIds);
-      }
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<unsigned> chipIds);
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, bool enableMultichip = false);
+      AffineMap getMapForMemorySpace(MemorySpace memorySpace) const {
+        switch (memorySpace) {
+        case MemorySpace::DeviceL1:
+          return getL1Map();
+        case MemorySpace::DeviceDRAM:
+          return getDramMap();
+        default:
+          llvm_unreachable("Unsupported memory space");
+        }
+      }
   }];
 
   let genVerifyDecl = 1;

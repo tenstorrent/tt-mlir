@@ -157,6 +157,10 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::SystemDescAttr>(m, "SystemDescAttr")
+      .def_static("get_default",
+                  [](MlirContext ctx) {
+                    return wrap(tt::SystemDescAttr::getDefault(unwrap(ctx)));
+                  })
       .def_static("get", [](MlirContext ctx,
                             std::vector<MlirAttribute> chipDescs,
                             std::vector<unsigned> chipDescIndices,
@@ -227,13 +231,22 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::DeviceAttr>(m, "DeviceAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, std::vector<int64_t> shape,
-             MlirAffineMap physicalGridMapping, std::vector<unsigned> chipIds) {
-            return wrap(tt::DeviceAttr::get(
-                unwrap(ctx), shape, unwrap(physicalGridMapping), chipIds));
-          })
+      .def_static("from_system_desc",
+                  [](MlirContext ctx, MlirAttribute systemDesc) {
+                    return wrap(tt::DeviceAttr::get(
+                        unwrap(ctx),
+                        mlir::cast<tt::SystemDescAttr>(unwrap(systemDesc))));
+                  })
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> shape,
+                     MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
+                     MlirAffineMap dramMap, std::vector<unsigned> chipIds) {
+                    return wrap(tt::DeviceAttr::get(
+                        unwrap(ctx),
+                        tt::GridAttr::get(unwrap(ctx), shape,
+                                          unwrap(workerGridMapping)),
+                        unwrap(l1Map), unwrap(dramMap), chipIds));
+                  })
       .def("unwrap", [](MlirAttribute const &self) {
         return mlir::cast<tt::DeviceAttr>(unwrap(self));
       });
