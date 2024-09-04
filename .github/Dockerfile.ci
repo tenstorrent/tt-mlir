@@ -1,11 +1,11 @@
 ARG GIT_SHA
 ARG FROM_TAG=${GIT_SHA:-latest}
-ENV PROJECT_NAME=tt-mlir
 
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG}
 SHELL ["/bin/bash", "-c"]
 
 # Create a directory for the build and toolchain
+ENV PROJECT_NAME=tt-mlir
 ENV BUILD_DIR=/home/build
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN mkdir -p $BUILD_DIR && \
