@@ -550,10 +550,17 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 
   auto desiredLayout = rewriter.getAttr<LayoutAttr>(
       ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType);
+  tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
+
+  // If we are changing the layout of existing op
+  // we need to set the insertion point to the existing op
+  if (exising_empty) {
+    rewriter.setInsertionPoint(input.getDefiningOp());
+  }
+
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
-  tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
   if (exising_empty) {
     rewriter.replaceOp(exising_empty, output);
     return output.getResult();
@@ -608,6 +615,7 @@ public:
           createToLayoutOp(rewriter, op.getLoc(), operand.get(),
                            operandConstraint, defaultMemorySpace);
 
+      // If we changed layout (memory space or element type), update the op
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
@@ -617,6 +625,8 @@ public:
             op->getResult(0).setType(desiredLayout->getType());
           }
         });
+      } else if (isResult) {
+        op->getResult(0).setType(operand.get().getType());
       }
     }
 
