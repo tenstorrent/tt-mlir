@@ -16,18 +16,22 @@ module attributes {} {
         #tt.data_movement_attributes<
           <0x0, 6x6>, 
           "ttnn/cpp/ttnn/operations/eltwise/binary/device/kernels/dataflow/reader_binary_interleaved_start_id.cpp", 
-          <reader, <1, 1>>
+          <reader, <1, 1>, {}>,
+          <<false, tensor_addr, 1, 1, 1, <0x0, 6x6>>>
         >, 
         #tt.data_movement_attributes<
           <0x0, 6x6>, 
           "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp", 
-          <writer, <1, 1>>>
+          <writer, <1, 1>, {}>,
+          <<false, tensor_addr, 1, 1, 1, <0x0, 6x6>>>
+        >
       ], 
       compute_attributes = [
         #tt.compute_attributes<
           <0x0, 6x6>, 
           "ttnn/cpp/ttnn/operations/eltwise/binary/device/kernels/compute/eltwise_binary_kernel.cpp", 
-          <hifi4, false, false, false, <1>, {ELTWISE_OP = "add_tiles", ELTWISE_OP_TYPE = "EltwiseBinaryType::ELWADD"}>
+          <hifi4, false, false, false, <1>, {ELTWISE_OP = "add_tiles", ELTWISE_OP_TYPE = "EltwiseBinaryType::ELWADD"}>,
+          <<false, tensor_addr, 1, 1, 1, <0x0, 6x6>>>
         >
       ], 
       operandSegmentSizes = array<i32: 2, 1>, 
@@ -38,3 +42,4 @@ module attributes {} {
     return %1 : tensor<64x128xf32>
   }
 }
+

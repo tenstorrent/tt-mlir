@@ -38,7 +38,7 @@ class CustomAttrsAndTypesBuilder:
         self.module = Module.create(self.cursor)
         self.insert_point = self.module.body
 
-    def getCoreRangeAttr(self, offset: List[int], size: List[int]) -> "tt.CoreRangeAttr":
+    def getCoreRangeAttr(self, offset: List[int], size: List[int]) -> "tt.ir.CoreRangeAttr":
         return tt.ir.CoreRangeAttr.get(self.ctx, offset, size)
 
     def getCircularBufferAttributesAttr(
@@ -47,14 +47,20 @@ class CustomAttrsAndTypesBuilder:
         return tt.ir.CircularBufferAttributesAttr.get(self.ctx, cb_id, core_range, total_size, page_size, data_format)
 
     def getDataMovementConfigAttr(
-        self, data_movement_type: int, compile_args: List[int]
+        self, data_movement_type: int, compile_args: List[int], defines: Dict[str, str]
     ) -> "tt.ir.DataMovementConfigAttr":
-        return tt.ir.DataMovementConfigAttr.get(self.ctx, data_movement_type, compile_args)
+        return tt.ir.DataMovementConfigAttr.get(self.ctx, data_movement_type, compile_args, defines)
 
     def getDataMovementAttributesAttr(
-        self, core_range: "tt.ir.CoreRangeAttr", kernel_path: str, data_movement_config: "tt.ir.DataMovementConfigAttr"
+        self,
+        core_range: "tt.ir.CoreRangeAttr",
+        kernel_path: str,
+        data_movement_config: "tt.ir.DataMovementConfigAttr",
+        runtime_args: List["tt.ir.RuntimeArgumentAttr"],
     ) -> "tt.ir.DataMovementAttributesAttr":
-        return tt.ir.DataMovementAttributesAttr.get(self.ctx, core_range, kernel_path, data_movement_config)
+        return tt.ir.DataMovementAttributesAttr.get(
+            self.ctx, core_range, kernel_path, data_movement_config, runtime_args
+        )
 
     def getComputeConfigAttr(
         self,
@@ -70,9 +76,26 @@ class CustomAttrsAndTypesBuilder:
         )
 
     def getComputeAttributesAttr(
-        self, core_range: "tt.ir.CoreRangeAttr", kernel_path: str, compute_config: "tt.ir.ComputeConfigAttr"
+        self,
+        core_range: "tt.ir.CoreRangeAttr",
+        kernel_path: str,
+        compute_config: "tt.ir.ComputeConfigAttr",
+        runtime_args: List["tt.ir.RuntimeArgumentAttr"],
     ) -> "tt.ir.ComputeAttributesAttr":
-        return tt.ir.ComputeAttributesAttr.get(self.ctx, core_range, kernel_path, compute_config)
+        return tt.ir.ComputeAttributesAttr.get(self.ctx, core_range, kernel_path, compute_config, runtime_args)
+
+    def getRuntimeArgumentAttr(
+        self,
+        ttnn_compute: bool,
+        runtme_argument_type: int,
+        val: int,
+        argument_index: int,
+        tensor_glob_id: int,
+        core_range: "tt.ir.CoreRangeAttr",
+    ) -> "tt.ir.RuntimeArgumentAttr":
+        return tt.ir.RuntimeArgumentAttr.get(
+            self.ctx, ttnn_compute, runtme_argument_type, val, argument_index, tensor_glob_id, core_range
+        )
 
     def getExternalGenericOp(
         self,
@@ -160,19 +183,21 @@ class GenericOpBuilder:
     def create_dummy_data_movement_attributes(self) -> List["tt.ir.DataMovementAttributesAttr"]:
         all_cores = self.types_builder.getCoreRangeAttr([0, 0], [6, 6])
 
-        reader_config = self.types_builder.getDataMovementConfigAttr(tt.DataMovementType.Reader.value, [1, 1])
-        writer_config = self.types_builder.getDataMovementConfigAttr(tt.DataMovementType.Writer.value, [1, 1])
+        reader_config = self.types_builder.getDataMovementConfigAttr(tt.DataMovementType.Reader.value, [1, 1], {})
+        writer_config = self.types_builder.getDataMovementConfigAttr(tt.DataMovementType.Writer.value, [1, 1], {})
 
         return [
             self.types_builder.getDataMovementAttributesAttr(
                 all_cores,
                 "ttnn/cpp/ttnn/operations/eltwise/binary/device/kernels/dataflow/reader_binary_interleaved_start_id.cpp",
                 reader_config,
+                [],
             ),
             self.types_builder.getDataMovementAttributesAttr(
                 all_cores,
                 "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp",
                 writer_config,
+                [],
             ),
         ]
 
@@ -186,12 +211,16 @@ class GenericOpBuilder:
         compute_config = self.types_builder.getComputeConfigAttr(
             tt.MathFidelity.HiFi4.value, False, False, False, [1, 1], eltwise_add_defines
         )
+        runtime_args = self.types_builder.getRuntimeArgumentAttr(
+            False, tt.RuntimeArgumentType.TensorAddr.value, 1, 1, 1, all_cores
+        )
 
         return [
             self.types_builder.getComputeAttributesAttr(
                 all_cores,
                 "ttnn/cpp/ttnn/operations/eltwise/binary/device/kernels/compute/eltwise_binary_kernel.cpp",
                 compute_config,
+                [runtime_args],
             )
         ]
 

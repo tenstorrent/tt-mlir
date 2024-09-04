@@ -254,12 +254,26 @@ void populateTTModule(py::module &m) {
             page_size, static_cast<tt::DataType>(data_format)));
       });
 
+  py::class_<tt::RuntimeArgumentAttr>(m, "RuntimeArgumentAttr")
+      .def_static("get", [](MlirContext ctx, bool ttnn_compute,
+                            uint8_t runtime_argument_type, uint32_t val,
+                            uint32_t argument_index, uint32_t tensor_glob_id,
+                            MlirAttribute core_range) {
+        auto *context = unwrap(ctx);
+
+        return wrap(tt::RuntimeArgumentAttr::get(
+            context, mlir::BoolAttr::get(context, ttnn_compute),
+            static_cast<tt::RuntimeArgumentType>(runtime_argument_type), val,
+            argument_index, tensor_glob_id,
+            mlir::cast<tt::CoreRangeAttr>(unwrap(core_range))));
+      });
+
   py::class_<tt::DataMovementConfigAttr>(m, "DataMovementConfigAttr")
       .def_static("get", [](MlirContext ctx, uint8_t data_movement_type,
                             std::vector<uint32_t> compile_args,
                             std::map<std::string, std::string> defines) {
         auto *context = unwrap(ctx);
-        
+
         SmallVector<NamedAttribute> namedAttributes;
         for (const auto &[name, value] : defines) {
           namedAttributes.emplace_back(mlir::StringAttr::get(context, name),
@@ -267,7 +281,7 @@ void populateTTModule(py::module &m) {
         }
 
         return wrap(tt::DataMovementConfigAttr::get(
-            unwrap(ctx), static_cast<tt::DataMovementType>(data_movement_type),
+            context, static_cast<tt::DataMovementType>(data_movement_type),
             compile_args, mlir::DictionaryAttr::get(context, namedAttributes)));
       });
 
