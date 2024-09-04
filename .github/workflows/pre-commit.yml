@@ -6,8 +6,9 @@ on:
 
 jobs:
   pre-commit:
-    runs-on: macos-latest
 
+    timeout-minutes: 10
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
