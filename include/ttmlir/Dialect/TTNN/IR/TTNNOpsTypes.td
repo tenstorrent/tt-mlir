@@ -20,4 +20,17 @@ class TTNN_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
+def TTNN_MemoryConfig : TTNN_Type<"MemoryConfig", "memory_config"> {
+  let summary = "TTNN memory configuration attribute";
+  let description = [{
+    TTNN memory configuration attribute
+  }];
+
+  let parameters = (ins EnumParameter<TTNN_TensorMemoryLayout>:$tensorMemoryLayout,
+                        EnumParameter<TTNN_BufferType>:$bufferType);
+                        // TODO: ShardSpec
+  let assemblyFormat = "`<` $tensorMemoryLayout `,` $bufferType `>`";
+}
+
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSTYPES_TD

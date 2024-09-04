@@ -14,6 +14,8 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -36,6 +38,9 @@ public:
     });
     addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
+    });
+    addConversion([ctx](ttnn::MemoryConfigType type) -> emitc::OpaqueType {
+      return emitc::OpaqueType::get(ctx, "ttnn::MemoryConfig");
     });
   }
 };

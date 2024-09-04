@@ -48,4 +48,12 @@ def TTNN_LayoutAttr : EnumAttr<TTNN_Dialect, TTNN_Layout, "layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTNN_TensorMemoryLayoutAttr : EnumAttr<TTNN_Dialect, TTNN_TensorMemoryLayout, "tensor_memory_layout"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTNN_BufferTypeAttr : EnumAttr<TTNN_Dialect, TTNN_BufferType, "buffer_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

@@ -13,6 +13,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "llvm/Support/Casting.h"
 #include <iostream>
 #include <llvm/Support/LogicalResult.h>
@@ -68,10 +69,6 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
-    // Drop the last operand which is the DPS operand
-    //
-    // ValueRange nonDPSOperands = adaptor.getOperands().drop_back();
-
     // Get tt::LayoutAttr of the result type
     //
     tt::LayoutAttr ttLayoutAttr =
@@ -93,36 +90,65 @@ public:
       dtype = elementTypeToDataType(elementType);
     }
 
-    // Figure out memory space used for output tensor
-    // TODO: Map to memory config when the type is created
+    // Map TT::MemorySpace to TTNN::BufferType
     //
     tt::MemorySpace memorySpace = ttLayoutAttr.getMemorySpace();
-    (void)memorySpace;
-    // if (memorySpace == tt::MemorySpace::System) {
-    //   std::cout << "System" << std::endl;
-    // } else if (memorySpace == tt::MemorySpace::SystemMMIO) {
-    //   std::cout << "SystemMMIO" << std::endl;
-    // } else if (memorySpace == tt::MemorySpace::DeviceL1) {
-    //   std::cout << "DeviceL1" << std::endl;
-    // } else if (memorySpace == tt::MemorySpace::DeviceDRAM) {
-    //   std::cout << "DeviceDRAM" << std::endl;
-    // }
+    ttnn::BufferType bufferType = ttnn::BufferType::DRAM; // default to DRAM
+    switch (memorySpace) {
+    case tt::MemorySpace::System:
+      bufferType = ttnn::BufferType::SystemMemory;
+      break;
+    case tt::MemorySpace::DeviceDRAM:
+    case tt::MemorySpace::SystemMMIO:
+      // is this mapping correct for SystemMMIO?
+      bufferType = ttnn::BufferType::DRAM;
+      break;
+    case tt::MemorySpace::DeviceL1:
+      bufferType = ttnn::BufferType::L1;
+      break;
+    }
 
-    auto device = findDevice(op);
+    auto tensorMemoryLayout =
+        ttnn::TensorMemoryLayout::HeightSharded; // default to HeightSharded for
+                                                 // now, need to update this
+
+    (void)bufferType;
+    (void)tensorMemoryLayout;
+
+    // ttnn::MemoryConfigAttr memConfig =
+    //     ttnn::MemoryConfigAttr::get(op->getContext(), tensorMemoryLayout,
+    //     bufferType);
 
     // TODO: Add ttnn::Tensor(tensor, dtype) call once tt-metal is updated
     // tt::DataTypeAttr::get(op.getContext(), dtype), device)
     (void)dtype;
 
+    // Find device to be used for the tensor
+    //
+    auto device = findDevice(op);
+
+    // Create ToLayoutOp
+    //
     ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
         op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
         op.getInput(), ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
         device);
 
-    // TODO: Create MemoryConfig
+    // Create MemoryConfigOp
+    //
+    ttnn::MemoryConfigType result = ttnn::MemoryConfigType::get(
+        op.getContext(), tensorMemoryLayout, bufferType);
+    ttnn::MemoryConfigOp memoryConfigOp = rewriter.create<ttnn::MemoryConfigOp>(
+        toLayoutOp.getLoc(), result,
+        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
+
+    // Create ToDeviceOp
+    //
     rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
         op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
-        device);
+        device, memoryConfigOp);
+    // device, memConfig);
     return success();
   }
 };

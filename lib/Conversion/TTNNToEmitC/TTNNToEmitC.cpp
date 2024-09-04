@@ -18,12 +18,72 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "llvm/Support/LogicalResult.h"
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/Casting.h>
+#include <mlir/IR/Attributes.h>
+#include <mlir/IR/BuiltinAttributes.h>
 
 using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
+
+emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
+  switch (attr.getValue()) {
+  case ttnn::Layout::RowMajor:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::ROW_MAJOR");
+  case ttnn::Layout::Tile:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::TILE");
+  case ttnn::Layout::Invalid:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::INVALID");
+  }
+  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+  return nullptr;
+}
+
+emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
+                                            ttnn::TensorMemoryLayoutAttr attr) {
+  switch (attr.getValue()) {
+  case ttnn::TensorMemoryLayout::BlockSharded:
+    return builder.getType<emitc::OpaqueAttr>(
+        "ttnn::TensorMemoryLayout::BLOCK_SHARDED");
+  case ttnn::TensorMemoryLayout::HeightSharded:
+    return builder.getType<emitc::OpaqueAttr>(
+        "ttnn::TensorMemoryLayout::HEIGHT_SHARDED");
+  case ttnn::TensorMemoryLayout::Interleaved:
+    return builder.getType<emitc::OpaqueAttr>(
+        "ttnn::TensorMemoryLayout::INTERLEAVED");
+  case ttnn::TensorMemoryLayout::SingleBank:
+    return builder.getType<emitc::OpaqueAttr>(
+        "ttnn::TensorMemoryLayout::SINGLE_BANK");
+  case ttnn::TensorMemoryLayout::WidthSharded:
+    return builder.getType<emitc::OpaqueAttr>(
+        "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
+  }
+  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+  return nullptr;
+}
+
+emitc::OpaqueAttr convertBufferType(Builder &builder,
+                                    ttnn::BufferTypeAttr attr) {
+  switch (attr.getValue()) {
+  case ttnn::BufferType::DRAM:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::DRAM");
+  case ttnn::BufferType::L1:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::L1");
+  case ttnn::BufferType::L1Small:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::L1_SMALL");
+  case ttnn::BufferType::SystemMemory:
+    return builder.getType<emitc::OpaqueAttr>(
+        "ttnn::BufferType::SYSTEM_MEMORY");
+  case ttnn::BufferType::Trace:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::TRACE");
+  }
+  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
+  return nullptr;
+}
 
 // Base class for TTNN to EmitC OpConversionPattern
 //
@@ -144,6 +204,109 @@ public:
   }
 };
 
+// ToDeviceOp conversion pattern
+//
+class ToDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp> {
+
+public:
+  ToDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                              MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp>(typeConverter,
+                                                             context, benefit) {
+  }
+
+  LogicalResult
+  matchAndRewrite(ttnn::ToDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // auto x = srcOp.getMemoryConfigAttr();
+    // auto y = mlir::ArrayAttr();
+    // auto z =
+    //     ::llvm::cast<::mlir::ArrayAttr>();
+
+    // auto b = srcOp.getProperties().memory_config.getTensorMemoryLayout();
+    // auto c = srcOp.getProperties().memory_config.getBufferType();
+
+    // ArrayAttr::get(srcOp->getContext(),
+    //                llvm::SmallVector<Attribute>(srcOp->getAttrs().begin(),
+    //                                             srcOp->getAttrs().end()));
+    // llvm::SmallVector<NamedAttribute> v{b, c};
+    // ArrayAttr::get(srcOp->getContext(),
+    // z.dump();
+
+    // ::mlir::ArrayAttr getDeviceIdsAttr() {
+    //   return ::llvm::cast<::mlir::ArrayAttr>(getProperties().device_ids);
+    // }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// ToLayoutOp conversion pattern
+//
+class ToLayoutOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp> {
+
+public:
+  ToLayoutOpConversionPattern(const TypeConverter &typeConverter,
+                              MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp>(typeConverter,
+                                                             context, benefit) {
+  }
+
+  LogicalResult
+  matchAndRewrite(ttnn::ToLayoutOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    llvm::SmallVector<Attribute, 1> attrs;
+    attrs.push_back(convertLayoutAttr(rewriter, srcOp.getLayoutAttr()));
+    ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp),
+        arrayAttrs /* this seems to now ignore operands */, nullptr,
+        adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// MemoryConfigOp conversion pattern
+//
+class MemoryConfigOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::MemoryConfigOp> {
+
+public:
+  MemoryConfigOpConversionPattern(const TypeConverter &typeConverter,
+                                  MLIRContext *context,
+                                  PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::MemoryConfigOp>(
+            typeConverter, context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(ttnn::MemoryConfigOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    llvm::SmallVector<Attribute, 2> attrs;
+    attrs.push_back(
+        convertTensorMemoryLayout(rewriter, srcOp.getTensorMemoryLayoutAttr()));
+    attrs.push_back(convertBufferType(rewriter, srcOp.getBufferTypeAttr()));
+    ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -158,12 +321,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::ToLayoutOp>>(typeConverter,
-                                                             ctx);
-  patterns.add<DefaultOpConversionPattern<ttnn::ToDeviceOp>>(typeConverter,
-                                                             ctx);
+  patterns.add<ToLayoutOpConversionPattern>(typeConverter, ctx);
+  // patterns.add<DefaultOpConversionPattern<ttnn::ToDeviceOp>>(typeConverter,
+  //                                                            ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>>(
       typeConverter, ctx);
+  patterns.add<ToDeviceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<MemoryConfigOpConversionPattern>(typeConverter, ctx);
 
   // Tensor ops
   //

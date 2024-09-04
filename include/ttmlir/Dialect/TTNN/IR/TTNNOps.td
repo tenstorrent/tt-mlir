@@ -52,8 +52,6 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          TTNN_LayoutAttr:$layout,
-                        //  OptionalAttr<TT_DataTypeAttr>:$dtype,
-                        //  OptionalAttr<MemoryConfig>:$memory_config,  // TODO: Implement MemoryConfig type
                          TT_Device:$device);
     let results = (outs AnyRankedTensor:$result);
 }
@@ -64,9 +62,20 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device);
-                         // TTNN_MemoryConfig:$memory_config);  // TODO: Implement MemoryConfig type
+                         TT_Device:$device,
+                         TTNN_MemoryConfig:$memory_config);
     let results = (outs AnyRankedTensor:$result);
+}
+
+// Construtor to MemoryConfig - is this the correct way to do it?
+def TTNN_MemoryConfigOp : TTNN_Op<"MemoryConfig"> {
+    let summary = "MemoryConfig op.";
+    let description = [{
+    }];
+
+    let arguments = (ins TTNN_TensorMemoryLayoutAttr:$tensor_memory_layout,
+                         TTNN_BufferTypeAttr:$buffer_type);
+    let results = (outs TTNN_MemoryConfig:$result);
 }
 
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
