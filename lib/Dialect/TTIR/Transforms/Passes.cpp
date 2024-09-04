@@ -626,10 +626,17 @@ public:
           }
         });
       } else if (isResult) {
-        op->getResult(0).setType(operand.get().getType());
+        if (op->getResult(0).getType() == operand.get().getType()) {
+          continue;
+        }
+        rewriter.modifyOpInPlace(op, [&]() {
+          modified = true;
+          op->getResult(0).setType(operand.get().getType());
+        });
       }
     }
 
+    op->getParentOfType<mlir::ModuleOp>().print(llvm::errs());
     return modified ? success() : failure();
   }
 
