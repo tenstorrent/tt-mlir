@@ -189,7 +189,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
               ::tt::target::metal::CreateKernelSourceDirect(
                   fbb, toFlatbuffer(threadType), source.c_str())
                   .Union(),
-              &coreRangeSet, &cbs, nullptr /*TODO debug info*/));
+              &coreRangeSet, &cbs, nullptr, nullptr, /* TODO rtargs*/
+              nullptr /*TODO debug info*/));
         }
         ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
             ::tt::target::metal::CreateProgramDescDirect(fbb, &kernels);
