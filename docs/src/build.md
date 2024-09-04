@@ -211,8 +211,8 @@ If you get the following error, it means you need to install clang which you can
 ### `sfpi`, `trisc`, `ncrisc` build failure
 
 ```
-pybuda/third_party/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/sfpi/compiler/bin/riscv32-unknown-elf-g++: 1: version: not found
-pybuda/third_party/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/sfpi/compiler/bin/riscv32-unknown-elf-g++: 2: oid: not found
+tt-forge-fe/third_party/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/sfpi/compiler/bin/riscv32-unknown-elf-g++: 1: version: not found
+tt-forge-fe/third_party/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/sfpi/compiler/bin/riscv32-unknown-elf-g++: 2: oid: not found
 size: '1961632': No such file
 size: '1961632': No such file
 size: '1961632': No such file
