@@ -161,8 +161,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
-        nullptr, adaptor.getOperands());
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
 
     return success();
   }
@@ -185,8 +185,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
-        nullptr, adaptor.getOperands());
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
 
     return success();
   }
