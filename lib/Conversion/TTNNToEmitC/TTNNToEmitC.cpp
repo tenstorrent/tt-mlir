@@ -144,54 +144,6 @@ public:
   }
 };
 
-// ToLayoutOp conversion pattern
-//
-class ToLayoutOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp> {
-
-public:
-  ToLayoutOpConversionPattern(const TypeConverter &typeConverter,
-                              MLIRContext *context, PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToLayoutOp>(typeConverter,
-                                                             context, benefit) {
-  }
-
-  LogicalResult
-  matchAndRewrite(ttnn::ToLayoutOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
-
-    return success();
-  }
-};
-
-// ToDeviceOp conversion pattern
-//
-class ToDeviceOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp> {
-
-public:
-  ToDeviceOpConversionPattern(const TypeConverter &typeConverter,
-                              MLIRContext *context, PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToDeviceOp>(typeConverter,
-                                                             context, benefit) {
-  }
-
-  LogicalResult
-  matchAndRewrite(ttnn::ToDeviceOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
-
-    return success();
-  }
-};
-
 } // namespace
 
 namespace mlir::tt {
@@ -206,8 +158,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
-  patterns.add<ToLayoutOpConversionPattern>(typeConverter, ctx);
-  patterns.add<ToDeviceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::ToLayoutOp>>(typeConverter,
+                                                             ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::ToDeviceOp>>(typeConverter,
+                                                             ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>>(
       typeConverter, ctx);
 
