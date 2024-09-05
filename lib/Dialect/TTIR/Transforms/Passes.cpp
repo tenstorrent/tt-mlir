@@ -1102,7 +1102,7 @@ public:
               optimalTargetGridAnalysis.getResult().at(op));
 
           op->getResult(0).setType(newTensorType);
-          
+
           if (llvm::isa<mlir::DestinationStyleOpInterface>(op)) {
             // Update dps operand layout as well.
             op->getOperands().back().setType(newTensorType);

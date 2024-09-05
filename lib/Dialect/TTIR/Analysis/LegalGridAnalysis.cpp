@@ -98,8 +98,9 @@ void LegalGridAnalysis::analysisImplementation() {
   LayoutAttr dram =
       layout.withMemorySpace(op->getContext(), MemorySpace::DeviceDRAM)
           .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved)
-          .withGrid(op->getContext(), tensorType, GridAttr::get(op->getContext(),
-                                                               analysisInput.maxGrid.getShape()));
+          .withGrid(op->getContext(), tensorType,
+                    GridAttr::get(op->getContext(),
+                                  analysisInput.maxGrid.getShape()));
   if (mock_is_output_tensor_legal_for_op(op, dram)) {
     analysisResult.push_back(dram);
   }
@@ -108,8 +109,9 @@ void LegalGridAnalysis::analysisImplementation() {
   LayoutAttr l1Interleaved =
       layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1)
           .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved)
-          .withGrid(op->getContext(), tensorType, GridAttr::get(op->getContext(),
-                                                               analysisInput.maxGrid.getShape()));
+          .withGrid(op->getContext(), tensorType,
+                    GridAttr::get(op->getContext(),
+                                  analysisInput.maxGrid.getShape()));
   if (mock_is_output_tensor_legal_for_op(op, l1Interleaved)) {
     analysisResult.push_back(l1Interleaved);
   }
