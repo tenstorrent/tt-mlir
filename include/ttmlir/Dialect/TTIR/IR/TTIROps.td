@@ -232,13 +232,6 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
-    let summary = "Eltwise divide.";
-    let description = [{
-      Eltwise divide operation.
-    }];
-}
-
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Eltwise subtract.";
     let description = [{
@@ -722,6 +715,13 @@ def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
+    }];
+}
+
+def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
+    let summary = "Eltwise divide.";
+    let description = [{
+      Eltwise divide operation.
     }];
 }
 

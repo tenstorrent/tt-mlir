@@ -125,8 +125,15 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
 }
 
+def TTKernel_CopyTileInitOp : TTKernel_Op<"copy_tile_init"> {
+    let summary = "Perform the init for copy tile. This does not reconfigure the unpacker data types.";
+    let description = [{
+      Must be called before copy_tile.
+    }];
+}
+
 def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
-    let summary = "copy_tile";
+    let summary = "Copy tile from specified CB to DST.";
     let description = [{
       Copies a single tile from the specified input CB and writes the result to
       DST at a specified index. The function will employ unpacker to first unpack into SRC
@@ -135,11 +142,11 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       previously called to ensure that at least some number n>0 of tiles are available
       in the input CB. The CB index 0 then references the first tile in the received section of the CB,
       up to index n-1 (in a FIFO order). The DST register buffer must be in acquired state via
-      tile_regs_acquire call. This call is blocking and is only available on the compute
+      acquire_dst call. This call is blocking and is only available on the compute
       engine.
     }];
 
-    let arguments = (ins TTKernel_CB:$cb0, I32:$tile_index_0, I32:$tile_index_1);
+    let arguments = (ins TTKernel_CB:$cb0, I32:$tile_index_cb, I32:$tile_index_dst);
 }
 
 //===----------------------------------------------------------------------===//
@@ -221,6 +228,13 @@ def TTKernel_MulTilesInitOp : TTKernel_Op<"mul_tiles_init"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
 }
 
+def TTKernel_MulTilesInitFOp : TTKernel_Op<"mul_tiles_init_f"> {
+    let summary = "Short init function. Init for math only.";
+    let description = [{
+      Must be run before mul_tiles.
+    }];
+}
+
 def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
     let summary = "Mul operation";
     let description = [{
@@ -257,6 +271,26 @@ def TTKernel_ExpTileOp : TTKernel_Op<"exp_tile"> {
       in DST register at index tile_index. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call. This call is blocking and is only
       available on the compute engine.
+    }];
+
+    let arguments = (ins I32:$tile_index);
+}
+
+def TTKernel_RecipTileInitOp : TTKernel_Op<"recip_tile_init"> {
+    let summary = "Init function for recip_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be called before recip_tile function.
+    }];
+}
+
+def TTKernel_RecipTileOp : TTKernel_Op<"recip_tile"> {
+    let summary = "Recip tile in the DST at specified index.";
+    let description = [{
+      Performs element-wise computation of the reciprocal on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine.
+      Only works for Float32, Float16_b, Bfp8_b data formats for full accuracy.
     }];
 
     let arguments = (ins I32:$tile_index);

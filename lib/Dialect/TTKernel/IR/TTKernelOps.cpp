@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -17,9 +18,15 @@ namespace mlir::tt::ttkernel {
 
 static bool insideDispatchOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
+
   if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp)) {
     return true;
   }
+
+  if (dyn_cast_or_null<scf::ForOp>(parentOp)) {
+    return true;
+  }
+
   if (dyn_cast_or_null<func::FuncOp>(parentOp) &&
       dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp())) {
     return true;
