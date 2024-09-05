@@ -220,7 +220,7 @@ def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
     }];
 }
 
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
+def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     let summary = "Eltwise divide.";
     let description = [{
       Eltwise divide operation.

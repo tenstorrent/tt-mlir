@@ -172,13 +172,23 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
                   dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
           for (auto arg : region.getArguments()) {
-            assert(arg.getArgNumber() < operands.size());
+            // assert(arg.getArgNumber() < operands.size());
+            // if (arg.getArgNumber() >= operands.size()) {
+            //   continue;
+            // }
             auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
             auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-            auto tensorRef = operands[arg.getArgNumber()];
-            cbs.push_back(
-                ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
-                                          cbType.getAddress(), cbDesc));
+            if (arg.getArgNumber() < operands.size()) {
+              auto tensorRef = operands[arg.getArgNumber()];
+              cbs.push_back(
+                  ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
+                                            cbType.getAddress(), cbDesc));
+            } else {
+              auto tensorRef = operands[0];
+              cbs.push_back(
+                  ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
+                                            cbType.getAddress(), cbDesc));
+            }
           }
 
           std::string &source = cppKernels[region.getRegionNumber()];

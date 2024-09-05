@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
+#include <llvm/Support/raw_ostream.h>
 
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
@@ -676,12 +677,21 @@ public:
                                                cbOperands[operandIndices[0]],
                                                cbOperands[operandIndices[1]]);
     } else if (mlir::isa<arith::MulFOp>(op)) {
+      // TODO(pjanevski): remove hard coded indexing here
+      builder.create<ttkernel::BinaryOpInitCommonOp>(
+          op.getLoc(), cbOperands[0],
+          cbOperands[3], cbOperands[2]);
+      builder.create<ttkernel::MulTilesInitFOp>(op.getLoc());
+    } else if(mlir::isa<arith::DivFOp>(op)) {
+      llvm_unreachable("DivF is split into NegFOp and MulFOp");
       builder.create<ttkernel::BinaryOpInitCommonOp>(
           op.getLoc(), cbOperands[operandIndices[0]],
-          cbOperands[operandIndices[1]], cbOperands[numDpsInputs]);
-      builder.create<ttkernel::MulTilesInitOp>(op.getLoc(),
-                                               cbOperands[operandIndices[0]],
-                                               cbOperands[operandIndices[1]]);
+          cbOperands[3], cbOperands[numDpsInputs]);
+      builder.create<ttkernel::MulTilesInitFOp>(op.getLoc());
+    } else if (mlir::isa<arith::NegFOp>(op)) {
+      // Don't do anything for NegFOp.
+    } else if (mlir::isa<tt::ttir::YieldOp>(op)) {
+      // don't do anything
     } else {
       llvm_unreachable("Unhandled conversion");
     }
@@ -694,21 +704,109 @@ public:
   void convertComputeOp(Operation &op, ArrayRef<BlockArgument> cbOperands,
                         ArrayRef<BlockArgument> iterators,
                         SmallVector<unsigned> blockArgIteratorMapping,
-                        Value dstIndex, OpBuilder &builder) const {
+                        OpBuilder &builder, Block *computeBlock,
+                        std::int64_t numDpsInputs) const {
     SmallVector<std::int64_t> operandIndices;
     for (OpOperand &operand : op.getOpOperands()) {
       operandIndices.push_back(operand.getOperandNumber());
     }
+    
     if (mlir::isa<arith::AddFOp>(op)) {
+      Value dstIndex = i32(0, builder);
       builder.create<ttkernel::AddTilesOp>(
           op.getLoc(), cbOperands[operandIndices[0]],
           cbOperands[operandIndices[1]], iterators[blockArgIteratorMapping[0]],
           iterators[blockArgIteratorMapping[1]], dstIndex);
     } else if (mlir::isa<arith::MulFOp>(op)) {
+      Value dstIndex = i32(0, builder);
+      Value one = i32(1, builder);
+      Value output = cbOperands[numDpsInputs];
+      builder.create<ttkernel::TileRegsAcquireOp>(
+            computeBlock->front().getLoc());
       builder.create<ttkernel::MulTilesOp>(
-          op.getLoc(), cbOperands[operandIndices[0]],
-          cbOperands[operandIndices[1]], iterators[blockArgIteratorMapping[0]],
+          computeBlock->front().getLoc(), cbOperands[0],
+          cbOperands[3], iterators[blockArgIteratorMapping[0]],
           iterators[blockArgIteratorMapping[1]], dstIndex);
+      builder.create<ttkernel::TileRegsCommitOp>(
+            computeBlock->front().getLoc());
+      builder.create<ttkernel::TileRegsWaitOp>(
+          computeBlock->front().getLoc());
+      builder.create<ttkernel::PackTileOp>(
+          computeBlock->front().getLoc(), dstIndex, output,
+          iterators[blockArgIteratorMapping[numDpsInputs]]);
+      builder.create<ttkernel::TileRegsReleaseOp>(
+          computeBlock->front().getLoc());
+      builder.create<ttkernel::CBPopFrontOp>(
+          computeBlock->front().getLoc(),
+          cbOperands[3],
+          one);
+    } else if (mlir::isa<arith::DivFOp>(op)) {
+      llvm_unreachable("DivF is split into NegFOp and MulFOp");
+    } else if (mlir::isa<arith::NegFOp>(op)) {
+      Value dstIndex = i32(0, builder);
+      Value one = i32(1, builder);
+
+      builder.create<ttkernel::CopyTileToDstInitShort>(
+            computeBlock->front().getLoc());
+      builder.create<ttkernel::UnpackReconfigDataFormatSrcA>(
+            computeBlock->front().getLoc(),
+            cbOperands[0],
+            cbOperands[1]);
+      builder.create<ttkernel::PackReconfigDataFormat>(
+        computeBlock->front().getLoc(),
+        cbOperands[2],
+        cbOperands[3]);
+
+      builder.create<ttkernel::CBReserveBackOp>(
+            computeBlock->front().getLoc(),
+            cbOperands[3],
+            one);
+
+      builder.create<ttkernel::TileRegsAcquireOp>(
+            computeBlock->front().getLoc());
+      builder.create<ttkernel::RecipTileInit>(
+        computeBlock->front().getLoc());
+      builder.create<ttkernel::CopyTile>(
+        computeBlock->front().getLoc(),
+        cbOperands[1],
+        iterators[blockArgIteratorMapping[numDpsInputs]],
+        iterators[blockArgIteratorMapping[numDpsInputs]]);
+      builder.create<ttkernel::RecipTile>(
+        computeBlock->front().getLoc(),
+        dstIndex);
+      builder.create<ttkernel::TileRegsCommitOp>(
+        computeBlock->front().getLoc());
+      builder.create<ttkernel::TileRegsWaitOp>(
+        computeBlock->front().getLoc());
+      builder.create<ttkernel::PackTileOp>(
+          computeBlock->front().getLoc(), dstIndex,
+          cbOperands[3],
+          iterators[blockArgIteratorMapping[numDpsInputs]]);
+      builder.create<ttkernel::TileRegsReleaseOp>(
+          computeBlock->front().getLoc());
+      builder.create<ttkernel::CBPushBackOp>(
+        computeBlock->front().getLoc(),
+        cbOperands[3],
+        one);
+      builder.create<ttkernel::UnpackReconfigDataFormatSrcA>(
+        computeBlock->front().getLoc(),
+        cbOperands[1],
+        cbOperands[0]);
+      builder.create<ttkernel::PackReconfigDataFormat>(
+        computeBlock->front().getLoc(),
+        cbOperands[3],
+        cbOperands[2]);
+
+      builder.create<ttkernel::CBWaitFrontOp>(
+        computeBlock->front().getLoc(),
+        cbOperands[3],
+        one);
+      builder.create<ttkernel::MulTilesInitOp>(
+        computeBlock->front().getLoc(),
+        cbOperands[0],
+        cbOperands[3]);
+    } else if (mlir::isa<tt::ttir::YieldOp>(op)) {
+      // don't do anything
     } else {
       llvm_unreachable("Unhandled conversion");
     }
@@ -717,49 +815,42 @@ public:
   // Convert the original block into a lowered block that contains a fully
   // expanded loop nest and inner loop that implements the underlying arith or
   // math operation as a tile operation.
-  void lowerBlock(Block *origBlock, Block *computeBlock,
-                  std::int64_t numDPSInputs) const {
+  void lowerBlock(Block *origBlock,
+                  Block *computeBlock,
+                  std::int64_t numDPSInputs,
+                  PatternRewriter &rewriter) const {
     Block::OpListType &operations = origBlock->getOperations();
-    assert(operations.size() == 2);
-    Operation::user_range users = operations.front().getUsers();
-    assert(users.begin() != users.end());
-    assert(mlir::isa<ttir::YieldOp>(*users.begin()));
+    // assert(operations.size() == 2);
+    // Operation::user_range users = operations.front().getUsers();
+    // assert(users.begin() != users.end());
+    // assert(mlir::isa<ttir::YieldOp>(*users.begin()));
     assert(computeBlock->getNumArguments() > numDPSInputs);
-    assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
-           "Expected 1 output");
+    // assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
+    //        "Expected 1 output");
 
     OpBuilder builder(computeBlock, computeBlock->begin());
-    convertComputeInitOp(operations.front(), computeBlock->getArguments(),
-                         numDPSInputs, builder);
-    LoopNest loopNest =
-        createLoopNest(computeBlock->getArguments(), numDPSInputs, builder);
-    builder.create<ttkernel::ReturnOp>(origBlock->getTerminator()->getLoc());
 
-    // Build the inner loop compute / unpack / pack
-    {
-      Value output = computeBlock->getArgument(numDPSInputs);
-      Region *innerLoopRegion = loopNest.loopRegions.back();
-      ArrayRef<BlockArgument> iterators =
+    for (auto& operation : operations) {
+      convertComputeInitOp(operation, computeBlock->getArguments(),
+                         numDPSInputs, builder);
+    }
+
+    LoopNest loopNest =
+            createLoopNest(computeBlock->getArguments(), numDPSInputs, builder);
+    builder.create<ttkernel::ReturnOp>(origBlock->getTerminator()->getLoc());
+  
+    Region *innerLoopRegion = loopNest.loopRegions.back();
+    ArrayRef<BlockArgument> iterators =
           loopNest.loops.back().getRegionIterArgs();
-      SmallVector<unsigned> blockArgIteratorMapping =
+    SmallVector<unsigned> blockArgIteratorMapping =
           loopNest.blockArgIteratorMapping;
-      OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
-                                 innerLoopRegion->front().begin());
-      Value dstIndex = i32(0, innerLoopBuilder);
-      innerLoopBuilder.create<ttkernel::TileRegsAcquireOp>(
-          computeBlock->front().getLoc());
-      convertComputeOp(operations.front(), computeBlock->getArguments(),
-                       iterators, blockArgIteratorMapping, dstIndex,
-                       innerLoopBuilder);
-      innerLoopBuilder.create<ttkernel::TileRegsCommitOp>(
-          computeBlock->front().getLoc());
-      innerLoopBuilder.create<ttkernel::TileRegsWaitOp>(
-          computeBlock->front().getLoc());
-      innerLoopBuilder.create<ttkernel::PackTileOp>(
-          computeBlock->front().getLoc(), dstIndex, output,
-          iterators[blockArgIteratorMapping[numDPSInputs]]);
-      innerLoopBuilder.create<ttkernel::TileRegsReleaseOp>(
-          computeBlock->front().getLoc());
+    OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                                innerLoopRegion->front().begin());
+
+    for (auto& operation : operations) {
+      convertComputeOp(operation, computeBlock->getArguments(),
+                      iterators, blockArgIteratorMapping,
+                      innerLoopBuilder, computeBlock, numDPSInputs);
     }
   }
 
@@ -781,6 +872,7 @@ public:
       rewrittenBlockArgumentTypes.push_back(
           rewriter.getType<ttkernel::CBType>(port, address, memref));
     }
+
     return rewrittenBlockArgumentTypes;
   }
 
@@ -807,12 +899,26 @@ public:
         op->getOperands(), op->getRegion(0).getArguments(),
         op.getNumDpsInputs(), rewriter);
 
+    // TODO(pjanevski): this should be if op is composite
+    // requires intermed circular buffers
+    // TODO(pjanevski): for now we assume that we have intermed buffer 1 added
+    // but generally we should enable it all the way from ttir dialect
+    // if (mlir::isa<arith::MulFop>(ops.front())) {
+      // intermed 1
+    auto cbIn0 = mlir::cast<ttkernel::CBType>(rewrittenBlockArgumentTypes.front());
+    Type intermedCB = rewriter.getType<ttkernel::CBType>(
+      ttkernel::CBPort::Intermed1, 0,
+      mlir::cast<MemRefType>(cbIn0.getMemref()));
+    
+    rewrittenBlockArgumentTypes.push_back(intermedCB);
+    // }
+
     Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
     }
-
-    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs());
+    
+    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs(), rewriter);
 
     rewriter.replaceOp(op, metalDispatch);
 

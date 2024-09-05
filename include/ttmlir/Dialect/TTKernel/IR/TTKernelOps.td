@@ -140,6 +140,65 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
 }
 
 //===----------------------------------------------------------------------===//
+// TODO(pjanevski): are these ops special category
+//===----------------------------------------------------------------------===//
+
+def TTKernel_CopyTileToDstInitShort : TTKernel_Op<"copy_tile_to_dst_init_short"> {
+    let summary = "TODO";
+    let description = [{
+      TODO
+    }];
+
+    // let arguments = ();
+}
+
+def TTKernel_UnpackReconfigDataFormatSrcA : TTKernel_Op<"unpack_reconfig_data_format_srca"> {
+    let summary = "TODO";
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb0, TTKernel_CB:$cb1);
+}
+
+def TTKernel_PackReconfigDataFormat : TTKernel_Op<"pack_reconfig_data_format"> {
+    let summary = "TODO";
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb0, TTKernel_CB:$cb1);
+}
+
+def TTKernel_RecipTileInit : TTKernel_Op<"recip_tile_init"> {
+    let summary = "TODO";
+    let description = [{
+      TODO
+    }];
+
+    // let arguments = (ins TTKernel_CB:$cb0, TTKernel_CB:$cb1);
+}
+
+def TTKernel_RecipTile : TTKernel_Op<"recip_tile"> {
+    let summary = "TODO";
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins I32:$tile_index);
+}
+
+def TTKernel_CopyTile : TTKernel_Op<"copy_tile"> {
+    let summary = "TODO";
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb0, I32:$tile_index_0, I32:$tile_index_1);
+}
+
+
+//===----------------------------------------------------------------------===//
 // TTKernel FPU operations
 //===----------------------------------------------------------------------===//
 
@@ -216,6 +275,13 @@ def TTKernel_MulTilesInitOp : TTKernel_Op<"mul_tiles_init"> {
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb);
+}
+
+def TTKernel_MulTilesInitFOp : TTKernel_Op<"mul_tiles_init_f"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before mul_tiles.
+    }];
 }
 
 def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
