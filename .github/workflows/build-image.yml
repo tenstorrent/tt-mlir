@@ -43,7 +43,6 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.base
-          push: false
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
