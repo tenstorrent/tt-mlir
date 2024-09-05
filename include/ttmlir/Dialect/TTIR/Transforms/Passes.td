@@ -68,9 +68,16 @@ def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleO
 }
 
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
-  let summary = "Allocate tensors.";
+  let summary = "Insert allocate/deallocate ops for tensors.";
   let description = [{
-    todo
+    This pass walks through the graph and does the following:
+      - Replaces tensor empty ops with allocate ops.
+      - Inserts deallocate ops after a tensor value's last use.
+      - Allocates storage for graph inputs.
+
+    Currently the allocator is built into the pass itself, but in the future
+    this should be replaced with an analysis pass that can make global allocation
+    decisions, followed by this pass that mechanically applies those decisions.
   }];
 }
 

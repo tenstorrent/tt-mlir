@@ -886,46 +886,25 @@ public:
   }
 };
 
-inline uint64_t getElementSizeBytes(Type ty) {
-  uint64_t val = 0;
-  if (isa<TileType>(ty)) {
-    auto tileType = mlir::cast<TileType>(ty);
-    val = tileType.getSizeBytes();
-  } else {
-    val = ty.getIntOrFloatBitWidth() / 8;
-  }
-  return val;
-}
-
-inline uint64_t getMemrefSizeBytes(MemRefType ty) {
-  auto shape = ty.getShape();
-  uint64_t size = getElementSizeBytes(ty.getElementType());
-  return std::accumulate(shape.begin(), shape.end(), size,
-                         std::multiplies<uint64_t>());
-  return size;
-}
-
-inline uint64_t getLayoutMemrefSizeBytes(LayoutAttr layout) {
-  return getMemrefSizeBytes(layout.getMemref());
-}
-
-inline uint64_t getTensorMemrefSizeBytes(RankedTensorType ty) {
-  assert(ty.getEncoding());
-  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
-  return getLayoutMemrefSizeBytes(layout);
-}
-
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
   struct SimpleAllocator {
-    uint64_t addressAlignment;
-    SmallVector<uint64_t> currPtr;
+    struct MemorySpaceInfo {
+      uint64_t baseAddress = 0;
+      uint64_t size = 0;
+      uint64_t alignment = 0;
 
-    SimpleAllocator(uint64_t l1BaseAddress, uint64_t dramBaseAddress,
-                    uint64_t addressAlignment)
-        : addressAlignment(addressAlignment) {
-      currPtr = SmallVector<uint64_t>(getMaxEnumValForMemorySpace() + 1llu);
-      currPtr[static_cast<uint32_t>(MemorySpace::DeviceL1)] = l1BaseAddress;
-      currPtr[static_cast<uint32_t>(MemorySpace::DeviceDRAM)] = dramBaseAddress;
+      MemorySpaceInfo() = default;
+      MemorySpaceInfo(uint64_t baseAddress, uint64_t size, uint64_t alignment)
+          : baseAddress(baseAddress), size(size), alignment(alignment) {}
+      inline uint64_t end() const { return baseAddress + size; }
+    };
+
+    SimpleAllocator(SmallVector<MemorySpaceInfo> memorySpaceInfo)
+        : memorySpaceInfo(memorySpaceInfo) {
+      currPtr.reserve(memorySpaceInfo.size());
+      for (auto const &info : memorySpaceInfo) {
+        currPtr.push_back(info.baseAddress);
+      }
     }
 
     uint64_t allocate(uint64_t size, MemorySpace memorySpace) {
@@ -933,14 +912,17 @@ class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
         return 0;
       }
 
-      uint32_t index = static_cast<uint32_t>(memorySpace);
-      assert(index < currPtr.size());
+      auto index = ttmlir::utils::enum_as_int(memorySpace);
       uint64_t &ptr = currPtr[index];
-      ptr = ttmlir::utils::alignUp(ptr, addressAlignment);
+      ptr = ttmlir::utils::alignUp(ptr, memorySpaceInfo[index].alignment);
       auto result = ptr;
       ptr += size;
+      assert(ptr <= memorySpaceInfo[index].end() && "Out of memory");
       return result;
     }
+
+    SmallVector<uint64_t> currPtr;
+    SmallVector<MemorySpaceInfo> memorySpaceInfo;
   };
 
 public:
@@ -971,6 +953,20 @@ public:
     return std::make_pair(startOp, endOp);
   }
 
+  SimpleAllocator createSimpleAllocator(ChipDescAttr chipDesc) {
+    SmallVector<SimpleAllocator::MemorySpaceInfo> memorySpaceInfo;
+    memorySpaceInfo.resize(getMaxEnumValForMemorySpace() + 1llu);
+    memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceL1)] =
+        SimpleAllocator::MemorySpaceInfo(chipDesc.getL1UnreservedBase(),
+                                         chipDesc.getL1Size(),
+                                         chipDesc.getNocL1AddressAlignBytes());
+    memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceDRAM)] =
+        SimpleAllocator::MemorySpaceInfo(
+            chipDesc.getDramUnreservedBase(), chipDesc.getDramChannelSize(),
+            chipDesc.getNocDRAMAddressAlignBytes());
+    return SimpleAllocator(memorySpaceInfo);
+  }
+
   void runOnOperation() final {
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
@@ -982,10 +978,9 @@ public:
       assert(func.getBody().hasOneBlock());
       auto systemDesc = getCurrentScopeSystemDesc(func);
       assert(systemDesc);
-      auto addressAlignment = systemDesc.getAddressAlignBytes();
-      SimpleAllocator allocator(chipDesc.getL1UnreservedBase(),
-                                chipDesc.getDramUnreservedBase(),
-                                addressAlignment);
+      auto device = getCurrentScopeDevice(func);
+      assert(device);
+      SimpleAllocator allocator = createSimpleAllocator(chipDesc);
       Liveness liveness(func.getOperation());
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
@@ -995,7 +990,7 @@ public:
         auto operandTy = mlir::cast<RankedTensorType>(operand.getType());
         assert(operandTy.getEncoding());
         auto memorySpace = getMemorySpace(operandTy);
-        auto sizeBytes = getTensorMemrefSizeBytes(operandTy);
+        auto sizeBytes = device.getTensorSizeBytes(operandTy, memorySpace);
         auto address = allocator.allocate(sizeBytes, memorySpace);
         argumentAllocations.push_back(rewriter.getAttr<ArgumentAllocationAttr>(
             address, sizeBytes, memorySpace));
@@ -1013,7 +1008,7 @@ public:
 
         // Replace empty with allocate
         auto memorySpace = getMemorySpace(resultTy);
-        auto sizeBytes = getTensorMemrefSizeBytes(resultTy);
+        auto sizeBytes = device.getTensorSizeBytes(resultTy, memorySpace);
         auto address = allocator.allocate(sizeBytes, memorySpace);
         rewriter.setInsertionPoint(startOp);
         auto alloc = rewriter.create<AllocOp>(startOp->getLoc(), resultTy,

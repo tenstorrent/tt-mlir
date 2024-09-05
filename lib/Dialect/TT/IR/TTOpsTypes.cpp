@@ -431,8 +431,7 @@ static mlir::AffineMap collapsedLinearAffineMap(
 }
 
 static mlir::SmallVector<std::int64_t>
-calculateLogicalShardShape(::mlir::MLIRContext *context,
-                           mlir::ArrayRef<int64_t> tensorShape,
+calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
   mlir::SmallVector<std::int64_t> logicalShape =
@@ -456,8 +455,7 @@ LayoutAttr LayoutAttr::get(
 
   auto linear = collapsedLinearAffineMap(context, tensorShape, grid.getShape(),
                                          collapseIntervals);
-  auto shardShape =
-      calculateLogicalShardShape(context, tensorShape, linear, grid);
+  auto shardShape = calculateLogicalShardShape(tensorShape, linear, grid);
   auto memref = buildMemRef(context, shardShape, elementType, memorySpace);
   return get(context, linear, oobVal, grid, memref, memLayout);
 }
@@ -552,10 +550,11 @@ LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
   return stride;
 }
 
-llvm::SmallVector<int64_t> LayoutAttr::getShardShape() const {
+llvm::SmallVector<int64_t>
+LayoutAttr::getShardShape(bool convertTileToScalar) const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
   auto elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
+  if (mlir::isa<TileType>(elementType) && convertTileToScalar) {
     return mlir::cast<TileType>(elementType).getScalarShape(shardShape);
   }
   return shardShape;
@@ -666,6 +665,41 @@ mlir::AffineMap LayoutAttr::getIdentityTileLinearMap() const {
                                                  getContext());
 }
 
+//
+// Memory affine maps use symbols as placeholders for the shard shape. This
+// function replaces those symbols with the actual shard shape for this layout.
+//
+// E.g. the l1Map before replacement:
+//   (d0, d1)[s0, s1] ->
+//     (0, d0 floordiv s0, d1 floordiv s1, (d0 mod s0) * s1 + d1 mod s1)
+//
+// After replacement with shard shape [2, 3]:
+//   (d0, d1)[2, 3] ->
+//     (0, d0 floordiv 2, d1 floordiv 3, (d0 mod 2) * 3 + d1 mod 3)
+//
+mlir::AffineMap LayoutAttr::replaceMemoryMapSymbolsWithShardShape(
+    AffineMap physicalMemoryMap) const {
+  mlir::SmallVector<int64_t> shardShape =
+      getShardShape(false /*convertTileToScalar*/);
+  assert(physicalMemoryMap.getNumSymbols() == shardShape.size() &&
+         "Physical memory map must have same number of symbols as logical "
+         "shard rank");
+
+  SmallVector<AffineExpr> symReplacements;
+  for (unsigned i = 0; i < physicalMemoryMap.getNumSymbols(); ++i) {
+    symReplacements.push_back(
+        getAffineConstantExpr(shardShape[i], getContext()));
+  }
+
+  SmallVector<AffineExpr> dimReplacements;
+  for (unsigned i = 0; i < physicalMemoryMap.getNumDims(); ++i) {
+    dimReplacements.push_back(getAffineDimExpr(i, getContext()));
+  }
+
+  return physicalMemoryMap.replaceDimsAndSymbols(
+      dimReplacements, symReplacements, physicalMemoryMap.getNumDims(), 0);
+}
+
 // Projects tensor layout onto a physical memory map. Uses given linear map to
 // derive the shard shape and the projection of shard indexes onto the logical
 // grid. Then it composes the logical grid projection with physical memory
@@ -678,26 +712,8 @@ LayoutAttr::projectOnto(mlir::AffineMap linearMap,
          "Layout and device grids must have same number of dimensions");
   assert(getLinear().getNumResults() == physicalMemoryMap.getNumDims() &&
          "Linear map and physical map must have same number of dimensions");
-
-  mlir::SmallVector<int64_t> logicalShardShape = calculateLogicalShardShape(
-      getContext(), logicalTensorShape, linearMap, getGrid());
-
-  SmallVector<AffineExpr> dimReplacements;
-  for (unsigned i = 0; i < linearMap.getNumDims(); ++i) {
-    dimReplacements.push_back(getAffineDimExpr(i, getContext()));
-  }
-
-  assert(physicalMemoryMap.getNumSymbols() == logicalShardShape.size() &&
-         "Physical memory map must have same number of symbols as logical "
-         "shard rank");
-  SmallVector<AffineExpr> symReplacements;
-  for (unsigned i = 0; i < physicalMemoryMap.getNumSymbols(); ++i) {
-    symReplacements.push_back(
-        getAffineConstantExpr(logicalShardShape[i], getContext()));
-  }
-
-  return physicalMemoryMap.compose(linearMap).replaceDimsAndSymbols(
-      dimReplacements, symReplacements, linearMap.getNumDims(), 0);
+  return replaceMemoryMapSymbolsWithShardShape(physicalMemoryMap)
+      .compose(linearMap);
 }
 
 mlir::Type BufferAttr::getElementType() const {
@@ -769,7 +785,7 @@ static mlir::AffineMap createL1Map(::mlir::MLIRContext *context,
 // Where `addr` is the linearized address as though it were indexing all of DRAM
 // flat.  Then we do some additional calculations to break up the channels into
 // interleaved pages:
-//   addr = (((d1 floordiv s1) * 8 + d0 floordiv s0) * (s1 * s0) +
+//   addr = (((d0 floordiv s0) * 8 + d1 floordiv s1) * (s1 * s0) +
 //          (d0 mod s0) * s1 + d1 mod s1)
 //
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
@@ -786,7 +802,7 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
   for (int i = workerMap.getNumDims() - 1; i >= 0; i--) {
     mlir::AffineExpr linearIdx = getAffineDimExpr(i, context);
     mlir::AffineExpr shardDim = getAffineSymbolExpr(i, context);
-    addr = addr * gridVolumeExpr + linearIdx.floorDiv(shardDim);
+    addr = linearIdx.floorDiv(shardDim) * gridVolumeExpr + addr;
     shardIndexing = (linearIdx % shardDim) * shardVolumeExpr + shardIndexing;
     shardVolumeExpr = shardVolumeExpr * shardDim;
     gridVolumeExpr = gridVolumeExpr * workerGrid.getShape()[i];
@@ -879,6 +895,36 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
       enableMultichip ? systemDesc.getChipDescIndices().size() : 1);
   std::iota(chipIds.begin(), chipIds.end(), 0);
   return get(context, systemDesc, chipIds);
+}
+
+// Sample the last index in the tensor to get the last addressable element of
+// the tensor to determine its footprint in memory.
+uint64_t DeviceAttr::getLayoutSizeBytes(ArrayRef<int64_t> tensorScalarShape,
+                                        LayoutAttr layout,
+                                        MemorySpace memorySpace) const {
+  SmallVector<int64_t> shape = layout.isTiled()
+                                   ? layout.getTiledShape(tensorScalarShape)
+                                   : SmallVector<int64_t>(tensorScalarShape);
+  AffineMap linearMap =
+      layout.isTiled() ? layout.getIdentityTileLinearMap() : layout.getLinear();
+  mlir::SmallVector<std::int64_t> linearShape =
+      ttmlir::utils::evalShape(linearMap, shape);
+  AffineMap memoryMap = layout.replaceMemoryMapSymbolsWithShardShape(
+      getMapForMemorySpace(memorySpace));
+  mlir::SmallVector<std::int64_t> physicalMemory =
+      ttmlir::utils::evalShape(memoryMap, linearShape);
+  std::int64_t elementSize = layout.getElementSizeBytes();
+  uint64_t sizeBytes =
+      physicalMemory[MemoryMapResultIdx::ShardOffset] * elementSize;
+  return sizeBytes;
+}
+
+uint64_t DeviceAttr::getTensorSizeBytes(RankedTensorType tensorType,
+                                        MemorySpace memorySpace) const {
+  assert(tensorType.getEncoding());
+  return getLayoutSizeBytes(tensorType.getShape(),
+                            mlir::cast<LayoutAttr>(tensorType.getEncoding()),
+                            memorySpace);
 }
 
 ::mlir::LogicalResult

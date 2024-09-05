@@ -52,7 +52,8 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   return result;
 }
 
-template <typename Enum> std::underlying_type_t<Enum> enum_as_int(Enum e) {
+template <typename Enum>
+constexpr std::underlying_type_t<Enum> enum_as_int(Enum e) {
   return static_cast<std::underlying_type_t<Enum>>(e);
 }
 } // namespace ttmlir::utils

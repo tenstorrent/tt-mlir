@@ -289,7 +289,8 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       uint64_t getElementSizeBytes() const;
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getShardShape() const;
+      llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
+      AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
       AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap, ArrayRef<int64_t> logicalTensorShape) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
@@ -348,6 +349,17 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
           llvm_unreachable("Unsupported memory space");
         }
       }
+
+      // Returns the footprint size in bytes of the tensor layout distributed across the given memory space.
+      // The resulting size is a function of the memory space, roughly speaking this ends up being:
+      // - DeviceL1: This ends up being exactly the shard size
+      // - DeviceDRAM: Is more nuanced because the whole tensor size gets paged and interleaved between all dram channels,
+      //   due to paging and rounding the footprint ends up being close to: the_whole_tensor / num_dram_channels
+      uint64_t getLayoutSizeBytes(ArrayRef<int64_t> tensorShape, LayoutAttr layout, MemorySpace memorySpace) const;
+
+      // Returns the footprint size in bytes of the tensor distributed across the given memory space.
+      // Forwards to getLayoutSizeBytes, see comment there for more info.
+      uint64_t getTensorSizeBytes(RankedTensorType tensorType, MemorySpace memorySpace) const;
   }];
 
   let genVerifyDecl = 1;
