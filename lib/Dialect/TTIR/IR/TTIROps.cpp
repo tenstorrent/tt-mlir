@@ -80,10 +80,10 @@ template <typename OpTy>
 static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
                                             ::mlir::OpBuilder &opBuilder,
                                             ::mlir::Block *block) {
-  auto lhs = block->getArgument(0);
-  auto rhs = block->getArgument(1);
-  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+  // auto lhs = block->getArgument(0);
+  // auto rhs = block->getArgument(1);
+  // auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
+  // opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
 }
 
 void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
@@ -128,6 +128,25 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
           block->getNumArguments(), opBuilder.getAttr<OperandConstraintAttr>(
                                         OperandConstraint::AnyDeviceTile))));
   opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), kernelOp->getResults());
+}
+
+void mlir::tt::ttir::DivOp::buildGenericRegion(
+    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+  auto lhs = block->getArgument(0);
+  auto rhs = block->getArgument(1);
+  
+  auto resultRecip = opBuilder.create<arith::NegFOp>(getLoc(), rhs);
+
+  auto result = opBuilder.create<arith::MulFOp>(getLoc(), lhs, resultRecip.getResult());
+
+  opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), mlir::ValueRange({result}));
+
+  // buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
+  //                                                       block);
+  // buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder,
+  //                                                       block);
+
+  // opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), mlir::ValueRange({result}));
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {

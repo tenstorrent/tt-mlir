@@ -13,20 +13,27 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
 
+#include "mlir/Dialect/SCF/IR/SCF.h"
+
 namespace mlir::tt::ttkernel {
 
 static bool insideDispatchOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
+
   if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp)) {
     return true;
   }
+
+  if (dyn_cast_or_null<scf::ForOp>(parentOp)) {
+    return true;
+  }
+
   if (dyn_cast_or_null<func::FuncOp>(parentOp) &&
       dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp())) {
     return true;
   }
   return false;
 }
-
 static ttkernel::ThreadType getRegionThreadType(mlir::Region *region) {
   assert(region);
   mlir::Operation *parentOp = region->getParentOp();

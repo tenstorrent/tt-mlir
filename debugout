@@ -1,0 +1,2318 @@
+2024-09-13 10:23:21,629 - INFO - set log file=
+2024-09-13 10:23:21,629 - INFO - setting artifacts folder path=/proj_sw/user_dev/pjanevski/work/tt-mlir/ttrt-artifacts
+2024-09-13 10:23:21,629 - DEBUG - starting read API
+2024-09-13 10:23:21,629 - DEBUG - preprocessing read API
+2024-09-13 10:23:21,629 - DEBUG - finished preprocessing read API
+2024-09-13 10:23:21,629 - DEBUG - checking constraints for read API
+2024-09-13 10:23:21,629 - DEBUG - finding all ttsys files from=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - checking if file=ttrt.ttm exists
+2024-09-13 10:23:21,629 - DEBUG - getting file extension of=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - finding all ttnn files from=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - checking if file=ttrt.ttm exists
+2024-09-13 10:23:21,629 - DEBUG - getting file extension of=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - finding all ttmetal files from=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - checking if file=ttrt.ttm exists
+2024-09-13 10:23:21,629 - DEBUG - getting file extension of=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - found file=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - ttsys_binary_paths=[]
+2024-09-13 10:23:21,629 - DEBUG - ttnn_binary_paths=[]
+2024-09-13 10:23:21,629 - DEBUG - ttmetal_binary_paths=['ttrt.ttm']
+2024-09-13 10:23:21,629 - DEBUG - getting file name of=ttrt.ttm
+2024-09-13 10:23:21,629 - DEBUG - getting file extension of=ttrt.ttm
+2024-09-13 10:23:21,630 - DEBUG - finished checking constraints for read API
+2024-09-13 10:23:21,630 - DEBUG - executing read API
+2024-09-13 10:23:21,630 - INFO - reading section=all from binary=ttrt.ttm
+2024-09-13 10:23:21,631 - INFO - {
+  "version": {
+    "major": 0,
+    "minor": 0,
+    "patch": 181
+  },
+  "ttmlir_git_hash": "acbe363e2a67787d6cd1e464b046fd79bce05126",
+  "system_desc": {
+    "chip_descs": [
+      {
+        "arch": "Wormhole_b0",
+        "grid_size": {
+          "y": 8,
+          "x": 8
+        },
+        "l1_size": 1499136,
+        "num_dram_channels": 12,
+        "dram_channel_size": 1073741824,
+        "noc_l1_address_align_bytes": 16,
+        "pcie_address_align_bytes": 32,
+        "noc_dram_address_align_bytes": 32,
+        "l1_unreserved_base": 107360,
+        "erisc_l1_unreserved_base": 107360,
+        "dram_unreserved_base": 32,
+        "dram_unreserved_end": 1073097664,
+        "physical_cores": {
+          "worker": [
+            {
+              "y": 1,
+              "x": 1
+            },
+            {
+              "y": 1,
+              "x": 2
+            },
+            {
+              "y": 1,
+              "x": 3
+            },
+            {
+              "y": 1,
+              "x": 4
+            },
+            {
+              "y": 1,
+              "x": 6
+            },
+            {
+              "y": 1,
+              "x": 7
+            },
+            {
+              "y": 1,
+              "x": 8
+            },
+            {
+              "y": 1,
+              "x": 9
+            },
+            {
+              "y": 2,
+              "x": 1
+            },
+            {
+              "y": 2,
+              "x": 2
+            },
+            {
+              "y": 2,
+              "x": 3
+            },
+            {
+              "y": 2,
+              "x": 4
+            },
+            {
+              "y": 2,
+              "x": 6
+            },
+            {
+              "y": 2,
+              "x": 7
+            },
+            {
+              "y": 2,
+              "x": 8
+            },
+            {
+              "y": 2,
+              "x": 9
+            },
+            {
+              "y": 3,
+              "x": 1
+            },
+            {
+              "y": 3,
+              "x": 2
+            },
+            {
+              "y": 3,
+              "x": 3
+            },
+            {
+              "y": 3,
+              "x": 4
+            },
+            {
+              "y": 3,
+              "x": 6
+            },
+            {
+              "y": 3,
+              "x": 7
+            },
+            {
+              "y": 3,
+              "x": 8
+            },
+            {
+              "y": 3,
+              "x": 9
+            },
+            {
+              "y": 4,
+              "x": 1
+            },
+            {
+              "y": 4,
+              "x": 2
+            },
+            {
+              "y": 4,
+              "x": 3
+            },
+            {
+              "y": 4,
+              "x": 4
+            },
+            {
+              "y": 4,
+              "x": 6
+            },
+            {
+              "y": 4,
+              "x": 7
+            },
+            {
+              "y": 4,
+              "x": 8
+            },
+            {
+              "y": 4,
+              "x": 9
+            },
+            {
+              "y": 5,
+              "x": 1
+            },
+            {
+              "y": 5,
+              "x": 2
+            },
+            {
+              "y": 5,
+              "x": 3
+            },
+            {
+              "y": 5,
+              "x": 4
+            },
+            {
+              "y": 5,
+              "x": 6
+            },
+            {
+              "y": 5,
+              "x": 7
+            },
+            {
+              "y": 5,
+              "x": 8
+            },
+            {
+              "y": 5,
+              "x": 9
+            },
+            {
+              "y": 7,
+              "x": 1
+            },
+            {
+              "y": 7,
+              "x": 2
+            },
+            {
+              "y": 7,
+              "x": 3
+            },
+            {
+              "y": 7,
+              "x": 4
+            },
+            {
+              "y": 7,
+              "x": 6
+            },
+            {
+              "y": 7,
+              "x": 7
+            },
+            {
+              "y": 7,
+              "x": 8
+            },
+            {
+              "y": 7,
+              "x": 9
+            },
+            {
+              "y": 8,
+              "x": 1
+            },
+            {
+              "y": 8,
+              "x": 2
+            },
+            {
+              "y": 8,
+              "x": 3
+            },
+            {
+              "y": 8,
+              "x": 4
+            },
+            {
+              "y": 8,
+              "x": 6
+            },
+            {
+              "y": 8,
+              "x": 7
+            },
+            {
+              "y": 8,
+              "x": 8
+            },
+            {
+              "y": 8,
+              "x": 9
+            },
+            {
+              "y": 9,
+              "x": 1
+            },
+            {
+              "y": 9,
+              "x": 2
+            },
+            {
+              "y": 9,
+              "x": 3
+            },
+            {
+              "y": 9,
+              "x": 4
+            },
+            {
+              "y": 9,
+              "x": 6
+            },
+            {
+              "y": 9,
+              "x": 7
+            },
+            {
+              "y": 9,
+              "x": 8
+            },
+            {
+              "y": 9,
+              "x": 9
+            }
+          ],
+          "dram": [
+            {
+              "y": 1,
+              "x": 0
+            },
+            {
+              "y": 1,
+              "x": 5
+            },
+            {
+              "y": 2,
+              "x": 5
+            },
+            {
+              "y": 3,
+              "x": 5
+            },
+            {
+              "y": 5,
+              "x": 0
+            },
+            {
+              "y": 5,
+              "x": 5
+            },
+            {
+              "y": 7,
+              "x": 0
+            },
+            {
+              "y": 7,
+              "x": 5
+            },
+            {
+              "y": 8,
+              "x": 5
+            },
+            {
+              "y": 9,
+              "x": 5
+            },
+            {
+              "y": 11,
+              "x": 0
+            },
+            {
+              "y": 11,
+              "x": 5
+            }
+          ],
+          "eth": [
+
+          ],
+          "eth_inactive": [
+            {
+              "y": 0,
+              "x": 1
+            },
+            {
+              "y": 0,
+              "x": 2
+            },
+            {
+              "y": 0,
+              "x": 3
+            },
+            {
+              "y": 0,
+              "x": 4
+            },
+            {
+              "y": 0,
+              "x": 6
+            },
+            {
+              "y": 0,
+              "x": 7
+            },
+            {
+              "y": 0,
+              "x": 8
+            },
+            {
+              "y": 0,
+              "x": 9
+            },
+            {
+              "y": 6,
+              "x": 2
+            },
+            {
+              "y": 6,
+              "x": 3
+            },
+            {
+              "y": 6,
+              "x": 6
+            },
+            {
+              "y": 6,
+              "x": 7
+            },
+            {
+              "y": 6,
+              "x": 8
+            }
+          ]
+        },
+        "supported_data_types": [
+          "Float32",
+          "Float16",
+          "BFloat16",
+          "BFP_Float8",
+          "BFP_BFloat8",
+          "BFP_Float4",
+          "BFP_BFloat4",
+          "BFP_Float2",
+          "BFP_BFloat2",
+          "UInt32",
+          "UInt16",
+          "UInt8"
+        ],
+        "supported_tile_sizes": [
+          {
+            "y": 4,
+            "x": 16
+          },
+          {
+            "y": 16,
+            "x": 16
+          },
+          {
+            "y": 32,
+            "x": 16
+          },
+          {
+            "y": 4,
+            "x": 32
+          },
+          {
+            "y": 16,
+            "x": 32
+          },
+          {
+            "y": 32,
+            "x": 32
+          }
+        ]
+      }
+    ],
+    "chip_desc_indices": [
+      0
+    ],
+    "chip_capabilities": [
+      3
+    ],
+    "chip_coords": [
+      {
+        "rack": 0,
+        "shelf": 0,
+        "y": 0,
+        "x": 0
+      }
+    ],
+    "chip_channels": [
+
+    ]
+  },
+  "programs": [
+    {
+      "name": "div",
+      "inputs": [
+        {
+          "global_id": 1,
+          "address": 107360,
+          "size": 4096,
+          "desc": {
+            "shape": [
+              32,
+              32
+            ],
+            "layout": {
+              "stride": [
+                32,
+                1
+              ],
+              "oob_val": "Undef",
+              "core_range_set": [
+                {
+                  "loc": {
+                    "y": 0,
+                    "x": 0
+                  },
+                  "size": {
+                    "y": 1,
+                    "x": 1
+                  }
+                }
+              ],
+              "memory_desc": {
+                "shape": [
+                  32,
+                  32
+                ],
+                "tile_shape": {
+                  "y": 1,
+                  "x": 1
+                },
+                "data_type": "Float32",
+                "memory_space": "DeviceL1",
+                "memory_layout": "None",
+                "size": 4096
+              }
+            }
+          }
+        },
+        {
+          "global_id": 2,
+          "address": 111456,
+          "size": 4096,
+          "desc": {
+            "shape": [
+              32,
+              32
+            ],
+            "layout": {
+              "stride": [
+                32,
+                1
+              ],
+              "oob_val": "Undef",
+              "core_range_set": [
+                {
+                  "loc": {
+                    "y": 0,
+                    "x": 0
+                  },
+                  "size": {
+                    "y": 1,
+                    "x": 1
+                  }
+                }
+              ],
+              "memory_desc": {
+                "shape": [
+                  32,
+                  32
+                ],
+                "tile_shape": {
+                  "y": 1,
+                  "x": 1
+                },
+                "data_type": "Float32",
+                "memory_space": "DeviceL1",
+                "memory_layout": "None",
+                "size": 4096
+              }
+            }
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "global_id": 14,
+          "address": 127840,
+          "size": 4096,
+          "desc": {
+            "shape": [
+              32,
+              32
+            ],
+            "layout": {
+              "stride": [
+                32,
+                1
+              ],
+              "oob_val": "Undef",
+              "core_range_set": [
+                {
+                  "loc": {
+                    "y": 0,
+                    "x": 0
+                  },
+                  "size": {
+                    "y": 1,
+                    "x": 1
+                  }
+                }
+              ],
+              "memory_desc": {
+                "shape": [
+                  32,
+                  32
+                ],
+                "tile_shape": {
+                  "y": 1,
+                  "x": 1
+                },
+                "data_type": "Float32",
+                "memory_space": "DeviceL1",
+                "memory_layout": "None",
+                "size": 4096
+              }
+            }
+          }
+        }
+      ],
+      "device_programs": [
+        {
+          "inputs": [
+            {
+              "global_id": 1,
+              "address": 107360,
+              "size": 4096,
+              "desc": {
+                "shape": [
+                  32,
+                  32
+                ],
+                "layout": {
+                  "stride": [
+                    32,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 1,
+                        "x": 1
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      32,
+                      32
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "memory_layout": "None",
+                    "size": 4096
+                  }
+                }
+              }
+            },
+            {
+              "global_id": 2,
+              "address": 111456,
+              "size": 4096,
+              "desc": {
+                "shape": [
+                  32,
+                  32
+                ],
+                "layout": {
+                  "stride": [
+                    32,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 1,
+                        "x": 1
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      32,
+                      32
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "memory_layout": "None",
+                    "size": 4096
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": [
+            {
+              "global_id": 14,
+              "address": 127840,
+              "size": 4096,
+              "desc": {
+                "shape": [
+                  32,
+                  32
+                ],
+                "layout": {
+                  "stride": [
+                    32,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 1,
+                        "x": 1
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      32,
+                      32
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "memory_layout": "None",
+                    "size": 4096
+                  }
+                }
+              }
+            }
+          ],
+          "command_queues": [
+            {
+              "name": "div",
+              "commands": [
+                {
+                  "type_type": "CreateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 3,
+                      "address": 115552,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              1,
+                              1
+                            ],
+                            "tile_shape": {
+                              "y": 32,
+                              "x": 32
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "%0 = \"ttmetal.alloc\"() <{address = 115552 : i64, memory_space = #tt.memory_space<l1>, size = 4096 : i64}> : () -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":6:10)"
+                },
+                {
+                  "type_type": "EnqueueProgramCommand",
+                  "type": {
+                    "operands": [
+                      {
+                        "global_id": 1,
+                        "address": 107360,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                32,
+                                32
+                              ],
+                              "tile_shape": {
+                                "y": 1,
+                                "x": 1
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "global_id": 3,
+                        "address": 115552,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                1,
+                                1
+                              ],
+                              "tile_shape": {
+                                "y": 32,
+                                "x": 32
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "program": {
+                      "kernels": [
+                        {
+                          "kernel_type": "KernelSource",
+                          "kernel": {
+                            "source_type": "Tensix",
+                            "source": "#include <cstdint>\n#include \"compute_kernel_api/common.h\"\n#include \"compute_kernel_api/tilize.h\"\n#include \"compute_kernel_api/untilize.h\"\n#include \"compute_kernel_api/eltwise_binary.h\"\n#include \"compute_kernel_api/tile_move_copy.h\"\n#include \"compute_kernel_api/eltwise_unary/sfpu_split_includes.h\"\n#include \"compute_kernel_api/eltwise_unary/recip.h\"\nnamespace NAMESPACE {\nvoid kernel_main() {\n  ::tt::CB v1 = ::tt::CB::c_in0;\n  ::tt::CB v2 = ::tt::CB::c_out0;\n  int32_t v3 = 1;\n  tilize_init(v1, v3, v2);\n  tilize_block(v1, v3, v2);\n  cb_pop_front(v1, v3);\n  cb_push_back(v2, v3);\n  return;\n}\n\nvoid MAIN { kernel_main(); }\n}\n\n"
+                          },
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "cbs": [
+                            {
+                              "global_id": 4,
+                              "tensor_ref": {
+                                "global_id": 1,
+                                "address": 107360,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        32,
+                                        32
+                                      ],
+                                      "tile_shape": {
+                                        "y": 1,
+                                        "x": 1
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 107360,
+                              "desc": {
+                                "port": 0,
+                                "memory_desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "tile_shape": {
+                                    "y": 1,
+                                    "x": 1
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            },
+                            {
+                              "global_id": 5,
+                              "tensor_ref": {
+                                "global_id": 3,
+                                "address": 115552,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 115552,
+                              "desc": {
+                                "port": 16,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "debug_info": "%1 = \"ttmetal.dispatch\"(%arg0, %0) <{core_ranges = [#ttmetal.core_range<0x0, 1x1>], operandSegmentSizes = array<i32: 1, 1>, threadTypes = [#ttkernel.thread<tensix>]}> ({...}) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<32x32xf32, #tt.memory_space<l1>>>>, tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>) -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":7:10)"
+                },
+                {
+                  "type_type": "CreateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 6,
+                      "address": 119648,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              1,
+                              1
+                            ],
+                            "tile_shape": {
+                              "y": 32,
+                              "x": 32
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "%2 = \"ttmetal.alloc\"() <{address = 119648 : i64, memory_space = #tt.memory_space<l1>, size = 4096 : i64}> : () -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":16:10)"
+                },
+                {
+                  "type_type": "EnqueueProgramCommand",
+                  "type": {
+                    "operands": [
+                      {
+                        "global_id": 2,
+                        "address": 111456,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                32,
+                                32
+                              ],
+                              "tile_shape": {
+                                "y": 1,
+                                "x": 1
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "global_id": 6,
+                        "address": 119648,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                1,
+                                1
+                              ],
+                              "tile_shape": {
+                                "y": 32,
+                                "x": 32
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "program": {
+                      "kernels": [
+                        {
+                          "kernel_type": "KernelSource",
+                          "kernel": {
+                            "source_type": "Tensix",
+                            "source": "#include <cstdint>\n#include \"compute_kernel_api/common.h\"\n#include \"compute_kernel_api/tilize.h\"\n#include \"compute_kernel_api/untilize.h\"\n#include \"compute_kernel_api/eltwise_binary.h\"\n#include \"compute_kernel_api/tile_move_copy.h\"\n#include \"compute_kernel_api/eltwise_unary/sfpu_split_includes.h\"\n#include \"compute_kernel_api/eltwise_unary/recip.h\"\nnamespace NAMESPACE {\nvoid kernel_main() {\n  ::tt::CB v1 = ::tt::CB::c_in0;\n  ::tt::CB v2 = ::tt::CB::c_out0;\n  int32_t v3 = 1;\n  tilize_init(v1, v3, v2);\n  tilize_block(v1, v3, v2);\n  cb_pop_front(v1, v3);\n  cb_push_back(v2, v3);\n  return;\n}\n\nvoid MAIN { kernel_main(); }\n}\n\n"
+                          },
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "cbs": [
+                            {
+                              "global_id": 7,
+                              "tensor_ref": {
+                                "global_id": 2,
+                                "address": 111456,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        32,
+                                        32
+                                      ],
+                                      "tile_shape": {
+                                        "y": 1,
+                                        "x": 1
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 111456,
+                              "desc": {
+                                "port": 0,
+                                "memory_desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "tile_shape": {
+                                    "y": 1,
+                                    "x": 1
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            },
+                            {
+                              "global_id": 8,
+                              "tensor_ref": {
+                                "global_id": 6,
+                                "address": 119648,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 119648,
+                              "desc": {
+                                "port": 16,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "debug_info": "%3 = \"ttmetal.dispatch\"(%arg1, %2) <{core_ranges = [#ttmetal.core_range<0x0, 1x1>], operandSegmentSizes = array<i32: 1, 1>, threadTypes = [#ttkernel.thread<tensix>]}> ({...}) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<32x32xf32, #tt.memory_space<l1>>>>, tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>) -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":17:10)"
+                },
+                {
+                  "type_type": "CreateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 9,
+                      "address": 123744,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              1,
+                              1
+                            ],
+                            "tile_shape": {
+                              "y": 32,
+                              "x": 32
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "%4 = \"ttmetal.alloc\"() <{address = 123744 : i64, memory_space = #tt.memory_space<l1>, size = 4096 : i64}> : () -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":26:10)"
+                },
+                {
+                  "type_type": "EnqueueProgramCommand",
+                  "type": {
+                    "operands": [
+                      {
+                        "global_id": 3,
+                        "address": 115552,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                1,
+                                1
+                              ],
+                              "tile_shape": {
+                                "y": 32,
+                                "x": 32
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "global_id": 6,
+                        "address": 119648,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                1,
+                                1
+                              ],
+                              "tile_shape": {
+                                "y": 32,
+                                "x": 32
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "global_id": 9,
+                        "address": 123744,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                1,
+                                1
+                              ],
+                              "tile_shape": {
+                                "y": 32,
+                                "x": 32
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "program": {
+                      "kernels": [
+                        {
+                          "kernel_type": "KernelSource",
+                          "kernel": {
+                            "source_type": "Tensix",
+                            "source": "#include <cstdint>\n#include \"compute_kernel_api/common.h\"\n#include \"compute_kernel_api/tilize.h\"\n#include \"compute_kernel_api/untilize.h\"\n#include \"compute_kernel_api/eltwise_binary.h\"\n#include \"compute_kernel_api/tile_move_copy.h\"\n#include \"compute_kernel_api/eltwise_unary/sfpu_split_includes.h\"\n#include \"compute_kernel_api/eltwise_unary/recip.h\"\nnamespace NAMESPACE {\nvoid kernel_main() {\n  ::tt::CB v1 = ::tt::CB::c_in0;\n  ::tt::CB v2 = ::tt::CB::c_in1;\n  ::tt::CB v3 = ::tt::CB::c_out0;\n  ::tt::CB v4 = ::tt::CB::c_intermed1;\n  int32_t v5 = 1;\n  int32_t v6 = 0;\n  binary_op_init_common(v1, v4, v3);\n  mul_tiles_init_f();\n  int32_t v7;\n  v7 = v6;\n  for (int32_t v8 = v6; v8 < v5; v8 += v5) {\n    int32_t v9;\n    v9 = v7;\n    for (int32_t v10 = v6; v10 < v5; v10 += v5) {\n      copy_tile_to_dst_init_short();\n      unpack_reconfig_data_format_srca(v1, v2);\n      pack_reconfig_data_format(v3, v4);\n      cb_reserve_back(v4, v5);\n      tile_regs_acquire();\n      recip_tile_init();\n      copy_tile(v2, v9, v9);\n      recip_tile(v6);\n      tile_regs_commit();\n      tile_regs_wait();\n      pack_tile(v6, v4, v9);\n      tile_regs_release();\n      cb_push_back(v4, v5);\n      unpack_reconfig_data_format_srca(v2, v1);\n      pack_reconfig_data_format(v4, v3);\n      cb_wait_front(v4, v5);\n      mul_tiles_init(v1, v4);\n      tile_regs_acquire();\n      mul_tiles(v1, v4, v9, v9, v6);\n      tile_regs_commit();\n      tile_regs_wait();\n      pack_tile(v6, v3, v9);\n      tile_regs_release();\n      cb_pop_front(v4, v5);\n      uint32_t v11 = (uint32_t) v9;\n      uint32_t v12 = (uint32_t) v5;\n      uint32_t v13 = v11 + v12;\n      int32_t v14 = (int32_t) v13;\n      v9 = v14;\n    };\n    v7 = v9;\n  }\n  return;\n}\n\nvoid MAIN { kernel_main(); }\n}\n\n"
+                          },
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "cbs": [
+                            {
+                              "global_id": 10,
+                              "tensor_ref": {
+                                "global_id": 3,
+                                "address": 115552,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 115552,
+                              "desc": {
+                                "port": 0,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            },
+                            {
+                              "global_id": 11,
+                              "tensor_ref": {
+                                "global_id": 6,
+                                "address": 119648,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 119648,
+                              "desc": {
+                                "port": 1,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            },
+                            {
+                              "global_id": 12,
+                              "tensor_ref": {
+                                "global_id": 9,
+                                "address": 123744,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 123744,
+                              "desc": {
+                                "port": 16,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            },
+                            {
+                              "global_id": 13,
+                              "tensor_ref": {
+                                "global_id": 3,
+                                "address": 115552,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 0,
+                              "desc": {
+                                "port": 25,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "debug_info": "%5 = \"ttmetal.dispatch\"(%1, %3, %4) <{core_ranges = [#ttmetal.core_range<0x0, 1x1>], operandSegmentSizes = array<i32: 2, 1>, threadTypes = [#ttkernel.thread<tensix>]}> ({...}) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>, tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>, tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>) -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":27:10)"
+                },
+                {
+                  "type_type": "DeallocateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 6,
+                      "address": 119648,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              1,
+                              1
+                            ],
+                            "tile_shape": {
+                              "y": 32,
+                              "x": 32
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "\"ttmetal.dealloc\"(%2) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>) -> () loc(\"metal_ir.mlir\":66:5)"
+                },
+                {
+                  "type_type": "DeallocateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 3,
+                      "address": 115552,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              1,
+                              1
+                            ],
+                            "tile_shape": {
+                              "y": 32,
+                              "x": 32
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "\"ttmetal.dealloc\"(%0) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>) -> () loc(\"metal_ir.mlir\":67:5)"
+                },
+                {
+                  "type_type": "CreateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 14,
+                      "address": 127840,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              32,
+                              32
+                            ],
+                            "tile_shape": {
+                              "y": 1,
+                              "x": 1
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "%6 = \"ttmetal.alloc\"() <{address = 127840 : i64, memory_space = #tt.memory_space<l1>, size = 4096 : i64}> : () -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<32x32xf32, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":68:10)"
+                },
+                {
+                  "type_type": "EnqueueProgramCommand",
+                  "type": {
+                    "operands": [
+                      {
+                        "global_id": 9,
+                        "address": 123744,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                1,
+                                1
+                              ],
+                              "tile_shape": {
+                                "y": 32,
+                                "x": 32
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "global_id": 14,
+                        "address": 127840,
+                        "size": 4096,
+                        "desc": {
+                          "shape": [
+                            32,
+                            32
+                          ],
+                          "layout": {
+                            "stride": [
+                              32,
+                              1
+                            ],
+                            "oob_val": "Undef",
+                            "core_range_set": [
+                              {
+                                "loc": {
+                                  "y": 0,
+                                  "x": 0
+                                },
+                                "size": {
+                                  "y": 1,
+                                  "x": 1
+                                }
+                              }
+                            ],
+                            "memory_desc": {
+                              "shape": [
+                                32,
+                                32
+                              ],
+                              "tile_shape": {
+                                "y": 1,
+                                "x": 1
+                              },
+                              "data_type": "Float32",
+                              "memory_space": "DeviceL1",
+                              "memory_layout": "None",
+                              "size": 4096
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "program": {
+                      "kernels": [
+                        {
+                          "kernel_type": "KernelSource",
+                          "kernel": {
+                            "source_type": "Tensix",
+                            "source": "#include <cstdint>\n#include \"compute_kernel_api/common.h\"\n#include \"compute_kernel_api/tilize.h\"\n#include \"compute_kernel_api/untilize.h\"\n#include \"compute_kernel_api/eltwise_binary.h\"\n#include \"compute_kernel_api/tile_move_copy.h\"\n#include \"compute_kernel_api/eltwise_unary/sfpu_split_includes.h\"\n#include \"compute_kernel_api/eltwise_unary/recip.h\"\nnamespace NAMESPACE {\nvoid kernel_main() {\n  ::tt::CB v1 = ::tt::CB::c_in0;\n  ::tt::CB v2 = ::tt::CB::c_out0;\n  int32_t v3 = 1;\n  untilize_init(v1, v2);\n  untilize_block(v1, v3, v2);\n  cb_pop_front(v1, v3);\n  cb_push_back(v2, v3);\n  return;\n}\n\nvoid MAIN { kernel_main(); }\n}\n\n"
+                          },
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "cbs": [
+                            {
+                              "global_id": 15,
+                              "tensor_ref": {
+                                "global_id": 9,
+                                "address": 123744,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        1,
+                                        1
+                                      ],
+                                      "tile_shape": {
+                                        "y": 32,
+                                        "x": 32
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 123744,
+                              "desc": {
+                                "port": 0,
+                                "memory_desc": {
+                                  "shape": [
+                                    1,
+                                    1
+                                  ],
+                                  "tile_shape": {
+                                    "y": 32,
+                                    "x": 32
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            },
+                            {
+                              "global_id": 16,
+                              "tensor_ref": {
+                                "global_id": 14,
+                                "address": 127840,
+                                "size": 4096,
+                                "desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "layout": {
+                                    "stride": [
+                                      32,
+                                      1
+                                    ],
+                                    "oob_val": "Undef",
+                                    "core_range_set": [
+                                      {
+                                        "loc": {
+                                          "y": 0,
+                                          "x": 0
+                                        },
+                                        "size": {
+                                          "y": 1,
+                                          "x": 1
+                                        }
+                                      }
+                                    ],
+                                    "memory_desc": {
+                                      "shape": [
+                                        32,
+                                        32
+                                      ],
+                                      "tile_shape": {
+                                        "y": 1,
+                                        "x": 1
+                                      },
+                                      "data_type": "Float32",
+                                      "memory_space": "DeviceL1",
+                                      "memory_layout": "None",
+                                      "size": 4096
+                                    }
+                                  }
+                                }
+                              },
+                              "address": 127840,
+                              "desc": {
+                                "port": 16,
+                                "memory_desc": {
+                                  "shape": [
+                                    32,
+                                    32
+                                  ],
+                                  "tile_shape": {
+                                    "y": 1,
+                                    "x": 1
+                                  },
+                                  "data_type": "Float32",
+                                  "memory_space": "DeviceL1",
+                                  "memory_layout": "None",
+                                  "size": 4096
+                                },
+                                "page_size": 4096,
+                                "num_buffers": 1
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "debug_info": "%7 = \"ttmetal.dispatch\"(%5, %6) <{core_ranges = [#ttmetal.core_range<0x0, 1x1>], operandSegmentSizes = array<i32: 1, 1>, threadTypes = [#ttkernel.thread<tensix>]}> ({...}) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>, tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<32x32xf32, #tt.memory_space<l1>>>>) -> tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<32x32xf32, #tt.memory_space<l1>>>> loc(\"metal_ir.mlir\":69:10)"
+                },
+                {
+                  "type_type": "DeallocateBufferCommand",
+                  "type": {
+                    "ref": {
+                      "global_id": 9,
+                      "address": 123744,
+                      "size": 4096,
+                      "desc": {
+                        "shape": [
+                          32,
+                          32
+                        ],
+                        "layout": {
+                          "stride": [
+                            32,
+                            1
+                          ],
+                          "oob_val": "Undef",
+                          "core_range_set": [
+                            {
+                              "loc": {
+                                "y": 0,
+                                "x": 0
+                              },
+                              "size": {
+                                "y": 1,
+                                "x": 1
+                              }
+                            }
+                          ],
+                          "memory_desc": {
+                            "shape": [
+                              1,
+                              1
+                            ],
+                            "tile_shape": {
+                              "y": 32,
+                              "x": 32
+                            },
+                            "data_type": "Float32",
+                            "memory_space": "DeviceL1",
+                            "memory_layout": "None",
+                            "size": 4096
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "debug_info": "\"ttmetal.dealloc\"(%4) : (tensor<32x32xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x1x!tt.tile<32x32, f32>, #tt.memory_space<l1>>>>) -> () loc(\"metal_ir.mlir\":78:5)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+2024-09-13 10:23:21,632 - DEBUG - finished executing read API
+2024-09-13 10:23:21,632 - DEBUG - postprocessing read API
+2024-09-13 10:23:21,632 - DEBUG - finished postprocessing read API
+2024-09-13 10:23:21,632 - DEBUG - finished read API
