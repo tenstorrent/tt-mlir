@@ -316,6 +316,13 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
   }];
 }
 
+def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
+  let summary = "Max reduction op.";
+  let description = [{
+    Max reduction op.
+  }];
+}
+
 def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{

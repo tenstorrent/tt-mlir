@@ -11,11 +11,12 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/Pipelines/Passes.h"
+#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/Register.h"
@@ -37,9 +38,12 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 }
 
 void mlir::tt::registerAllPasses() {
-  // Register all dialect conversion passes
-  //
+  // Register all dialect conversion passes.
   mlir::tt::registerTTMLIRConversionPasses();
+
+  // Registering -remove-dead-values built-in mlir pass to optimize out the
+  // unused OPs/operands after conversion.
+  mlir::registerPass(mlir::createRemoveDeadValuesPass);
 
   mlir::tt::ttir::registerPasses();
   mlir::tt::ttnn::registerPasses();
@@ -50,5 +54,6 @@ void mlir::tt::registerAllPasses() {
       "Pipeline lowering ttir to ttmetal backend.",
       mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
 
+  mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
 }

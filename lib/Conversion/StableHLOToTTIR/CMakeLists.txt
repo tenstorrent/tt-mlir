@@ -4,7 +4,8 @@ include_directories(${TTMLIR_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 add_mlir_library(TTMLIRStableHLOToTTIR
-  StableHLOToTTIR.cpp
+  StableHLOToTTIRPatterns.cpp
+  StableHLOToTTIRPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/StableHLOToTTIR
