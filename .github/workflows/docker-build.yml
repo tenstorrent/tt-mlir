@@ -16,7 +16,9 @@ jobs:
           {runs-on: builder, build_type: Release, enable_runtime: ON}
         ]
 
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on:
+      - in-service
+      - ${{ matrix.build.runs-on }}
 
     container:
       image: ghcr.io/${{ github.repository }}/tt-mlir-ci-${{ matrix.image }}:latest

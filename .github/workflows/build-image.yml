@@ -3,10 +3,14 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   workflow_call:
+  push:
 
 jobs:
   build:
-    runs-on: builder
+
+    runs-on:
+      - in-service
+      - builder
 
     env:
       BASE_IMAGE_NAME:      ghcr.io/${{ github.repository }}/tt-mlir-base-ubuntu-22-04
@@ -32,6 +36,56 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Build images
+
+      - name: Build and export base Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.base
+          push: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.BASE_IMAGE_NAME}}:${{ github.sha }}
+
+      - name: Build and export base IRD Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.ird
+          push: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            FROM_IMAGE=base
+          tags: |
+            ${{ env.BASE_IRD_IMAGE_NAME}}:${{ github.sha }}
+
+      - name: Build and export CI Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.ci
+          push: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.CI_IMAGE_NAME}}:${{ github.sha }}
+
+      - name: Build and export IRD Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .github
+          file: .github/Dockerfile.ird
+          push: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            FROM_IMAGE=ci
+          tags: |
+            ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
+
+      # Push images
+
       - name: Build and push base Docker image
         uses: docker/build-push-action@v6
         with:
@@ -41,7 +95,6 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
-            ${{ env.BASE_IMAGE_NAME}}:${{ github.sha }}
             ${{ env.BASE_IMAGE_NAME}}:latest
 
       - name: Build and push base IRD Docker image
@@ -54,7 +107,6 @@ jobs:
             GIT_SHA=${{ github.sha }}
             FROM_IMAGE=base
           tags: |
-            ${{ env.BASE_IRD_IMAGE_NAME}}:${{ github.sha }}
             ${{ env.BASE_IRD_IMAGE_NAME}}:latest
 
       - name: Build and push CI Docker image
@@ -66,7 +118,6 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
-            ${{ env.CI_IMAGE_NAME}}:${{ github.sha }}
             ${{ env.CI_IMAGE_NAME}}:latest
 
       - name: Build and push IRD Docker image
@@ -79,5 +130,4 @@ jobs:
             GIT_SHA=${{ github.sha }}
             FROM_IMAGE=ci
           tags: |
-            ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
             ${{ env.IRD_IMAGE_NAME}}:latest
