@@ -75,6 +75,19 @@ toTTNNTensorMemoryLayout(::tt::target::TensorMemoryLayout memLayout) {
   }
 }
 
+inline ::tt::tt_metal::BufferType
+toTTNNBufferType(::tt::target::MemorySpace memorySpace) {
+  switch (memorySpace) {
+  case ::tt::target::MemorySpace::System:
+  case ::tt::target::MemorySpace::SystemMMIO:
+    return ::tt::tt_metal::BufferType::SYSTEM_MEMORY;
+  case ::tt::target::MemorySpace::DeviceDRAM:
+    return ::tt::tt_metal::BufferType::DRAM;
+  case ::tt::target::MemorySpace::DeviceL1:
+    return ::tt::tt_metal::BufferType::L1;
+  }
+}
+
 inline std::vector<uint32_t>
 toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
   return std::vector<uint32_t>(vec.begin(), vec.end());
