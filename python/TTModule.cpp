@@ -9,10 +9,12 @@
 #include <vector>
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
 
+#include "ttmlir-c/TTAttrs.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 namespace mlir::ttmlir::python {
@@ -199,10 +201,16 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::OperandConstraintAttr>(m, "OperandConstraintAttr")
-      .def_static("get", [](uint32_t operandConstraint, MlirContext ctx) {
-        return wrap(tt::OperandConstraintAttr::get(
-            unwrap(ctx),
-            static_cast<tt::OperandConstraint>(operandConstraint)));
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t operandConstraint) {
+                    return wrap(tt::OperandConstraintAttr::get(
+                        unwrap(ctx),
+                        static_cast<tt::OperandConstraint>(operandConstraint)));
+                  })
+      .def_static("get", [](MlirContext ctx,
+                            std::vector<MlirAttribute> attributesArray) {
+        return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
+            ctx, attributesArray);
       });
 
   py::class_<tt::DeviceType>(m, "DeviceType")
@@ -245,13 +253,19 @@ void populateTTModule(py::module &m) {
 
   py::class_<tt::CircularBufferAttributesAttr>(m,
                                                "CircularBufferAttributesAttr")
-      .def_static("get", [](MlirContext ctx, uint8_t cb_id,
-                            MlirAttribute core_range, uint32_t total_size,
-                            uint32_t page_size, uint32_t data_format) {
-        return wrap(tt::CircularBufferAttributesAttr::get(
-            unwrap(ctx), static_cast<tt::CB>(cb_id),
-            mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)), total_size,
-            page_size, static_cast<tt::DataType>(data_format)));
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint8_t cb_id, MlirAttribute core_range,
+             uint32_t total_size, uint32_t page_size, uint32_t data_format) {
+            return wrap(tt::CircularBufferAttributesAttr::get(
+                unwrap(ctx), static_cast<tt::CB>(cb_id),
+                mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)), total_size,
+                page_size, static_cast<tt::DataType>(data_format)));
+          })
+      .def_static("get", [](MlirContext ctx,
+                            std::vector<MlirAttribute> attributesArray) {
+        return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
+            ctx, attributesArray);
       });
 
   py::class_<tt::RuntimeArgumentAttr>(m, "RuntimeArgumentAttr")
@@ -286,24 +300,30 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::DataMovementAttributesAttr>(m, "DataMovementAttributesAttr")
-      .def_static("get", [](MlirContext ctx, MlirAttribute core_range,
-                            std::string kernel_path,
-                            MlirAttribute data_movement_config,
-                            std::vector<MlirAttribute> mlir_runtime_arguments) {
-        auto *context = unwrap(ctx);
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAttribute core_range, std::string kernel_path,
+             MlirAttribute data_movement_config,
+             std::vector<MlirAttribute> mlir_runtime_arguments) {
+            auto *context = unwrap(ctx);
 
-        std::vector<tt::RuntimeArgumentAttr> runtime_arguments;
-        for (auto runtime_arg : mlir_runtime_arguments) {
-          runtime_arguments.push_back(
-              mlir::cast<tt::RuntimeArgumentAttr>(unwrap(runtime_arg)));
-        }
+            std::vector<tt::RuntimeArgumentAttr> runtime_arguments;
+            for (auto runtime_arg : mlir_runtime_arguments) {
+              runtime_arguments.push_back(
+                  mlir::cast<tt::RuntimeArgumentAttr>(unwrap(runtime_arg)));
+            }
 
-        return wrap(tt::DataMovementAttributesAttr::get(
-            context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
-            mlir::StringAttr::get(context, kernel_path),
-            mlir::cast<tt::DataMovementConfigAttr>(
-                unwrap(data_movement_config)),
-            runtime_arguments));
+            return wrap(tt::DataMovementAttributesAttr::get(
+                context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
+                mlir::StringAttr::get(context, kernel_path),
+                mlir::cast<tt::DataMovementConfigAttr>(
+                    unwrap(data_movement_config)),
+                runtime_arguments));
+          })
+      .def_static("get", [](MlirContext ctx,
+                            std::vector<MlirAttribute> attributesArray) {
+        return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
+            ctx, attributesArray);
       });
 
   py::class_<tt::ComputeConfigAttr>(m, "ComputeConfigAttr")
@@ -329,23 +349,29 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::ComputeAttributesAttr>(m, "ComputeAttributesAttr")
-      .def_static("get", [](MlirContext ctx, MlirAttribute core_range,
-                            std::string kernel_path,
-                            MlirAttribute compute_config,
-                            std::vector<MlirAttribute> mlir_runtime_arguments) {
-        auto *context = unwrap(ctx);
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAttribute core_range, std::string kernel_path,
+             MlirAttribute compute_config,
+             std::vector<MlirAttribute> mlir_runtime_arguments) {
+            auto *context = unwrap(ctx);
 
-        std::vector<tt::RuntimeArgumentAttr> runtime_arguments;
-        for (auto runtime_arg : mlir_runtime_arguments) {
-          runtime_arguments.push_back(
-              mlir::cast<tt::RuntimeArgumentAttr>(unwrap(runtime_arg)));
-        }
+            std::vector<tt::RuntimeArgumentAttr> runtime_arguments;
+            for (auto runtime_arg : mlir_runtime_arguments) {
+              runtime_arguments.push_back(
+                  mlir::cast<tt::RuntimeArgumentAttr>(unwrap(runtime_arg)));
+            }
 
-        return wrap(tt::ComputeAttributesAttr::get(
-            context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
-            mlir::StringAttr::get(context, kernel_path),
-            mlir::cast<tt::ComputeConfigAttr>(unwrap(compute_config)),
-            runtime_arguments));
+            return wrap(tt::ComputeAttributesAttr::get(
+                context, mlir::cast<tt::CoreRangeAttr>(unwrap(core_range)),
+                mlir::StringAttr::get(context, kernel_path),
+                mlir::cast<tt::ComputeConfigAttr>(unwrap(compute_config)),
+                runtime_arguments));
+          })
+      .def_static("get", [](MlirContext ctx,
+                            std::vector<MlirAttribute> attributesArray) {
+        return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
+            ctx, attributesArray);
       });
 }
 } // namespace mlir::ttmlir::python
