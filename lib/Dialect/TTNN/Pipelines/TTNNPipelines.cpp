@@ -35,8 +35,6 @@ void createTTIRToTTNNBackendPipeline(
     gridSetOptions.overrideGridSizes = options.overrideGridSizes;
     pm.addPass(mlir::tt::ttir::createTTIRGridSet(gridSetOptions));
   }
-
-  pm.addPass(createTTNNOpenDevice());
   pm.addPass(createConvertTTIRToTTNNPass());
 }
 

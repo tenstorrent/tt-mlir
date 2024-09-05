@@ -19,15 +19,24 @@ using namespace mlir::tt;
 
 namespace {
 
-static Value findDevice(Operation *op) {
+// Gets or inserts a GetDeviceOp at the top of the current block of the given
+// operation.
+static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
+                               Operation *op) {
   Block *block = op->getBlock();
   for (auto &op : block->getOperations()) {
-    if (auto deviceOp = dyn_cast<ttnn::OpenDeviceOp>(op)) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
       return deviceOp.getResult();
     }
   }
-  assert(false && "No device found");
-  return nullptr;
+
+  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPoint(block, block->begin());
+  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
+      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr));
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+  return deviceOp.getResult();
 }
 
 class TensorEmptyConversionPattern
@@ -38,7 +47,7 @@ public:
   LogicalResult
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto device = findDevice(op);
+    auto device = getOrInsertDevice(rewriter, op);
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device);
     return success();

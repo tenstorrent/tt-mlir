@@ -178,8 +178,6 @@ A few things to point out specifically regarding tt-mlir dialects:
 - Pass `--ttir-layout` is a prerequisite before running `convert-ttir-to-ttnn`.
   This pass is responsible for converting the input tensors to device memory
   space and tile layout before lowering to TTNN.
-- Pass `--ttnn-open-device` is also a prerequisite, it surrounds the main
-  function body with open/close device.
 - This test is asserting that `ttir.matmul` converts to `ttnn.matmul`.
 
 To run the test, you can use the following command:
@@ -192,7 +190,7 @@ You can also manually run `ttmlir-opt` on the test file to see the
 resulting output:
 
 ```bash
-./build/bin/ttmlir-opt --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn test/ttmlir/Dialect/TTNN/simple_matmul.mlir
+./build/bin/ttmlir-opt --ttir-layout --convert-ttir-to-ttnn test/ttmlir/Dialect/TTNN/simple_matmul.mlir
 ```
 
 ## 5. Define flatbuffer schema for the Op

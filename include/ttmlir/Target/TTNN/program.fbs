@@ -3,14 +3,10 @@ include "Common/debug_info.fbs";
 
 namespace tt.target.ttnn;
 
-table OpenDeviceOp {
+table GetDeviceOp {
   mesh: Dim2d;
   chip_ids: [uint32];
   out: tt.target.DeviceRef;
-}
-
-table CloseDeviceOp {
-  in0: tt.target.DeviceRef;
 }
 
 table ToMemoryConfigOp {
@@ -128,8 +124,7 @@ table DeallocOp {
 }
 
 union OpType {
-  OpenDeviceOp,
-  CloseDeviceOp,
+  GetDeviceOp,
   ToMemoryConfigOp,
   EmptyOp,
   FullOp,

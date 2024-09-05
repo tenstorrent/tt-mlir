@@ -6,7 +6,7 @@
 
 // Below is a snippet generated with:
 // ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout
-// --ttnn-open-device --convert-ttir-to-ttnn --convert-ttnn-to-emitc
+//  --convert-ttir-to-ttnn --convert-ttnn-to-emitc
 // test/ttmlir/Dialect/TTNN/simple_multiply.mlir | ./build/bin/ttmlir-translate
 // -mlir-to-cpp -allow-unregistered-dialect
 //

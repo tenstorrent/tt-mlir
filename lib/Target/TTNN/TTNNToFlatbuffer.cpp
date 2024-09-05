@@ -55,23 +55,16 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
       debugString.c_str());
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::OpenDeviceOp>
-createOp(FlatbufferObjectCache &cache, OpenDeviceOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::GetDeviceOp>
+createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto result = op.getResult();
   auto resultType = mlir::cast<DeviceType>(result.getType());
-  ::tt::target::Dim2d grid =
-      toFlatbuffer(cache, resultType.getDesc().getWorkerGrid());
+  ::tt::target::Dim2d mesh(1, 1);
+  assert(resultType.getDesc().getChipIds().size() == 1 &&
+         "expected single chip");
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
-  return ::tt::target::ttnn::CreateOpenDeviceOp(*cache.fbb, &grid, chipIds,
-                                                out);
-}
-
-::flatbuffers::Offset<::tt::target::ttnn::CloseDeviceOp>
-createOp(FlatbufferObjectCache &cache, CloseDeviceOp op) {
-  auto device = op.getDevice();
-  auto in = cache.at<::tt::target::DeviceRef>(device);
-  return ::tt::target::ttnn::CreateCloseDeviceOp(*cache.fbb, in);
+  return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToMemoryConfigOp>
@@ -286,11 +279,8 @@ createDeallocOp(FlatbufferObjectCache &cache, DeallocOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString) {
-  if (auto openDeviceOp = dyn_cast<OpenDeviceOp>(op); openDeviceOp) {
-    return createOperation(cache, createOp(cache, openDeviceOp), debugString);
-  }
-  if (auto closeDeviceOp = dyn_cast<CloseDeviceOp>(op); closeDeviceOp) {
-    return createOperation(cache, createOp(cache, closeDeviceOp), debugString);
+  if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
+    return createOperation(cache, createOp(cache, getDeviceOp), debugString);
   }
   if (auto toMemoryConfigOp = dyn_cast<ToMemoryConfigOp>(op);
       toMemoryConfigOp) {
