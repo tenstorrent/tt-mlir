@@ -66,7 +66,8 @@ public:
     if (mlir::isa<mlir::stablehlo::AddOp>(innerOp)) {
       return matchAndRewriteInternal<mlir::tt::ttir::SumOp>(srcOp, adaptor,
                                                             rewriter);
-    } else if (mlir::isa<mlir::stablehlo::MaxOp>(innerOp)) {
+    }
+    if (mlir::isa<mlir::stablehlo::MaxOp>(innerOp)) {
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
