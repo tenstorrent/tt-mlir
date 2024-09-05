@@ -54,7 +54,6 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.ird
-          push: false
           build-args: |
             GIT_SHA=${{ github.sha }}
             FROM_IMAGE=base
@@ -66,7 +65,6 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.ci
-          push: false
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
@@ -77,21 +75,19 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.ird
-          push: false
           build-args: |
             GIT_SHA=${{ github.sha }}
             FROM_IMAGE=ci
           tags: |
             ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
 
-      # Push images
+      # Tag images as latest
 
       - name: Build and push base Docker image
         uses: docker/build-push-action@v6
         with:
           context: .github
           file: .github/Dockerfile.base
-          push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
@@ -102,7 +98,6 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.ird
-          push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
             FROM_IMAGE=base
@@ -114,7 +109,6 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.ci
-          push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
           tags: |
@@ -125,7 +119,6 @@ jobs:
         with:
           context: .github
           file: .github/Dockerfile.ird
-          push: true
           build-args: |
             GIT_SHA=${{ github.sha }}
             FROM_IMAGE=ci
