@@ -271,6 +271,14 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
+template <typename DeallocOp>
+::flatbuffers::Offset<::tt::target::ttnn::DeallocOp>
+createDeallocOp(FlatbufferObjectCache &cache, DeallocOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  return ::tt::target::ttnn::CreateDeallocOp(*cache.fbb, in);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   std::string const &debugString) {
@@ -355,6 +363,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
+                           debugString);
+  }
+  if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
+    return createOperation(cache, createDeallocOp(cache, deallocOp),
                            debugString);
   }
 

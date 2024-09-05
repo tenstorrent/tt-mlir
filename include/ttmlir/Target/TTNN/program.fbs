@@ -121,6 +121,10 @@ table Conv2dOp {
   groups: uint32;
 }
 
+table DeallocOp {
+  in: tt.target.TensorRef;
+}
+
 union OpType {
   OpenDeviceOp,
   CloseDeviceOp,
@@ -135,7 +139,8 @@ union OpType {
   TransposeOp,
   Conv2dOp,
   ConcatOp,
-  ReshapeOp
+  ReshapeOp,
+  DeallocOp
 }
 
 table Operation {
