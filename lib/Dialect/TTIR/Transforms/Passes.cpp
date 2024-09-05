@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
+#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICKERNEL
@@ -1096,9 +1097,16 @@ public:
         // Update the output layout attribute with the new grid size.
         //
         if (optimalTargetGridAnalysis.getResult().contains(op)) {
-          op->getResult(0).setType(RankedTensorType::get(
+          RankedTensorType newTensorType = RankedTensorType::get(
               tensorShape, tensorType.getElementType(),
-              optimalTargetGridAnalysis.getResult().at(op)));
+              optimalTargetGridAnalysis.getResult().at(op));
+
+          op->getResult(0).setType(newTensorType);
+          
+          if (llvm::isa<mlir::DestinationStyleOpInterface>(op)) {
+            // Update dps operand layout as well.
+            op->getOperands().back().setType(newTensorType);
+          }
         }
       });
 
