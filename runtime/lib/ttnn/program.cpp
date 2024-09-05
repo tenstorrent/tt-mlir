@@ -464,7 +464,8 @@ static void runReductionOp(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, std::vector<int>>> &, const bool,
         const std::optional<::tt::tt_metal::MemoryConfig> &,
-        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
+        const std::optional<::tt::tt_metal::DeviceComputeKernelConfig> &,
+        float)>
         ttnnOp) {
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
 

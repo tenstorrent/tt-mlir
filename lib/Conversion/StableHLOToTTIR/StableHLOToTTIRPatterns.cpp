@@ -4,18 +4,11 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/IR/Dialect.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/ValueRange.h>
-#include <mlir/Pass/Pass.h>
 #include <mlir/Support/LogicalResult.h>
-#include <mlir/Transforms/DialectConversion.h>
 
 #include <stablehlo/dialect/StablehloOps.h>
 
@@ -25,14 +18,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 using namespace mlir;
-using namespace tt;
-
-namespace mlir::tt::ttir {
-
-#define GEN_PASS_DEF_CONVERTSTABLEHLOTOTTIR
-#include "ttmlir/Conversion/Passes.h.inc"
-
-} // namespace mlir::tt::ttir
+using namespace mlir::tt;
 
 namespace {
 
@@ -75,16 +61,12 @@ public:
       return failure();
     }
 
-    mlir::TypeID srcOpTypeID =
-        srcOp.getBody().front().front().getName().getTypeID();
+    const mlir::Operation &innerOp = srcOp.getBody().front().front();
 
-    // Convert based on type.
-    if (srcOpTypeID ==
-        mlir::detail::TypeIDResolver<mlir::stablehlo::AddOp>::resolveTypeID()) {
+    if (mlir::isa<mlir::stablehlo::AddOp>(innerOp)) {
       return matchAndRewriteInternal<mlir::tt::ttir::SumOp>(srcOp, adaptor,
                                                             rewriter);
-    } else if (srcOpTypeID == mlir::detail::TypeIDResolver<
-                                  mlir::stablehlo::MaxOp>::resolveTypeID()) {
+    } else if (mlir::isa<mlir::stablehlo::MaxOp>(innerOp)) {
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
@@ -136,88 +118,47 @@ private:
   }
 };
 
-struct ConvertStableHLOToTTIRPass
-    : public ttir::impl::ConvertStableHLOToTTIRBase<
-          ConvertStableHLOToTTIRPass> {
+void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
 
-  void
-  addElementwiseUnaryOpsConversionPatterns(RewritePatternSet &patterns,
-                                           const TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
+}
 
-    patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-        mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter,
-                                                        &getContext());
-  }
+void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
 
-  void addElementwiseBinaryOpsConversionPatterns(
-      RewritePatternSet &patterns, const TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::SubtractOp, mlir::tt::ttir::SubtractOp>>(typeConverter,
+                                                                ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::MulOp, mlir::tt::ttir::MultiplyOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::DivOp, mlir::tt::ttir::DivOp>>(typeConverter, ctx);
+}
 
-    patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-        mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(typeConverter,
-                                                        &getContext());
-    patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-        mlir::stablehlo::SubtractOp, mlir::tt::ttir::SubtractOp>>(
-        typeConverter, &getContext());
-    patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-        mlir::stablehlo::MulOp, mlir::tt::ttir::MultiplyOp>>(typeConverter,
-                                                             &getContext());
-    patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-        mlir::stablehlo::DivOp, mlir::tt::ttir::DivOp>>(typeConverter,
-                                                        &getContext());
-  }
-
-  void addReduceOpsConversionPatterns(RewritePatternSet &patterns,
-                                      const TypeConverter &typeConverter) {
-    patterns.add<
-        StableHLOToTTIRReduceOpConversionPattern<mlir::stablehlo::ReduceOp>>(
-        typeConverter, &getContext());
-  }
-
-  void addConversionPatterns(RewritePatternSet &patterns,
-                             const TypeConverter &typeConverter) {
-    addElementwiseUnaryOpsConversionPatterns(patterns, typeConverter);
-    addElementwiseBinaryOpsConversionPatterns(patterns, typeConverter);
-    addReduceOpsConversionPatterns(patterns, typeConverter);
-  }
-
-  void runOnOperation() override {
-    mlir::ConversionTarget target(getContext());
-
-    target.addIllegalDialect<mlir::stablehlo::StablehloDialect>();
-
-    target.addLegalDialect<ttir::TTIRDialect>();
-    target.addLegalOp<mlir::tensor::EmptyOp>();
-    target.addLegalOp<mlir::ModuleOp>();
-    target.addLegalOp<mlir::func::FuncOp>();
-    target.addLegalOp<mlir::func::ReturnOp>();
-
-    // For now keep the same type assuming StableHLO ops operate on builtin
-    // tensor.
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) {
-      assert(isa<RankedTensorType>(type) &&
-             "only ranked tensor type supported");
-      return type;
-    });
-    RewritePatternSet patterns(&getContext());
-
-    addConversionPatterns(patterns, typeConverter);
-
-    // Apply conversion.
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
-      signalPassFailure();
-      return;
-    }
-  }
-};
+void addReduceOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns
+      .add<StableHLOToTTIRReduceOpConversionPattern<mlir::stablehlo::ReduceOp>>(
+          typeConverter, ctx);
+}
 
 } // namespace
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass() {
-  return std::make_unique<ConvertStableHLOToTTIRPass>();
+void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
