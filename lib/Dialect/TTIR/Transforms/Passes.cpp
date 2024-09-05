@@ -606,16 +606,10 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   auto desiredLayout =
       rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
                                    desiredElementType, desiredMemLayout);
-  tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
-  // If we are changing the layout of existing op
-  // we need to set the insertion point to the existing op
-  if (exising_empty) {
-    rewriter.setInsertionPoint(input.getDefiningOp());
-  }
-
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
+  tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
   if (exising_empty) {
     rewriter.replaceOp(exising_empty, output);
     return output.getResult();
@@ -678,7 +672,6 @@ public:
           rewriter, op.getLoc(), operand.get(), operandConstraint,
           defaultMemorySpace, defaultDeviceMemoryLayout);
 
-      // If we changed layout (memory space or element type), update the op
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
           modified = true;
