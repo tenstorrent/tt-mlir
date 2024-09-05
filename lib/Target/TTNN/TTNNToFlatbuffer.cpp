@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <fstream>
+
 #include <llvm/Support/Casting.h>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -59,7 +60,7 @@ createOp(FlatbufferObjectCache &cache, OpenDeviceOp op) {
   auto result = op.getResult();
   auto resultType = mlir::cast<DeviceType>(result.getType());
   ::tt::target::Dim2d grid =
-      toFlatbuffer(cache, resultType.getDesc().getGrid());
+      toFlatbuffer(cache, resultType.getDesc().getWorkerGrid());
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateOpenDeviceOp(*cache.fbb, &grid, chipIds,

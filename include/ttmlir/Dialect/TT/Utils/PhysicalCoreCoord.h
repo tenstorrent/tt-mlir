@@ -21,12 +21,20 @@ struct PhysicalCoreCoord {
 
   std::int64_t &operator[](std::size_t i) {
     assert(i < 3);
-    return i == 0 ? d : i == 1 ? y : x;
+    switch (i) {
+    case 0:
+      return d;
+    case 1:
+      return y;
+    case 2:
+      return x;
+    default:
+      llvm_unreachable("invalid index");
+    }
   }
 
   std::int64_t operator[](std::size_t i) const {
-    assert(i < 3);
-    return i == 0 ? d : i == 1 ? y : x;
+    return (*const_cast<PhysicalCoreCoord *>(this))[i];
   }
 
   bool operator==(PhysicalCoreCoord const &other) const {
@@ -36,32 +44,79 @@ struct PhysicalCoreCoord {
 
 class PhysicalCoreCoordMapping {
 public:
-  PhysicalCoreCoordMapping(ArrayRef<tt::ChipDescAttr> chipDescs) {
-    ArrayRef<int64_t> firstChipGrid = chipDescs.front().getGrid();
+  static PhysicalCoreCoordMapping
+  getWorkerMapping(ArrayRef<unsigned> chipIds,
+                   ArrayRef<tt::ChipDescAttr> chipDescs) {
+    SmallVector<std::array<int64_t, 2>> physCores;
+    ArrayRef<int64_t> firstChipGrid = chipDescs[chipIds.front()].getGrid();
     assert(firstChipGrid.size() == 2);
-    grid = {firstChipGrid[0], firstChipGrid[1]};
+    std::array<int64_t, 2> grid = {firstChipGrid[0], firstChipGrid[1]};
 
-    workers.reserve(chipDescs.size() * grid[0] * grid[1]);
-    for (auto chipDesc : chipDescs) {
+    physCores.reserve(chipIds.size() * grid[0] * grid[1]);
+    for (auto chipId : chipIds) {
+      auto chipDesc = chipDescs[chipId];
       auto chipGrid = chipDesc.getGrid();
       assert(chipGrid == firstChipGrid);
       ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
       assert(chipPhysicalCores.getWorker().size() ==
              static_cast<size_t>(grid[0] * grid[1]));
       for (auto worker : chipPhysicalCores.getWorker()) {
-        workers.push_back({worker.getY(), worker.getX()});
+        physCores.push_back({worker.getY(), worker.getX()});
       }
     }
-    assert(workers.size() == chipDescs.size() * grid[0] * grid[1]);
+    assert(physCores.size() == chipIds.size() * grid[0] * grid[1]);
+    return PhysicalCoreCoordMapping(grid, physCores);
+  }
+
+  static PhysicalCoreCoordMapping
+  getDramMapping(ArrayRef<unsigned> chipIds,
+                 ArrayRef<tt::ChipDescAttr> chipDescs) {
+    ArrayRef<CoreCoordAttr> firstChipDramCores =
+        chipDescs[chipIds.front()].getChipPhysicalCores().getDram();
+
+    std::array<int64_t, 2> grid = {
+        1, static_cast<int64_t>(firstChipDramCores.size())};
+    SmallVector<std::array<int64_t, 2>> physCores;
+    physCores.reserve(chipIds.size() * grid[0] * grid[1]);
+    for (auto chipId : chipIds) {
+      auto chipDesc = chipDescs[chipId];
+      ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
+      assert(chipPhysicalCores.getDram().size() ==
+             static_cast<size_t>(grid[0] * grid[1]));
+      for (auto dram : chipPhysicalCores.getDram()) {
+        physCores.push_back({dram.getY(), dram.getX()});
+      }
+    }
+    assert(physCores.size() == chipIds.size() * grid[0] * grid[1]);
+    return PhysicalCoreCoordMapping(grid, physCores);
+  }
+
+  static PhysicalCoreCoordMapping
+  getMemorySpaceMapping(ArrayRef<unsigned> chipIds,
+                        ArrayRef<tt::ChipDescAttr> chipDescs,
+                        MemorySpace memorySpace) {
+    switch (memorySpace) {
+    case MemorySpace::DeviceL1:
+      return getWorkerMapping(chipIds, chipDescs);
+    case MemorySpace::DeviceDRAM:
+      return getDramMapping(chipIds, chipDescs);
+    default:
+      llvm_unreachable("unsupported memory space");
+    }
   }
 
   std::array<int64_t, 2> operator[](PhysicalCoreCoord coord) const {
-    return workers[coord.d * grid[0] * grid[1] + coord.y * grid[1] + coord.x];
+    return physCores[coord.d * grid[0] * grid[1] + coord.y * grid[1] + coord.x];
   }
 
 private:
+  PhysicalCoreCoordMapping(std::array<int64_t, 2> grid,
+                           SmallVector<std::array<int64_t, 2>> physCores)
+      : grid(grid), physCores(physCores) {}
+
+private:
   std::array<int64_t, 2> grid;
-  SmallVector<std::array<int64_t, 2>> workers;
+  SmallVector<std::array<int64_t, 2>> physCores;
 };
 } // namespace mlir::tt
 

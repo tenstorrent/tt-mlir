@@ -17,31 +17,33 @@ void populatePassesModule(py::module &m) {
   mlir::tt::registerAllPasses();
   mlir::registerAllTranslations();
 
-  m.def("ttir_to_ttnn_backend_pipeline", [](MlirModule module) {
-    mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-    mlir::PassManager pm(moduleOp->getName());
+  m.def(
+      "ttir_to_ttnn_backend_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
 
-    mlir::DialectRegistry registry;
-    mlir::tt::registerAllDialects(registry);
-    mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
-    ctx->appendDialectRegistry(registry);
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
+        ctx->appendDialectRegistry(registry);
 
-    const auto pipeline =
-        mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
 
-    std::string options = "";
+        mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)>
+            err_handler =
+                [](const llvm::Twine &loc) { return mlir::failure(); };
 
-    mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)> err_handler =
-        [](const llvm::Twine &loc) { return mlir::failure(); };
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
 
-    if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
-      throw std::runtime_error("Failed to add pipeline to pass manager");
-    }
-
-    if (mlir::failed(pm.run(moduleOp))) {
-      throw std::runtime_error("Failed to run pass manager");
-    }
-  });
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
 
   py::class_<std::shared_ptr<void>>(m, "SharedVoidPtr")
       .def(py::init<>())
@@ -51,6 +53,7 @@ void populatePassesModule(py::module &m) {
       });
 
   m.def("ttnn_to_flatbuffer_binary", [](MlirModule module) {
+    // NOLINTBEGIN
     mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
     std::shared_ptr<void> *binary = new std::shared_ptr<void>();
     *binary = mlir::tt::ttnn::ttnnToFlatbuffer(moduleOp);
@@ -58,6 +61,7 @@ void populatePassesModule(py::module &m) {
       std::shared_ptr<void> *bin = static_cast<std::shared_ptr<void> *>(data);
       delete bin;
     });
+    // NOLINTEND
   });
 }
 

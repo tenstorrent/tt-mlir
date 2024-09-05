@@ -51,6 +51,10 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
           "::mlir::tt::MemorySpace",
           /*default=*/"::mlir::tt::MemorySpace::DeviceDRAM",
            "Set the default memory space for layout pass to prefer for operation operands, if not constrained">,
+    Option<"defaultDeviceMemoryLayout", "default-device-memory-layout",
+          "::mlir::tt::TensorMemoryLayout",
+          /*default=*/"::mlir::tt::TensorMemoryLayout::Interleaved",
+          "Set the default memory layout for layout pass to prefer for operation operands that are on device, if not constrained">
   ];
 }
 
@@ -58,7 +62,7 @@ def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleO
   let summary = "Split compound layouts.";
   let description = [{
     A single to_layout op in ttir can simultaneously perform multiple layout transformations
-    at once, including changing layout, format, or memory space. This pass splits each of
+    at once, including changing layout, format, memory space or memory layout. This pass splits each of
     these transformation categories into separate to_layout ops.
   }];
 }

@@ -1,4 +1,7 @@
-// RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal --ttmetal-serialize-to-binary="output=%t.ttm" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-implicit-device --ttir-allocate --convert-ttir-to-ttmetal %s > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
+
 #l1_ = #tt.memory_space<l1>
 
 #untilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>

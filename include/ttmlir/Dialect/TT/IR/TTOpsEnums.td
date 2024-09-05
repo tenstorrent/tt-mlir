@@ -72,6 +72,26 @@ def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
   let cppNamespace = "::mlir::tt";
 }
 
+def TT_TensorMemoryLayoutNone : I32EnumAttrCase<"None", 0, "none">;
+def TT_TensorMemoryLayoutInterleaved : I32EnumAttrCase<"Interleaved", 1, "interleaved">;
+def TT_TensorMemoryLayoutSingleBank : I32EnumAttrCase<"SingleBank", 2, "single_bank">;
+def TT_TensorMemoryLayoutHeightSharded : I32EnumAttrCase<"HeightSharded", 3, "height_sharded">;
+def TT_TensorMemoryLayoutWidthSharded : I32EnumAttrCase<"WidthSharded", 4, "width_sharded">;
+def TT_TensorMemoryLayoutBlockSharded : I32EnumAttrCase<"BlockSharded", 5, "block_sharded">;
+
+def TT_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TT TensorMemoryLayout",
+                           [
+                            TT_TensorMemoryLayoutNone,
+                            TT_TensorMemoryLayoutInterleaved,
+                            TT_TensorMemoryLayoutSingleBank,
+                            TT_TensorMemoryLayoutHeightSharded,
+                            TT_TensorMemoryLayoutWidthSharded,
+                            TT_TensorMemoryLayoutBlockSharded,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
 def TT_Parallel : I32EnumAttrCase<"Parallel", 0, "parallel">;
 def TT_Systolic : I32EnumAttrCase<"Systolic", 1, "systolic">;
 def TT_Broadcast : I32EnumAttrCase<"Broadcast", 2, "broadcast">;
@@ -109,10 +129,17 @@ def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 1, "dram">;
 def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 2, "l1">;
 def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 3, "scalar">;
 def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 4, "tile">;
-def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintSystem, TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile], "any">;
-def TT_OperandConstraintAnyDevice : I32BitEnumAttrCaseGroup<"AnyDevice", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile], "any_device">;
-def TT_OperandConstraintAnyDeviceTile : I32BitEnumAttrCaseGroup<"AnyDeviceTile", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintTile], "any_device_tile">;
-
+def TT_OperandConstraintNone : I32BitEnumAttrCaseBit<"None", 5, "none">;
+def TT_OperandConstraintInterleaved : I32BitEnumAttrCaseBit<"Interleaved", 6, "interleaved">;
+def TT_OperandConstraintSingleBank : I32BitEnumAttrCaseBit<"SingleBank", 7, "single_bank">;
+def TT_OperandConstraintHeightSharded : I32BitEnumAttrCaseBit<"HeightSharded", 8, "height_sharded">;
+def TT_OperandConstraintWidthSharded : I32BitEnumAttrCaseBit<"WidthSharded", 9, "width_sharded">;
+def TT_OperandConstraintBlockSharded : I32BitEnumAttrCaseBit<"BlockSharded", 10, "block_sharded">;
+def TT_OperandConstraintAnyLayout : I32BitEnumAttrCaseGroup<"AnyLayout", [TT_OperandConstraintNone, TT_OperandConstraintInterleaved, TT_OperandConstraintSingleBank, TT_OperandConstraintHeightSharded, TT_OperandConstraintWidthSharded, TT_OperandConstraintBlockSharded], "any_layout">;
+def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintSystem, TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any">;
+def TT_OperandConstraintAnyDevice : I32BitEnumAttrCaseGroup<"AnyDevice", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device">;
+def TT_OperandConstraintAnyDeviceTile : I32BitEnumAttrCaseGroup<"AnyDeviceTile", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device_tile">;
+def TT_OperandConstraintL1BlockSharded : I32BitEnumAttrCaseGroup<"L1BlockSharded", [TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintBlockSharded], "l1_block_sharded">;
 def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Constraints",
                            [
                             TT_OperandConstraintSystem,
@@ -120,9 +147,17 @@ def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Const
                             TT_OperandConstraintL1,
                             TT_OperandConstraintScalar,
                             TT_OperandConstraintTile,
+                            TT_OperandConstraintNone,
+                            TT_OperandConstraintInterleaved,
+                            TT_OperandConstraintSingleBank,
+                            TT_OperandConstraintHeightSharded,
+                            TT_OperandConstraintWidthSharded,
+                            TT_OperandConstraintBlockSharded,
+                            TT_OperandConstraintAnyLayout,
                             TT_OperandConstraintAny,
                             TT_OperandConstraintAnyDevice,
                             TT_OperandConstraintAnyDeviceTile,
+                            TT_OperandConstraintL1BlockSharded,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";

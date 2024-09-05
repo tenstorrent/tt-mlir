@@ -202,7 +202,7 @@ level of complexity downwards for the bottom, we will define a very
 aggressive TTNN backend for the MVP.
 Desired Optimization List:
 
--   BUDA (frontend)
+-   Forge-FE (frontend)
 
     -   Graph Optimizations, Constant Folding, Operation Fusion
 

@@ -21,14 +21,14 @@ void populateTTModule(py::module &m) {
                      uint32_t memorySpaceValue, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals,
-                     uint32_t oobValValue) {
+                     uint32_t oobValValue, uint32_t memLayoutValue) {
                     return wrap(tt::LayoutAttr::get(
                         unwrap(ctx),
                         mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
                         static_cast<tt::MemorySpace>(memorySpaceValue),
                         mlir::cast<tt::GridAttr>(unwrap(grid)),
-                        collapseIntervals,
-                        static_cast<tt::OOBVal>(oobValValue)));
+                        collapseIntervals, static_cast<tt::OOBVal>(oobValValue),
+                        static_cast<tt::TensorMemoryLayout>(memLayoutValue)));
                   })
       .def_static("with_grid",
                   [](MlirContext ctx, MlirAttribute self,
@@ -87,7 +87,8 @@ void populateTTModule(py::module &m) {
       .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
       .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
       .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
-      .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape);
+      .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape)
+      .def_property_readonly("memory_layout", &tt::LayoutAttr::getMemLayout);
 
   py::class_<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
@@ -156,6 +157,10 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::SystemDescAttr>(m, "SystemDescAttr")
+      .def_static("get_default",
+                  [](MlirContext ctx) {
+                    return wrap(tt::SystemDescAttr::getDefault(unwrap(ctx)));
+                  })
       .def_static("get", [](MlirContext ctx,
                             std::vector<MlirAttribute> chipDescs,
                             std::vector<unsigned> chipDescIndices,
@@ -200,6 +205,12 @@ void populateTTModule(py::module &m) {
             tt::OOBValAttr::get(unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
       });
 
+  py::class_<tt::TensorMemoryLayoutAttr>(m, "TensorMemoryLayoutAttr")
+      .def_static("get", [](MlirContext ctx, uint32_t memLayout) {
+        return wrap(tt::TensorMemoryLayoutAttr::get(
+            unwrap(ctx), static_cast<tt::TensorMemoryLayout>(memLayout)));
+      });
+
   py::class_<tt::IteratorTypeAttr>(m, "IteratorTypeAttr")
       .def_static("get", [](MlirContext ctx, uint32_t iteratorType) {
         return wrap(tt::IteratorTypeAttr::get(
@@ -220,13 +231,22 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::DeviceAttr>(m, "DeviceAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, std::vector<int64_t> shape,
-             MlirAffineMap physicalGridMapping, std::vector<unsigned> chipIds) {
-            return wrap(tt::DeviceAttr::get(
-                unwrap(ctx), shape, unwrap(physicalGridMapping), chipIds));
-          })
+      .def_static("from_system_desc",
+                  [](MlirContext ctx, MlirAttribute systemDesc) {
+                    return wrap(tt::DeviceAttr::get(
+                        unwrap(ctx),
+                        mlir::cast<tt::SystemDescAttr>(unwrap(systemDesc))));
+                  })
+      .def_static("get",
+                  [](MlirContext ctx, std::vector<int64_t> shape,
+                     MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
+                     MlirAffineMap dramMap, std::vector<unsigned> chipIds) {
+                    return wrap(tt::DeviceAttr::get(
+                        unwrap(ctx),
+                        tt::GridAttr::get(unwrap(ctx), shape,
+                                          unwrap(workerGridMapping)),
+                        unwrap(l1Map), unwrap(dramMap), chipIds));
+                  })
       .def("unwrap", [](MlirAttribute const &self) {
         return mlir::cast<tt::DeviceAttr>(unwrap(self));
       });

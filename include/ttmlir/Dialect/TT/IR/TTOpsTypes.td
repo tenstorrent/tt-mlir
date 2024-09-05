@@ -245,8 +245,9 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
                         AttrParameter<"OOBVal", "A tracked out of bounds value that fills padding space.">:$oob_val,
                         AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
-                        AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref);
-  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref `>`";
+                        AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
+                        DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::None", "The layout of the tensor in memory.">:$mem_layout);
+  let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref (`,` $mem_layout^)? `>`";
 
   let extraClassDeclaration = [{
       static LayoutAttr get(::mlir::MLIRContext *context,
@@ -255,18 +256,21 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
+                            OOBVal oobVal = OOBVal::Undef,
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::None);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                            OOBVal oobVal = OOBVal::Undef);
+                            OOBVal oobVal = OOBVal::Undef,
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::None);
       static LayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace,
                             GridAttr grid,
-                            Type elementType);
+                            Type elementType,
+                            TensorMemoryLayout memLayout);
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,
@@ -274,10 +278,11 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                           ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
       LayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
-
+      LayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
+      bool hasShardedTensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;
@@ -285,7 +290,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape() const;
-      AffineMap projectOnto(AffineMap linearMap, ArrayRef<int64_t> logicalTensorShape, GridAttr grid) const;
+      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap, ArrayRef<int64_t> logicalTensorShape) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
   }];
@@ -316,24 +321,43 @@ def TT_BufferAttr : TT_Attr<"Buffer", "buffer", []> {
 }
 
 def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
-  let summary = "Device attribute in TT dialect";
+  let summary = "Device attribute in TT dialect.";
   let description = [{
+    Describes the physical layout of a device in the system and is made up of a few components:
+    - A grid attribute that describes the device's compute grid shape.  It not only describes the shape of the compute grid, but also
+      carries an affine map that describes how the logical grid maps to the physical grid.
+    - Two affine maps that describe how a tensor layout's linear attribute maps to the L1 and DRAM memory spaces.
+    - An array of chip ids that this device is made up of.
   }];
-  let parameters = (ins TT_GridAttr:$grid, ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` qualified($grid) `,` `[` $chipIds `]` `>`";
+  let parameters = (ins TT_GridAttr:$workerGrid,
+                        "AffineMap":$l1Map,
+                        "AffineMap":$dramMap,
+                        ArrayRefParameter<"unsigned">:$chipIds);
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `chipIds` `=` `[` $chipIds `]` `>`";
 
   let extraClassDeclaration = [{
-      static DeviceAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, AffineMap physicalGridMapping, ArrayRef<unsigned> chipIds) {
-        return DeviceAttr::get(context, GridAttr::get(context, shape, physicalGridMapping), chipIds);
-      }
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<unsigned> chipIds);
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, bool enableMultichip = false);
+      AffineMap getMapForMemorySpace(MemorySpace memorySpace) const {
+        switch (memorySpace) {
+        case MemorySpace::DeviceL1:
+          return getL1Map();
+        case MemorySpace::DeviceDRAM:
+          return getDramMap();
+        default:
+          llvm_unreachable("Unsupported memory space");
+        }
+      }
   }];
 
   let genVerifyDecl = 1;
 }
 
 def TT_MemorySpaceAttr : EnumAttr<TT_Dialect, TT_MemorySpace, "memory_space"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_TensorMemoryLayoutAttr : EnumAttr<TT_Dialect, TT_TensorMemoryLayout, "tensor_memory_layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

@@ -31,6 +31,24 @@ inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
+inline ::tt::target::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &, TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case TensorMemoryLayout::None:
+    return ::tt::target::TensorMemoryLayout::None;
+  case TensorMemoryLayout::Interleaved:
+    return ::tt::target::TensorMemoryLayout::Interleaved;
+  case TensorMemoryLayout::SingleBank:
+    return ::tt::target::TensorMemoryLayout::SingleBank;
+  case TensorMemoryLayout::HeightSharded:
+    return ::tt::target::TensorMemoryLayout::HeightSharded;
+  case TensorMemoryLayout::WidthSharded:
+    return ::tt::target::TensorMemoryLayout::WidthSharded;
+  case TensorMemoryLayout::BlockSharded:
+    return ::tt::target::TensorMemoryLayout::BlockSharded;
+  }
+}
+
 inline std::uint64_t getElementSizeBytes(DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
@@ -271,19 +289,23 @@ toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
   ::ttmlir::utils::sample(
       tensorGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {
         SmallVector<std::int64_t> coreCoord = mapping.compose(virtualCoreCoord);
-        assert(coreCoord.size() == 3 && "expected a 2D core");
-        assert(coreCoord[0] == 0 && "expected single device");
+        assert(coreCoord.size() == PhysGridResultIdx::NumIndices &&
+               "expected a 2D core");
+        assert(coreCoord[PhysGridResultIdx::DeviceIdx] == 0 &&
+               "expected single device");
         if (!coreRangeSet.empty() &&
-            ((coreRangeSet.back().loc().y() == coreCoord[1]) &&
+            ((coreRangeSet.back().loc().y() ==
+              coreCoord[PhysGridResultIdx::CoreCoordY]) &&
              (coreRangeSet.back().loc().x() + coreRangeSet.back().size().x()) ==
-                 coreCoord[2])) {
+                 coreCoord[PhysGridResultIdx::CoreCoordX])) {
           coreRangeSet.back() = ::tt::target::Dim2dRange(
               coreRangeSet.back().loc(),
               ::tt::target::Dim2d(coreRangeSet.back().size().y(),
                                   coreRangeSet.back().size().x() + 1));
         } else {
           coreRangeSet.push_back(::tt::target::Dim2dRange(
-              ::tt::target::Dim2d(coreCoord[1], coreCoord[2]),
+              ::tt::target::Dim2d(coreCoord[PhysGridResultIdx::CoreCoordY],
+                                  coreCoord[PhysGridResultIdx::CoreCoordX]),
               ::tt::target::Dim2d(1, 1)));
         }
         if (coreRangeSet.size() > 1 &&
@@ -344,7 +366,8 @@ arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 inline flatbuffers::Offset<::tt::target::MemoryDesc>
-memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
+memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
+                       ::mlir::tt::TensorMemoryLayout memLayout) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -360,6 +383,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
     dtype = elementTypeToDataType(elementType);
     elementSize = getElementSizeBytes(dtype);
   }
+
   std::uint64_t size = elementSize;
   for (auto dim : shapeInt64) {
     size *= dim;
@@ -370,7 +394,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref) {
       toFlatbuffer(
           cache,
           mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
-      size);
+      toFlatbuffer(cache, memLayout), size);
 }
 
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
@@ -381,11 +405,12 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
   auto strideInt64 = layoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getGrid());
+      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
   return ::tt::target::CreateLayoutDescDirect(
       *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
       &coreRangeSet,
-      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer));
+      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
+                        layoutAttr.getMemLayout()));
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>

@@ -8,11 +8,20 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include <optional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
+
+constexpr int TTNN_TILE_HEIGHT = 32;
+constexpr int TTNN_TILE_WIDTH = 32;
+
+static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
+  return layout == ::mlir::tt::TensorMemoryLayout::Interleaved ||
+         ::mlir::tt::isShardedMemoryLayout(layout);
+}
 
 ::mlir::LogicalResult mlir::tt::ttnn::ToMemoryConfigOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
@@ -26,6 +35,42 @@ namespace mlir::tt::ttnn {
   }
   if (not outputLayout) {
     return emitOpError("Output tensor type missing layout attribute");
+  }
+  ::mlir::tt::MemorySpace outputMemorySpace = outputLayout.getMemorySpace();
+  ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
+      outputLayout.getMemLayout();
+  if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::None) {
+    return emitOpError("System memory space only supports undef memory layout");
+  }
+
+  if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
+      !isValidDeviceLayout(outputMemoryLayout)) {
+    return emitOpError("Device memory space only supports interleaved or "
+                       "sharded memory layouts");
+  }
+
+  if (outputMemorySpace == ::mlir::tt::MemorySpace::DeviceDRAM &&
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::Interleaved) {
+    return emitOpError(
+        "Device DRAM memory space only supports interleaved memory layout");
+  }
+
+  if (outputLayout.hasShardedTensorMemoryLayout()) {
+    if (outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::BlockSharded) {
+      return emitOpError("Currently only block sharding is supported for "
+                         "sharded memory layouts");
+    }
+    ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
+    // Currently TTNN backend only supports 2D shard shape
+    if (shardShape.size() != 2) {
+      return emitOpError("Shard shape must be 2D");
+    }
+    // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
+    if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
+        shardShape[1] % TTNN_TILE_WIDTH != 0) {
+      return emitOpError("Shard shape must divide tile shape (32, 32) evenly");
+    }
   }
   return success();
 }
@@ -251,8 +296,9 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType biasType =
-      llvm::dyn_cast_or_null<::mlir::RankedTensorType>(getBias().getType());
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
 
   if (inputType.getRank() < 3) {
     return emitOpError("Input must be at least a 3D tensor");
@@ -260,11 +306,11 @@ namespace mlir::tt::ttnn {
   if (weightType.getRank() != 4) {
     return emitOpError("Weight must be a 4D tensor");
   }
-  if (biasType) {
-    if (biasType.getRank() != 4) {
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
       return emitOpError("Bias must be a 4D tensor");
     }
-    auto biasShape = biasType.getShape();
+    auto biasShape = biasType->getShape();
     if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
       return emitOpError("Bias must only have data on the final dimenstion");
     }

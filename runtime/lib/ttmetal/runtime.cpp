@@ -78,6 +78,13 @@ void closeDevice(Device device) {
   }
 }
 
+void deallocateBuffers(Device deviceHandle) {
+  DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>(DeviceRuntime::TTMetal);
+  for (::tt::tt_metal::Device *device : deviceMesh) {
+    device->deallocate_buffers();
+  }
+}
+
 static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
                  std::shared_ptr<::tt::tt_metal::Event>>
 prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
@@ -93,8 +100,10 @@ prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
     ::tt::tt_metal::EnqueueWriteBuffer(cq, buffer, data, blocking);
     ::tt::tt_metal::EnqueueRecordEvent(cq, event);
     return std::make_pair(buffer, event);
-  } else if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
-                 metalTensor)) {
+  }
+
+  if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
+          metalTensor)) {
     std::shared_ptr<::tt::tt_metal::Buffer> buffer =
         std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
     throw std::runtime_error("Input from buffer not supported yet");
@@ -110,10 +119,11 @@ prepareOutput(::tt::tt_metal::Device *device, MetalTensor const *metalTensor,
   if (TensorDesc const *hostTensorDesc = std::get_if<TensorDesc>(metalTensor);
       hostTensorDesc) {
     return createBufferFromTensorRef(device, tensorRef);
-  } else if (std::shared_ptr<::tt::tt_metal::Buffer> const *buffer =
-                 std::get_if<std::shared_ptr<::tt::tt_metal::Buffer>>(
-                     metalTensor);
-             buffer) {
+  }
+
+  if (std::shared_ptr<::tt::tt_metal::Buffer> const *buffer =
+          std::get_if<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
+      buffer) {
     return *buffer;
   }
   assert(false && "Unsupported tensor type");

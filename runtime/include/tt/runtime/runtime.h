@@ -17,6 +17,10 @@ namespace system_desc {
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 } // namespace system_desc
 
+namespace detail {
+void deallocateBuffers(Device device);
+} // namespace detail
+
 DeviceRuntime getCurrentRuntime();
 
 std::vector<DeviceRuntime> getAvailableRuntimes();

@@ -32,7 +32,7 @@
   return success();
 }
 
-std::tuple<bool, bool, bool, bool>
+mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputLayout =
       mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
@@ -47,8 +47,10 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
       inputLayout.getElementType() != outputLayout.getElementType();
   bool isMemorySpaceChange =
       inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-  return std::make_tuple(isLayoutChange, isGridChange, isFormatChange,
-                         isMemorySpaceChange);
+  bool isMemoryLayoutChange =
+      inputLayout.getMemLayout() != outputLayout.getMemLayout();
+  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+          isMemoryLayoutChange};
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
@@ -394,16 +396,18 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType biasType =
-      llvm::dyn_cast_or_null<::mlir::RankedTensorType>(getBias().getType());
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
+
   if (inputType.getRank() < 3) {
     return emitOpError("Input must be at least a 3D tensor");
   }
   if (weightType.getRank() != 4) {
     return emitOpError("Weight must be a 4D tensor");
   }
-  if (biasType) {
-    if (biasType.getRank() != 4) {
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
       return emitOpError("Bias must be a 4D tensor");
     }
   }

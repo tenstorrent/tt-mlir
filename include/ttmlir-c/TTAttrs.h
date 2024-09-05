@@ -49,17 +49,18 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
     MlirAttribute *chipCoords, size_t chipCoordsSize,
     MlirAttribute *chipChannels, size_t chipChannelsSize);
 
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTLayoutAttrGet(MlirContext ctx,
-                                                       MlirAffineMap linear,
-                                                       unsigned oobVal,
-                                                       MlirAttribute grid,
-                                                       MlirType memref);
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear, unsigned oobVal,
+                      MlirAttribute grid, MlirType memref, unsigned memLayout);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTMemorySpaceAttrGet(MlirContext ctx, uint32_t memorySpace);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTOOBValAttrGet(MlirContext ctx,
                                                        uint32_t oobVal);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirTTTensorMemoryLayoutAttrGet(MlirContext ctx, uint32_t memLayout);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTIteratorTypeAttrGet(MlirContext ctx, uint32_t iteratorType);
