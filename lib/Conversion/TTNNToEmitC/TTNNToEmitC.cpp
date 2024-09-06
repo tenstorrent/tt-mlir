@@ -327,12 +327,7 @@ public:
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp),
-        arrayAttrs /* this seems to now ignore operands */, nullptr,
-        // adaptor.getOperands());
-        // amp, adaptor.getOperands().back());
-        // adaptor.getOperands());
-        operands);
+        this->convertOpName(srcOp), arrayAttrs, nullptr, operands);
 
     return success();
   }
