@@ -39,6 +39,17 @@ bool tensor_shape_compatible_with_shard(Operation *op, LayoutAttr layout) {
   return (MTiles % gridR == 0) && (KTIles % gridC == 0);
 }
 
+bool cantChangeOutputLayout(Operation *op) {
+  // Only TTIR ops.
+  if (not llvm::isa<TTIROp>(op)) {
+    return true;
+  }
+  if (llvm::isa<ToLayoutOp>(op)) {
+    return true;
+  }
+  return false;
+}
+
 bool LegalGridAnalysis::applyOverrides() {
   // Lookup grid size overrides based on location information for current
   // operation.
@@ -74,15 +85,8 @@ void LegalGridAnalysis::analysisImplementation() {
   // This implementation is a placeholder and is meant to just enable testing of
   // other components.
 
-  // Process only TTIR ops.
-  if (not llvm::isa<TTIROp>(op)) {
-    return;
-  }
   // Skip operations that don't have output tensors.
   if (op->getNumResults() == 0) {
-    return;
-  }
-  if (llvm::isa<ToLayoutOp>(op)) {
     return;
   }
 
@@ -90,6 +94,12 @@ void LegalGridAnalysis::analysisImplementation() {
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+
+  // Return existing layout if it is not possible to change it.
+  if (cantChangeOutputLayout(op)) {
+    analysisResult.push_back(layout);
+    return;
+  }
 
   // DRAM
   // No grid is set since the tensor is not sharded.
