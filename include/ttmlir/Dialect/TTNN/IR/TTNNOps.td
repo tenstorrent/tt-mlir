@@ -160,6 +160,18 @@ def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
+def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum OP.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttnn.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
