@@ -15,6 +15,7 @@ struct LegalGridAnalysisInput {
   ChipDescAttr chipDesc;
   GridAttr maxGrid;
   RankedTensorType tensorType;
+  int64_t maxShardedGrids = 64;
   llvm::StringMap<SmallVector<int64_t, 2>> *gridSizeOverrides;
 
   LegalGridAnalysisInput()
