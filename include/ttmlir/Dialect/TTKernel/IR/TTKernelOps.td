@@ -65,20 +65,6 @@ def TTKernel_UnpackABOp : TTKernel_Op<"unpack_ab"> {
     let arguments = (ins TTKernel_CB:$cb_a, I32:$src_a_index, TTKernel_CB:$cb_b, I32:$src_b_index);
 }
 
-def TTKernel_AcquireDstOp : TTKernel_Op<"acquire_dst"> {
-    let summary = "Aquire dest call.";
-    let description = [{
-      Aquire dest operation
-    }];
-}
-
-def TTKernel_ReleaseDstOp : TTKernel_Op<"release_dst"> {
-    let summary = "Release dest call.";
-    let description = [{
-      Release dest operation
-    }];
-}
-
 def TTKernel_TileRegsAcquireOp : TTKernel_Op<"tile_regs_acquire"> {
     let summary = "tile_regs_acquire";
     let description = [{
@@ -120,7 +106,7 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
       number n > 0 of tiles in the output CB. out_tile_index = 0 then references
       the first tile in the reserved section of the CB, up to index n - 1, which will
       then be visible to the consumer in the same order after a cb_push_back call.
-      The DST register buffer must be in acquired state via *acquire_dst* call.
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.
 
       Each subsequent pack call will increment the write pointer in the cb by single
@@ -137,6 +123,23 @@ def TTKernel_PackTileOp : TTKernel_Op<"pack_tile"> {
     }];
 
     let arguments = (ins I32:$dst_index, TTKernel_CB:$out_cb, I32:$out_index);
+}
+
+def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
+    let summary = "copy_tile";
+    let description = [{
+      Copies a single tile from the specified input CB and writes the result to
+      DST at a specified index. The function will employ unpacker to first unpack into SRC
+      registers and then perform move into DST registers, at a specified index.
+      For the in_tile_index to be valid for this call, cb_wait_front(n) had to be
+      previously called to ensure that at least some number n>0 of tiles are available
+      in the input CB. The CB index 0 then references the first tile in the received section of the CB,
+      up to index n-1 (in a FIFO order). The DST register buffer must be in acquired state via
+      tile_regs_acquire call. This call is blocking and is only available on the compute
+      engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb0, I32:$tile_index_0, I32:$tile_index_1);
 }
 
 //===----------------------------------------------------------------------===//
@@ -202,7 +205,7 @@ def TTKernel_AddTilesOp : TTKernel_Op<"add_tiles"> {
     let description = [{
       Performs element-wise addition C=A+B of tiles in two CBs at given indices
       and writes the result to the DST register at index dst_tile_index. The DST
-      register buffer must be in acquired state via *acquire_dst* call. This call
+      register buffer must be in acquired state via *tile_regs_acquire* call. This call
       is blocking and is only available on the compute engine.
     }];
 
@@ -223,11 +226,40 @@ def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
     let description = [{
       Performs element-wise multiplication C=A*B of tiles in two CBs at given
       indices and writes the result to the DST register at index dst_tile_index.
-      The DST register buffer must be in acquired state via *acquire_dst* call.
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
+}
+
+def TTKernel_UnaryOpInitCommonOp : TTKernel_Op<"unary_op_init_common"> {
+    let summary = "Initialization function for unary operations.";
+    let description = [{
+      This operation initializes all necessary components for unary operations,
+      including unpacking, packing, and math configurations.
+    }];
+
+    let arguments = (ins TTKernel_CB:$icb, TTKernel_CB:$ocb);
+}
+
+def TTKernel_ExpTileInitOp : TTKernel_Op<"exp_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of exp_tile.";
+    let description = [{
+      Must be run before exp_tile.
+    }];
+}
+
+def TTKernel_ExpTileOp : TTKernel_Op<"exp_tile"> {
+    let summary = "Exp operation";
+    let description = [{
+      Performs element-wise computation of exponential on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins I32:$tile_index);
 }
 
 //===----------------------------------------------------------------------===//

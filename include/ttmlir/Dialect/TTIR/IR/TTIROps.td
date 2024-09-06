@@ -128,8 +128,6 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 
 //===----------------------------------------------------------------------===//
 // TTIR top level named ops
-//  A named op is one that is not generic and has a specific name. For example
-//  "add", "multiply", "matmul", "concat", etc. They do not carry a region.
 //===----------------------------------------------------------------------===//
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
@@ -160,104 +158,6 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {out.getType()}, in, out, operand_constraints);
       }]>
     ];
-}
-
-class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
-    let summary = "Eltwise binary op.";
-    let description = [{
-      Eltwise binary op.
-    }];
-
-    let builders =
-    [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out, "ArrayAttr": $operand_constraints),
-      [{
-        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out, operand_constraints);
-      }]>
-    ];
-}
-
-class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-
-      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
-
-      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperands()) &&
-               "For now all operands must have the same rank");
-        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getNumOperands(),
-                                            builder.getMultiDimIdentityMap(rank));
-        SmallVector<Attribute> iteratorTypes(
-            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
-        return {builder.getAffineMapArrayAttr(indexingMaps),
-                builder.getArrayAttr(iteratorTypes)};
-      }
-
-      static bool sameRank(mlir::OperandRange operands) {
-        if (operands.empty()) {
-          return true;
-        }
-        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
-        for (auto operand : operands) {
-          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
-            return false;
-          }
-        }
-        return true;
-      }
-    }];
-}
-
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
-    let summary = "Eltwise add.";
-    let description = [{
-      Eltwise add operation.
-    }];
-}
-
-def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
-    let summary = "Eltwise divide.";
-    let description = [{
-      Eltwise divide operation.
-    }];
-}
-
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
-    let summary = "Eltwise subtract.";
-    let description = [{
-      Eltwise subtract operation.
-    }];
-}
-
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
-    let summary = "Eltwise multiply.";
-    let description = [{
-      Eltwise multiply operation.
-    }];
-}
-
-def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
-    let summary = "Eltwise greater than or equal to.";
-    let description = [{
-      Eltwise greater than or equal to operation.
-    }];
-}
-
-def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
-    let summary = "Eltwise maximum OP.";
-    let description = [{
-      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
-
-      Example:
-        %lhs: [[3, 2, 7], [1, 4, 4]]
-        %rhs: [[1, 4, 2], [1, 2, 3]]
-        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
-    }];
 }
 
 def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {
@@ -309,10 +209,52 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
-    let summary = "Eltwise exponential op.";
+class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise binary op.";
     let description = [{
-      Eltwise exponential operation.
+      Eltwise binary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out, operand_constraints);
+      }]>
+    ];
+}
+
+def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
+    let summary = "Eltwise divide.";
+    let description = [{
+      Eltwise divide operation.
+    }];
+}
+
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
+    let summary = "Eltwise subtract.";
+    let description = [{
+      Eltwise subtract operation.
+    }];
+}
+
+def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
+    let summary = "Eltwise greater than or equal to.";
+    let description = [{
+      Eltwise greater than or equal to operation.
+    }];
+}
+
+def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum OP.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
 }
 
@@ -642,6 +584,104 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let hasVerifier = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
+
+//===----------------------------------------------------------------------===//
+// TTIR top level generic ops
+//===----------------------------------------------------------------------===//
+
+class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
+
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        assert(getNumOperands() == 2 && "Input and output operand must have the same rank");
+        assert(sameRank(getOperands()) &&
+               "Elementwise unary op must have only one input and one output operand.");
+
+        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
+
+        SmallVector<AffineMap> indexingMaps(2, builder.getMultiDimIdentityMap(rank));
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};
+      }
+
+      static bool sameRank(mlir::OperandRange operands) {
+        if (operands.empty()) {
+          return true;
+        }
+        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
+        for (auto operand : operands) {
+          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }];
+}
+
+def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
+    let summary = "Eltwise exponential op.";
+    let description = [{
+      Eltwise exponential operation. Calculates e^x for all elements x in input tensor.
+    }];
+}
+
+class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
+
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        assert(sameRank(getOperands()) &&
+               "For now all operands must have the same rank");
+        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
+        SmallVector<AffineMap> indexingMaps(getNumOperands(),
+                                            builder.getMultiDimIdentityMap(rank));
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};
+      }
+
+      static bool sameRank(mlir::OperandRange operands) {
+        if (operands.empty()) {
+          return true;
+        }
+        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
+        for (auto operand : operands) {
+          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }];
+}
+
+def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
+    let summary = "Eltwise add.";
+    let description = [{
+      Eltwise add operation.
+    }];
+}
+
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
 
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)

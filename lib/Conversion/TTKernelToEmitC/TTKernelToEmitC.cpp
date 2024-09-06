@@ -283,7 +283,11 @@ public:
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>>(
+               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>>(
               typeConverter, funcOp.getContext());
 
       if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
@@ -324,6 +328,21 @@ public:
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/eltwise_binary.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "compute_kernel_api/tile_move_copy.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/eltwise_unary.h",
+          /*isStandard=*/false);
+      // TODO (kmitrovic) exp.h is an ExpOp-specific include. Every op has one,
+      // should be handled in general, not like this.
+      // Issue: https://github.com/tenstorrent/tt-mlir/issues/772
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/exp.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/sfpu_split_includes.h",
+          /*isStandard=*/false);
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }

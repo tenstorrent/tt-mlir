@@ -9,6 +9,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
@@ -653,34 +654,120 @@ public:
     return loopNest;
   }
 
+  void convertInitUnaryOp(Operation &arithOrMathOp,
+                          ArrayRef<BlockArgument> cbOperands,
+                          OpBuilder &builder) const {
+    assert(cbOperands.size() == 2 &&
+           "Expected one input and one output CB for unary op.");
+
+    auto inCB = cbOperands[0];
+    auto outCB = cbOperands[1];
+
+    // All unary ops have common init function and specialized init function.
+    builder.create<ttkernel::UnaryOpInitCommonOp>(arithOrMathOp.getLoc(), inCB,
+                                                  outCB);
+
+    if (mlir::isa<math::ExpOp>(arithOrMathOp)) {
+      builder.create<ttkernel::ExpTileInitOp>(arithOrMathOp.getLoc());
+    } else {
+      llvm_unreachable("Unhandled unary op init conversion.");
+    }
+  }
+
+  void convertInitBinaryOp(Operation &arithOrMathOp,
+                           ArrayRef<BlockArgument> cbOperands,
+                           OpBuilder &builder) const {
+    assert(cbOperands.size() == 3 &&
+           "Expected two input and one output CB for binary op.");
+
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto outCB = cbOperands[2];
+
+    // All binary ops have common init function and specialized init function.
+    builder.create<ttkernel::BinaryOpInitCommonOp>(arithOrMathOp.getLoc(),
+                                                   inCB0, inCB1, outCB);
+
+    if (mlir::isa<arith::AddFOp>(arithOrMathOp)) {
+      builder.create<ttkernel::AddTilesInitOp>(arithOrMathOp.getLoc(), inCB0,
+                                               inCB1);
+    } else if (mlir::isa<arith::MulFOp>(arithOrMathOp)) {
+      builder.create<ttkernel::MulTilesInitOp>(arithOrMathOp.getLoc(), inCB0,
+                                               inCB1);
+    } else {
+      llvm_unreachable("Unhandled binary op init conversion.");
+    }
+  }
+
   // Convert arith and math dialect operations into ttkernel init tile
   // operations. HLK requires the FPU to be initialized before any tile ops get
   // executed.  We separate the init tile operation from the actual tile
   // operation so that we can hoist the init tile operation outside of the loop
   // nest.
-  void convertComputeInitOp(Operation &op, ArrayRef<BlockArgument> cbOperands,
+  void convertComputeInitOp(Operation &arithOrMathOp,
+                            ArrayRef<BlockArgument> cbOperands,
                             std::int64_t numDpsInputs,
                             OpBuilder &builder) const {
-    SmallVector<std::int64_t> operandIndices;
-    for (OpOperand &operand : op.getOpOperands()) {
-      operandIndices.push_back(operand.getOperandNumber());
-    }
-    if (mlir::isa<arith::AddFOp>(op)) {
-      builder.create<ttkernel::BinaryOpInitCommonOp>(
-          op.getLoc(), cbOperands[operandIndices[0]],
-          cbOperands[operandIndices[1]], cbOperands[numDpsInputs]);
-      builder.create<ttkernel::AddTilesInitOp>(op.getLoc(),
-                                               cbOperands[operandIndices[0]],
-                                               cbOperands[operandIndices[1]]);
-    } else if (mlir::isa<arith::MulFOp>(op)) {
-      builder.create<ttkernel::BinaryOpInitCommonOp>(
-          op.getLoc(), cbOperands[operandIndices[0]],
-          cbOperands[operandIndices[1]], cbOperands[numDpsInputs]);
-      builder.create<ttkernel::MulTilesInitOp>(op.getLoc(),
-                                               cbOperands[operandIndices[0]],
-                                               cbOperands[operandIndices[1]]);
+    if (numDpsInputs == 1) {
+      convertInitUnaryOp(arithOrMathOp, cbOperands, builder);
+    } else if (numDpsInputs == 2) {
+      convertInitBinaryOp(arithOrMathOp, cbOperands, builder);
     } else {
-      llvm_unreachable("Unhandled conversion");
+      llvm_unreachable("Unhandled conversion for operation which is neither "
+                       "unary nor binary.");
+    }
+  }
+
+  void convertComputeUnaryOp(Operation &arithOrMathOp,
+                             ArrayRef<BlockArgument> cbOperands,
+                             ArrayRef<BlockArgument> iterators,
+                             SmallVector<unsigned> blockArgIteratorMapping,
+                             Value dstTileIndex, OpBuilder &builder) const {
+    assert(cbOperands.size() == 2 &&
+           "Expected one input and one output CB for unary op.");
+
+    auto inCBTileIndex = iterators[blockArgIteratorMapping[0]];
+    auto inCB = cbOperands[0];
+
+    // For all unary ops first copy tile from input CB at inCBTileIndex to DST
+    // register at dstTileIndex.
+    builder.create<ttkernel::CopyTileOp>(arithOrMathOp.getLoc(), inCB,
+                                         inCBTileIndex, dstTileIndex);
+
+    // Perform computation on tile in DST register on dstTileIndex (the only
+    // tile in DST).
+    if (mlir::isa<math::ExpOp>(arithOrMathOp)) {
+      builder.create<ttkernel::ExpTileOp>(arithOrMathOp.getLoc(), dstTileIndex);
+    } else {
+      llvm_unreachable("Unhandled unary op compute conversion.");
+    }
+  }
+
+  void convertComputeBinaryOp(Operation &arithOrMathOp,
+                              ArrayRef<BlockArgument> cbOperands,
+                              ArrayRef<BlockArgument> iterators,
+                              SmallVector<unsigned> blockArgIteratorMapping,
+                              Value dstTileIndex, OpBuilder &builder) const {
+    assert(cbOperands.size() == 3 &&
+           "Expected two input and one output CB for binary op.");
+
+    auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
+    auto inCB0 = cbOperands[0];
+    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
+    auto inCB1 = cbOperands[1];
+
+    // Perform computation C = A (*) B on tile A from inCB0 and tile B from
+    // inCB1 and store the result C in DST register on dstTileIndex.
+    if (mlir::isa<arith::AddFOp>(arithOrMathOp)) {
+      builder.create<ttkernel::AddTilesOp>(arithOrMathOp.getLoc(), inCB0, inCB1,
+                                           inCB0TileIndex, inCB1TileIndex,
+                                           dstTileIndex);
+    } else if (mlir::isa<arith::MulFOp>(arithOrMathOp)) {
+      builder.create<ttkernel::MulTilesOp>(arithOrMathOp.getLoc(), inCB0, inCB1,
+                                           inCB0TileIndex, inCB1TileIndex,
+                                           dstTileIndex);
+    } else {
+      llvm_unreachable("Unhandled binary op compute conversion.");
     }
   }
 
@@ -688,76 +775,118 @@ public:
   // Here iterators are the block arguments from the innermost scf.for loop.
   // The iterators are unique-ified so we need blockArgIteratorMapping to
   // recover which top level tensor operand is associated with which iterator.
-  void convertComputeOp(Operation &op, ArrayRef<BlockArgument> cbOperands,
+  void convertComputeOp(Operation &arithOrMathOp,
+                        ArrayRef<BlockArgument> cbOperands,
                         ArrayRef<BlockArgument> iterators,
                         SmallVector<unsigned> blockArgIteratorMapping,
-                        Value dstIndex, OpBuilder &builder) const {
-    SmallVector<std::int64_t> operandIndices;
-    for (OpOperand &operand : op.getOpOperands()) {
-      operandIndices.push_back(operand.getOperandNumber());
-    }
-    if (mlir::isa<arith::AddFOp>(op)) {
-      builder.create<ttkernel::AddTilesOp>(
-          op.getLoc(), cbOperands[operandIndices[0]],
-          cbOperands[operandIndices[1]], iterators[blockArgIteratorMapping[0]],
-          iterators[blockArgIteratorMapping[1]], dstIndex);
-    } else if (mlir::isa<arith::MulFOp>(op)) {
-      builder.create<ttkernel::MulTilesOp>(
-          op.getLoc(), cbOperands[operandIndices[0]],
-          cbOperands[operandIndices[1]], iterators[blockArgIteratorMapping[0]],
-          iterators[blockArgIteratorMapping[1]], dstIndex);
+                        Value dstTileIndex, OpBuilder &builder,
+                        std::int64_t numDpsInputs) const {
+
+    if (numDpsInputs == 1) {
+      convertComputeUnaryOp(arithOrMathOp, cbOperands, iterators,
+                            blockArgIteratorMapping, dstTileIndex, builder);
+    } else if (numDpsInputs == 2) {
+      convertComputeBinaryOp(arithOrMathOp, cbOperands, iterators,
+                             blockArgIteratorMapping, dstTileIndex, builder);
     } else {
-      llvm_unreachable("Unhandled conversion");
+      llvm_unreachable("Unhandled conversion for operation which is neither "
+                       "unary nor binary.");
     }
+  }
+
+  // Builds instructions to execute before looping over tiles has started.
+  void buildInitSection(Operation &arithOrMathOp,
+                        OpBuilder &dispatchBlockBuilder,
+                        ArrayRef<BlockArgument> cbOperands,
+                        std::int64_t numDPSInputs) const {
+    convertComputeInitOp(arithOrMathOp, cbOperands, numDPSInputs,
+                         dispatchBlockBuilder);
+  }
+
+  // Builds nested loops which loop over tensor tiles after initalization is
+  // done and computation to perform on each tile over which loops iterate.
+  void buildLoopsAndComputation(Operation &arithOrMathOp,
+                                OpBuilder &dispatchBlockBuilder,
+                                ArrayRef<BlockArgument> &cbOperands,
+                                std::int64_t numDPSInputs) const {
+    // Create loops which iterate over tiles in tensor.
+    LoopNest loopNest =
+        createLoopNest(cbOperands, numDPSInputs, dispatchBlockBuilder);
+    assert(loopNest.loops.size() == 2 && "Expected only two loops!");
+
+    // The loop nest is created from outermost to innermost. Get the inner loop
+    // and place computation calls inside it.
+    Region *innerLoopRegion = loopNest.loopRegions.back();
+    const Location &location = innerLoopRegion->getLoc();
+    ArrayRef<BlockArgument> iterators =
+        loopNest.loops.back().getRegionIterArgs();
+    SmallVector<unsigned> blockArgIteratorMapping =
+        loopNest.blockArgIteratorMapping;
+
+    OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                               innerLoopRegion->front().begin());
+
+    // We always operate on the first and only tile in DST register.
+    Value dstTileIndex = i32(0, innerLoopBuilder);
+    auto outCBTileIndex = iterators[blockArgIteratorMapping.back()];
+    auto outCB = cbOperands.back();
+
+    // MATH acquires lock on DST register.
+    innerLoopBuilder.create<ttkernel::TileRegsAcquireOp>(location);
+
+    // Call compute function to execute on each tile. Result will be stored in
+    // DST.
+    convertComputeOp(arithOrMathOp, cbOperands, iterators,
+                     blockArgIteratorMapping, dstTileIndex, innerLoopBuilder,
+                     numDPSInputs);
+
+    // MATH releases lock on DST.
+    innerLoopBuilder.create<ttkernel::TileRegsCommitOp>(location);
+
+    // PACK acquires lock on DST register. Blocked until MATH releases it.
+    innerLoopBuilder.create<ttkernel::TileRegsWaitOp>(location);
+
+    // Copy tile from DST at dstTileIndex to outCB at outCBTileIndex.
+    // outCBTileIndex increments as loops iterate, thus placing one result tile
+    // after another in outCB.
+    innerLoopBuilder.create<ttkernel::PackTileOp>(location, dstTileIndex, outCB,
+                                                  outCBTileIndex);
+
+    // PACK releases lock on DST.
+    innerLoopBuilder.create<ttkernel::TileRegsReleaseOp>(location);
+  }
+
+  // Builds instructions to execute after loops are finished.
+  void buildEndSection(OpBuilder &dispatchBlockBuilder,
+                       Block *origGenericOpBlock) const {
+    // Place return op at the end of block, after loops.
+    dispatchBlockBuilder.create<ttkernel::ReturnOp>(
+        origGenericOpBlock->getTerminator()->getLoc());
   }
 
   // Convert the original block into a lowered block that contains a fully
   // expanded loop nest and inner loop that implements the underlying arith or
   // math operation as a tile operation.
-  void lowerBlock(Block *origBlock, Block *computeBlock,
+  void lowerBlock(Block *origGenericOpBlock, Block *dispatchOpBlock,
                   std::int64_t numDPSInputs) const {
-    Block::OpListType &operations = origBlock->getOperations();
+    Block::OpListType &operations = origGenericOpBlock->getOperations();
     assert(operations.size() == 2);
     Operation::user_range users = operations.front().getUsers();
     assert(users.begin() != users.end());
     assert(mlir::isa<ttir::YieldOp>(*users.begin()));
-    assert(computeBlock->getNumArguments() > numDPSInputs);
-    assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
+    assert(dispatchOpBlock->getNumArguments() > numDPSInputs);
+    assert((dispatchOpBlock->getNumArguments() - numDPSInputs) == 1 &&
            "Expected 1 output");
 
-    OpBuilder builder(computeBlock, computeBlock->begin());
-    convertComputeInitOp(operations.front(), computeBlock->getArguments(),
-                         numDPSInputs, builder);
-    LoopNest loopNest =
-        createLoopNest(computeBlock->getArguments(), numDPSInputs, builder);
-    builder.create<ttkernel::ReturnOp>(origBlock->getTerminator()->getLoc());
+    OpBuilder dispatchBlockBuilder(dispatchOpBlock, dispatchOpBlock->begin());
+    Operation &arithOrMathOp = operations.front();
+    auto cbOperands = dispatchOpBlock->getArguments();
 
-    // Build the inner loop compute / unpack / pack
-    {
-      Value output = computeBlock->getArgument(numDPSInputs);
-      Region *innerLoopRegion = loopNest.loopRegions.back();
-      ArrayRef<BlockArgument> iterators =
-          loopNest.loops.back().getRegionIterArgs();
-      SmallVector<unsigned> blockArgIteratorMapping =
-          loopNest.blockArgIteratorMapping;
-      OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
-                                 innerLoopRegion->front().begin());
-      Value dstIndex = i32(0, innerLoopBuilder);
-      innerLoopBuilder.create<ttkernel::TileRegsAcquireOp>(
-          computeBlock->front().getLoc());
-      convertComputeOp(operations.front(), computeBlock->getArguments(),
-                       iterators, blockArgIteratorMapping, dstIndex,
-                       innerLoopBuilder);
-      innerLoopBuilder.create<ttkernel::TileRegsCommitOp>(
-          computeBlock->front().getLoc());
-      innerLoopBuilder.create<ttkernel::TileRegsWaitOp>(
-          computeBlock->front().getLoc());
-      innerLoopBuilder.create<ttkernel::PackTileOp>(
-          computeBlock->front().getLoc(), dstIndex, output,
-          iterators[blockArgIteratorMapping[numDPSInputs]]);
-      innerLoopBuilder.create<ttkernel::TileRegsReleaseOp>(
-          computeBlock->front().getLoc());
-    }
+    buildInitSection(arithOrMathOp, dispatchBlockBuilder, cbOperands,
+                     numDPSInputs);
+    buildLoopsAndComputation(arithOrMathOp, dispatchBlockBuilder, cbOperands,
+                             numDPSInputs);
+    buildEndSection(dispatchBlockBuilder, origGenericOpBlock);
   }
 
   SmallVector<Type>
