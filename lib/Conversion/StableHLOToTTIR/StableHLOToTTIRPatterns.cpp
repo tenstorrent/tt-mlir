@@ -47,15 +47,15 @@ public:
   }
 };
 
-template <typename SrcOp, typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIRReduceOpConversionPattern
-    : public OpConversionPattern<SrcOp> {
+    : public OpConversionPattern<mlir::stablehlo::ReduceOp> {
 
-  using OpConversionPattern<SrcOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::stablehlo::ReduceOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+  matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
+                  mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!checkBasicLegality(srcOp)) {
       return failure();
@@ -76,7 +76,7 @@ public:
   }
 
 private:
-  bool checkBasicLegality(SrcOp &srcOp) const {
+  bool checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp) const {
     if (!srcOp.getBody().hasOneBlock()) {
       // Expecting StableHLO Reduce OP to have one block inside its body.
       return false;
@@ -92,7 +92,8 @@ private:
 
   template <typename DestOp>
   LogicalResult
-  matchAndRewriteInternal(SrcOp &srcOp, Adaptor &adaptor,
+  matchAndRewriteInternal(mlir::stablehlo::ReduceOp &srcOp,
+                          mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                           ConversionPatternRewriter &rewriter) const {
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResultTypes().front());
@@ -173,14 +174,12 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
 void addReduceOpsConversionPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter &typeConverter) {
-  patterns
-      .add<StableHLOToTTIRReduceOpConversionPattern<mlir::stablehlo::ReduceOp>>(
-          typeConverter, ctx);
+  patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
-void transposeOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+void addTransposeOpsConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
@@ -195,7 +194,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
-  transposeOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
