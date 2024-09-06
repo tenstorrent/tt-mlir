@@ -3,7 +3,6 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   workflow_call:
-  push:
 
 jobs:
   build:
