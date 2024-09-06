@@ -772,6 +772,28 @@ run(::tt::target::ttnn::GetDeviceOp const *op,
   }
 }
 
+static void run(::tt::target::ttnn::FullOp const *op,
+                std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
+                ProgramTensorPool &tensorPool) {
+  ::ttnn::Device &device = getDevice(op->device(), devicePool);
+  ::ttnn::DataType outputDataType = getDataType(op->out());
+  auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
+      utils::toShapeFromFBShape(*op->out()->desc()->shape())));
+  float fillValue = op->fill_value();
+  // TODO(bug #272), determine correct layout by tile shape in the future
+  ::ttnn::Layout outputLayout = ::ttnn::Layout::ROW_MAJOR;
+  std::optional<std::reference_wrapper<::ttnn::Device>> outputDevice =
+      std::make_optional(std::ref(device));
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      std::make_optional(createMemoryConfig(op->out()));
+
+  ::ttnn::Tensor out =
+      ::ttnn::full(shape, fillValue, outputDataType, outputLayout, outputDevice,
+                   outputMemoryConfig);
+
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+}
+
 static void
 run(::tt::target::ttnn::Operation const *op,
     const std::unordered_map<uint32_t, ::ttnn::Device *> &allDevices,
@@ -789,7 +811,7 @@ run(::tt::target::ttnn::Operation const *op,
     return run(op->type_as_EmptyOp(), devicePool, tensorPool);
   }
   case ::tt::target::ttnn::OpType::FullOp: {
-    // TODO(bug #626)
+    return run(op->type_as_FullOp(), devicePool, tensorPool);
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
@@ -850,12 +872,14 @@ void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs) {
+  if (handleNopProgram(program, inputs, outputs)) {
+    return;
+  }
   std::unordered_map<std::uint32_t, ::ttnn::Tensor *> liveTensors;
   std::unordered_map<std::uint32_t, ::ttnn::Device *> allDevices;
   std::unordered_map<std::uint32_t, ::ttnn::Device *> devicePool;
   int inputIndex = 0;
   assert(program->inputs()->size() == inputs.size());
-  bool isNop = handleNopProgram(program, inputs, outputs);
   // Assuming single device for now until we support multichip
   allDevices.try_emplace(device.id(), &device);
   for (::tt::target::TensorRef const *input : *program->inputs()) {
@@ -869,7 +893,7 @@ void runProgram(::ttnn::Device &device,
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
-    assert((isNop || inserted) && "Duplicate output tensor");
+    assert(inserted && "Duplicate output tensor");
   }
   ProgramTensorPool tensorPool(std::move(liveTensors));
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
