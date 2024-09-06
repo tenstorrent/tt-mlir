@@ -7,20 +7,21 @@ on:
 jobs:
 
   build-and-test:
-
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         image: ["ubuntu-22-04"]
         build: [
-          {runs-on: ubuntu-latest, build_type: Release, enable_runtime: OFF},
           {runs-on: builder, build_type: Release, enable_runtime: ON}
         ]
 
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on:
+      - in-service
+      - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-${{ matrix.image }}:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-${{ matrix.image }}:latest
       options: --user root
 
     steps:

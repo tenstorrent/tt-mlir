@@ -5,9 +5,9 @@ on:
   workflow_call:
 
 jobs:
-
   build-ttmlir:
 
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -16,10 +16,12 @@ jobs:
           {runs-on: builder, enable_perf: ON, name: "perf"},
         ]
 
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on:
+      - in-service
+      - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
       options: --user root
 
     steps:
@@ -95,6 +97,8 @@ jobs:
         echo $version
 
   run-tests:
+
+    timeout-minutes: 30
     needs: build-ttmlir
     strategy:
       fail-fast: false
@@ -107,11 +111,11 @@ jobs:
         ]
 
     runs-on:
-      - self-hosted
+      - in-service
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ubuntu-22-04:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
       options: --user root --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages

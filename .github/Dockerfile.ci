@@ -1,0 +1,53 @@
+ARG GIT_SHA
+ARG FROM_TAG=${GIT_SHA:-latest}
+
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG}
+SHELL ["/bin/bash", "-c"]
+
+# Create a directory for the build and toolchain
+ENV PROJECT_NAME=tt-mlir
+ENV BUILD_DIR=/home/build
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+RUN mkdir -p $BUILD_DIR && \
+    mkdir -p $TTMLIR_TOOLCHAIN_DIR
+
+# Clone the project and update submodules
+RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
+    cd $BUILD_DIR/$PROJECT_NAME && \
+    git checkout $GIT_SHA
+
+# Build the toolchain
+WORKDIR $BUILD_DIR/$PROJECT_NAME
+RUN cmake -B env/build env && \
+    cmake --build env/build
+
+# Self-test
+
+# Build project to test the container
+RUN source env/activate && \
+    cmake -G Ninja \
+    -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DTTMLIR_ENABLE_RUNTIME=ON \
+    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+    -DTTMLIR_ENABLE_STABLEHLO=ON
+
+RUN source env/activate && \
+    cmake --build build --config Release
+
+RUN source env/activate && \
+    cmake --build build -- ttrt
+
+# Run clang-tidy
+RUN source env/activate && \
+    cmake --build build -- clang-tidy || true
+
+# Run the tests
+RUN source env/activate && \
+    cmake --build build -- check-ttmlir
+
+# Clean up the build directory
+RUN rm -rf $BUILD_DIR/$PROJECT_NAME
