@@ -129,11 +129,11 @@ public:
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    assert(adaptor.getPermutation().size() <= 2 &&
-           "TTIR only supports maximum of two dimensional transposeOp.");
+    assert(adaptor.getPermutation().size() == 2 &&
+           "TTIR only supports only two dimensional transposeOp.");
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
         srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
