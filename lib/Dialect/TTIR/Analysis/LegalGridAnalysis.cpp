@@ -39,15 +39,15 @@ bool tensor_shape_compatible_with_shard(Operation *op, LayoutAttr layout) {
   return (MTiles % gridR == 0) && (KTIles % gridC == 0);
 }
 
-bool canChangeOutputLayout(Operation *op) {
+bool cantChangeOutputLayout(Operation *op) {
   // Only TTIR ops.
   if (not llvm::isa<TTIROp>(op)) {
-    return false;
+    return true;
   }
   if (llvm::isa<ToLayoutOp>(op)) {
-    return false;
+    return true;
   }
-  return true;
+  return false;
 }
 
 bool LegalGridAnalysis::applyOverrides() {
@@ -96,7 +96,7 @@ void LegalGridAnalysis::analysisImplementation() {
   LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
 
   // Return existing layout if it is not possible to change it.
-  if (not canChangeOutputLayout(op)) {
+  if (cantChangeOutputLayout(op)) {
     analysisResult.push_back(layout);
     return;
   }
