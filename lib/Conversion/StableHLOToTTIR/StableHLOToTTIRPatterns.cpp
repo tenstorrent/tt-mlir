@@ -119,6 +119,34 @@ private:
   }
 };
 
+class StableHLOToTTIRTransposeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
+  using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
+                  mlir::stablehlo::TransposeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    assert(adaptor.getPermutation().size() <= 2 &&
+           "TTIR only supports maximum of two dimensional transposeOp.");
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
+        srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
+        Value(outputTensor), adaptor.getPermutation()[0],
+        adaptor.getPermutation()[1],
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -150,6 +178,13 @@ void addReduceOpsConversionPatterns(MLIRContext *ctx,
           typeConverter, ctx);
 }
 
+void transposeOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -160,6 +195,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
+  transposeOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
