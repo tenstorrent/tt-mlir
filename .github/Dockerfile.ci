@@ -1,6 +1,10 @@
 ARG GIT_SHA
 ARG FROM_TAG=${GIT_SHA:-latest}
 
+ENV GIT_SHA=${GIT_SHA}
+
+RUN echo "Building from git sha: ${GIT_SHA}"
+
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG}
 SHELL ["/bin/bash", "-c"]
 
@@ -10,6 +14,9 @@ ENV BUILD_DIR=/home/build
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN mkdir -p $BUILD_DIR && \
     mkdir -p $TTMLIR_TOOLCHAIN_DIR
+
+
+RUN echo "Building from git sha2: ${GIT_SHA}"
 
 # Clone the project and update submodules
 RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
