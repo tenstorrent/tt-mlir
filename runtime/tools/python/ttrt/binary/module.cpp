@@ -41,8 +41,9 @@ PYBIND11_MODULE(_C, m) {
   m.def("load_binary_from_capsule", [](py::capsule capsule) {
     std::shared_ptr<void> *binary =
         static_cast<std::shared_ptr<void> *>(capsule.get_pointer());
-    return tt::runtime::Flatbuffer(
-        *binary); // Dereference capsule, and then dereference shared_ptr*
+    return tt::runtime::Binary(
+        tt::runtime::Flatbuffer(*binary)
+            .handle); // Dereference capsule, and then dereference shared_ptr*
   });
   m.def("load_system_desc_from_path", &tt::runtime::SystemDesc::loadFromPath);
 }

@@ -70,5 +70,6 @@ add_subdirectory(test)
 add_subdirectory(tools)
 add_subdirectory(runtime)
 add_subdirectory(docs)
+add_subdirectory(cmake/modules)
 
 include(LintTools)

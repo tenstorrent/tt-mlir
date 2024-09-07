@@ -140,6 +140,8 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::MulOp, mlir::tt::ttir::MultiplyOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::DivOp, mlir::tt::ttir::DivOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::MaxOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
 }
 
 void addReduceOpsConversionPatterns(MLIRContext *ctx,
