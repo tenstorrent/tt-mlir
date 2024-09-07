@@ -12,12 +12,11 @@ RUN mkdir -p $BUILD_DIR && \
     mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
 # Clone the project and update submodules
-RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
-    cd $BUILD_DIR/$PROJECT_NAME && \
-    git checkout $GIT_SHA
+RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME
+WORKDIR $BUILD_DIR/$PROJECT_NAME
+RUN git checkout $GIT_SHA
 
 # Build the toolchain
-WORKDIR $BUILD_DIR/$PROJECT_NAME
 RUN cmake -B env/build env && \
     cmake --build env/build
 
