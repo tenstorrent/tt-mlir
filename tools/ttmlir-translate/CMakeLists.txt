@@ -10,3 +10,5 @@ target_link_libraries(ttmlir-translate PRIVATE
 )
 
 mlir_check_link_libraries(ttmlir-translate)
+
+install(TARGETS ttmlir-translate DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Test EXCLUDE_FROM_ALL)

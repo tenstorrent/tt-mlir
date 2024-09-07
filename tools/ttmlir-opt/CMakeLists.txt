@@ -7,3 +7,5 @@ llvm_update_compile_flags(ttmlir-opt)
 target_link_libraries(ttmlir-opt PRIVATE ${LIBS})
 
 mlir_check_all_link_libraries(ttmlir-opt)
+
+install(TARGETS ttmlir-opt DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Test EXCLUDE_FROM_ALL)

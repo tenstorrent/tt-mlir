@@ -7,7 +7,7 @@ on:
 jobs:
   build-ttmlir:
 
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +35,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -54,6 +55,7 @@ jobs:
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DTTMLIR_ENABLE_RUNTIME=ON \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
@@ -65,6 +67,7 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
     - name: Build ttrt
       shell: bash
@@ -78,11 +81,16 @@ jobs:
         name: ttrt-whl-${{ matrix.build.name }}
         path: build/runtime/tools/python/build/ttrt*.whl
 
-    - name: Upload build folder to archive
+    # This is needed to preserve file permissions
+    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
+    - name: 'Tar install directory'
+      run: tar cvf ${{ steps.strings.outputs.install-output-dir }}.tar -C ${{ steps.strings.outputs.install-output-dir }} .
+
+    - name: Upload install folder to archive
       uses: actions/upload-artifact@v4
       with:
-        name: build-artifacts-${{ matrix.build.name }}
-        path: build
+        name: install-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.install-output-dir }}.tar
 
     - name: Get the latest tag
       shell: bash
@@ -135,6 +143,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -142,22 +151,14 @@ jobs:
     - name: Use build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: build-artifacts-${{ matrix.build.name }}
-        path: build
+        name: install-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.install-output-dir }}
 
-    - name: Config compiler
+    # This is needed to preserve file permissions
+    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
+    - name: 'Untar install directory'
       shell: bash
-      run: |
-        source env/activate
-        cmake -G Ninja \
-        -B build \
-        -DCMAKE_CXX_COMPILER=clang++-17 \
-        -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DTTMLIR_ENABLE_RUNTIME=ON \
-        -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
-        -DTTMLIR_ENABLE_STABLEHLO=ON \
+      run: tar xvf install.tar -C ${{ steps.strings.outputs.install-output-dir }}
 
     - name: Remove existing whls files
       shell: bash
@@ -187,10 +188,11 @@ jobs:
       run: |
         source env/activate
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
-        cmake --build build -- check-ttmlir
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Run tests
       shell: bash
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${GITHUB_WORKSPACE}/build/test/ttmlir/Silicon
+        ttrt ${{ matrix.build.name }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
