@@ -56,6 +56,20 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   return utils::fromTTNNDataType(nnTensor.dtype());
 }
 
+void deallocateTensor(Tensor tensor, bool force) {
+  ::ttnn::Tensor &ttnnTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  ttnnTensor.deallocate(force);
+}
+
+Tensor toCpu(Tensor tensor) {
+  ::ttnn::Tensor &ttnnTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  std::shared_ptr<::ttnn::Tensor> cpuTensor =
+      std::make_shared<::ttnn::Tensor>(ttnnTensor.cpu());
+  void *dataPtr = ::tt::tt_metal::get_raw_host_data_ptr(*cpuTensor);
+  return Tensor(cpuTensor, ::tt::runtime::utils::unsafe_borrow_shared(dataPtr),
+                DeviceRuntime::TTNN);
+}
+
 Device openDevice(std::vector<int> const &deviceIds,
                   std::vector<std::uint8_t> const &numHWCQs) {
   assert(deviceIds.size() == 1 && "Only one device is supported for now");

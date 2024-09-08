@@ -132,7 +132,6 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(Event(nullptr, runtime)) {}
 
-
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime, Event event)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
@@ -140,7 +139,9 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
   // Users need to manually deallocate tensors returned from submit
   // As the storage is now owned instead of borrowed
-  void deallocate();
+  void deallocate(bool force = false);
+
+  Tensor cpu() const;
 };
 
 } // namespace tt::runtime

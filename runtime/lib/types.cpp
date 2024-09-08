@@ -14,14 +14,14 @@
 
 namespace tt::runtime {
 
-void Tensor::deallocate() {
+void Tensor::deallocate(bool force) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (this->matchesRuntime(DeviceRuntime::TTNN)) {
-    ::ttnn::Tensor &tensor = this->as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-    tensor.deallocate();
-    return;
+    ::tt::runtime::ttnn::deallocateTensor(*this, force);
   }
-#elif defined(TT_RUNTIME_ENABLE_TTMETAL)
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (this->matchesRuntime(DeviceRuntime::TTMetal)) {
     throw std::runtime_error("Not implemented");
   }
@@ -29,4 +29,18 @@ void Tensor::deallocate() {
   throw std::runtime_error("Runtime not enabled");
 }
 
+Tensor Tensor::cpu() const {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (this->matchesRuntime(DeviceRuntime::TTNN)) {
+    return ::tt::runtime::ttnn::toCpu(*this);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (this->matchesRuntime(DeviceRuntime::TTMetal)) {
+    throw std::runtime_error("Not implemented");
+  }
+#endif
+  throw std::runtime_error("Runtime not enabled");
+}
 } // namespace tt::runtime

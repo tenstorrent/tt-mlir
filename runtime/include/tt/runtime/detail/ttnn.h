@@ -79,6 +79,10 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
 
 tt::target::DataType getTensorDataType(Tensor tensor);
 
+void deallocateTensor(Tensor tensor, bool force);
+
+Tensor toCpu(Tensor tensor);
+
 Device openDevice(std::vector<int> const &deviceIds = {0},
                   std::vector<std::uint8_t> const &numHWCQs = {});
 
@@ -100,7 +104,7 @@ void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
-                
+
 std::vector<Tensor> runProgram(::ttnn::Device &device,
                                ::tt::target::ttnn::Program const *program,
                                std::vector<::ttnn::Tensor *> const &inputs);
