@@ -152,13 +152,16 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: install-artifacts-${{ matrix.build.name }}
-        path: ${{ steps.strings.outputs.install-output-dir }}
+        path: ${{ steps.strings.outputs.install-output-dir }}.tar
 
     # This is needed to preserve file permissions
     # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
     - name: 'Untar install directory'
       shell: bash
-      run: tar xvf install.tar -C ${{ steps.strings.outputs.install-output-dir }}
+      run: |
+        rm -rf ${{ steps.strings.outputs.install-output-dir }}
+        mkdir -p ${{ steps.strings.outputs.install-output-dir }}
+        tar xvf install.tar -C ${{ steps.strings.outputs.install-output-dir }}
 
     - name: Remove existing whls files
       shell: bash
