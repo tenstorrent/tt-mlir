@@ -6,7 +6,7 @@ module attributes {} {
     // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
     %0 = tensor.empty() : tensor<32x96xf32>
     // CHECK: %[[C:.*]] = "ttnn.concat"[[C:.*]]
-    %1 = "ttir.concat"(%arg0, %arg1, %0) <{dim = -1 : si32, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x64xf32>, tensor<32x96xf32>) -> tensor<32x96xf32>
+    %1 = "ttir.concat"(%arg0, %arg1, %0) <{axis = -1 : si32, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x64xf32>, tensor<32x96xf32>) -> tensor<32x96xf32>
     // CHECK: "ttnn.close_device"[[C:.*]]
     return %1 : tensor<32x96xf32>
   }

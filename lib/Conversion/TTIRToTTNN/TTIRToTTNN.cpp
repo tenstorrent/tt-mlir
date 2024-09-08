@@ -164,7 +164,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    int dim = adaptor.getDim();
+    int dim = adaptor.getAxis();
     if (dim < 0) {
       dim += cast<RankedTensorType>(adaptor.getInputs().front().getType())
                  .getRank();
