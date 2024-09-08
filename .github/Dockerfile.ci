@@ -11,9 +11,7 @@ ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN mkdir -p $BUILD_DIR && \
     mkdir -p $TTMLIR_TOOLCHAIN_DIR
 
-
 ARG GIT_SHA
-RUN echo "Building from git sha2: ${GIT_SHA}"
 
 # Clone the project and update submodules
 RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
