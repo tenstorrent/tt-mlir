@@ -117,7 +117,8 @@ jobs:
           {runs-on: n150, enable_perf: OFF, name: "run"},
           {runs-on: n150, enable_perf: ON, name: "perf"},
           {runs-on: n300, enable_perf: OFF, name: "run"},
-          {runs-on: n300, enable_perf: ON, name: "perf"},
+          #TODO re-enable #648
+          #{runs-on: n300, enable_perf: ON, name: "perf"},
         ]
 
     runs-on:
