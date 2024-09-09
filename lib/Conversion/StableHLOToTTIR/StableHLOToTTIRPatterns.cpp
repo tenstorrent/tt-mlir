@@ -163,8 +163,8 @@ public:
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    assert(adaptor.getDotDimensionNumbers().getLhsContractingDimensions().data().empty());
-    assert(adaptor.getDotDimensionNumbers().getRhsContractingDimensions().data().empty());
+    assert(adaptor.getDotDimensionNumbers().getLhsContractingDimensions().empty() == 0);
+    assert(adaptor.getDotDimensionNumbers().getRhsContractingDimensions().empty() == 0);
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
