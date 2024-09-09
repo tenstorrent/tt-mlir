@@ -162,6 +162,10 @@ public:
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
+    // This is a simplistic version of that can only work for matmul cases.
+    // The op should be extended as other ops such as ttir.permute and
+    // ttir.broadcast_in_dim become available.
+
     auto dimensions = adaptor.getDotDimensionNumbers();
     if (dimensions.getLhsContractingDimensions().size()) {
       assert(dimensions.getLhsContractingDimensions()[0] == 1 &&
