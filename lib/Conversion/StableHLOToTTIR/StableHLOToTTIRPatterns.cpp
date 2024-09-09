@@ -120,6 +120,7 @@ private:
   }
 };
 
+
 class StableHLOToTTIRTransposeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
   using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
@@ -140,6 +141,35 @@ public:
         srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
         Value(outputTensor), adaptor.getPermutation()[0],
         adaptor.getPermutation()[1],
+        
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
+class StableHLOToTTIRDotGeneralOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
+  using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
+                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    assert(adaptor.getDotDimensionNumbers().getLhsContractingDimensions().data().empty());
+    assert(adaptor.getDotDimensionNumbers().getRhsContractingDimensions().data().empty());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
+        srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
+        Value(outputTensor),
+
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -188,6 +218,13 @@ void addTransposeOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
 
+void dotGeneralOpsConversionPatterns(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
+                                                             ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -199,6 +236,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
+  dotGeneralOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
