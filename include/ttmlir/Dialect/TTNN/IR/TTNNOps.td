@@ -15,21 +15,12 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_OpenDeviceOp : TTNN_Op<"open_device"> {
-    let summary = "Open Device op.";
+def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
+    let summary = "Get Device op.";
     let description = [{
+      This op returns the current runtime device.
     }];
-
-    let arguments = (ins I64ArrayAttr:$device_ids);
     let results = (outs TT_Device:$device);
-}
-
-def TTNN_CloseDeviceOp : TTNN_Op<"close_device"> {
-    let summary = "Close Device op.";
-    let description = [{
-    }];
-
-    let arguments = (ins TT_Device:$device);
 }
 
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {

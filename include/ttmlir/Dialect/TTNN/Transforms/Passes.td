@@ -7,11 +7,4 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTNNOpenDevice: Pass<"ttnn-open-device", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    todo
-  }];
-}
-
 #endif

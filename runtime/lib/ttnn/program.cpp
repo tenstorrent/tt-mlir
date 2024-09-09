@@ -737,12 +737,8 @@ static void run(::tt::target::ttnn::DeallocOp const *op, ::ttnn::Device &device,
 static void run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
                 ProgramTensorPool &tensorPool) {
   switch (op->type_type()) {
-  case ::tt::target::ttnn::OpType::OpenDeviceOp: {
-    // Skip for now, do we want device externally supplied?
-    break;
-  }
-  case ::tt::target::ttnn::OpType::CloseDeviceOp: {
-    // Skip for now, do we want device externally supplied?
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    // TODO(bug #627)
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
@@ -752,7 +748,7 @@ static void run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
     return run(op->type_as_EmptyOp(), device, tensorPool);
   }
   case ::tt::target::ttnn::OpType::FullOp: {
-    // Skip for now, we need an empty op
+    // TODO(bug #626)
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {

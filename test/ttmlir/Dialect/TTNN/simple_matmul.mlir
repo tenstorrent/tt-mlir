@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-layout --ttnn-open-device --convert-ttir-to-ttnn %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-layout --convert-ttir-to-ttnn %s | FileCheck %s
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 // CHECK: #[[TILED_LAYOUT:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32x32, bf16>, #dram>, interleaved>
 module attributes {} {
