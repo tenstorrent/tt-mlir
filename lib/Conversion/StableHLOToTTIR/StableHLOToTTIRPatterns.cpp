@@ -120,7 +120,6 @@ private:
   }
 };
 
-
 class StableHLOToTTIRTransposeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
   using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
@@ -141,7 +140,7 @@ public:
         srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
         Value(outputTensor), adaptor.getPermutation()[0],
         adaptor.getPermutation()[1],
-        
+
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -163,8 +162,22 @@ public:
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    assert(adaptor.getDotDimensionNumbers().getLhsContractingDimensions().empty() == 0);
-    assert(adaptor.getDotDimensionNumbers().getRhsContractingDimensions().empty() == 0);
+    auto dimensions = adaptor.getDotDimensionNumbers();
+    if (dimensions.getLhsContractingDimensions().size()) {
+      assert(dimensions.getLhsContractingDimensions()[0] == 1 &&
+             "ttir dot_general only supports matmul operation");
+    }
+
+    if (dimensions.getRhsContractingDimensions().size()) {
+      assert(dimensions.getRhsContractingDimensions()[0] == 0 &&
+             "ttir dot_general only supports matmul operation");
+    }
+
+    assert(dimensions.getLhsBatchingDimensions().empty() &&
+           "ttir dot_general only supports matmul operation");
+
+    assert(dimensions.getRhsBatchingDimensions().empty() &&
+           "ttir dot_general only supports matmul operation");
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
