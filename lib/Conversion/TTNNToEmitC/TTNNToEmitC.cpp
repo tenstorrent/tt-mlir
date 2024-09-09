@@ -93,58 +93,30 @@ public:
   }
 };
 
-// OpenDeviceOp conversion pattern
+// GetDeviceOp conversion pattern
 //
-class OpenDeviceOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp> {
+class GetDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::GetDeviceOp> {
 
 public:
-  OpenDeviceOpConversionPattern(const TypeConverter &typeConverter,
-                                MLIRContext *context,
-                                PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::OpenDeviceOp>(
+  GetDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                               MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::GetDeviceOp>(
             typeConverter, context, benefit) {}
 
 public:
   LogicalResult
-  matchAndRewrite(ttnn::OpenDeviceOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(ttnn::GetDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultTy =
         this->getTypeConverter()->convertType(srcOp->getResult(0).getType());
 
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, resultTy, this->convertOpName(srcOp), srcOp.getDeviceIdsAttr(),
-        nullptr, adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<emitc::VariableOp>(
+        srcOp, resultTy, rewriter.getAttr<emitc::OpaqueAttr>("device"));
 
     return success();
   }
 };
-
-// CloseDeviceOp conversion pattern
-//
-class CloseDeviceOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp> {
-
-public:
-  CloseDeviceOpConversionPattern(const TypeConverter &typeConverter,
-                                 MLIRContext *context,
-                                 PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::CloseDeviceOp>(
-            typeConverter, context, benefit) {}
-
-public:
-  LogicalResult
-  matchAndRewrite(ttnn::CloseDeviceOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
-        nullptr, adaptor.getOperands());
-
-    return success();
-  }
-};
-
 } // namespace
 
 namespace mlir::tt {
@@ -154,8 +126,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                  TypeConverter &typeConverter) {
   // Device ops
   //
-  patterns.add<OpenDeviceOpConversionPattern>(typeConverter, ctx);
-  patterns.add<CloseDeviceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<GetDeviceOpConversionPattern>(typeConverter, ctx);
 
   // Memory ops
   //
