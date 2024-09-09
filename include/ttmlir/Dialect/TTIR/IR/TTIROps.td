@@ -404,7 +404,7 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
-                         SI32Attr:$axis,
+                         SI32Attr:$dim,
 
     TT_OperandConstraintArrayAttr:$operand_constraints);
 

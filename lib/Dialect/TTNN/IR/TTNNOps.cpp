@@ -154,7 +154,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 
 ::mlir::LogicalResult mlir::tt::ttnn::ConcatOp::verify() {
   mlir::OperandRange inputs = getInputs();
-  int32_t dim = getAxis();
+  int32_t dim = getDim();
   mlir::RankedTensorType firstTensor =
       mlir::cast<mlir::RankedTensorType>(inputs.front().getType());
   int64_t firstTensorRank = firstTensor.getRank();
@@ -165,7 +165,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 
   // Check that the dimension `dim` is valid.
   if (dim < 0 || dim >= firstTensor.getRank()) {
-    return emitOpError() << "Invalid dimension " << getAxis()
+    return emitOpError() << "Invalid dimension " << getDim()
                          << " for concatenation.";
   }
 

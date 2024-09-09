@@ -226,7 +226,7 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   }
   auto out = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  int32_t dim = op.getAxis();
+  int32_t dim = op.getDim();
 
   return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
 }

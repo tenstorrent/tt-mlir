@@ -269,7 +269,7 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
-                         SI32Attr:$axis);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
