@@ -162,26 +162,27 @@ public:
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    // This is a simplistic version of that can only work for matmul cases.
-    // The op should be extended as other ops such as ttir.permute and
-    // ttir.broadcast_in_dim become available.
+    // This is a basic version that can only work for cases that can be directly
+    // converted to matmul. The op should be extended as other ops such as
+    // ttir.permute and ttir.broadcast_in_dim become available.
 
-    auto dimensions = adaptor.getDotDimensionNumbers();
+    ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
+        adaptor.getDotDimensionNumbers();
     if (dimensions.getLhsContractingDimensions().size()) {
       assert(dimensions.getLhsContractingDimensions()[0] == 1 &&
-             "ttir dot_general only supports matmul operation");
+             "ttir dot_general only supports matmul operation.");
     }
 
     if (dimensions.getRhsContractingDimensions().size()) {
       assert(dimensions.getRhsContractingDimensions()[0] == 0 &&
-             "ttir dot_general only supports matmul operation");
+             "ttir dot_general only supports matmul operation.");
     }
 
     assert(dimensions.getLhsBatchingDimensions().empty() &&
-           "ttir dot_general only supports matmul operation");
+           "ttir dot_general only supports matmul operation.");
 
     assert(dimensions.getRhsBatchingDimensions().empty() &&
-           "ttir dot_general only supports matmul operation");
+           "ttir dot_general only supports matmul operation.");
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
