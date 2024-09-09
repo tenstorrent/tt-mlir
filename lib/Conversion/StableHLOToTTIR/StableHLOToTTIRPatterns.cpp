@@ -47,15 +47,15 @@ public:
   }
 };
 
-template <typename SrcOp, typename Adaptor = typename SrcOp::Adaptor>
 class StableHLOToTTIRReduceOpConversionPattern
-    : public OpConversionPattern<SrcOp> {
+    : public OpConversionPattern<mlir::stablehlo::ReduceOp> {
 
-  using OpConversionPattern<SrcOp>::OpConversionPattern;
+  using OpConversionPattern<mlir::stablehlo::ReduceOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+  matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
+                  mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!checkBasicLegality(srcOp)) {
       return failure();
@@ -76,7 +76,7 @@ public:
   }
 
 private:
-  bool checkBasicLegality(SrcOp &srcOp) const {
+  bool checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp) const {
     if (!srcOp.getBody().hasOneBlock()) {
       // Expecting StableHLO Reduce OP to have one block inside its body.
       return false;
@@ -92,7 +92,8 @@ private:
 
   template <typename DestOp>
   LogicalResult
-  matchAndRewriteInternal(SrcOp &srcOp, Adaptor &adaptor,
+  matchAndRewriteInternal(mlir::stablehlo::ReduceOp &srcOp,
+                          mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                           ConversionPatternRewriter &rewriter) const {
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResultTypes().front());
@@ -115,6 +116,34 @@ private:
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,
         false /* keep_dim */, dimArg, operandConstraints);
 
+    return success();
+  }
+};
+
+class StableHLOToTTIRTransposeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
+  using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
+                  mlir::stablehlo::TransposeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    assert(adaptor.getPermutation().size() == 2 &&
+           "TTIR only supports only two dimensional transposeOp.");
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
+        srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
+        Value(outputTensor), adaptor.getPermutation()[0],
+        adaptor.getPermutation()[1],
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
     return success();
   }
 };
@@ -147,9 +176,14 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
 void addReduceOpsConversionPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter &typeConverter) {
-  patterns
-      .add<StableHLOToTTIRReduceOpConversionPattern<mlir::stablehlo::ReduceOp>>(
-          typeConverter, ctx);
+  patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
+}
+
+void addTransposeOpsConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace
@@ -162,6 +196,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
