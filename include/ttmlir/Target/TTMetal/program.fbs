@@ -18,6 +18,11 @@ enum BinaryType : ushort {
   ERISC = 5,
 }
 
+enum CoreType : ushort {
+  WORKER = 0,
+  ETH = 1,
+}
+
 table KernelSource {
   source_type: SourceType;
   source: string;
@@ -34,10 +39,25 @@ union Kernel {
   KernelBinary,
 }
 
+table RuntimeArgTensorAddress {
+  operand_idx: uint32;
+}
+
+table RuntimeArgSemaphoreAddress {
+  initial_value: uint32;
+  core_type: CoreType;
+}
+
+union RuntimeArg {
+  RuntimeArgTensorAddress,
+  RuntimeArgSemaphoreAddress,
+}
+
 table KernelDesc {
   kernel: Kernel;
   core_range_set: [Dim2dRange];
   cbs: [CBRef];
+  runtime_args: [RuntimeArg];
   debug_info: string;
 }
 
