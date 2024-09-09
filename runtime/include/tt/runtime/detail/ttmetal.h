@@ -113,12 +113,12 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
                           ::tt::target::TensorRef const *tensorRef) {
   ::tt::target::TensorDesc const *tensorDesc = tensorRef->desc();
   ::tt::target::LayoutDesc const *layout = tensorDesc->layout();
+  ::tt::target::MemoryDesc const *memoryDesc = layout->memory_desc();
   CoreRangeSet coreRangeSet = toCoreRangeSet(layout->core_range_set());
-  auto shardRank = layout->memory_desc()->shape()->size();
-  ::tt::target::Dim2d const *tile_shape = layout->memory_desc()->tile_shape();
+  auto shardRank = memoryDesc->shape()->size();
+  ::tt::target::Dim2d const *tile_shape = memoryDesc->tile_shape();
   std::array<uint32_t, 2> shardShape;
-  shardShape[1] =
-      layout->memory_desc()->shape()->Get(shardRank - 1) * tile_shape->x();
+  shardShape[1] = memoryDesc->shape()->Get(shardRank - 1) * tile_shape->x();
   shardShape[0] = tile_shape->y();
   for (unsigned i = 0; i < shardRank - 1; ++i) {
     shardShape[0] *= layout->memory_desc()->shape()->Get(i);
@@ -141,16 +141,16 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
   };
 
   ShardSpecBuffer shardSpecBuffer(shardSpec, pageShape, tensorShape);
-  assert(layout->memory_desc()->memory_space() ==
-             ::tt::target::MemorySpace::DeviceDRAM ||
-         layout->memory_desc()->memory_space() ==
-             ::tt::target::MemorySpace::DeviceL1);
-  BufferType bufferType = layout->memory_desc()->memory_space() ==
-                                  ::tt::target::MemorySpace::DeviceDRAM
-                              ? BufferType::DRAM
-                              : BufferType::L1;
-  uint64_t pageSize =
-      pageShape[0] * pageShape[1] * 4; // FIXME: Hardcoded data type size
+  assert(memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM ||
+         memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceL1);
+  BufferType bufferType =
+      memoryDesc->memory_space() == ::tt::target::MemorySpace::DeviceDRAM
+          ? BufferType::DRAM
+          : BufferType::L1;
+
+  tt::target::DataType dataType = memoryDesc->data_type();
+  uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
+  uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
   uint64_t size = tensorShape[0] * tensorShape[1] * pageSize;
   auto shardedBufferConfig = ShardedBufferConfig{
       .device = device,
