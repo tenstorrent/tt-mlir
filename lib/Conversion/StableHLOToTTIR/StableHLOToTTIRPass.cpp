@@ -19,6 +19,12 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+#define GET_TYPEDEF_CLASSES
+#include <stablehlo/dialect/Base.h>
+#include <stablehlo/dialect/Version.h>
+#include <stablehlo/dialect/VhloTypeDefs.h.inc>
+#include <stablehlo/dialect/VhloTypeInterfaces.h.inc>
+
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_CONVERTSTABLEHLOTOTTIR
@@ -27,6 +33,28 @@ namespace mlir::tt::ttir {
 } // namespace mlir::tt::ttir
 
 namespace {
+
+class StablehloTypeConverter : public TypeConverter {
+public:
+  StablehloTypeConverter(MLIRContext *ctx) {
+
+    addConversion([&](::mlir::vhlo::RankedTensorV1Type type) -> Type {
+      SmallVector<int64_t> targetShape;
+      targetShape.push_back(1);
+
+      return RankedTensorType::get(targetShape, type.getElementType());
+    });
+
+    addConversion([&](::mlir::vhlo::FloatF32V1Type type) -> Type {
+      auto NewType = Float32Type::get(ctx);
+
+      SmallVector<int64_t> targetShape;
+      targetShape.push_back(1);
+
+      return RankedTensorType::get(targetShape, NewType);
+    });
+  }
+};
 
 struct ConvertStableHLOToTTIRPass
     : public ttir::impl::ConvertStableHLOToTTIRBase<
@@ -44,12 +72,7 @@ struct ConvertStableHLOToTTIRPass
 
     // For now keep the same type assuming StableHLO ops operate on builtin
     // tensor.
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) {
-      assert(isa<RankedTensorType>(type) &&
-             "only ranked tensor type supported");
-      return type;
-    });
+    StablehloTypeConverter typeConverter(&getContext());
 
     RewritePatternSet patterns(&getContext());
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
