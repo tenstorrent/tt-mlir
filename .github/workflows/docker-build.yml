@@ -3,6 +3,7 @@ name: Build in Docker
 on:
   workflow_dispatch:
   workflow_call:
+  push:
 
 jobs:
 
@@ -21,7 +22,7 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-${{ matrix.image }}:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-${{ matrix.image }}:69eb514dfed828d0a4ef89d410f9866c73891026
       options: --user root
 
     steps:

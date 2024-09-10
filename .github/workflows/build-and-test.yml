@@ -3,6 +3,7 @@ name: Build and Test
 on:
   workflow_dispatch:
   workflow_call:
+  push:
 
 jobs:
   build-ttmlir:
@@ -21,7 +22,7 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:69eb514dfed828d0a4ef89d410f9866c73891026
       options: --user root
 
     steps:
@@ -126,7 +127,7 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:69eb514dfed828d0a4ef89d410f9866c73891026
       options: --user root --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages
