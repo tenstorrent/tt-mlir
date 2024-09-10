@@ -24,6 +24,14 @@ target_include_directories(TTBinary
 )
 add_dependencies(TTBinary FBS_GENERATION)
 
+add_library(TTRuntimeTypes STATIC types.cpp)
+target_include_directories(TTRuntimeTypes
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+)
+add_dependencies(TTBinary FBS_GENERATION)
+
 if (TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL))
   add_subdirectory(common)
 else()

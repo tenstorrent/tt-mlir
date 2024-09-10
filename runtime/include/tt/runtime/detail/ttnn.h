@@ -79,6 +79,10 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
 
 tt::target::DataType getTensorDataType(Tensor tensor);
 
+void deallocateTensor(Tensor tensor, bool force);
+
+Tensor toCpu(Tensor tensor);
+
 Device openDevice(std::vector<int> const &deviceIds = {0},
                   std::vector<std::uint8_t> const &numHWCQs = {});
 
@@ -90,12 +94,27 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);
 
+std::vector<Tensor> submit(Device device, Binary executable,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputs);
+
 void wait(Event event);
 
 void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
+
+std::vector<Tensor> runProgram(::ttnn::Device &device,
+                               ::tt::target::ttnn::Program const *program,
+                               std::vector<::ttnn::Tensor *> const &inputs);
+
+Tensor toLayout(Device device, Binary executable, std::uint32_t programIndex,
+                std::uint32_t inputIndex, Tensor const &input);
+
+Tensor updateProgramTensorLayout(Device device,
+                                 ::tt::target::ttnn::Program const *program,
+                                 std::uint32_t inputIndex, Tensor const &input);
 
 } // namespace tt::runtime::ttnn
 
