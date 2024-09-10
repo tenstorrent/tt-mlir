@@ -19,14 +19,14 @@ namespace mlir::tt {
 // Runs a conversion pass to EmitC dialect on a func op containing given
 // region's body. Also, it adds boilerplate code such as includes and namespace
 // declarations.
-LogicalResult
-convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
-                             const ttkernel::ThreadTypeAttr &threadType);
+LogicalResult convertTTKernelRegionToEmitC(
+    OpBuilder &builder, Region *region,
+    const ttkernel::KernelConfigInterface &kernelConfig);
 
 // Converts given region to EmitC dialect and translates it to C++ code.
 LogicalResult
 emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::ThreadTypeAttr &threadType);
+                          const ttkernel::KernelConfigInterface &kernelConfig);
 
 // Converts dispatch op's regions to C++ code.
 LogicalResult

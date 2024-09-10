@@ -305,17 +305,16 @@ std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
 class ThreadConfigHelper {
 public:
   ThreadConfigHelper(OpBuilder *builder, Location loc,
-                     ttkernel::ThreadTypeAttr threadType)
-      : builder(builder), loc(loc), threadType(threadType) {
+                     ttkernel::KernelConfigInterface kernelConfig)
+      : builder(builder), loc(loc), kernelConfig(kernelConfig) {
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
-    if (threadType.getValue() == ttkernel::ThreadType::Noc0 ||
-        threadType.getValue() == ttkernel::ThreadType::Noc1) {
+    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
-    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
@@ -330,7 +329,7 @@ public:
   }
 
   ~ThreadConfigHelper() {
-    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
       builder->create<emitc::VerbatimOp>(loc, "}"); // close namespace NAMESPACE
     }
@@ -339,13 +338,14 @@ public:
 private:
   OpBuilder *builder;
   Location loc;
-  ttkernel::ThreadTypeAttr threadType;
+  ttkernel::KernelConfigInterface kernelConfig;
 };
 
-LogicalResult
-convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
-                             const ttkernel::ThreadTypeAttr &threadType) {
-  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(), threadType);
+LogicalResult convertTTKernelRegionToEmitC(
+    OpBuilder &builder, Region *region,
+    const ttkernel::KernelConfigInterface &kernelConfig) {
+  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(),
+                                        kernelConfig);
 
   auto funcOp = builder.create<func::FuncOp>(
       region->getLoc(), "kernel_main",
@@ -366,7 +366,7 @@ convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
 
 LogicalResult
 emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::ThreadTypeAttr &threadType) {
+                          const ttkernel::KernelConfigInterface &kernelConfig) {
   OpBuilder builder(region->getContext());
 
   // We will wrap everything in a module op so that we can run the translation.
@@ -374,7 +374,7 @@ emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
       builder.create<mlir::ModuleOp>(region->getLoc(), "module_wrapper");
   builder.setInsertionPointToStart(moduleWrapper.getBody());
 
-  if (convertTTKernelRegionToEmitC(builder, region, threadType).failed()) {
+  if (convertTTKernelRegionToEmitC(builder, region, kernelConfig).failed()) {
     return failure();
   }
 
@@ -399,10 +399,10 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
   dispatchOp.getContext()->getOrLoadDialect<emitc::EmitCDialect>();
 
   for (auto &reg : dispatchOp->getRegions()) {
-    auto threadType = mlir::cast<ttkernel::ThreadTypeAttr>(
-        dispatchOp.getThreadTypes()[reg.getRegionNumber()]);
+    auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
+        dispatchOp.getKernelConfigs()[reg.getRegionNumber()]);
     if (emitDispatchOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                                  threadType)
+                                  kernelConfig)
             .failed()) {
       return llvm::failure();
     }

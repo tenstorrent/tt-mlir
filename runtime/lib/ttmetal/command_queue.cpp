@@ -141,18 +141,76 @@ static void writeFile(std::string const &fileName, char const *data,
 
 static std::variant<DataMovementConfig, ComputeConfig, EthernetConfig>
 createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
-  switch (kernelSource->source_type()) {
-  case ::tt::target::metal::SourceType::Noc0: {
-    return ::tt::tt_metal::ReaderDataMovementConfig();
+  switch (kernelSource->config_type()) {
+  case ::tt::target::metal::KernelConfig::NocConfig: {
+    switch (kernelSource->config_as_NocConfig()->noc_index()) {
+    case tt::target::metal::NocIndex::Noc0: {
+      return ::tt::tt_metal::ReaderDataMovementConfig();
+    }
+    case tt::target::metal::NocIndex::Noc1: {
+      return ::tt::tt_metal::WriterDataMovementConfig();
+    }
+    }
   }
-  case ::tt::target::metal::SourceType::Noc1: {
-    return ::tt::tt_metal::WriterDataMovementConfig();
+  case ::tt::target::metal::KernelConfig::EthernetConfig: {
+    ::tt::tt_metal::EthernetConfig ethernetConfig;
+    switch (kernelSource->config_as_EthernetConfig()->eth_type()) {
+    case tt::target::metal::EthType::Sender: {
+      ethernetConfig.eth_mode = Eth::SENDER;
+      break;
+    }
+    case tt::target::metal::EthType::Receiver: {
+      ethernetConfig.eth_mode = Eth::RECEIVER;
+      break;
+    }
+    }
+
+    switch (kernelSource->config_as_EthernetConfig()->noc_index()) {
+    case tt::target::metal::NocIndex::Noc0: {
+      ethernetConfig.noc = NOC::NOC_0;
+      break;
+    }
+    case tt::target::metal::NocIndex::Noc1: {
+      ethernetConfig.noc = NOC::NOC_1;
+      break;
+    }
+    }
+    return ethernetConfig;
   }
-  case ::tt::target::metal::SourceType::Tensix: {
-    return ::tt::tt_metal::ComputeConfig();
+
+  case ::tt::target::metal::KernelConfig::TensixConfig: {
+    ::tt::tt_metal::ComputeConfig computeConfig;
+    switch (kernelSource->config_as_TensixConfig()->math_fidelity()) {
+    case tt::target::MathFidelity::HiFi4: {
+      computeConfig.math_fidelity = MathFidelity::HiFi4;
+      break;
+    }
+    case tt::target::MathFidelity::HiFi3: {
+      computeConfig.math_fidelity = MathFidelity::HiFi3;
+      break;
+    }
+    case tt::target::MathFidelity::HiFi2: {
+      computeConfig.math_fidelity = MathFidelity::HiFi2;
+      break;
+    }
+    case tt::target::MathFidelity::LoFi: {
+      computeConfig.math_fidelity = MathFidelity::LoFi;
+      break;
+    }
+    }
+
+    computeConfig.fp32_dest_acc_en =
+        kernelSource->config_as_TensixConfig()->fp32_dest_acc_en();
+    computeConfig.preserve_fp32_precision =
+        kernelSource->config_as_TensixConfig()->preserve_fp32_precision();
+    computeConfig.math_approx_mode =
+        kernelSource->config_as_TensixConfig()->math_approx_mode();
+    return computeConfig;
   }
-  default:
+
+  case ::tt::target::metal::KernelConfig::NONE: {
     break;
+  }
   }
   throw std::runtime_error("Unsupported kernel source type");
 }
@@ -274,6 +332,7 @@ void CQExecutor::execute(
     CoreRangeSet coreRange = toCoreRangeSet(kernelDesc->core_range_set());
     std::variant<DataMovementConfig, ComputeConfig, EthernetConfig> config =
         createKernelConfig(kernelSource);
+
     ::tt::tt_metal::KernelHandle handle =
         ::tt::tt_metal::CreateKernel(program, fileName, coreRange, config);
 

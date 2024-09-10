@@ -27,38 +27,9 @@ static bool insideDispatchOpRegion(mlir::Operation *op) {
   return false;
 }
 
-static ttkernel::ThreadType getRegionThreadType(mlir::Region *region) {
-  assert(region);
-  mlir::Operation *parentOp = region->getParentOp();
-  auto regionNumber = region->getRegionNumber();
-  Attribute threadType;
-  if (ttmetal::DispatchOp dispatchOp = dyn_cast<ttmetal::DispatchOp>(parentOp);
-      dispatchOp) {
-    auto threadTypes = dispatchOp.getThreadTypes();
-    assert(regionNumber < threadTypes.size());
-    threadType = threadTypes[regionNumber];
-  } else if (func::FuncOp funcOp = dyn_cast<func::FuncOp>(parentOp); funcOp) {
-    ModuleOp moduleOp = dyn_cast<ModuleOp>(funcOp->getParentOp());
-    assert(moduleOp);
-    threadType = moduleOp->getDiscardableAttr("ttkernel.thread_type");
-  } else if (ModuleOp moduleOp = dyn_cast<ModuleOp>(parentOp); moduleOp) {
-    threadType = moduleOp->getDiscardableAttr("ttkernel.thread_type");
-  } else {
-    assert(false && "Unexpected parent op in getRegionThreadType");
-  }
-  return mlir::cast<ttkernel::ThreadTypeAttr>(threadType).getValue();
-}
-
-static bool insideThread(mlir::Operation *op, ttkernel::ThreadType threadType) {
-  return getRegionThreadType(op->getParentRegion()) == threadType;
-}
-
 ::mlir::LogicalResult BuiltinOp::verify() {
   if (!insideDispatchOpRegion(getOperation())) {
     return emitOpError("KernelOp must be inside of a DispatchOp region");
-  }
-  if (!insideThread(getOperation(), ttkernel::ThreadType::Tensix)) {
-    return emitOpError("KernelOp must be inside of a Tensix thread");
   }
   return success();
 }
