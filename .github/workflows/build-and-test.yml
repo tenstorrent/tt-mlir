@@ -3,7 +3,6 @@ name: Build and Test
 on:
   workflow_dispatch:
   workflow_call:
-  push:
 
 jobs:
   build-ttmlir:
