@@ -159,9 +159,13 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
       mlir::cast<mlir::RankedTensorType>(inputs.front().getType());
   int64_t firstTensorRank = firstTensor.getRank();
 
+  if (dim < 0) {
+    dim += firstTensorRank;
+  }
+
   // Check that the dimension `dim` is valid.
   if (dim < 0 || dim >= firstTensor.getRank()) {
-    return emitOpError() << "Invalid dimension " << dim
+    return emitOpError() << "Invalid dimension " << getDim()
                          << " for concatenation.";
   }
 
