@@ -5,13 +5,15 @@ FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci-bui
 SHELL ["/bin/bash", "-c"]
 
 # Create a directory for the build and toolchain
+ARG GIT_SHA
 ENV PROJECT_NAME=tt-mlir
 ENV BUILD_DIR=/home/build
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+RUN echo "Building $PROJECT_NAME at $GIT_SHA"
+
 RUN mkdir -p $BUILD_DIR && \
     mkdir -p $TTMLIR_TOOLCHAIN_DIR
-
-ARG GIT_SHA
 
 # Clone the project and update submodules
 RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
@@ -23,6 +25,9 @@ WORKDIR $BUILD_DIR/$PROJECT_NAME
 RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build
+
+# Remove Nvida from toolchain
+RUN rm -fr /opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/nvidia
 
 # Self-test
 
@@ -52,6 +57,11 @@ RUN source env/activate && \
 RUN source env/activate && \
     cmake --build build -- check-ttmlir
 
+# Final stage
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
+
 # Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG}
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
 COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
+RUN echo "Toolcahin size:\ndu -h --max-depth=1 $TTMLIR_TOOLCHAIN_DIR"
