@@ -43,7 +43,10 @@ namespace mlir::tt::ttnn {
 
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
-  return ::tt::target::CreateDeviceRef(*cache.fbb, cache.nextGlobalId());
+  auto deviceType = mlir::cast<DeviceType>(device.getType());
+  auto chipIds = deviceType.getDesc().getChipIds();
+  assert(chipIds.size() == 1 && "expected single chip");
+  return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
 template <typename OpT>
