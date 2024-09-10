@@ -64,4 +64,3 @@ FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
 COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
-RUN echo "Toolcahin size:\ndu -h --max-depth=1 $TTMLIR_TOOLCHAIN_DIR"
