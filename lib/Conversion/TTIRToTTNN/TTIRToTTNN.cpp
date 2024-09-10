@@ -75,9 +75,15 @@ public:
     //
     ValueRange nonDPSOperands = adaptor.getOperands().drop_back();
 
+    if (nonDPSOperands.size() != 1) {
+      return op->emitOpError(
+          "Expected exactly one non-DPS operand for toMemoryConfig op");
+    }
+    Value nonDPSOperand = nonDPSOperands.front();
+    auto device = getOrInsertDevice(rewriter, op);
     rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        nonDPSOperands);
+        op, this->getTypeConverter()->convertType(op.getType()), nonDPSOperand,
+        device);
     return success();
   }
 };
@@ -311,6 +317,7 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    auto device = getOrInsertDevice(rewriter, op);
     auto kernel_ty =
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
@@ -361,9 +368,10 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getOutput(), in_channels, out_channels, batch_size, input_width,
-        input_height, kernel_height, kernel_width, stride_height, stride_width,
-        padding_height, padding_width, dilation_height, dilation_width, groups);
+        adaptor.getOutput(), device, in_channels, out_channels, batch_size,
+        input_width, input_height, kernel_height, kernel_width, stride_height,
+        stride_width, padding_height, padding_width, dilation_height,
+        dilation_width, groups);
     return success();
   }
 };
