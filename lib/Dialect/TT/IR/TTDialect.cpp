@@ -46,6 +46,14 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
       }
       return AliasResult::OverridableAlias;
     }
+    if (llvm::isa<DeviceAttr>(attr)) {
+      os << "device";
+      return AliasResult::OverridableAlias;
+    }
+    if (llvm::isa<SystemDescAttr>(attr)) {
+      os << "system_desc";
+      return AliasResult::OverridableAlias;
+    }
     return AliasResult::NoAlias;
   }
 };

@@ -13,6 +13,11 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
     This pass will take a view of the system descriptor and create an implicit
     device around it.
   }];
+
+  let options = [
+    ListOption<"meshShape", "mesh-shape", "int64_t",
+               "Set the multi-device mesh shape.">,
+  ];
 }
 
 def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {

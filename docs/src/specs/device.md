@@ -48,17 +48,23 @@ each with an 8x8 physical grid.
 underlying physical hardware device.
 
 ```mlir
-#tt.device<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>
+#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, meshShape = 1, chipIds = [0]>
 ```
 
 Let's break down what each of these attributes mean:
-- `#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>`: This is a 2D logical grid with dim 8x8.
+- `workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>`: This is a 2D logical grid with dim 8x8.
   It's followed by an affine map `(d0, d1) -> (0, d0, d1)` that provides a mapping
   from the logical grid to the physical grid.  In this case, the logical grid is the same
   as the physical grid, so the mapping is the identity function. The logical
   grid can have any rank, but the physical mapping is always 3D, with the first
   being the chip index, followed by the 2D physical core index within the chip.
-- `[0]`: This is a list of chip indices.  These chip indices directly reference
+- `meshShape = 1`: A shape provided as part of the `DeviceAttr` constructor that
+  describes the virtual layout of the chips with respect to each other. Note that
+  in a multi-chip system, this grid encapsulates the entire system's grid shape,
+  e.g. 8x16 grid could be made up of a 1x2 mesh of chips side-by-side. The mesh
+  attribute configures how the above grid/map attributes are created such that they
+  implement this mesh topology.
+- `chipIds = [0]`: This is a list of chip indices.  These chip indices directly reference
   the same chip indices in the system descriptor. The `SystemDesc` attribute
   that this is in reference to is tagged on the top level `ModuleOp`.
 
@@ -98,9 +104,10 @@ Specific examples that this document will cover:
 
 Given a 2 chip system, `[2, 8x8]`, we can represent a simple data parallel
 logical grid that divides the batch dimension in half across the two chips.
+This is denoted by `meshShape = 2x1x1` which means the logical grid is 3D.
 
 ```mlir
-#tt.device<#tt.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>, [0, 1]>
+#tt.device<workerGrid = #tt.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>, meshShape = 2x1x1, chipIds = [0, 1]>
 ```
 
 The affine map here is just identity, so dims `d1` and `d2` directly index
@@ -127,10 +134,11 @@ a 2x4 grid out of the 8x8 physical grid available.
 
 In this example we will consider a 2 chip system, `[2, 8x8]`, and view it as
 though the two chips are concatenated together side by side to form a single
-`8x16` grid.
+`8x16` grid. This is denoted by `meshShape = 1x2` which means to concatenate
+the chips in the second dimension.
 
 ```mlir
-#tt.device<#tt.grid<8x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0, d1 mod 8)>, [0, 1]>
+#tt.device<workerGrid = #tt.grid<8x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0, d1 mod 8)>, meshShape = 1x2, chipIds = [0, 1]>
 ```
 
 Here we can see that the affine map encodes an indexing pattern such that when
@@ -157,10 +165,11 @@ physically spanning across two chips.
 
 The previous 2 examples can be composed together to form a logical grid that
 divides tensor across multiple dimensions.  Here we will consider a 4 chip
-system `[4, 8x8]` and view it as a `2x8x16` grid.
+system `[4, 8x8]` and view it as a `2x8x16` grid. Note that the `meshShape` is
+`2x1x2` which means to concatenate the chips in the first and third dimensions.
 
 ```mlir
-#tt.device<#tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>, [0, 1, 2, 3]>
+#tt.device<workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>, meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
 ```
 
 We can evaluate the affine map to see that the chips are interpreted in chunks of
@@ -194,8 +203,8 @@ take 4 chips and interpret them differently (though they could take the same
 logical grid).
 
 ```mlir
-#tt.device<#tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>, [0, 1, 2, 3]>
-#tt.device<#tt.grid<16x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0 mod 8, d1 mod 8)>, [4, 5, 6, 7]>
+#tt.device<workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>, meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
+#tt.device<workerGrid = #tt.grid<16x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0 mod 8, d1 mod 8)>, meshShape = 2x2, chipIds = [4, 5, 6, 7]>
 ```
 
 ### Reinterpreted Grids (Transpose)
@@ -222,12 +231,12 @@ relu(aT)
 
 1. We'll establish a regular, single chip, identity logical grid:
 ```mlir
-#tt.device<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>
+#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, meshShape = 1, chipIds = [0]>
 ```
 2. Execute `exp`.
 3. We'll reinterpret the grid as transposed:
 ```mlir
-#tt.device<#tt.grid<8x8, (d0, d1) -> (0, d1, d0)>, [0]>
+#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d1, d0)>, meshShape = 1, chipIds = [0]>
 ```
 4. _Execute_ `transpose`.  Note that each core only needs to transpose their
    data locally.  Eventually this could be implemented as a no-op by reindexing
@@ -243,39 +252,74 @@ For the sake of examples, here's a few more ways of reinterpreting the logical g
 
 #### Extra Wide Grid
 ```mlir
-#tt.device<#tt.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>, [0]>
+#tt.device<workerGrid = #tt.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>, meshShape = 1, chipIds = [0]>
 ```
 
 #### Extra Tall + Transposed Grid
 ```mlir
-#tt.device<#tt.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>, [0]>
+#tt.device<workerGrid = #tt.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>, meshShape = 1, chipIds = [0]>
 ```
 
 #### Staircase
 ```mlir
-#tt.device<#tt.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>, [0]>
+#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>, meshShape = 1, chipIds = [0]>
 ```
 
 This could be an interesting starting position for data in implementing matmul as a
 systolic array in a ring topology.
 
-## Backend Lowering and Constraints
+## Lowering to TTNN
 
 While the above device attribute encoding is quite flexible, this does not
 necessarily mean the target backend can actually support all of these
-interpretations.  TTNN backend will be relatively constrained to support only
-the specialized grid topologies that are supported by the API.
+interpretations.  TTNN backend will be constrained to support only the
+specialized grid topologies that are supported by the API.
 
-### TTNN
+### Grid/Shard Orientation
 
-TODO:
+TODO
 
-- Multi-device
-- Grid orientation
-- Height / Width sharded
-- TTNN Generic
+### Multi-device
 
-### TTMetal
+Please refer to [TTNN Mesh Programming Docs](https://github.com/tenstorrent/tt-metal/blob/main/tech_reports/Programming%20Mesh%20of%20Devices/Programming%20Mesh%20of%20Devices%20with%20TT-NN.md)
+for more information on how to program multi-device systems with TTNN API.
+
+Multi-device TTNN dialect will try and stay as close to the TTNN API as
+possible.  Let's consider what this looks like from the compiler and runtime
+perspectives:
+
+#### Compiler
+
+- **Device Creation**: The TTNN device in the compiler is exactly the same attribute
+  from the ttir dialect.  It will encode the `meshShape` into the flatbuffer
+  which can be directly used to program `::ttnn::MeshShape`.
+- **Tensor Layout**: Again, the tensor layout is inherited in TTNN dialect from the
+  ttir dialect.  The grid attribute in the tensor layout can be trivially
+  divided by `meshShape` to determine the shape of the tensor slice on each device.
+  Broadcasting rules can be applied to determine which [Distribution Strategy](https://github.com/tenstorrent/tt-metal/blob/main/tech_reports/Programming%20Mesh%20of%20Devices/Programming%20Mesh%20of%20Devices%20with%20TT-NN.md#3-distributing-tensor-to-meshdevice)
+  to use:
+    - **Sharding**: If the tensor grid is > 1 along the `meshShape` dimensions,
+      the tensor will be sharded across the mesh devices.
+    - **Replication**: If the tensor needs to be broadcasted for this op, by
+      extension the tensor layout will be replicated across the mesh devices.
+
+#### Runtime
+
+- **Device Creation**: The ttnn runtime will wholesale switch to working with
+  mesh devices via api `ttnn::multi_device::open_mesh_device`, this is possible
+  because a 1x1 mesh device is a valid single device. The mesh shape during
+  device open will always be `1xN` where `N` is the number of deviceIds in the
+  array.  Note that this shape can be reinterpreted by flatbuffer programs on
+  the fly with `SubMesh` API.
+- **Tensor Creation**: Tensor creation in a multi-device system is a bit more
+  involved.  In order to upload a multi-device tensor to the mesh, the host
+  tensor much first be created with `MultiDeviceHostStorage`.  The ttnn runtime
+  can automatically do this during `handleToHostMemoryConfigOp`:
+    - Regular host tensor will bounce through new tensor with
+      `MultiDeviceHostStorage` type.
+    - `tensor.to(mesh_device)` will allocate/move the tensor to the mesh device.
+
+## Lowering to TTMetal
 
 In TTMetal dialect we are only constrained by what we've implemented in the
 tt-mlir compiler, this means it is much more flexible and can theoretically

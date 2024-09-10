@@ -62,9 +62,15 @@ createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
 createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto result = op.getResult();
   auto resultType = mlir::cast<DeviceType>(result.getType());
-  ::tt::target::Dim2d mesh(1, 1);
-  assert(resultType.getDesc().getChipIds().size() == 1 &&
-         "expected single chip");
+  auto meshShape = resultType.getDesc().getMeshShape();
+  auto meshVolume = ttmlir::utils::volume(meshShape);
+  if (meshVolume > 1) {
+    // Only support creating meshes along batch dim for now
+    assert(meshShape.size() == 3 && "expected 3D mesh shape");
+    assert(meshShape[1] == 1 && "expected non-batch dim to be 1");
+    assert(meshShape[2] == 1 && "expected non-batch dim to be 1");
+  }
+  ::tt::target::Dim2d mesh(1, meshVolume);
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);

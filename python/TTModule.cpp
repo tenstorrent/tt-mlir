@@ -232,20 +232,23 @@ void populateTTModule(py::module &m) {
 
   py::class_<tt::DeviceAttr>(m, "DeviceAttr")
       .def_static("from_system_desc",
-                  [](MlirContext ctx, MlirAttribute systemDesc) {
+                  [](MlirContext ctx, MlirAttribute systemDesc,
+                     std::vector<int64_t> meshShape) {
                     return wrap(tt::DeviceAttr::get(
                         unwrap(ctx),
-                        mlir::cast<tt::SystemDescAttr>(unwrap(systemDesc))));
+                        mlir::cast<tt::SystemDescAttr>(unwrap(systemDesc)),
+                        meshShape));
                   })
       .def_static("get",
-                  [](MlirContext ctx, std::vector<int64_t> shape,
+                  [](MlirContext ctx, std::vector<int64_t> gridShape,
                      MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
-                     MlirAffineMap dramMap, std::vector<unsigned> chipIds) {
+                     MlirAffineMap dramMap, std::vector<int64_t> meshShape,
+                     std::vector<unsigned> chipIds) {
                     return wrap(tt::DeviceAttr::get(
                         unwrap(ctx),
-                        tt::GridAttr::get(unwrap(ctx), shape,
+                        tt::GridAttr::get(unwrap(ctx), gridShape,
                                           unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), chipIds));
+                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
                   })
       .def("unwrap", [](MlirAttribute const &self) {
         return mlir::cast<tt::DeviceAttr>(unwrap(self));

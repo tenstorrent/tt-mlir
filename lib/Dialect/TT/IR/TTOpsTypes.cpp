@@ -771,6 +771,67 @@ static mlir::AffineMap createL1Map(::mlir::MLIRContext *context,
                               l1Map, context);
 }
 
+static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
+                                 mlir::ArrayRef<int64_t> chipGrid,
+                                 mlir::ArrayRef<int64_t> meshShapeRef) {
+  assert(chipGrid.size() == 2 && "expected 2D grid");
+  mlir::SmallVector<int64_t> meshShape(meshShapeRef);
+
+  // Fill in missing dimensions with 1 so that the mesh shape is at least 2D.
+  while (meshShape.size() < chipGrid.size()) {
+    meshShape.push_back(1);
+  }
+
+  mlir::SmallVector<int64_t> virtualGrid(chipGrid);
+  // Fill in missing dimensions with 1 so that the virtual grid is at has
+  // meshShape dimensions.
+  while (virtualGrid.size() < meshShape.size()) {
+    virtualGrid.insert(virtualGrid.begin(), 1);
+  }
+
+  // Multiply out the mesh shape to get the real virtual grid shape.
+  for (int i = meshShape.size() - 1; i >= 0; --i) {
+    virtualGrid[i] *= meshShape[i];
+  }
+
+  // Calculate the affine expressions for the worker grid.
+  auto workerDeviceIdx = getAffineConstantExpr(0, context);
+  auto workerCoreY = getAffineDimExpr(virtualGrid.size() - 2, context);
+  auto workerCoreX = getAffineDimExpr(virtualGrid.size() - 1, context);
+  assert(virtualGrid.size() == meshShape.size());
+
+  // Special case the inner 2 dimensions of the device indexing to support
+  // horizonally/vertically stacked virtual grids.  For these cases we need an
+  // affine expression that rolls over the device index when we reach the end of
+  // single-chip boundaries.
+  int meshStride = 1;
+  if (meshShape[meshShape.size() - 1] > 1) {
+    workerDeviceIdx = workerCoreX.floorDiv(chipGrid[1]) + workerDeviceIdx;
+    workerCoreX = workerCoreX % meshShape[meshShape.size() - 1];
+  }
+
+  meshStride *= meshShape[meshShape.size() - 1];
+  if (meshShape[meshShape.size() - 2] > 1) {
+    workerDeviceIdx =
+        workerCoreY.floorDiv(chipGrid[0]) * meshStride + workerDeviceIdx;
+    workerCoreY = workerCoreY % meshShape[meshShape.size() - 2];
+  }
+
+  // The rest of the dimensions are just a simple linearization.
+  meshStride *= meshShape[meshShape.size() - 2];
+  for (int i = static_cast<int>(meshShape.size()) - 3; i >= 0; --i) {
+    workerDeviceIdx =
+        getAffineDimExpr(i, context) * meshStride + workerDeviceIdx;
+    meshStride *= meshShape[i];
+  }
+
+  mlir::SmallVector<mlir::AffineExpr> workerGridExprs = {
+      workerDeviceIdx, workerCoreY, workerCoreX};
+  auto workerGridMap =
+      mlir::AffineMap::get(virtualGrid.size(), 0, workerGridExprs, context);
+  return GridAttr::get(context, virtualGrid, workerGridMap);
+}
+
 //
 // This function creates an affine map that represents mapping the tensor's
 // linear layout onto physical dram banks. A typical example will end up looking
@@ -853,48 +914,43 @@ static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
                            SystemDescAttr systemDesc,
+                           ArrayRef<int64_t> meshShape,
                            ArrayRef<unsigned> chipIds) {
   assert(not chipIds.empty() && "expected at least one chip");
   ChipDescAttr chipDesc = systemDesc.getChipDescs()[chipIds.front()];
-  ArrayRef<int64_t> physicalGrid(chipDesc.getGrid());
-  assert(physicalGrid.size() == 2 && "expected 2D grid");
+  SmallVector<int64_t> chipGrid(chipDesc.getGrid());
+  assert(chipGrid.size() == 2 && "expected 2D grid");
+
+  // Take the min grid shape across all chips, this can happen if 1 chip has
+  // more harvested rows than another.  We take the min because we want to
+  // ensure that the logical grid is the same across all chips and this vastly
+  // simplifies the grid /memory mappings across the board.
   for (unsigned chipId : chipIds) {
     ChipDescAttr chip = systemDesc.getChipDescs()[chipId];
-    if (chip.getGrid() != physicalGrid) {
-      llvm::report_fatal_error("all chips must have the same grid shape");
-    }
+    ArrayRef<int64_t> iChipGrid = chip.getGrid();
+    assert(iChipGrid.size() == 2 && "expected 2D grid");
+    chipGrid[0] = std::min(chipGrid[0], iChipGrid[0]);
+    chipGrid[1] = std::min(chipGrid[1], iChipGrid[1]);
   }
 
-  SmallVector<int64_t> virtualGrid(physicalGrid);
-  if (chipIds.size() > 1) {
-    virtualGrid.insert(virtualGrid.begin(), chipIds.size());
-  }
-  assert(virtualGrid.size() >= 2 && "expected at least 2D grid");
-
-  // auto c0 = getAffineConstantExpr(physicalGrid[0], context);
-  // auto c1 = getAffineConstantExpr(physicalGrid[1], context);
-  auto dZ = getAffineConstantExpr(0, context);
-  auto dY = getAffineDimExpr(virtualGrid.size() - 2, context);
-  auto dX = getAffineDimExpr(virtualGrid.size() - 1, context);
-
-  SmallVector<AffineExpr> gridExprs = {dZ, dY, dX};
-  auto gridMap = AffineMap::get(virtualGrid.size(), 0, gridExprs, context);
-  auto workerGrid = GridAttr::get(context, virtualGrid, gridMap);
+  auto workerGrid = createWorkerGrid(context, chipGrid, meshShape);
   auto l1Map = createL1Map(context, workerGrid, systemDesc, chipIds);
   constexpr unsigned dramPageSize = 8192;
   auto dramMap =
       createDramMap(context, workerGrid, systemDesc, chipIds, dramPageSize);
-  return get(context, workerGrid, l1Map, dramMap, chipIds);
+  return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
 }
 
 DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
-                           SystemDescAttr systemDesc, bool enableMultichip) {
-  assert(systemDesc.getChipDescIndices().size() > 0 &&
+                           SystemDescAttr systemDesc,
+                           ArrayRef<int64_t> meshShape) {
+  int64_t numChips = ttmlir::utils::volume(meshShape);
+  assert(systemDesc.getChipDescIndices().size() >=
+             static_cast<size_t>(numChips) &&
          "expected at least one chip");
-  SmallVector<unsigned> chipIds(
-      enableMultichip ? systemDesc.getChipDescIndices().size() : 1);
+  SmallVector<unsigned> chipIds(numChips);
   std::iota(chipIds.begin(), chipIds.end(), 0);
-  return get(context, systemDesc, chipIds);
+  return get(context, systemDesc, meshShape, chipIds);
 }
 
 // Sample the last index in the tensor to get the last addressable element of
@@ -931,9 +987,16 @@ uint64_t DeviceAttr::getTensorSizeBytes(RankedTensorType tensorType,
 DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                    ::mlir::tt::GridAttr workerGrid, ::mlir::AffineMap l1Map,
                    ::mlir::AffineMap dramMap,
+                   ::llvm::ArrayRef<int64_t> meshShape,
                    ::llvm::ArrayRef<unsigned> chipIds) {
   if (chipIds.empty()) {
     emitError() << "expected at least one chip";
+    return ::mlir::failure();
+  }
+
+  std::int64_t meshVolume = ttmlir::utils::volume(meshShape);
+  if (chipIds.size() != static_cast<size_t>(meshVolume)) {
+    emitError() << "expected chipIds size to match the volume of meshShape";
     return ::mlir::failure();
   }
 

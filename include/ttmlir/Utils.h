@@ -52,6 +52,14 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   return result;
 }
 
+template <typename IntType> IntType volume(mlir::ArrayRef<IntType> shape) {
+  IntType result = 1;
+  for (auto dim : shape) {
+    result *= dim;
+  }
+  return result;
+}
+
 template <typename Enum>
 constexpr std::underlying_type_t<Enum> enum_as_int(Enum e) {
   return static_cast<std::underlying_type_t<Enum>>(e);
