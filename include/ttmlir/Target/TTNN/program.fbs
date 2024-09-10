@@ -11,6 +11,7 @@ table GetDeviceOp {
 
 table ToMemoryConfigOp {
   in0: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
   out: tt.target.TensorRef;
 }
 
@@ -103,6 +104,7 @@ table Conv2dOp {
   weight: tt.target.TensorRef;
   bias: tt.target.TensorRef;
   out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
   in_channels: uint32;
   out_channels: uint32;
   batch_size: uint32;

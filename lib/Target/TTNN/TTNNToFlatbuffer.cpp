@@ -73,9 +73,11 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
   constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto device = getOperandThroughDPSOps(op.getDevice());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateToMemoryConfigOp(*cache.fbb, input, output);
+  return ::tt::target::ttnn::CreateToMemoryConfigOp(
+      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
@@ -128,8 +130,11 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
                        getOperandThroughDPSOps(op.getBias()));
   auto output = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
   return ::tt::target::ttnn::CreateConv2dOp(
-      *cache.fbb, in0, in1, in2, output, op.getInChannels(),
+      *cache.fbb, in0, in1, in2, output,
+      cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
       op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),

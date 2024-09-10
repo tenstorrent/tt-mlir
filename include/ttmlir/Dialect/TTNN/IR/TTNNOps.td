@@ -28,7 +28,8 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let description = [{
     }];
 
-    let arguments = (ins AnyRankedTensor:$input);
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
@@ -324,6 +325,7 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          AnyRankedTensor:$output,
+                         TT_Device:$device,
                          I32Attr:$in_channels,
                          I32Attr:$out_channels,
                          I32Attr:$batch_size,
