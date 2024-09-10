@@ -755,7 +755,10 @@ public:
       patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
                                                  defaultDeviceMemoryLayout);
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      GreedyRewriteConfig config = GreedyRewriteConfig();
+      config.useTopDownTraversal = true;
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+                                              config))) {
         signalPassFailure();
         return;
       }
