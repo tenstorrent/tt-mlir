@@ -39,10 +39,13 @@ public:
   StablehloTypeConverter(MLIRContext *ctx) {
 
     addConversion([&](::mlir::vhlo::RankedTensorV1Type type) -> Type {
-      SmallVector<int64_t> targetShape;
-      targetShape.push_back(1);
+      if (type.getShape().empty()) {
+        SmallVector<int64_t> targetShape;
+        targetShape.push_back(1);
+        return RankedTensorType::get(targetShape, type.getElementType());
+      }
 
-      return RankedTensorType::get(targetShape, type.getElementType());
+      return type;
     });
 
     addConversion([&](::mlir::vhlo::FloatF32V1Type type) -> Type {
