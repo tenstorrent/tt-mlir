@@ -1356,7 +1356,11 @@ class API:
                             if self[name]:
                                 command_options += f" {api['name']} "
                         else:
-                            command_options += f" {api['name']} \"{self[name]}\" "
+                            command_options += f" {api['name']} "
+                            if isinstance(self[name], str) and not self[name]:
+                                command_options += f'"{self[name]}" '
+                            else:
+                                command_options += f"{self[name]} "
 
                     library_link_path = self.globals.get_ld_path(
                         f"{self.globals.get_ttmetal_home_path()}"
