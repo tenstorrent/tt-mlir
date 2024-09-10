@@ -3,7 +3,7 @@ name: Build and Publish Docker Image
 on:
   workflow_dispatch:
   workflow_call:
-  # push:
+  push:
 
 jobs:
   build:
@@ -72,17 +72,17 @@ jobs:
           tags: |
             ${{ env.CI_IMAGE_NAME}}:${{ github.sha }}
 
-      - name: Build and export IRD Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .github
-          file: .github/Dockerfile.ird
-          push: true
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-            FROM_IMAGE=ci
-          tags: |
-            ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
+      # - name: Build and export IRD Docker image
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     context: .github
+      #     file: .github/Dockerfile.ird
+      #     push: true
+      #     build-args: |
+      #       GIT_SHA=${{ github.sha }}
+      #       FROM_IMAGE=ci
+      #     tags: |
+      #       ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
 
       # # Tag images as latest
 
