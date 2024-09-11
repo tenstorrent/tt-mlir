@@ -153,6 +153,8 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               TypeConverter &typeConverter) {
 
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
 }
 

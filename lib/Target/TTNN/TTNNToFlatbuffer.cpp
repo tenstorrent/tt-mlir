@@ -149,7 +149,9 @@ template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   ::tt::target::ttnn::EltwiseOpType type;
-  if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
+  if constexpr (std::is_same_v<EltwiseOp, AbsOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Abs;
+  } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Add;
   } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
@@ -318,6 +320,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString);
+  }
+  if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
+    return createOperation(cache, createEltwiseOp(cache, absOp), debugString);
   }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseOp(cache, addOp), debugString);
