@@ -133,8 +133,9 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    assert(adaptor.getPermutation().size() == 2 &&
-           "TTIR only supports only two dimensional transposeOp.");
+    if (!checkBasicLegality(srcOp, adaptor)) {
+      return failure();
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
         srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
@@ -146,6 +147,19 @@ public:
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
     return success();
+  }
+
+  bool
+  checkBasicLegality(mlir::stablehlo::TransposeOp &srcOp,
+                     mlir::stablehlo::TransposeOp::Adaptor &adaptor) const {
+
+    if (adaptor.getPermutation().size() != 2) {
+      srcOp->emitError()
+          << "TTIR only supports only two dimensional transposeOp.";
+      return false;
+    }
+
+    return true;
   }
 };
 
@@ -159,40 +173,62 @@ public:
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     // This is a basic version that can only work for cases that can be directly
     // converted to matmul. The op should be extended as other ops such as
     // ttir.permute and ttir.broadcast_in_dim become available.
 
-    ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
-        adaptor.getDotDimensionNumbers();
-    if (dimensions.getLhsContractingDimensions().size()) {
-      assert(dimensions.getLhsContractingDimensions()[0] == 1 &&
-             "ttir dot_general only supports matmul operation.");
+    if (!checkBasicLegality(srcOp, adaptor)) {
+      return failure();
     }
-
-    if (dimensions.getRhsContractingDimensions().size()) {
-      assert(dimensions.getRhsContractingDimensions()[0] == 0 &&
-             "ttir dot_general only supports matmul operation.");
-    }
-
-    assert(dimensions.getLhsBatchingDimensions().empty() &&
-           "ttir dot_general only supports matmul operation.");
-
-    assert(dimensions.getRhsBatchingDimensions().empty() &&
-           "ttir dot_general only supports matmul operation.");
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
         Value(outputTensor),
-
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
     return success();
+  }
+
+private:
+  bool
+  checkBasicLegality(mlir::stablehlo::DotGeneralOp &srcOp,
+                     mlir::stablehlo::DotGeneralOp::Adaptor &adaptor) const {
+
+    ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
+        adaptor.getDotDimensionNumbers();
+
+    if (dimensions.getLhsContractingDimensions().size()) {
+      if (dimensions.getLhsContractingDimensions()[0] != 1) {
+        srcOp->emitError()
+            << "ttir dot_general only supports matmul operation.";
+        return false;
+      }
+    }
+
+    if (dimensions.getRhsContractingDimensions().size()) {
+      if (dimensions.getRhsContractingDimensions()[0] != 0) {
+        srcOp->emitError()
+            << "ttir dot_general only supports matmul operation.";
+        return false;
+      }
+    }
+
+    if (not dimensions.getLhsBatchingDimensions().empty()) {
+      srcOp->emitError() << "ttir dot_general only supports matmul operation.";
+      return false;
+    }
+
+    if (not dimensions.getRhsBatchingDimensions().empty()) {
+      srcOp->emitError() << "ttir dot_general only supports matmul operation.";
+      return false;
+    }
+
+    return true;
   }
 };
 
@@ -236,9 +272,9 @@ void addTransposeOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
 
-void dotGeneralOpsConversionPatterns(MLIRContext *ctx,
-                                     RewritePatternSet &patterns,
-                                     TypeConverter &typeConverter) {
+void addDotGeneralOpsConversionPatterns(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
                                                              ctx);
 }
@@ -254,7 +290,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
-  dotGeneralOpsConversionPatterns(ctx, patterns, typeConverter);
+  addDotGeneralOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
