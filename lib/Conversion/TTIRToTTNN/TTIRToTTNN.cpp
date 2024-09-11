@@ -98,6 +98,12 @@ public:
       dtype = elementTypeToDataType(elementType);
     }
 
+    // TODO(bug #665):
+    // Binary ops fail with row major layout in ttnn, defaulting to tile layout
+    // for all ops...
+    //
+    ttnnLayoutEnum = ttnn::Layout::Tile;
+
     // Map TT::MemorySpace to TTNN::BufferType
     //
     tt::MemorySpace memorySpace = ttLayoutAttr.getMemorySpace();
