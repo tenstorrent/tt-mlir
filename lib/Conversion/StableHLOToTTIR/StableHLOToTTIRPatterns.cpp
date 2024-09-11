@@ -257,19 +257,20 @@ public:
   }
 };
 
-class StableHLOToTTIRBroadcastOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::BroadcastOp> {
-  using OpConversionPattern<mlir::stablehlo::BroadcastOp>::OpConversionPattern;
+class StableHLOToTTIRBroadcastInDimOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::BroadcastInDimOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(mlir::stablehlo::BroadcastOp srcOp,
-                  mlir::stablehlo::BroadcastOp::Adaptor adaptor,
+  matchAndRewrite(mlir::stablehlo::BroadcastInDimOp srcOp,
+                  mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    mlir::Value Orig = srcOp.getOperand();
-    srcOp.getResult().replaceAllUsesWith(Orig);
-    srcOp->erase();
+    mlir::Value input = srcOp.getOperand();
+    srcOp.replaceAllUsesWith(input);
+    rewriter.eraseOp(srcOp);
 
     return success();
   }
@@ -334,7 +335,8 @@ void addBroadcastOpConversionPattern(MLIRContext *ctx,
                                      RewritePatternSet &patterns,
                                      TypeConverter &typeConverter) {
 
-  patterns.add<StableHLOToTTIRBroadcastOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRBroadcastInDimOpConversionPattern>(typeConverter,
+                                                                 ctx);
 }
 
 } // namespace
