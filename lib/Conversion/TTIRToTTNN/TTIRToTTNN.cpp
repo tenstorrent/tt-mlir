@@ -88,7 +88,11 @@ public:
     mlir::MemRefType memref = ttLayoutAttr.getMemref();
     Type elementType = memref.getElementType();
     DataType dtype = DataType::Float32;
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    // TODO(bug #665):
+    // Remove attribute once 665 is fixed
+    //
+    ttnn::Layout ttnnLayoutEnum __attribute__((unused)) =
+        ttnn::Layout::RowMajor;
     if (llvm::isa<TileType>(elementType)) {
       ttnnLayoutEnum = ttnn::Layout::Tile;
       auto tileType = mlir::cast<TileType>(elementType);
