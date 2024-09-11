@@ -316,7 +316,7 @@ class TTIR_BroadcastOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mn
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$dimension,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
