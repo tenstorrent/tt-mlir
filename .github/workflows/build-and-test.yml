@@ -7,13 +7,13 @@ on:
 jobs:
   build-ttmlir:
 
-    timeout-minutes: 120
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run"},
-          {runs-on: ubuntu-latest, enable_perf: ON, name: "perf"},
+          {runs-on: builder, enable_perf: OFF, name: "run"},
+          {runs-on: builder, enable_perf: ON, name: "perf"},
         ]
 
     name: Build tt-mlir
