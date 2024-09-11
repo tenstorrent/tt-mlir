@@ -29,6 +29,13 @@ def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRGenericOpCBs: Pass<"ttir-generic-op-cbs", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Insert circular buffer operands for generic ops.
+  }];
+}
+
 def TTIRGenericRegionOperandsToMemref: Pass<"ttir-generic-region-operands-to-memref", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
