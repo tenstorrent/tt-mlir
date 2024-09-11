@@ -181,9 +181,8 @@ public:
     // ttir.permute and ttir.broadcast_in_dim become available.
 
     if (!checkBasicLegality(srcOp, adaptor)) {
-      LLVM_DEBUG(llvm::dbgs() << "Failed legality checks in the handling of Op "
-                              << srcOp->getName());
-      return failure();
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed legality checks in the handling of Op");
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
@@ -278,9 +277,9 @@ void addTransposeOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
 
-void addDotGeneralOpsConversionPatterns(MLIRContext *ctx,
-                                        RewritePatternSet &patterns,
-                                        TypeConverter &typeConverter) {
+void addMatmulOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
                                                              ctx);
 }
@@ -296,7 +295,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
-  addDotGeneralOpsConversionPatterns(ctx, patterns, typeConverter);
+  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
