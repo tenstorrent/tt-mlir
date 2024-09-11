@@ -73,7 +73,6 @@ if enable_perf:
 
 if enable_runtime:
     assert enable_ttmetal or enable_ttnn, "At least one runtime must be enabled"
-    install_requires += ["torch"]
 
     for dylib in runlibs:
         shutil.copy(
