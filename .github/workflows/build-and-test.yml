@@ -12,8 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: builder, enable_perf: OFF, name: "run"},
-          {runs-on: builder, enable_perf: ON, name: "perf"},
+          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run"},
+          {runs-on: ubuntu-latest, enable_perf: ON, name: "perf"},
         ]
 
     runs-on:
@@ -73,6 +73,7 @@ jobs:
 
     - name: Lint
       shell: bash
+      when: ${{ matrix.build.enable_perf }} == OFF
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
@@ -86,7 +87,7 @@ jobs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}
+        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}
         path: build/test/report.xml
 
     - name: Show Test Report
@@ -137,7 +138,7 @@ jobs:
 
 
   # Run tests on TT hardware
-  
+
   run-tests:
 
     timeout-minutes: 30
@@ -148,7 +149,7 @@ jobs:
         build: [
           {runs-on: n150, enable_perf: OFF, name: "run"},
           {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run"},          
+          {runs-on: n300, enable_perf: OFF, name: "run"},
           {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
 
