@@ -21,7 +21,7 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-${{ matrix.image }}:e45a8f367214220539b35d1730b407bc4424d603
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-${{ matrix.image }}:latest
       options: --user root
 
     steps:
