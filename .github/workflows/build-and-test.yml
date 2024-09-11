@@ -16,9 +16,7 @@ jobs:
           {runs-on: ubuntu-latest, enable_perf: ON, name: "perf"},
         ]
 
-    runs-on:
-      - in-service
-      - ${{ matrix.build.runs-on }}
+    runs-on: ubuntu-latest
 
     container:
       image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
