@@ -30,7 +30,7 @@
 #define FMT_HEADER_ONLY
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#include "impl/device/device_mesh.hpp"
+#include "impl/device/mesh_device.hpp"
 #pragma clang diagnostic pop
 
 namespace tt::runtime::system_desc {
@@ -174,8 +174,8 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
 }
 
 static std::unique_ptr<::tt::runtime::SystemDesc>
-getCurrentSystemDescImpl(const ::tt::tt_metal::DeviceMesh &deviceMesh) {
-  std::vector<::tt::tt_metal::Device *> devices = deviceMesh.get_devices();
+getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
+  std::vector<::tt::tt_metal::Device *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
             [](const ::tt::tt_metal::Device *a,
                const ::tt::tt_metal::Device *b) { return a->id() < b->id(); });
@@ -267,19 +267,19 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
          "Unexpected non-rectangular grid of devices");
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::DeviceGrid grid =
+  ::tt::tt_metal::MeshShape grid =
       std::make_pair(numDevices / numPciDevices, numPciDevices);
-  ::tt::tt_metal::DeviceMesh deviceMesh = ::tt::tt_metal::DeviceMesh(
+  ::tt::tt_metal::MeshDevice meshDevice = ::tt::tt_metal::MeshDevice(
       grid, deviceIds, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
       ::tt::tt_metal::DispatchCoreType::WORKER);
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
-    desc = getCurrentSystemDescImpl(deviceMesh);
+    desc = getCurrentSystemDescImpl(meshDevice);
   } catch (...) {
     eptr = std::current_exception();
   }
-  deviceMesh.close_devices();
+  meshDevice.close_devices();
   if (eptr) {
     std::rethrow_exception(eptr);
   }

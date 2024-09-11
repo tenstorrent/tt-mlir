@@ -542,8 +542,7 @@ static void runReductionOp(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, std::vector<int>>> &, const bool,
         const std::optional<::tt::tt_metal::MemoryConfig> &,
-        const std::optional<::tt::tt_metal::DeviceComputeKernelConfig> &,
-        float)>
+        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         ttnnOp) {
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       createMemoryConfig(op->out());
@@ -754,8 +753,8 @@ static void run(::tt::target::ttnn::MaxPool2dOp const *op,
                 std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
                 ProgramTensorPool &tensorPool) {
   const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
-  const ::ttnn::operations::pool::MaxPoolNewOp operation =
-      ::ttnn::operations::pool::MaxPoolNewOp();
+  const ::ttnn::operations::pool::MaxPool2DOp operation =
+      ::ttnn::operations::pool::MaxPool2DOp();
 
   ::ttnn::Device &device = getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = operation.invoke(
