@@ -134,6 +134,8 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     if (!checkBasicLegality(srcOp, adaptor)) {
+      LLVM_DEBUG(llvm::dbgs() << "Failed legality checks in the handling of Op "
+                              << srcOp->getName());
       return failure();
     }
 
@@ -141,7 +143,6 @@ public:
         srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
         Value(outputTensor), adaptor.getPermutation()[0],
         adaptor.getPermutation()[1],
-
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -154,8 +155,7 @@ public:
                      mlir::stablehlo::TransposeOp::Adaptor &adaptor) const {
 
     if (adaptor.getPermutation().size() != 2) {
-      srcOp->emitError()
-          << "TTIR only supports only two dimensional transposeOp.";
+      srcOp->emitError() << "TTIR supports only two dimensional transposeOp.";
       return false;
     }
 
@@ -181,6 +181,8 @@ public:
     // ttir.permute and ttir.broadcast_in_dim become available.
 
     if (!checkBasicLegality(srcOp, adaptor)) {
+      LLVM_DEBUG(llvm::dbgs() << "Failed legality checks in the handling of Op "
+                              << srcOp->getName());
       return failure();
     }
 
@@ -202,29 +204,33 @@ private:
     ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
         adaptor.getDotDimensionNumbers();
 
-    if (dimensions.getLhsContractingDimensions().size()) {
-      if (dimensions.getLhsContractingDimensions()[0] != 1) {
-        srcOp->emitError()
-            << "ttir dot_general only supports matmul operation.";
-        return false;
-      }
+    if (dimensions.getLhsContractingDimensions().empty() ||
+        dimensions.getRhsContractingDimensions().empty()) {
+      srcOp->emitError() << "Contracting dimension is missing.";
+      return false;
     }
 
-    if (dimensions.getRhsContractingDimensions().size()) {
-      if (dimensions.getRhsContractingDimensions()[0] != 0) {
-        srcOp->emitError()
-            << "ttir dot_general only supports matmul operation.";
-        return false;
-      }
+    if (dimensions.getLhsContractingDimensions()[0] != 1) {
+      srcOp->emitError()
+          << "Only non-transposed matmul is currently supported in TTIR.";
+      return false;
+    }
+
+    if (dimensions.getRhsContractingDimensions()[0] != 0) {
+      srcOp->emitError()
+          << "Only non-transposed matmul is currently supported in TTIR.";
+      return false;
     }
 
     if (not dimensions.getLhsBatchingDimensions().empty()) {
-      srcOp->emitError() << "ttir dot_general only supports matmul operation.";
+      srcOp->emitError()
+          << "Only non-transposed matmul is currently supported in TTIR.";
       return false;
     }
 
     if (not dimensions.getRhsBatchingDimensions().empty()) {
-      srcOp->emitError() << "ttir dot_general only supports matmul operation.";
+      srcOp->emitError()
+          << "Only non-transposed matmul is currently supported in TTIR.";
       return false;
     }
 
