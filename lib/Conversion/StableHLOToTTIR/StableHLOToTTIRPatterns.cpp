@@ -253,6 +253,23 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             srcOp.getValue());
+    return success();
+  }
+};
+
+class StableHLOToTTIRBroadcastOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BroadcastOp> {
+  using OpConversionPattern<mlir::stablehlo::BroadcastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BroadcastOp srcOp,
+                  mlir::stablehlo::BroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    mlir::Value Orig = srcOp.getOperand();
+    srcOp.getResult().replaceAllUsesWith(Orig);
+    srcOp->erase();
 
     return success();
   }
@@ -313,6 +330,13 @@ void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
+void addBroadcastOpConversionPattern(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRBroadcastOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -326,6 +350,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
+  addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

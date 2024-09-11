@@ -309,6 +309,23 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
+class TTIR_BroadcastOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
+    let summary = "Broadcast op.";
+    let description = [{
+      Reduction op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
