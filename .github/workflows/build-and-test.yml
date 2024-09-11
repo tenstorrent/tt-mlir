@@ -72,7 +72,7 @@ jobs:
 
     - name: Lint
       shell: bash
-      when: ${{ matrix.build.enable_perf }} == OFF
+      if: matrix.build.enable_perf == 'OFF'
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
