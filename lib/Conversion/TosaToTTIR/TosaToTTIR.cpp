@@ -93,6 +93,9 @@ struct ConvertTosaToTTIRPass
         TosaToTTIROpConversionPattern<tosa::MulOp, mlir::tt::ttir::MultiplyOp>>(
         typeConverter, &getContext());
     patterns.add<
+        TosaToTTIROpConversionPattern<tosa::NegateOp, mlir::tt::ttir::NegOp>>(
+        typeConverter, &getContext());
+    patterns.add<
         TosaToTTIROpConversionPattern<tosa::SubOp, mlir::tt::ttir::SubtractOp>>(
         typeConverter, &getContext());
     patterns.add<TosaToTTIROpConversionPattern<tosa::GreaterEqualOp,
