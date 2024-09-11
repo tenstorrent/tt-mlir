@@ -925,6 +925,9 @@ run(::tt::target::ttnn::Operation const *op,
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return run(op->type_as_ToLayoutOp(), devicePool, tensorPool);
   }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    return run(op->type_as_ToDeviceOp(), devicePool, tensorPool);
+  }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return run(op->type_as_EmptyOp(), devicePool, tensorPool);
   }
