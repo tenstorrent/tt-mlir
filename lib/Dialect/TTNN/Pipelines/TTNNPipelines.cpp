@@ -20,6 +20,7 @@ void createTTIRToTTNNBackendPipeline(
 
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
+  pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());

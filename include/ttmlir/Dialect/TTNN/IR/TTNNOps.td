@@ -350,6 +350,38 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
+def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
+    let description = [{
+      Applies a 2D max pooling over an input signal composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         TT_Device:$device,
+                         SI32Attr:$batch_size,
+                         SI32Attr:$input_height,
+                         SI32Attr:$input_width,
+                         SI32Attr:$channels,
+                         SI32Attr:$kernel_height,
+                         SI32Attr:$kernel_width,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation_height,
+                         SI32Attr:$dilation_width,
+                         BoolAttr:$ceil_mode,
+                         SI32Attr:$padding_height,
+                         SI32Attr:$padding_width);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let summary = "Empty op.";
     let description = [{

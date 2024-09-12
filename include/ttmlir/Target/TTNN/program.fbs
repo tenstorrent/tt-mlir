@@ -121,6 +121,25 @@ table Conv2dOp {
   groups: uint32;
 }
 
+table MaxPool2dOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  channels: uint32;
+  kernel_height: uint32;
+  kernel_width: uint32;
+  stride_height: uint32;
+  stride_width: uint32;
+  dilation_height: uint32;
+  dilation_width: uint32;
+  ceil_mode: bool;
+  padding_height: uint32;
+  padding_width: uint32;
+}
+
 table DeallocOp {
   in: tt.target.TensorRef;
 }
@@ -139,6 +158,7 @@ union OpType {
   Conv2dOp,
   ConcatOp,
   ReshapeOp,
+  MaxPool2dOp,
   DeallocOp
 }
 

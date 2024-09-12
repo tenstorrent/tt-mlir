@@ -179,6 +179,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Conv ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::Conv2dOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::MaxPool2dOp>>(typeConverter,
+                                                              ctx);
 
   // Other ops
   //
