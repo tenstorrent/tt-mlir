@@ -126,9 +126,9 @@ public:
     }
 
     // TODO(bug #622):
-    // Default to Interleaved for now, need to read this from TTIR
+    // Default to HeightSharded for now, need to read this from TTIR
     //
-    auto tensorMemoryLayout = ttnn::TensorMemoryLayout::Interleaved;
+    auto tensorMemoryLayout = ttnn::TensorMemoryLayout::HeightSharded;
 
     // TODO(bug #621):
     // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
