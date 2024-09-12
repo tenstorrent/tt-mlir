@@ -202,6 +202,24 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+class TTNN_BroadcastOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPSOp<mnemonic, traits> {
+    let summary = "Broadcast op.";
+    let description = [{
+      Reduction op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$dimension,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{

@@ -309,23 +309,6 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
-class TTIR_BroadcastOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
-    let summary = "Broadcast op.";
-    let description = [{
-      Reduction op.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$dimension,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-}
-
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
@@ -446,6 +429,24 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     }];
 
     let hasVerifier = 1;
+}
+
+def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
+    let summary = "Broadcast operation.";
+    let description = [{
+      Broadcast op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$dimension,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {

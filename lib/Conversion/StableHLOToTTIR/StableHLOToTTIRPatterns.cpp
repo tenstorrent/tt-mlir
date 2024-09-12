@@ -268,14 +268,18 @@ public:
                   mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    mlir::Value input = srcOp.getOperand();
-    mlir::Value result = srcOp.getResult();
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    for (Operation* NextOp : srcOp->getUsers()) {
-      NextOp->replaceUsesOfWith(result, input);
-    }
+    mlir::ArrayAttr dimArg = rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
 
-    rewriter.eraseOp(srcOp);
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
+        srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
+        Value(outputTensor), dimArg, rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
 
     return success();
   }

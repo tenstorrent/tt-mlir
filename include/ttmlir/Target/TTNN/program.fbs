@@ -68,6 +68,12 @@ enum ReductionOpType: uint32 {
   Max = 2,
 }
 
+table BroadcastOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dimension: [int32];
+}
+
 table ReductionOp {
   type: ReductionOpType;
   in: tt.target.TensorRef;
@@ -170,6 +176,7 @@ union OpType {
   EltwiseOp,
   MatmulOp,
   ReductionOp,
+  BroadcastOp,
   EmbeddingOp,
   SoftmaxOp,
   TransposeOp,
