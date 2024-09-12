@@ -26,9 +26,6 @@ RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build
 
-# Remove Nvida from toolchain
-RUN rm -fr /opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/nvidia
-
 # Self-test
 
 # Build project to test the container
@@ -51,7 +48,7 @@ RUN source env/activate && \
 
 # Run clang-tidy
 RUN source env/activate && \
-    cmake --build build -- clang-tidy || true
+    cmake --build build -- clang-tidy
 
 # Run the tests
 RUN source env/activate && \
@@ -64,3 +61,5 @@ FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
 COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
+
+RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR

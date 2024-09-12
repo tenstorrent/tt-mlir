@@ -42,8 +42,7 @@ ExternalProject_Add(
     -DPython3_FIND_VIRTUALENV=ONLY
     -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
-    # Projects: bolt;clang;clang-tools-extra;compiler-rt;cross-project-tests;libc;libclc;lld;lldb;mlir;openmp;polly;pstl;flang
-    -DLLVM_ENABLE_PROJECTS=mlir;clang;clang-tools-extra
+    -DLLVM_ENABLE_PROJECTS=mlir
     -DLLVM_INSTALL_UTILS=ON
     # Build shared libraries
     # ======================
