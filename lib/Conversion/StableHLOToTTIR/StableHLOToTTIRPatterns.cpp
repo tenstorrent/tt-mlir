@@ -57,8 +57,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!checkBasicLegality(srcOp)) {
-      return failure();
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (not err.succeeded()) {
+      return err;
     }
 
     const mlir::Operation &innerOp = srcOp.getBody().front().front();
@@ -76,18 +77,22 @@ public:
   }
 
 private:
-  bool checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp) const {
+  LogicalResult checkBasicLegality(mlir::stablehlo::ReduceOp &srcOp,
+                                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
     if (!srcOp.getBody().hasOneBlock()) {
-      // Expecting StableHLO Reduce OP to have one block inside its body.
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Expecting StableHLO Reduce OP to have one block inside its body.");
     }
 
     if (srcOp.getBody().front().empty()) {
-      // Expecting StableHLO Reduce OP to have a body operation defined.
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Expecting StableHLO Reduce OP to have a body operation defined.");
     }
 
-    return true;
+    return success();
   }
 
   template <typename DestOp>
@@ -133,9 +138,9 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    if (!checkBasicLegality(srcOp, adaptor)) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Failed legality checks in the handling of Op");
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (not err.succeeded()) {
+      return err;
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
@@ -149,16 +154,17 @@ public:
     return success();
   }
 
-  bool
+  LogicalResult
   checkBasicLegality(mlir::stablehlo::TransposeOp &srcOp,
-                     mlir::stablehlo::TransposeOp::Adaptor &adaptor) const {
+                     mlir::stablehlo::TransposeOp::Adaptor &adaptor,
+                     ConversionPatternRewriter &rewriter) const {
 
     if (adaptor.getPermutation().size() != 2) {
-      srcOp->emitError() << "TTIR supports only two dimensional transposeOp.";
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp, "TTIR supports only two dimensional transposeOp.");
     }
 
-    return true;
+    return success();
   }
 };
 
@@ -179,9 +185,9 @@ public:
     // converted to matmul. The op should be extended as other ops such as
     // ttir.permute and ttir.broadcast_in_dim become available.
 
-    if (!checkBasicLegality(srcOp, adaptor)) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Failed legality checks in the handling of Op");
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (not err.succeeded()) {
+      return err;
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
@@ -195,44 +201,41 @@ public:
   }
 
 private:
-  bool
+  LogicalResult
   checkBasicLegality(mlir::stablehlo::DotGeneralOp &srcOp,
-                     mlir::stablehlo::DotGeneralOp::Adaptor &adaptor) const {
+                     mlir::stablehlo::DotGeneralOp::Adaptor &adaptor,
+                     ConversionPatternRewriter &rewriter) const {
 
     ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
         adaptor.getDotDimensionNumbers();
 
     if (dimensions.getLhsContractingDimensions().empty() ||
         dimensions.getRhsContractingDimensions().empty()) {
-      srcOp->emitError() << "Contracting dimension is missing.";
-      return false;
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Contracting dimension is missing.");
     }
 
     if (dimensions.getLhsContractingDimensions()[0] != 1) {
-      srcOp->emitError()
-          << "Only non-transposed matmul is currently supported in TTIR.";
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
     if (dimensions.getRhsContractingDimensions()[0] != 0) {
-      srcOp->emitError()
-          << "Only non-transposed matmul is currently supported in TTIR.";
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
     if (not dimensions.getLhsBatchingDimensions().empty()) {
-      srcOp->emitError()
-          << "Only non-transposed matmul is currently supported in TTIR.";
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
     if (not dimensions.getRhsBatchingDimensions().empty()) {
-      srcOp->emitError()
-          << "Only non-transposed matmul is currently supported in TTIR.";
-      return false;
+      return rewriter.notifyMatchFailure(
+          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
-    return true;
+    return success();
   }
 };
 

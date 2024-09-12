@@ -5,11 +5,8 @@
 #ifndef TTMLIR_CONVERSION_STABLEHLOTOTTIR_STABLEHLOTOTTIR_H
 #define TTMLIR_CONVERSION_STABLEHLOTOTTIR_STABLEHLOTOTTIR_H
 
-#define DEBUG_TYPE "stablehlo-to-ttir-conversion"
-
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/Support/Debug.h"
 
 namespace mlir::tt {
 
