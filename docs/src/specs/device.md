@@ -21,6 +21,8 @@ document will use the following definitions:
   is a view over the system.
 - **Logical Grid** or just **Grid**: Is a logical shape that abstracts one or
   more **Physical Grids**.
+- **Mesh Shape**: Describes the virtual layout of the chips with respect to each
+  other. In practice the mesh shape is used to derive the logical grid.
 
 ## Motivation
 
@@ -38,6 +40,13 @@ The device attribute strives to achieve the following goals:
 - Enable many forms of data parallel execution strategies for single and
   multi chip systems under a single representation.
 
+## Scope
+
+This document will cover how the device attribute is encoded and how it can be
+lowered to backend dialects.  The document will not cover the algorithm for
+choosing the best, or even legal, device configurations for a given physical
+system.
+
 ## Examples
 
 All of the following examples will assume the physical hardware has an 8x8 physical
@@ -48,7 +57,11 @@ each with an 8x8 physical grid.
 underlying physical hardware device.
 
 ```mlir
-#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, meshShape = 1, chipIds = [0]>
+#tt.device<
+  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>,
+  meshShape = 1,
+  chipIds = [0]
+>
 ```
 
 Let's break down what each of these attributes mean:
@@ -107,7 +120,11 @@ logical grid that divides the batch dimension in half across the two chips.
 This is denoted by `meshShape = 2x1x1` which means the logical grid is 3D.
 
 ```mlir
-#tt.device<workerGrid = #tt.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>, meshShape = 2x1x1, chipIds = [0, 1]>
+#tt.device<
+  workerGrid = #tt.grid<2x8x8, (d0, d1, d2) -> (d0, d1, d2)>,
+  meshShape = 2x1x1,
+  chipIds = [0, 1]
+>
 ```
 
 The affine map here is just identity, so dims `d1` and `d2` directly index
@@ -138,7 +155,11 @@ though the two chips are concatenated together side by side to form a single
 the chips in the second dimension.
 
 ```mlir
-#tt.device<workerGrid = #tt.grid<8x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0, d1 mod 8)>, meshShape = 1x2, chipIds = [0, 1]>
+#tt.device<
+  workerGrid = #tt.grid<8x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0, d1 mod 8)>,
+  meshShape = 1x2,
+  chipIds = [0, 1]
+>
 ```
 
 Here we can see that the affine map encodes an indexing pattern such that when
@@ -169,7 +190,11 @@ system `[4, 8x8]` and view it as a `2x8x16` grid. Note that the `meshShape` is
 `2x1x2` which means to concatenate the chips in the first and third dimensions.
 
 ```mlir
-#tt.device<workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>, meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
+#tt.device<
+  workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>,
+  meshShape = 2x1x2,
+  chipIds = [0, 1, 2, 3]
+>
 ```
 
 We can evaluate the affine map to see that the chips are interpreted in chunks of
@@ -203,8 +228,16 @@ take 4 chips and interpret them differently (though they could take the same
 logical grid).
 
 ```mlir
-#tt.device<workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>, meshShape = 2x1x2, chipIds = [0, 1, 2, 3]>
-#tt.device<workerGrid = #tt.grid<16x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0 mod 8, d1 mod 8)>, meshShape = 2x2, chipIds = [4, 5, 6, 7]>
+#tt.device<
+  workerGrid = #tt.grid<2x8x16, (d0, d1, d2) -> (d0 * 2 + (d1 floordiv 8) * 2 + d2 floordiv 8, d1, d2 mod 8)>,
+  meshShape = 2x1x2,
+  chipIds = [0, 1, 2, 3]
+>
+#tt.device<
+  workerGrid = #tt.grid<16x16, (d0, d1) -> ((d0 floordiv 8) * 2 + d1 floordiv 8, d0 mod 8, d1 mod 8)>,
+  meshShape = 2x2,
+  chipIds = [4, 5, 6, 7]
+>
 ```
 
 ### Reinterpreted Grids (Transpose)
@@ -231,12 +264,20 @@ relu(aT)
 
 1. We'll establish a regular, single chip, identity logical grid:
 ```mlir
-#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, meshShape = 1, chipIds = [0]>
+#tt.device<
+  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>,
+  meshShape = 1,
+  chipIds = [0]
+>
 ```
 2. Execute `exp`.
 3. We'll reinterpret the grid as transposed:
 ```mlir
-#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d1, d0)>, meshShape = 1, chipIds = [0]>
+#tt.device<
+  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d1, d0)>,
+  meshShape = 1,
+  chipIds = [0]
+>
 ```
 4. _Execute_ `transpose`.  Note that each core only needs to transpose their
    data locally.  Eventually this could be implemented as a no-op by reindexing
@@ -252,17 +293,29 @@ For the sake of examples, here's a few more ways of reinterpreting the logical g
 
 #### Extra Wide Grid
 ```mlir
-#tt.device<workerGrid = #tt.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>, meshShape = 1, chipIds = [0]>
+#tt.device<
+  workerGrid = #tt.grid<1x64, (d0, d1) -> (0, d0 * 8 + d1 floordiv 8, d1 mod 8)>,
+  meshShape = 1,
+  chipIds = [0]
+>
 ```
 
 #### Extra Tall + Transposed Grid
 ```mlir
-#tt.device<workerGrid = #tt.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>, meshShape = 1, chipIds = [0]>
+#tt.device<
+  workerGrid = #tt.grid<64x1, (d0, d1) -> (0, d1 * 8 + d0 floordiv 8, d0 mod 8)>,
+  meshShape = 1,
+  chipIds = [0]
+>
 ```
 
 #### Staircase
 ```mlir
-#tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>, meshShape = 1, chipIds = [0]>
+#tt.device<
+  workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, (d0 + d1) mod 8)>,
+  meshShape = 1,
+  chipIds = [0]
+>
 ```
 
 This could be an interesting starting position for data in implementing matmul as a
