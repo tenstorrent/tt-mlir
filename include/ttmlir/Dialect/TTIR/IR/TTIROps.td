@@ -260,6 +260,13 @@ def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {
+    let summary = "Eltwise absolute op.";
+    let description = [{
+      Eltwise absolute operation.
+    }];
+}
+
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
     let description = [{

@@ -82,6 +82,13 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
+    let summary = "Eltwise absolute.";
+    let description = [{
+      Eltwise absolute operation.
+    }];
+}
+
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{

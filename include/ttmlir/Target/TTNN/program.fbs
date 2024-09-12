@@ -38,6 +38,7 @@ enum EltwiseOpType: uint32 {
   Reciprocal = 8,
   Exp = 9,
   Maximum = 10,
+  Abs = 11
 }
 
 table EltwiseOp {

@@ -86,7 +86,7 @@ public:
     StringRef kernelName;
     StringRef kernelKind;
     if constexpr (std::is_same<TTIROpTy, ttir::MultiplyOp>::value) {
-      kernelName = "mulitply";
+      kernelName = "multiply";
       kernelKind = "eltwise";
     } else if constexpr (std::is_same<TTIROpTy, ttir::AddOp>::value) {
       kernelName = "add";
