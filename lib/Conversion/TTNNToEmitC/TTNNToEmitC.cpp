@@ -138,6 +138,9 @@ public:
   matchAndRewrite(ttnn::MultiplyOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
+    // an ArrayAttr object holding IndexTypes is created to denote this
+    //
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));

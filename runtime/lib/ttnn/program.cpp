@@ -7,7 +7,6 @@
 #include <functional>
 #include <list>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
