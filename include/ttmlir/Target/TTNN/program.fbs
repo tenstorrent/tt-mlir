@@ -62,16 +62,16 @@ table EltwiseOp {
   out: tt.target.TensorRef;
 }
 
+table BroadcastOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dimensions: [int64];
+}
+
 enum ReductionOpType: uint32 {
   Sum = 0,
   Mean = 1,
   Max = 2,
-}
-
-table BroadcastOp {
-  in: tt.target.TensorRef;
-  out: tt.target.TensorRef;
-  dimension: [int32];
 }
 
 table ReductionOp {
@@ -176,7 +176,6 @@ union OpType {
   EltwiseOp,
   MatmulOp,
   ReductionOp,
-  BroadcastOp,
   EmbeddingOp,
   SoftmaxOp,
   TransposeOp,

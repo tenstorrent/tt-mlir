@@ -439,7 +439,7 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32ArrayAttr:$dimension,
+                         I64ArrayAttr:$dimension,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);

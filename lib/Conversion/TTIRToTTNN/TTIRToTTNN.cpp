@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-
+#include "mlir/Dialect/Traits.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -594,7 +594,7 @@ public:
   }
 };
 
-class BroadcastInDimOpConversionPattern
+class BroadcastOpConversionPattern
     : public OpConversionPattern<ttir::BroadcastOp> {
   using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
 
@@ -606,8 +606,23 @@ public:
     mlir::Value input = srcOp.getOperand(0);
     mlir::Value result = srcOp.getResult();
 
-    for (Operation *NextOp : srcOp->getUsers()) {
-      NextOp->replaceUsesOfWith(result, input);
+    SmallVector<Operation *> srcOpUsers;
+    for (Operation *nextOp : srcOp->getUsers()) {
+      srcOpUsers.push_back(nextOp);
+    }
+
+    // Try to fold this operation into all Element wise consumer ops.
+
+    for (Operation *nextOp : srcOpUsers) {
+      StringRef opName = nextOp->getName().getStringRef();
+      if (not opName.starts_with("ttir.broadcast") and
+          not nextOp->hasTrait<::mlir::tt::ttir::ElementwiseOp::Trait>()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Implicit broadcast operation is only supported for "
+                   "Elementwise consumer ops.");
+      }
+
+      nextOp->replaceUsesOfWith(result, input);
     }
 
     rewriter.eraseOp(srcOp);
@@ -641,7 +656,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
-           BroadcastInDimOpConversionPattern,
+           BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,

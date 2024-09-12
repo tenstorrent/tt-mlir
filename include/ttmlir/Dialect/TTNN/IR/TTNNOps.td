@@ -210,7 +210,7 @@ class TTNN_BroadcastOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPS
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32ArrayAttr:$dimension,
+                         I64ArrayAttr:$dimension,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
