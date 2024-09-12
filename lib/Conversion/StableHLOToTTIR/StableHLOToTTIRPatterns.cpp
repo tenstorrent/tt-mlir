@@ -269,7 +269,12 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     mlir::Value input = srcOp.getOperand();
-    srcOp.replaceAllUsesWith(input);
+    mlir::Value result = srcOp.getResult();
+
+    for (Operation* NextOp : srcOp->getUsers()) {
+      NextOp->replaceUsesOfWith(result, input);
+    }
+
     rewriter.eraseOp(srcOp);
 
     return success();
