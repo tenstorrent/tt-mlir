@@ -134,9 +134,8 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     if (!checkBasicLegality(srcOp, adaptor)) {
-      LLVM_DEBUG(llvm::dbgs() << "Failed legality checks in the handling of Op "
-                              << srcOp->getName());
-      return failure();
+      return rewriter.notifyMatchFailure(
+          srcOp, "Failed legality checks in the handling of Op");
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
