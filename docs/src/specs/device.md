@@ -351,7 +351,7 @@ perspectives:
   divided by `meshShape` to determine the shape of the tensor slice on each device.
   Broadcasting rules can be applied to determine which [Distribution Strategy](https://github.com/tenstorrent/tt-metal/blob/main/tech_reports/Programming%20Mesh%20of%20Devices/Programming%20Mesh%20of%20Devices%20with%20TT-NN.md#3-distributing-tensor-to-meshdevice)
   to use:
-    - **Sharding**: If the tensor grid is > 1 along the `meshShape` dimensions,
+    - **Mesh Sharded**: If the tensor grid is > 1 along the `meshShape` dimensions,
       the tensor will be sharded across the mesh devices.
     - **Replication**: If the tensor needs to be broadcasted for this op, by
       extension the tensor layout will be replicated across the mesh devices.
