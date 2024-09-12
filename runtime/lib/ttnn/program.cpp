@@ -15,6 +15,8 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
+#include "ttnn/operations/pool/maxpool/max_pool2d.hpp"
+#include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include "types_generated.h"
@@ -511,6 +513,10 @@ static void run(::tt::target::ttnn::EltwiseOp const *op,
     break;
   }
   /* Eltwise Unary */
+  case ::tt::target::ttnn::EltwiseOpType::Abs: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::abs);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::relu);
     break;
@@ -748,6 +754,25 @@ static void run(::tt::target::ttnn::Conv2dOp const *op,
   return;
 }
 
+static void run(::tt::target::ttnn::MaxPool2dOp const *op,
+                std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
+                ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
+  const ::ttnn::operations::pool::MaxPoolNewOp operation =
+      ::ttnn::operations::pool::MaxPoolNewOp();
+
+  ::ttnn::Device &device = getDevice(op->device(), devicePool);
+  ::ttnn::Tensor out = operation.invoke(
+      0, input, op->batch_size(), op->input_height(), op->input_width(),
+      op->channels(), {op->kernel_height(), op->kernel_width()},
+      {op->stride_height(), op->stride_width()},
+      {op->padding_height(), op->padding_width()},
+      {op->dilation_height(), op->dilation_width()}, &device);
+
+  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  return;
+}
+
 static void run(::tt::target::ttnn::DeallocOp const *op,
                 std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
                 ProgramTensorPool &tensorPool) {
@@ -799,6 +824,7 @@ run(::tt::target::ttnn::Operation const *op,
     const std::unordered_map<uint32_t, ::ttnn::Device *> &allDevices,
     std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
     ProgramTensorPool &tensorPool) {
+
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
     return run(op->type_as_GetDeviceOp(), allDevices, devicePool, tensorPool);
@@ -837,13 +863,17 @@ run(::tt::target::ttnn::Operation const *op,
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return run(op->type_as_ConcatOp(), devicePool, tensorPool);
+  }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return run(op->type_as_ReshapeOp(), devicePool, tensorPool);
   }
   case ::tt::target::ttnn::OpType::DeallocOp: {
     return run(op->type_as_DeallocOp(), devicePool, tensorPool);
   }
-  default:
+  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
+    return run(op->type_as_MaxPool2dOp(), devicePool, tensorPool);
+  }
+  default: {
     throw std::runtime_error("Unsupported operation type");
   }
   }

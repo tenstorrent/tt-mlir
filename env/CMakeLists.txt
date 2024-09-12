@@ -21,7 +21,6 @@ add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN=${TTMLIR_TOOLCHAIN_DI
 
 ExternalProject_Add(
     flatbuffers
-    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=Release
@@ -36,9 +35,8 @@ ExternalProject_Add(
 # -DMLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS=ON set if debug
 ExternalProject_Add(
     llvm-project
-    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
     # Super hacky way to install the python dependencies before the build
-    PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r ${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project/mlir/python/requirements.txt"
+    PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt"
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
     -DPython3_FIND_VIRTUALENV=ONLY
@@ -77,4 +75,5 @@ ExternalProject_Add(stablehlo
    INSTALL_COMMAND ""
 )
 
-add_custom_target(llvm-lit ALL COMMAND cp ${TTMLIR_TOOLCHAIN_DIR}/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)
+add_custom_target(llvm-lit ALL COMMAND cp llvm-project-prefix/src/llvm-project-build/bin/llvm-lit ${TTMLIR_TOOLCHAIN_DIR}/bin/llvm-lit DEPENDS llvm-project)
+add_custom_target(run-clang-tidy-install ALL COMMAND cp llvm-project-prefix/src/llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py ${TTMLIR_TOOLCHAIN_DIR}/bin/run-clang-tidy.py DEPENDS llvm-project)

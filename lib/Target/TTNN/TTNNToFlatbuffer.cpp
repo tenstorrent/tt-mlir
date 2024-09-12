@@ -149,7 +149,9 @@ template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   ::tt::target::ttnn::EltwiseOpType type;
-  if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
+  if constexpr (std::is_same_v<EltwiseOp, AbsOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Abs;
+  } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Add;
   } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
@@ -264,6 +266,24 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
 }
 
+template <typename MaxPool2dOp>
+::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dOp>
+createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  return ::tt::target::ttnn::CreateMaxPool2dOp(
+      *cache.fbb, in, out, cache.at<::tt::target::DeviceRef>(device),
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getChannels(), op.getKernelHeight(), op.getKernelWidth(),
+      op.getStrideHeight(), op.getStrideWidth(), op.getDilationHeight(),
+      op.getDilationWidth(), op.getCeilMode(), op.getPaddingHeight(),
+      op.getPaddingWidth());
+}
+
 template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
@@ -300,6 +320,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
     return createOperation(cache, createOp(cache, fullOp), debugString);
+  }
+  if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
+    return createOperation(cache, createEltwiseOp(cache, absOp), debugString);
   }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseOp(cache, addOp), debugString);
@@ -372,6 +395,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
+                           debugString);
+  }
+  if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
+    return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
                            debugString);
   }
   if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {

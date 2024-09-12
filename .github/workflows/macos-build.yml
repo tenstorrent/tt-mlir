@@ -59,6 +59,7 @@ jobs:
         -DCMAKE_CXX_COMPILER=${{ matrix.build.cpp_compiler }} \
         -DCMAKE_C_COMPILER=${{ matrix.build.c_compiler }} \
         -DCMAKE_BUILD_TYPE=${{ matrix.build.build_type }} \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=${{ matrix.build.enable_runtime }} \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=${{ matrix.build.enable_runtime }} \
         -S ${{ github.workspace }}

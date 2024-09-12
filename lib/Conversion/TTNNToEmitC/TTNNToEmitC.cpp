@@ -140,6 +140,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Eltwise unary ops
   //
+  patterns.add<DefaultOpConversionPattern<ttnn::AbsOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::ReluOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::SqrtOp>>(typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::SigmoidOp>>(typeConverter, ctx);
@@ -179,6 +180,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Conv ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::Conv2dOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::MaxPool2dOp>>(typeConverter,
+                                                              ctx);
 
   // Other ops
   //

@@ -1,18 +1,19 @@
 ARG GIT_SHA
 ARG FROM_TAG=${GIT_SHA:-latest}
 
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG}
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci-build
 SHELL ["/bin/bash", "-c"]
 
 # Create a directory for the build and toolchain
+ARG GIT_SHA
 ENV PROJECT_NAME=tt-mlir
 ENV BUILD_DIR=/home/build
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+
+RUN echo "Building $PROJECT_NAME at $GIT_SHA"
+
 RUN mkdir -p $BUILD_DIR && \
     mkdir -p $TTMLIR_TOOLCHAIN_DIR
-
-
-ARG GIT_SHA
 
 # Clone the project and update submodules
 RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJECT_NAME && \
@@ -21,7 +22,8 @@ RUN git clone https://github.com/tenstorrent/$PROJECT_NAME.git $BUILD_DIR/$PROJE
 
 # Build the toolchain
 WORKDIR $BUILD_DIR/$PROJECT_NAME
-RUN cmake -B env/build env && \
+RUN source env/activate && \
+    cmake -B env/build env && \
     cmake --build env/build
 
 # Self-test
@@ -46,11 +48,18 @@ RUN source env/activate && \
 
 # Run clang-tidy
 RUN source env/activate && \
-    cmake --build build -- clang-tidy || true
+    cmake --build build -- clang-tidy
 
 # Run the tests
 RUN source env/activate && \
     cmake --build build -- check-ttmlir
 
-# Clean up the build directory
-RUN rm -rf $BUILD_DIR/$PROJECT_NAME
+# Final stage
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
+
+# Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
+
+RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR

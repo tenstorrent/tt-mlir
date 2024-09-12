@@ -260,6 +260,13 @@ def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {
+    let summary = "Eltwise absolute op.";
+    let description = [{
+      Eltwise absolute operation.
+    }];
+}
+
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
     let description = [{
@@ -437,6 +444,38 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
+    let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
+    let description = [{
+      Applies a 2D max pooling over an input signal composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$kernel_height,
+                         SI32Attr:$kernel_width,
+                         SI32Attr:$stride_height,
+                         SI32Attr:$stride_width,
+                         SI32Attr:$dilation_height,
+                         SI32Attr:$dilation_width,
+                         BoolAttr:$ceil_mode,
+                         SI32Attr:$padding_left,
+                         SI32Attr:$padding_right,
+                         SI32Attr:$padding_top,
+                         SI32Attr:$padding_bottom,
+                         TT_OperandConstraintArrayAttr:$operand_constraints,
+                         OptionalAttr<SI32Attr>:$original_height,
+                         OptionalAttr<SI32Attr>:$original_width);
 
     let results = (outs AnyRankedTensor:$result);
 

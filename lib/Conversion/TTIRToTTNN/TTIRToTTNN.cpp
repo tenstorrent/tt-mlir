@@ -364,14 +364,58 @@ public:
     auto dilation_width =
         rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
     auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
-
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
         adaptor.getOutput(), device, in_channels, out_channels, batch_size,
-        input_width, input_height, kernel_height, kernel_width, stride_height,
+        input_height, input_width, kernel_height, kernel_width, stride_height,
         stride_width, padding_height, padding_width, dilation_height,
         dilation_width, groups);
+    return success();
+  }
+};
+
+class MaxPool2dOpConversionPattern
+    : public OpConversionPattern<ttir::MaxPool2dOp> {
+public:
+  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    assert(adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
+           "TTNN max_pool2d does not support padding top/bottom/left/right "
+           "separately");
+    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
+           "TTNN max_pool2d does not support padding top/bottom/left/right "
+           "separately");
+
+    auto device = getOrInsertDevice(rewriter, op);
+    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+
+    auto batch_size =
+        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 4]);
+    auto channels =
+        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
+
+    assert(adaptor.getOriginalHeight().has_value() &&
+           "ttir::MaxPool2dOp must have original_height set before translating "
+           "to TTNN dialect.");
+    assert(adaptor.getOriginalWidth().has_value() &&
+           "ttir::MaxPool2dOp must have original_width set before translating "
+           "to TTNN dialect.");
+
+    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getOutput(), device, batch_size,
+        adaptor.getOriginalHeightAttr(), adaptor.getOriginalWidthAttr(),
+        channels, adaptor.getKernelHeightAttr(), adaptor.getKernelWidthAttr(),
+        adaptor.getStrideHeightAttr(), adaptor.getStrideWidthAttr(),
+        adaptor.getDilationHeightAttr(), adaptor.getDilationWidthAttr(),
+        adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
+        adaptor.getPaddingRightAttr());
     return success();
   }
 };
@@ -385,6 +429,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns
       .add<TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
+           ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
            ElementwiseOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
@@ -407,7 +452,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
            MatmulOpConversionPattern,
-           Conv2dOpConversionPattern
+           Conv2dOpConversionPattern,
+           MaxPool2dOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
