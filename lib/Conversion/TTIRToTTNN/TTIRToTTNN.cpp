@@ -60,6 +60,16 @@ public:
   }
 };
 
+// TTIR::ToLayoutOp is a rather generic op that dictates how all the layout
+// properties of a tensor should be set. However, in TTNN world, multiple APIs
+// are required to achieve an arbitrary layout. There are two main distinct
+// paths in this conversion pattern:
+//
+// 1. If the layout calls for device memory, we will call TTNN:ToLayoutOp and
+//    TTNN:ToDeviceOp to achieve the desired layout.
+//
+// 2. If the layout calls for system memory, we will only call TTNN:ToLayoutOp
+//
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
@@ -76,6 +86,10 @@ public:
     if (emptyOp) {
       rewriter.eraseOp(emptyOp);
     }
+
+    // Find device to be used for the tensor
+    //
+    auto device = getOrInsertDevice(rewriter, op);
 
     // Get tt::LayoutAttr of the result type
     //
@@ -125,20 +139,50 @@ public:
       break;
     }
 
-    // TODO(bug #622):
-    // Default to HeightSharded for now, need to read this from TTIR
+    // If the ToLayoutOp is applied to empty tensor, we need to check whether
+    // the empty tensor is going back to system memory; if so, we should not
+    // call the ToDeviceOp
     //
-    auto tensorMemoryLayout = ttnn::TensorMemoryLayout::HeightSharded;
+    if (bufferType == ttnn::BufferType::SystemMemory) {
+      rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          op.getInput(), ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
+          device);
+
+      return success();
+    }
+
+    // Set the tensor memory layout
+    //
+    ttnn::TensorMemoryLayout tensorMemoryLayout =
+        ttnn::TensorMemoryLayout::HeightSharded;
+    switch (ttLayoutAttr.getMemLayout()) {
+    case tt::TensorMemoryLayout::None:
+      assert(false && "TensorMemoryLayout::None not supported");
+      break;
+    case tt::TensorMemoryLayout::HeightSharded:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::HeightSharded;
+      break;
+    case tt::TensorMemoryLayout::Interleaved:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::Interleaved;
+      break;
+    case tt::TensorMemoryLayout::WidthSharded:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::WidthSharded;
+      break;
+    case tt::TensorMemoryLayout::BlockSharded:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::BlockSharded;
+      break;
+    case tt::TensorMemoryLayout::SingleBank:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::SingleBank;
+      break;
+    }
 
     // TODO(bug #621):
     // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
-    // tt::DataTypeAttr::get(op.getContext(), dtype), device)
+    //
+    // Also update the function header comment to reflect this added op
     //
     (void)dtype;
-
-    // Find device to be used for the tensor
-    //
-    auto device = getOrInsertDevice(rewriter, op);
 
     // Create ToLayoutOp
     //

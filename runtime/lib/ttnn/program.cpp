@@ -453,7 +453,25 @@ static void run(::tt::target::ttnn::ToDeviceOp const *op,
     break;
   }
 
-  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType};
+  // TODO(bug #620):
+  // Until ShardSpec support is added in TTNN, read it from the output tensor.
+  // If ShardSpec is not supplied, an error will be thrown in ttnn lib.
+  //
+  const ::tt::target::LayoutDesc *layout = op->out()->desc()->layout();
+  const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
+      *targetCoreRangeSet = layout->core_range_set();
+  const ::flatbuffers::Vector<int32_t> *targetShardShape =
+      layout->memory_desc()->shape();
+  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
+  std::array<uint32_t, 2> ttnnShardShape;
+  std::copy(targetShardShape->begin(), targetShardShape->end(),
+            ttnnShardShape.begin());
+  ::tt::tt_metal::ShardSpec shardSpec(
+      ttnnCoreRangeSet, ttnnShardShape,
+      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
+
+  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
+                                       shardSpec};
   ::ttnn::Device &device = getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
@@ -470,9 +488,20 @@ static void run(::tt::target::ttnn::EmptyOp const *op,
   auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
       utils::toShapeFromFBShape(*op->out()->desc()->shape())));
 
+  // Create output memory config for the op
+  //
+  // TODO(bug #673):
+  // Currently hardcoding to block sharded memory layout for output tensor as it
+  // is improperly set in TTIR
+  //
+  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+      createMemoryConfig(op->out());
+  outputMemoryConfig.memory_layout =
+      ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+
   ::ttnn::Device &device = getDevice(op->device(), devicePool);
-  ::ttnn::Tensor out =
-      ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device);
+  ::ttnn::Tensor out = ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout,
+                                     device, outputMemoryConfig);
   // use try emplace here so the program output tensor doesn't get overwritten
   tensorPool.try_emplace(op->out()->global_id(), std::move(out));
 }
