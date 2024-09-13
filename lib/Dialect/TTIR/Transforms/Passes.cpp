@@ -615,22 +615,26 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
                                    desiredElementType, desiredMemLayout);
 
-  ::mlir::TypedValue<::mlir::RankedTensorType> existingOpType = nullptr;
   tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
-  ttir::ConstantOp existingConstant = input.getDefiningOp<ttir::ConstantOp>();
   if (existingEmpty) {
-    existingOpType = existingEmpty.getResult();
-  } else if (existingConstant) {
-    existingOpType = existingConstant.getResult();
+    return rewriter
+        .replaceOpWithNewOp<tensor::EmptyOp>(existingEmpty, ty.getShape(),
+                                             ty.getElementType(), desiredLayout)
+        .getResult();
   }
 
-  if (existingOpType) {
-    existingOpType.setType(mlir::RankedTensorType::get(
-        ty.getShape(), ty.getElementType(), desiredLayout));
-    return existingOpType;
+  ttir::ConstantOp existingConstant = input.getDefiningOp<ttir::ConstantOp>();
+  if (existingConstant) {
+    return rewriter
+        .replaceOpWithNewOp<ttir::ConstantOp>(
+            existingConstant,
+            mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
+                                        desiredLayout),
+            existingConstant.getValue())
+        .getResult();
   }
 
-  auto output = rewriter.create<tensor::EmptyOp>(
+  tensor::EmptyOp output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
   return rewriter

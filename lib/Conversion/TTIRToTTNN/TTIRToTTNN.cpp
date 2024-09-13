@@ -422,10 +422,10 @@ public:
   matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ::mlir::ElementsAttr valueAttr = op.getValue();
-    if (!valueAttr.getElementType().isIntOrFloat()) {
-      return rewriter.notifyMatchFailure(
-          op, "TTNN doesn't currently support tensor creation from values "
-              "which are not integer or floating point numbers.");
+
+    LogicalResult legalityResult = checkBasicLegality(op, valueAttr, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
     }
 
     if (valueAttr.isSplat()) {
@@ -445,7 +445,20 @@ public:
     } else {
       return rewriter.notifyMatchFailure(
           op, "TTNN doesn't currently support tensor creation from multiple "
-              "given values.");
+              "given values (issue #685)");
+    }
+
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(ttir::ConstantOp &op,
+                                   ::mlir::ElementsAttr &valueAttr,
+                                   ConversionPatternRewriter &rewriter) const {
+    if (!valueAttr.getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN doesn't currently support tensor creation from values "
+              "which are not integer or floating point numbers");
     }
 
     return success();
