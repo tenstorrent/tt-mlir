@@ -30,6 +30,8 @@ inline ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType) {
     return ::ttnn::DataType::UINT32;
   case ::tt::target::DataType::UInt16:
     return ::ttnn::DataType::UINT16;
+  case ::tt::target::DataType::UInt8:
+    return ::ttnn::DataType::UINT8;
 
   default:
     throw std::runtime_error("Unsupported data type");
@@ -50,7 +52,8 @@ inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
     return ::tt::target::DataType::UInt32;
   case ::ttnn::DataType::UINT16:
     return ::tt::target::DataType::UInt16;
-
+  case ::ttnn::DataType::UINT8:
+    return ::tt::target::DataType::UInt8;
   default:
     throw std::runtime_error("Unsupported data type");
   }
