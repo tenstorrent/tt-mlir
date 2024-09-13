@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-#include "mlir/Dialect/Traits.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
@@ -603,28 +604,14 @@ public:
   matchAndRewrite(ttir::BroadcastOp srcOp, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // Fold this operation into all consumer ops. It will only work with TTNN
+    // ops that support implicit broadcasting. We expect each Op's verify
+    // function to assert their arguments to verify that they can broadcast.
+
     mlir::Value input = srcOp.getOperand(0);
     mlir::Value result = srcOp.getResult();
 
-    SmallVector<Operation *> srcOpUsers;
-    for (Operation *nextOp : srcOp->getUsers()) {
-      srcOpUsers.push_back(nextOp);
-    }
-
-    // Try to fold this operation into all Element wise consumer ops.
-
-    for (Operation *nextOp : srcOpUsers) {
-      StringRef opName = nextOp->getName().getStringRef();
-      if (not opName.starts_with("ttir.broadcast") and
-          not nextOp->hasTrait<::mlir::tt::ttir::ElementwiseOp::Trait>()) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Implicit broadcast operation is only supported for "
-                   "Elementwise consumer ops.");
-      }
-
-      nextOp->replaceUsesOfWith(result, input);
-    }
-
+    rewriter.replaceAllUsesWith(result, input);
     rewriter.eraseOp(srcOp);
 
     return success();
