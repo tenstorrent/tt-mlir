@@ -120,6 +120,13 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
+def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate.";
+    let description = [{
+      Eltwise negate operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{

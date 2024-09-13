@@ -630,6 +630,10 @@ static void run(::tt::target::ttnn::EltwiseOp const *op,
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::abs);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Neg: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::neg);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::relu);
     break;
