@@ -7,18 +7,17 @@ on:
 jobs:
   build-ttmlir:
 
-    timeout-minutes: 45
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: builder, enable_perf: OFF, name: "run"},
-          {runs-on: builder, enable_perf: ON, name: "perf"},
+          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run"},
+          {runs-on: ubuntu-latest, enable_perf: ON, name: "perf"},
         ]
 
-    runs-on:
-      - in-service
-      - ${{ matrix.build.runs-on }}
+    name: Build tt-mlir
+    runs-on: ${{ matrix.build.runs-on }}
 
     container:
       image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
@@ -46,6 +45,8 @@ jobs:
         create-symlink: true
         key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
 
+    # Build project
+
     - name: Configure CMake
       shell: bash
       run: |
@@ -69,6 +70,34 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
+
+    - name: Lint
+      shell: bash
+      if: matrix.build.enable_perf == 'OFF'
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+
+    - name: Run Test
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
+
+    - name: Upload Test Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}
+        path: build/test/report.xml
+
+    - name: Show Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
+      with:
+        report_paths: build/test/report.xml
+        check_name: MLIR Tests
+
+    # Build and upload ttrt
 
     - name: Build ttrt
       shell: bash
@@ -107,6 +136,9 @@ jobs:
         echo "version=$version" >> $GITHUB_ENV
         echo $version
 
+
+  # Run tests on TT hardware
+
   run-tests:
 
     timeout-minutes: 30
@@ -118,8 +150,7 @@ jobs:
           {runs-on: n150, enable_perf: OFF, name: "run"},
           {runs-on: n150, enable_perf: ON, name: "perf"},
           {runs-on: n300, enable_perf: OFF, name: "run"},
-          #TODO re-enable #648
-          #{runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
 
     runs-on:
