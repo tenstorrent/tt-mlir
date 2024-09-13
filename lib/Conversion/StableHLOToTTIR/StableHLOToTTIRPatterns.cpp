@@ -239,6 +239,25 @@ private:
   }
 };
 
+class StableHLOToTTIRConstantOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ConstantOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
+                  mlir::stablehlo::ConstantOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
+                                                            srcOp.getValue());
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -288,6 +307,12 @@ void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                                              ctx);
 }
 
+void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -300,6 +325,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

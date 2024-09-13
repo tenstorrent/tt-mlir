@@ -553,6 +553,26 @@ def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
+                                           AllShapesMatch<["value", "result"]>]> {
+    let summary = "Constant op.";
+    let description = [{
+      Produces tensor filled with given constant value.
+
+      Examples:
+        %0 = "ttir.constant"() {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
+        // %0: [[0, 0, 0], [0, 0, 0]]
+        %1 = "ttir.constant"() {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+        // %1: [0.2, 1.3]
+    }];
+
+    let arguments = (ins ElementsAttr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasFolder = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";
