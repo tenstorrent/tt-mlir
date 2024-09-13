@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
@@ -594,6 +595,29 @@ public:
   }
 };
 
+class BroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::BroadcastOp> {
+  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::BroadcastOp srcOp, ttir::BroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Fold this operation into all consumer ops. It will only work with TTNN
+    // ops that support implicit broadcasting. We expect each Op's verify
+    // function to assert their arguments to verify that they can broadcast.
+
+    mlir::Value input = srcOp.getOperand(0);
+    mlir::Value result = srcOp.getResult();
+
+    rewriter.replaceAllUsesWith(result, input);
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+};
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -619,6 +643,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
+           BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,

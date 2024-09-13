@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
+#include "mlir/Dialect/Traits.h"
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/PatternMatch.h>
@@ -253,6 +254,60 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             srcOp.getValue());
+    return success();
+  }
+};
+
+class StableHLOToTTIRBroadcastInDimOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::BroadcastInDimOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::BroadcastInDimOp srcOp,
+                  mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (not err.succeeded()) {
+      return err;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    mlir::ArrayAttr dimArg =
+        rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
+        srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
+        Value(outputTensor), dimArg,
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::BroadcastInDimOp &srcOp,
+                     mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+
+    llvm::SmallVector<int64_t, 4> broadcastedShape;
+    auto inputShape =
+        mlir::cast<mlir::RankedTensorType>((srcOp.getOperand()).getType())
+            .getShape();
+
+    if (!OpTrait::util::getBroadcastedShape(
+            inputShape, adaptor.getBroadcastDimensions(), broadcastedShape)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Input cannot be broadcasted to provided dimensions.");
+    }
 
     return success();
   }
@@ -313,6 +368,14 @@ void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter, ctx);
 }
 
+void addBroadcastOpConversionPattern(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRBroadcastInDimOpConversionPattern>(typeConverter,
+                                                                 ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -326,6 +389,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
+  addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

@@ -431,6 +431,24 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
+    let summary = "Broadcast operation.";
+    let description = [{
+      Broadcast op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I64ArrayAttr:$dimension,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
