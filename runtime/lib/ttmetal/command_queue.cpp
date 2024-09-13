@@ -426,7 +426,28 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
-  throw std::runtime_error("Unsupported EnqueueWriteBufferCommand");
+  assert(buffers.find(command->dst()->global_id()) != buffers.end() &&
+         "Buffer not allocated");
+  auto buffer = buffers[command->dst()->global_id()];
+  constexpr bool blocking = false;
+  switch (command->src_type()) { // currently only supporting ConstantBuffer32
+  case tt::target::metal::HostBuffer::ConstantBuffer32: {
+    const auto *src = command->src_as_ConstantBuffer32();
+    assert(src->data() != nullptr && (*src->data()).size() == 1 &&
+           "Only scalar constant supported");
+    assert(command->dst()->size() ==
+               buffers[command->dst()->global_id()]->size() &&
+           "Size mismatch");
+    int shapeAccumulate = std::accumulate(
+        (*command->dst()->desc()->shape()).begin(),
+        (*command->dst()->desc()->shape()).end(), 1, std::multiplies<int>());
+    std::vector<uint32_t> vec(shapeAccumulate, (*src->data())[0]);
+    ::tt::tt_metal::EnqueueWriteBuffer(*cq, buffer, vec, blocking);
+    break;
+  }
+  default:
+    throw std::runtime_error("Unsupported HostBuffer type");
+  }
 }
 
 void CQExecutor::execute(
