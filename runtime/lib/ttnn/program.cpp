@@ -489,18 +489,13 @@ static void run(::tt::target::ttnn::EmptyOp const *op,
 
   // Create output memory config for the op
   //
-  // TODO(bug #673):
-  // Currently hardcoding to block sharded memory layout for output tensor as it
-  // is improperly set in TTIR
-  //
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       createMemoryConfig(op->out());
-  outputMemoryConfig.memory_layout =
-      ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
 
   ::ttnn::Device &device = getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout,
                                      device, outputMemoryConfig);
+
   // use try emplace here so the program output tensor doesn't get overwritten
   tensorPool.try_emplace(op->out()->global_id(), std::move(out));
 }
