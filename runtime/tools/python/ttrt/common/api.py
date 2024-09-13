@@ -1396,11 +1396,13 @@ class API:
 
                     save_perf_artifacts(self.artifacts.get_binary_perf_folder_path(bin))
 
-            if len(self.ttnn_binaries) != 0:
-                _execute(self.ttnn_binaries)
+            self.logging.debug(f"executing ttnn binaries")
+            _execute(self.ttnn_binaries)
+            self.logging.debug(f"finished executing ttnn binaries")
 
-            if len(self.ttmetal_binaries) != 0:
-                _execute(self.ttnn_binaries)
+            self.logging.debug(f"executing ttmetal binaries")
+            _execute(self.ttmetal_binaries)
+            self.logging.debug(f"finished executing ttmetal binaries")
 
             self.logging.debug(f"finished executing perf API")
 
