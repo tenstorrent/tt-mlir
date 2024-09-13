@@ -282,14 +282,24 @@ public:
         op->getNumOperands(), rewriter.getAttr<OperandConstraintAttr>(
                                   OperandConstraint::AnyDeviceTile)));
 
+    SmallVector<Value> cbValues;
+    auto ty = mlir::cast<RankedTensorType>(op->getOperands()[1].getType());
+    llvm::outs() << ty << "\n";
+    auto emptyOp = rewriter.create<tensor::EmptyOp>(
+          op->getLoc(), ty.getShape(), ty.getElementType());
+
+    // auto ty = mlir::cast<RankedTensorType>(op->getOperand(0));
+   
+    cbValues.push_back(emptyOp.getResult());
+
     auto genericOp = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        dps.getDpsInits(), ValueRange() /* cbs */, rewriter.getAttr<GridAttr>(),
+        dps.getDpsInits(), cbValues /* cbs */, rewriter.getAttr<GridAttr>(),
         indexingMaps, iteratorTypes, constraints);
 
     // Create a new basic block for the generic op and create block arguments.
     Block *block = rewriter.createBlock(&genericOp.getRegion());
-    SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
+    SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size() + genericOp.getCbs().size(),
                                             genericOp.getLoc());
     block->addArguments(TypeRange(genericOp.getOperandTypes()),
                         blockArgumentLocs);

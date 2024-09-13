@@ -62,16 +62,16 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
                        "region/block arguments must match");
   }
 
-  // Validate CB mappings.
-  auto operandCBmapping = getOperandCbMapping();
-  auto numCBs = getCbs().size();
-  if (!operandCBmapping.empty()) {
-    for (int64_t mapping : operandCBmapping) {
-      if (mapping >= 0 && static_cast<size_t>(mapping) >= numCBs) {
-        return emitOpError("CB index out of bounds");
-      }
-    }
-  }
+  // // Validate CB mappings.
+  // auto operandCBmapping = getOperandCbMapping();
+  // auto numCBs = getCbs().size();
+  // if (!operandCBmapping.empty()) {
+  //   for (int64_t mapping : operandCBmapping) {
+  //     if (mapping >= 0 && static_cast<size_t>(mapping) >= numCBs) {
+  //       return emitOpError("CB index out of bounds");
+  //     }
+  //   }
+  // }
 
   return success();
 }
@@ -132,6 +132,7 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 void mlir::tt::ttir::DivOp::buildGenericRegion(
     ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+
   auto lhs = block->getArgument(0);
   auto rhs = block->getArgument(1);
   
@@ -140,13 +141,6 @@ void mlir::tt::ttir::DivOp::buildGenericRegion(
   auto result = opBuilder.create<arith::MulFOp>(getLoc(), lhs, resultRecip.getResult());
 
   opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), mlir::ValueRange({result}));
-
-  // buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
-  //                                                       block);
-  // buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder,
-  //                                                       block);
-
-  // opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), mlir::ValueRange({result}));
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
