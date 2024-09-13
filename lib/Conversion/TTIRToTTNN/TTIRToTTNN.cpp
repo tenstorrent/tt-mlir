@@ -413,6 +413,45 @@ public:
   }
 };
 
+class ConstantOpConversionPattern
+    : public OpConversionPattern<ttir::ConstantOp> {
+public:
+  using OpConversionPattern<ttir::ConstantOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ::mlir::ElementsAttr valueAttr = op.getValue();
+    if (!valueAttr.getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN doesn't currently support tensor creation from values "
+              "which are not integer or floating point numbers.");
+    }
+
+    if (valueAttr.isSplat()) {
+      Value device = getOrInsertDevice(rewriter, op);
+      float fillValue = valueAttr.getElementType().isInteger()
+                            ? static_cast<float>(valueAttr.getSplatValue<int>())
+                            : valueAttr.getSplatValue<float>();
+      if (fillValue == 0) {
+        rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+            op, this->getTypeConverter()->convertType(op.getType()), device);
+      } else {
+        ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
+        rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+            op, this->getTypeConverter()->convertType(op.getType()), device,
+            fillValueAttr);
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN doesn't currently support tensor creation from multiple "
+              "given values.");
+    }
+
+    return success();
+  }
+};
+
 } // namespace
 
 // ANCHOR: adding_an_op_matmul_op_rewriter
@@ -573,6 +612,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReshapeOpConversionPattern,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
+           ConstantOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            MaxPool2dOpConversionPattern

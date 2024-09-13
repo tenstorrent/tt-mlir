@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include <llvm/ADT/ArrayRef.h>
 
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
-#include <llvm/ADT/ArrayRef.h>
-#include <mlir/IR/BuiltinTypes.h>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -398,6 +398,10 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   }
 
   return success();
+}
+
+::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor adaptor) {
+  return getValueAttr();
 }
 
 // ANCHOR: adding_an_op_matmul_ttir_verify

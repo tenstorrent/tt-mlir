@@ -614,14 +614,25 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   auto desiredLayout =
       rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
                                    desiredElementType, desiredMemLayout);
+
+  ::mlir::TypedValue<::mlir::RankedTensorType> existingOpType = nullptr;
+  tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
+  ttir::ConstantOp existingConstant = input.getDefiningOp<ttir::ConstantOp>();
+  if (existingEmpty) {
+    existingOpType = existingEmpty.getResult();
+  } else if (existingConstant) {
+    existingOpType = existingConstant.getResult();
+  }
+
+  if (existingOpType) {
+    existingOpType.setType(mlir::RankedTensorType::get(
+        ty.getShape(), ty.getElementType(), desiredLayout));
+    return existingOpType;
+  }
+
   auto output = rewriter.create<tensor::EmptyOp>(
       loc, ty.getShape(), ty.getElementType(), desiredLayout);
 
-  tensor::EmptyOp exising_empty = input.getDefiningOp<tensor::EmptyOp>();
-  if (exising_empty) {
-    rewriter.replaceOp(exising_empty, output);
-    return output.getResult();
-  }
   return rewriter
       .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
       ->getResult(0);
