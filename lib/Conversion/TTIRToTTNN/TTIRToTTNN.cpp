@@ -146,8 +146,8 @@ public:
     if (bufferType == ttnn::BufferType::SystemMemory) {
       rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          op.getInput(), ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
-          device);
+          op.getInput(), device,
+          ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum));
 
       return success();
     }
@@ -188,8 +188,8 @@ public:
     //
     ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
         op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-        op.getInput(), ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum),
-        device);
+        op.getInput(), device,
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum));
 
     // Create MemoryConfigAttr
     //

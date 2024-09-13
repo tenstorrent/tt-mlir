@@ -43,8 +43,8 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_LayoutAttr:$layout,
-                         TT_Device:$device);
+                         TT_Device:$device,
+                         TTNN_LayoutAttr:$layout);
     let results = (outs AnyRankedTensor:$result);
 }
 
