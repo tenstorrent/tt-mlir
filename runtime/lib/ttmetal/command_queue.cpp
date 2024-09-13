@@ -21,10 +21,12 @@ struct CQExecutor {
   std::unordered_map<std::uint32_t, std::shared_ptr<::tt::tt_metal::Event>>
       events;
   ::tt::tt_metal::CommandQueue *cq;
+  ::tt::target::SystemDesc const *systemDesc;
 
   CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
              std::vector<InputBuffer> const &inputs,
-             std::vector<OutputBuffer> const &outputs);
+             std::vector<OutputBuffer> const &outputs,
+             ::tt::target::SystemDesc const *systemDesc);
 
   std::shared_ptr<::tt::tt_metal::Event>
   execute(::tt::target::metal::CommandQueue const *commandQueue);
@@ -44,8 +46,9 @@ struct CQExecutor {
 
 CQExecutor::CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
                        std::vector<InputBuffer> const &inputs,
-                       std::vector<OutputBuffer> const &outputs)
-    : device(device) {
+                       std::vector<OutputBuffer> const &outputs,
+                       ::tt::target::SystemDesc const *systemDesc)
+    : device(device), systemDesc(systemDesc) {
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     auto [global_id, buffer, event] = inputs[i];
     buffers[global_id] = buffer;
@@ -317,6 +320,7 @@ void CQExecutor::execute(
   static int gKernelId = 0;
 
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
+  auto chipDescs = systemDesc->chip_descs();
 
   for (::tt::target::metal::KernelDesc const *kernelDesc :
        *command->program()->kernels()) {
@@ -341,7 +345,6 @@ void CQExecutor::execute(
           createCircularBufferConfig(cbRef, buffers);
       ::tt::tt_metal::CreateCircularBuffer(program, coreRange, config);
     }
-
     // Process Kernel's runtime args based on variant and call metal APIs.
     processRuntimeArgs(program, kernelDesc, handle, coreRange,
                        command->operands(), buffers);
@@ -349,6 +352,18 @@ void CQExecutor::execute(
 
   constexpr bool blocking = false;
   ::tt::tt_metal::EnqueueProgram(*cq, program, blocking);
+  auto dramUnreservedEnd = chipDescs->Get(0)->dram_unreserved_end();
+  std::cout << std::endl
+            << std::endl
+            << "command_queue.cpp " << dramUnreservedEnd << std::endl
+            << std::endl;
+  std::cout << std::endl
+            << std::endl
+            << "kernels buffer address "
+            << program.get_kernels_buffer()->address() << std::endl
+            << std::endl;
+  std::cout << "END OF KERNEL" << std::endl;
+  assert(program.get_kernels_buffer()->address() > dramUnreservedEnd);
 }
 
 void CQExecutor::execute(
@@ -422,8 +437,9 @@ std::shared_ptr<::tt::tt_metal::Event>
 executeCommandQueue(::tt::tt_metal::Device *device,
                     ::tt::target::metal::CommandQueue const *commandQueue,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
-                    std::vector<OutputBuffer> const &outputs) {
-  CQExecutor executor(device, cq_id, inputs, outputs);
+                    std::vector<OutputBuffer> const &outputs,
+                    ::tt::target::SystemDesc const *systemDesc) {
+  CQExecutor executor(device, cq_id, inputs, outputs, systemDesc);
   return executor.execute(commandQueue);
 }
 } // namespace tt::runtime::ttmetal

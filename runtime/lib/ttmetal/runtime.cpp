@@ -166,6 +166,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
   ::tt::target::metal::TTMetalBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::metal::Program const *program =
       fbb.programs()->Get(programIndex);
+  ::tt::target::SystemDesc const *systemDesc = fbb.system_desc();
   DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>(DeviceRuntime::TTMetal);
   assert(deviceMesh.size() == 1 && "Only one device is supported for now");
   std::shared_ptr<Events> events = std::make_shared<Events>();
@@ -204,12 +205,11 @@ Event submit(Device deviceHandle, Binary executableHandle,
       outputs.emplace_back(deviceProgram->outputs()->Get(i)->global_id(),
                            buffer);
     }
-
     std::size_t cq_id = 0;
     for (::tt::target::metal::CommandQueue const *cq :
          *deviceProgram->command_queues()) {
       deviceEvents.push_back(
-          executeCommandQueue(device, cq, cq_id, inputs, outputs));
+          executeCommandQueue(device, cq, cq_id, inputs, outputs, systemDesc));
       ++cq_id;
     }
 

@@ -87,7 +87,8 @@ std::shared_ptr<::tt::tt_metal::Event>
 executeCommandQueue(::tt::tt_metal::Device *device,
                     ::tt::target::metal::CommandQueue const *cq,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
-                    std::vector<OutputBuffer> const &outputs);
+                    std::vector<OutputBuffer> const &outputs,
+                    ::tt::target::SystemDesc const *systemDesc);
 
 // Utils
 
