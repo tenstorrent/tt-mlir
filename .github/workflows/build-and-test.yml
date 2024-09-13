@@ -12,8 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: builder, enable_perf: OFF, name: "run"},
-          {runs-on: builder, enable_perf: ON, name: "perf"},
+          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run"},
+          {runs-on: ubuntu-latest, enable_perf: ON, name: "perf"},
         ]
 
     name: Build tt-mlir
