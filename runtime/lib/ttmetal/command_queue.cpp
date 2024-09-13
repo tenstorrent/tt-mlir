@@ -426,14 +426,26 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
-  throw std::runtime_error("Unsupported EnqueueWriteBufferCommand");
+  assert(command->src()->desc()->constant_data() != nullptr &&
+         "Only constant data supported");
+  assert(buffers.find(command->src()->global_id()) != buffers.end() &&
+         "Buffer not allocated");
+  constexpr bool blocking = false;
+  ::tt::tt_metal::EnqueueWriteBuffer(
+      *cq, buffers[command->src()->global_id()],
+      command->src()->desc()->constant_data()->data(), blocking);
 }
 
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueReadBufferCommand const *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
   // Maybe we will need this in the future, like paging to system mem?
-  throw std::runtime_error("Unsupported EnqueueReadBufferCommand");
+  assert(buffers[command->dst()->global_id()] != nullptr &&
+         "Buffer not allocated");
+  constexpr bool blocking = false;
+  ::tt::tt_metal::EnqueueReadBuffer(
+      *cq, buffers[command->dst()->global_id()],
+      reinterpret_cast<void *>(command->dst()->address()), blocking);
 }
 
 void CQExecutor::execute(
