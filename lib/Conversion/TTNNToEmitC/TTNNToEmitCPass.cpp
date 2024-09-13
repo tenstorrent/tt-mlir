@@ -14,6 +14,8 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -32,7 +34,7 @@ public:
   TTNNToEmitCTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
     addConversion([ctx](tt::DeviceType type) -> emitc::OpaqueType {
-      return emitc::OpaqueType::get(ctx, "ttnn::Device&");
+      return emitc::OpaqueType::get(ctx, "ttnn::Device");
     });
     addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx, "ttnn::Tensor");

@@ -60,6 +60,25 @@ enum TensorMemoryLayout: ushort {
   BlockSharded = 5,
 }
 
+enum TensorLayout: ushort {
+  RowMajor = 0,
+  Tile = 1,
+  Invalid = 2,
+}
+
+enum BufferType: ushort {
+  DRAM = 0,
+  L1 = 1,
+  SystemMemory = 2,
+  L1Small = 3,
+  Trace = 4,
+}
+
+table MemoryConfigDesc {
+  tensor_memory_layout: TensorMemoryLayout;
+  buffer_type: BufferType;
+}
+
 table MemoryDesc {
   shape: [int];
   tile_shape: Dim2d;

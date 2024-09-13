@@ -17,12 +17,14 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
+#include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -81,6 +83,95 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
                                   kHostAllocatedAddress, kHostAllocatedSize);
   return ::tt::target::ttnn::CreateToMemoryConfigOp(
       *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ToLayoutOp>
+createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::tt::target::TensorLayout layout;
+  switch (op.getLayout()) {
+  case Layout::RowMajor:
+    layout = ::tt::target::TensorLayout::RowMajor;
+    break;
+  case Layout::Tile:
+    layout = ::tt::target::TensorLayout::Tile;
+    break;
+  case Layout::Invalid:
+    layout = ::tt::target::TensorLayout::Invalid;
+    break;
+  }
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateToLayoutOp(
+      *cache.fbb, input, layout, cache.at<::tt::target::DeviceRef>(device),
+      output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ToDeviceOp>
+createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  op.getMemoryConfig();
+
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout;
+  ::tt::target::BufferType bufferType;
+
+  switch (op.getMemoryConfig().getTensorMemoryLayout().getValue()) {
+  case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
+    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::Interleaved;
+    break;
+  case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
+    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::SingleBank;
+    break;
+  case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
+    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::HeightSharded;
+    break;
+  case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
+    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::WidthSharded;
+    break;
+  case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
+    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::BlockSharded;
+    break;
+  }
+
+  switch (op.getMemoryConfig().getBufferType().getValue()) {
+  case ::mlir::tt::ttnn::BufferType::DRAM:
+    bufferType = ::tt::target::BufferType::DRAM;
+    break;
+  case ::mlir::tt::ttnn::BufferType::L1:
+    bufferType = ::tt::target::BufferType::L1;
+    break;
+  case ::mlir::tt::ttnn::BufferType::SystemMemory:
+    bufferType = ::tt::target::BufferType::SystemMemory;
+    break;
+  case ::mlir::tt::ttnn::BufferType::L1Small:
+    bufferType = ::tt::target::BufferType::L1Small;
+    break;
+  case ::mlir::tt::ttnn::BufferType::Trace:
+    bufferType = ::tt::target::BufferType::Trace;
+    break;
+  }
+
+  auto memoryConfigDesc =
+      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateToDeviceOp(
+      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device),
+      memoryConfigDesc, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
@@ -314,6 +405,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       toMemoryConfigOp) {
     return createOperation(cache, createOp(cache, toMemoryConfigOp),
                            debugString);
+  }
+  if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
+    return createOperation(cache, createOp(cache, toLayoutOp), debugString);
+  }
+  if (auto toDeviceOp = dyn_cast<ToDeviceOp>(op); toDeviceOp) {
+    return createOperation(cache, createOp(cache, toDeviceOp), debugString);
   }
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString);

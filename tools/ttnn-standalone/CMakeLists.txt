@@ -82,8 +82,15 @@ target_link_directories(ttnn-standalone PRIVATE
 target_link_libraries(ttnn-standalone PRIVATE
     # Metalium
     tt_metal
+    device
     yaml-cpp
     pthread
+    # The below libs have been added to tt-metal repo at some point, but are
+    # not currently needed by the standalone - leaving them commented here for
+    # reference
+    #
+    # nng
+    # uv
 
     # TTNN
     # _ttnn  # Why doesn't this work?

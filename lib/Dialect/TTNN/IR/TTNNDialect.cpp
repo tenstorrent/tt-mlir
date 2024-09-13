@@ -8,6 +8,7 @@
 #include "mlir/InitAllDialects.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -28,6 +29,7 @@ parseDimensionList(::mlir::AsmParser &odsParser,
 } // namespace mlir::tt::ttnn
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsDialect.cpp.inc"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.cpp.inc"
