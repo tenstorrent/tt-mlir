@@ -492,9 +492,13 @@ static void run(::tt::target::ttnn::EmptyOp const *op,
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       createMemoryConfig(op->out());
 
-  ::ttnn::Device &device = getDevice(op->device(), devicePool);
-  ::ttnn::Tensor out = ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout,
-                                     device, outputMemoryConfig);
+  // ::ttnn::Device &device = getDevice(op->device(), devicePool);
+  // ::ttnn::Tensor out = ::ttnn::empty(shape, targetDataTypeTTNN,
+  // desiredLayout,
+  //                                    device, outputMemoryConfig);
+  ::ttnn::Tensor out = ::ttnn::empty(shape);
+  (void)targetDataTypeTTNN;
+  (void)desiredLayout;
 
   // use try emplace here so the program output tensor doesn't get overwritten
   tensorPool.try_emplace(op->out()->global_id(), std::move(out));

@@ -53,9 +53,45 @@ public:
   LogicalResult
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto device = getOrInsertDevice(rewriter, op);
+
+    // assert(llvm::isa<mlir::RankedTensorType>(op->getResult(0)));
+    // mlir::RankedTensorType res =
+    //     mlir::cast<mlir::RankedTensorType>(op->getResult(0));
+
+    // Get tt::LayoutAttr of the result type
+    //
+    tt::LayoutAttr ttLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+
+    //
+    mlir::MemRefType memref = ttLayoutAttr.getMemref();
+    ttnn::ShapeAttr shapeAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), memref.getShape());
+    Type elementType = memref.getElementType();
+    DataType dtype = DataType::Float32;
+
+    ttnn::Layout ttnnLayoutEnum __attribute__((unused)) =
+        ttnn::Layout::RowMajor;
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      dtype = elementTypeToDataType(elementType);
+    }
+    DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    // auto device = getOrInsertDevice(rewriter, op);
+
+    // TODO: is it going to device? Does it have memory config?
+
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), device);
+        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+        dTypeAttr, tensorLayoutAttr, nullptr, nullptr);
     return success();
   }
 };

@@ -178,10 +178,14 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   constexpr uint64_t kHostAllocatedAddress = 0;
   constexpr uint64_t kHostAllocatedSize = 0;
-  auto device = getOperandThroughDPSOps(op.getDevice());
+  // auto device = getOperandThroughDPSOps(op.getDevice());
+  auto shape = op.getShape().getShape();
   auto output = getOperandThroughDPSOps(op.getResult());
+
+  auto x = cache.fbb->CreateVector<int64_t>(shape);
+
   return ::tt::target::ttnn::CreateEmptyOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device),
+      *cache.fbb, x,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }

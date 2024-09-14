@@ -30,8 +30,9 @@ table ToDeviceOp {
 }
 
 table EmptyOp {
-  device: tt.target.DeviceRef;
+  shape: [int64];
   out: tt.target.TensorRef;
+  // device: tt.target.DeviceRef;
 }
 
 table FullOp {
