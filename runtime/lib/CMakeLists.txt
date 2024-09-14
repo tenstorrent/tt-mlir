@@ -28,6 +28,7 @@ if (TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMET
   add_subdirectory(common)
 else()
   add_library(TTRuntimeSysDesc INTERFACE)
+  add_library(TTRuntimeDebug INTERFACE)
 endif()
 
 add_library(TTRuntime STATIC runtime.cpp)
@@ -51,6 +52,7 @@ target_link_libraries(TTRuntime
     TTRuntimeSysDesc
     TTRuntimeTTNN
     TTRuntimeTTMetal
+    TTRuntimeDebug
 )
 
-add_dependencies(TTRuntime TTBinary TTRuntimeSysDesc FBS_GENERATION)
+add_dependencies(TTRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug FBS_GENERATION)

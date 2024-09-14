@@ -9,6 +9,7 @@ try:
         Tensor,
         DataType,
         DeviceRuntime,
+        DebugEnv,
         get_current_runtime,
         set_compatible_runtime,
         get_current_system_desc,

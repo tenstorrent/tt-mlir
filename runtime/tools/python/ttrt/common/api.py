@@ -212,6 +212,14 @@ class API:
             help="--save-artifacts flag must be set, provides a directory path to save artifacts to",
             api_only=False,
         )
+        API.Run.register_arg(
+            name="--load-kernels-from-disk",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Pickup the kernels from disk (/tmp) instead of the flatbuffer",
+            api_only=False,
+        )
 
         # register all perf arguments
         API.Perf.register_arg(
@@ -837,6 +845,9 @@ class API:
                 if len(binaries) == 0:
                     self.logging.warning(f"no binaries found to run - returning early")
                     return
+
+                debug_env = ttrt.runtime.DebugEnv.get(self.load_kernels_from_disk)
+                self.logging.debug(f"setting tt runtime debug env={debug_env}")
 
                 self.logging.debug(f"setting torch manual seed={self['seed']}")
                 torch.manual_seed(self["seed"])
