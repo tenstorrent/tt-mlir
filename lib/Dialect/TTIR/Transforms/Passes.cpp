@@ -57,7 +57,8 @@ public:
       module->setAttr(
           tt::DeviceAttr::name,
           tt::DeviceAttr::get(&getContext(),
-                              mlir::cast<tt::SystemDescAttr>(systemDesc)));
+                              mlir::cast<tt::SystemDescAttr>(systemDesc),
+                              meshShape));
     }
   }
 

@@ -23,7 +23,9 @@ void createTTIRToTTNNBackendPipeline(
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
+  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
+  implicitDeviceOptions.meshShape = options.meshShape;
+  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::System;
   layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceDRAM;

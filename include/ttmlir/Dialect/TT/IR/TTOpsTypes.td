@@ -328,17 +328,22 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
     - A grid attribute that describes the device's compute grid shape.  It not only describes the shape of the compute grid, but also
       carries an affine map that describes how the logical grid maps to the physical grid.
     - Two affine maps that describe how a tensor layout's linear attribute maps to the L1 and DRAM memory spaces.
-    - An array of chip ids that this device is made up of.
+    - A mesh shape that describes the virtual layout of the chips with respect to each other. Note that in a multi-chip system, this grid
+      encapsulates the entire system's grid shape, e.g. 8x16 grid could be made up of a 1x2 mesh of chips side-by-side. The mesh
+      attribute configures how the above grid/map attributes are created such that they implement this mesh topology.
+    - An array of chip ids that this device is made up of. This array's length must match the volume of the mesh shape and should be
+      interpreted in row-major order.
   }];
   let parameters = (ins TT_GridAttr:$workerGrid,
                         "AffineMap":$l1Map,
                         "AffineMap":$dramMap,
+                        ArrayRefParameter<"int64_t">:$meshShape,
                         ArrayRefParameter<"unsigned">:$chipIds);
-  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `chipIds` `=` `[` $chipIds `]` `>`";
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` `>`";
 
   let extraClassDeclaration = [{
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<unsigned> chipIds);
-      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, bool enableMultichip = false);
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds);
+      static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape = {});
       AffineMap getMapForMemorySpace(MemorySpace memorySpace) const {
         switch (memorySpace) {
         case MemorySpace::DeviceL1:

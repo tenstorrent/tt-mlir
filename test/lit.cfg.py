@@ -5,6 +5,7 @@
 # -*- Python -*-
 
 import os
+import sys
 import platform
 import re
 import subprocess
@@ -17,7 +18,15 @@ from lit.llvm import llvm_config
 from lit.llvm.subst import ToolSubst
 from lit.llvm.subst import FindTool
 
+
 # Configuration file for the 'lit' test runner.
+
+
+def set_system_desc_features(system_desc):
+    config.available_features.add(system_desc["chip_descs"][0]["arch"])
+    if len(system_desc["chip_desc_indices"]) > 1:
+        config.available_features.add("multi-chip")
+
 
 # name: The name of this test suite.
 config.name = "TTMLIR"
@@ -39,6 +48,20 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
+
+if config.system_desc_path:
+    try:
+        import ttrt
+
+        system_desc = ttrt.binary.as_dict(
+            ttrt.binary.load_system_desc_from_path(config.system_desc_path)
+        )["system_desc"]
+        set_system_desc_features(system_desc)
+    except ImportError:
+        print(
+            "ttrt not found. Please install ttrt to use have system desc driven test requirements set.",
+            file=sys.stderr,
+        )
 
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
