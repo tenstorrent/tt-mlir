@@ -27,6 +27,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
+#include <llvm/Support/ErrorHandling.h>
+#include <mlir/IR/Builders.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -96,6 +98,41 @@ emitc::OpaqueAttr convertBufferType(Builder &builder,
   }
   llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
   return nullptr;
+}
+
+emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
+  return builder.getType<emitc::OpaqueAttr>("ttnn::Shape");
+}
+
+emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
+  switch (attr.getValue()) {
+  case tt::DataType::Float32:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::Float32");
+  case tt::DataType::Float16:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::Float16");
+  case tt::DataType::BFloat16:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFloat16");
+  case tt::DataType::UInt32:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UInt32");
+  case tt::DataType::UInt16:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UInt16");
+  case tt::DataType::UInt8:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UInt8");
+  case tt::DataType::BFP_BFloat2:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFP_BFloat2");
+  case tt::DataType::BFP_BFloat4:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFP_BFloat4");
+  case tt::DataType::BFP_BFloat8:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFP_BFloat8");
+  case tt::DataType::BFP_Float2:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFP_Float2");
+  case tt::DataType::BFP_Float4:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFP_Float4");
+  case tt::DataType::BFP_Float8:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFP_Float8");
+  }
+
+  llvm_unreachable("Unkonwn tt::DataType");
 }
 
 // Base class for TTNN to EmitC OpConversionPattern
@@ -331,7 +368,52 @@ public:
   matchAndRewrite(ttnn::EmptyOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // TODO(svuckovic)
+    ttnn::ShapeAttr shapeAttr = srcOp.getShapeAttr();
+    ttnn::LayoutAttr layoutAttr = srcOp.getLayoutAttr();
+    tt::DataTypeAttr dataTypeAttr = srcOp.getDtypeAttr();
+    // ttnn::MemoryConfigAttr memConfigAttr = srcOp.getMemoryConfigAttr();
+
+    llvm::SmallVector<Value, 2> operands(adaptor.getOperands());
+
+    ArrayAttr arrayAttr;
+    if (!adaptor.getOperands().empty()) {
+      // Create ArrayAttr object holding MemoryConfig attributes
+      //
+      ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
+          {convertTensorMemoryLayout(
+               rewriter, srcOp.getMemoryConfig()->getTensorMemoryLayout()),
+           convertBufferType(rewriter,
+                             srcOp.getMemoryConfig()->getBufferType())});
+
+      // Create MemoryConfig object first, then pass it to the op
+      //
+      emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp->getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
+          "ttnn::MemoryConfig", memCfgArrayAttrs, nullptr, ValueRange());
+
+      // Concat operands and MemoryConfig object
+      //
+      operands.append(1, memCfgOp.getResult(0));
+
+      arrayAttr = rewriter.getArrayAttr({
+          rewriter.getIndexAttr(0),
+          convertShape(rewriter, shapeAttr),
+          convertDType(rewriter, dataTypeAttr),
+          convertLayoutAttr(rewriter, layoutAttr),
+          rewriter.getIndexAttr(1),
+      });
+    } else {
+      arrayAttr = rewriter.getArrayAttr({
+          convertShape(rewriter, shapeAttr),
+          convertDType(rewriter, dataTypeAttr),
+          convertLayoutAttr(rewriter, layoutAttr),
+      });
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
 
     return success();
   }
@@ -358,7 +440,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::EmptyOp>,
+  patterns.add<EmptyOpConversionPattern,
+               //  DefaultOpConversionPattern<ttnn::EmptyOp>,
                DefaultOpConversionPattern<ttnn::FullOp>>(typeConverter, ctx);
 
   // Eltwise unary ops
