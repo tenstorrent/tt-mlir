@@ -39,6 +39,7 @@
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
+#pragma clang diagnostic ignored "-Wc99-extensions"
 
 #define FMT_HEADER_ONLY
 #include "ttnn/device.hpp"
