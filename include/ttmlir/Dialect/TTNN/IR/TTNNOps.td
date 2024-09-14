@@ -419,10 +419,11 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
       Tensor empty operation
     }];
 
-    let arguments = (ins TTNN_ShapeAttr:$shape,
+    let arguments = (ins Optional<TT_Device>:$device,
+                         TTNN_ShapeAttr:$shape,
                          OptionalAttr<TT_DataTypeAttr>:$dtype,
                          OptionalAttr<TTNN_LayoutAttr>:$layout,
-                         OptionalAttr<TT_DeviceAttr>:$device,  // TODO: type instead of attr?
+                        //  OptionalAttr<TT_DeviceAttr>:$device,  // TODO: type instead of attr?
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 }

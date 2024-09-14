@@ -85,13 +85,74 @@ public:
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
-    // auto device = getOrInsertDevice(rewriter, op);
-
     // TODO: is it going to device? Does it have memory config?
+    tt::TensorMemoryLayout ttTensorMemoryLayout = ttLayoutAttr.getMemLayout();
+
+    // If the tensor is not going to device, we can create the op without
+    // device-specific attributes
+    //
+    if (ttTensorMemoryLayout == TensorMemoryLayout::None) {
+      // no device
+      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), nullptr,
+          shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
+
+      return success();
+    }
+
+    // Map TT::MemorySpace to TTNN::BufferType
+    //
+    tt::MemorySpace memorySpace = ttLayoutAttr.getMemorySpace();
+    ttnn::BufferType bufferType = ttnn::BufferType::DRAM; // default to DRAM
+    switch (memorySpace) {
+    case tt::MemorySpace::System:
+    case tt::MemorySpace::SystemMMIO:
+      bufferType = ttnn::BufferType::SystemMemory;
+      break;
+    case tt::MemorySpace::DeviceDRAM:
+      bufferType = ttnn::BufferType::DRAM;
+      break;
+    case tt::MemorySpace::DeviceL1:
+      bufferType = ttnn::BufferType::L1;
+      break;
+    }
+
+    // Set the tensor memory layout
+    //
+    ttnn::TensorMemoryLayout tensorMemoryLayout =
+        ttnn::TensorMemoryLayout::HeightSharded;
+    switch (ttLayoutAttr.getMemLayout()) {
+    case tt::TensorMemoryLayout::None:
+      assert(false && "TensorMemoryLayout::None not supported");
+      break;
+    case tt::TensorMemoryLayout::HeightSharded:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::HeightSharded;
+      break;
+    case tt::TensorMemoryLayout::Interleaved:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::Interleaved;
+      break;
+    case tt::TensorMemoryLayout::WidthSharded:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::WidthSharded;
+      break;
+    case tt::TensorMemoryLayout::BlockSharded:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::BlockSharded;
+      break;
+    case tt::TensorMemoryLayout::SingleBank:
+      tensorMemoryLayout = ttnn::TensorMemoryLayout::SingleBank;
+      break;
+    }
+
+    auto device = getOrInsertDevice(rewriter, op);
+    // auto qq = tt::DeviceAttr::get(rewriter.getContext(), device);
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(),
+        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
-        dTypeAttr, tensorLayoutAttr, nullptr, nullptr);
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+
     return success();
   }
 };
@@ -153,8 +214,8 @@ public:
     }
 
     // TODO(bug #665):
-    // Binary ops fail with row major layout in ttnn, defaulting to tile layout
-    // for all ops...
+    // Binary ops fail with row major layout in ttnn, defaulting to tile
+    // layout for all ops...
     //
     ttnnLayoutEnum = ttnn::Layout::Tile;
 
