@@ -159,23 +159,11 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
       .buffer_type = bufferType,
       .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
       .shard_parameters = shardSpecBuffer,
+      .allocate = false,
   };
   std::shared_ptr<::tt::tt_metal::Buffer> buffer =
       ::tt::tt_metal::CreateBuffer(shardedBufferConfig);
   assert(tensorRef->address());
-
-  // Issue #408: Temporary Hack, remove when fix available.
-  // Update tt-metal BUFFER_MAP with updated address and remove
-  // entry for original alloc'd address.
-  auto &buffer_map = tt::tt_metal::detail::BUFFER_MAP;
-  auto map_copy = buffer_map.value();
-  auto old_key = std::make_tuple(device->id(), buffer->address());
-  if (auto it = map_copy.find(old_key); it != map_copy.end()) {
-    auto new_key = std::make_tuple(device->id(), tensorRef->address());
-    buffer_map.insert(new_key, it->second);
-    buffer_map.erase(old_key);
-  }
-
   buffer->set_address(tensorRef->address());
   return buffer;
 }
