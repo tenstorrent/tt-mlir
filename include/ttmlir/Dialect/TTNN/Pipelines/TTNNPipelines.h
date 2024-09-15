@@ -88,7 +88,16 @@ struct TTIRToTTNNBackendPipelineOptions
           llvm::cl::desc("Override grid sizes for specific ops."),
           llvm::cl::init(llvm::StringMap<SmallVector<int64_t, 2>>())};
 
-  // Option to provide a system descriptor flatbuffer file to compile against
+  // If this option is true, run sharding pass and try to shard ops.
+  //
+  Option<bool> shardingPassEnabled{
+      *this, "sharding-pass-enabled",
+      llvm::cl::desc("Enable sharding pass to shard ops."),
+      llvm::cl::init(false)};
+
+  // Option to provide a system descriptor flatbuffer file to compile
+  // against.
+  //
   Option<std::string> systemDescPath{
       *this, "system-desc-path",
       llvm::cl::desc(

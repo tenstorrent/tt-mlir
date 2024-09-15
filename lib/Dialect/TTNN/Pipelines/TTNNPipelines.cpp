@@ -36,6 +36,7 @@ void createTTIRToTTNNBackendPipeline(
   if (options.gridSetPassEnabled) {
     ttir::TTIRGridSetOptions gridSetOptions;
     gridSetOptions.overrideGridSizes = options.overrideGridSizes;
+    gridSetOptions.shardingPassEnabled = options.shardingPassEnabled;
     pm.addPass(mlir::tt::ttir::createTTIRGridSet(gridSetOptions));
   }
   pm.addPass(createConvertTTIRToTTNNPass());

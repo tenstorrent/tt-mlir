@@ -2,26 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 
 namespace mlir::tt::ttir {
 
-bool OptimalTargetGridAnalysis::applyOverrides() {
+bool OpConfigAnalysis::applyOverrides() {
 
   // Placeholder, no overrides for now.
   //
   return false;
 }
 
-void OptimalTargetGridAnalysis::analysisImplementation() {
+void OpConfigAnalysis::analysisImplementation() {
 
-  // Implement GraphSolver like algorithm to eliminate illegal grid combinations
-  // from graph globaly.
-  // Entry point for graphsolving.
-  //
-
-  // Balancer/GridPicker implementation.
-  // Future entrypoint for balancing and picking optimal grid.
+  // Future entrypoint for picking optimal op config.
   // Placeholder: pick the first legal grid.
   //
   for (auto opGrids : analysisInput.legalGrids) {
