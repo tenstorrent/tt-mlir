@@ -159,6 +159,14 @@ class API:
             api_only=False,
         )
         API.Run.register_arg(
+            name="--non-zero",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="test the output tensors are non-zero",
+            api_only=False,
+        )
+        API.Run.register_arg(
             name="--rtol",
             type=float,
             default=1e-05,
@@ -441,7 +449,6 @@ class API:
 
         @staticmethod
         def generate_subparser(subparsers):
-
             query_parser = subparsers.add_parser(
                 "query", help="query information about the current system"
             )
@@ -929,6 +936,14 @@ class API:
                                             f"Failed: inputs and outputs do not match in binary"
                                         )
                                         self.logging.error(i - o)
+
+                            if self.non_zero:
+                                self.logging.debug("checking outputs are non-zero")
+                                for o in program.output_tensors:
+                                    if not torch.any(o):
+                                        self.logging.error(
+                                            "Failed: output tensor all zero"
+                                        )
 
                             self.logging.debug(
                                 f"input tensors for program={program_index}"

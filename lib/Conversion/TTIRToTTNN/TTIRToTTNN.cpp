@@ -145,11 +145,9 @@ public:
     // call the ToDeviceOp
     //
     if (bufferType == ttnn::BufferType::SystemMemory) {
-      rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          op.getInput(), device,
-          ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum));
-
+          op.getInput(), device);
       return success();
     }
 
