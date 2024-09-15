@@ -2,36 +2,40 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_OPTIMALTARGETGRIDANALYSIS_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_OPTIMALTARGETGRIDANALYSIS_H
+#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_OPCONFIGANALYSIS_H
+#define TTMLIR_DIALECT_TTIR_ANALYSIS_OPCONFIGANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
 
 namespace mlir::tt::ttir {
 
-struct OptimalTargetGridAnalysisInput {
+struct OpConfigAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
 
-  OptimalTargetGridAnalysisInput() : legalGrids() {}
+  OpConfigAnalysisInput() : legalGrids() {}
 
-  OptimalTargetGridAnalysisInput(
+  OpConfigAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &&legalGrids)
       : legalGrids(std::move(legalGrids)) {}
 
-  bool operator==(const OptimalTargetGridAnalysisInput &rhs) const {
+  OpConfigAnalysisInput(
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids)
+      : legalGrids(legalGrids) {}
+
+  bool operator==(const OpConfigAnalysisInput &rhs) const {
     return legalGrids == rhs.legalGrids;
   }
 
-  bool operator!=(const OptimalTargetGridAnalysisInput &rhs) const {
+  bool operator!=(const OpConfigAnalysisInput &rhs) const {
     return !(*this == rhs);
   }
 };
 
-// Determine optimal target grid size for each op.
+// Determine optimal configuration for each op.
 //
-class OptimalTargetGridAnalysis
-    : public TTIRAnalysis<OptimalTargetGridAnalysisInput,
+class OpConfigAnalysis
+    : public TTIRAnalysis<OpConfigAnalysisInput,
                           llvm::DenseMap<Operation *, LayoutAttr>> {
 
 private:
@@ -39,8 +43,8 @@ private:
   bool applyOverrides() override;
 
 public:
-  OptimalTargetGridAnalysis(Operation *op) : TTIRAnalysis(op) {}
+  OpConfigAnalysis(Operation *op) : TTIRAnalysis(op) {}
 };
 } // namespace mlir::tt::ttir
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_OPTIMALTARGETGRIDANALYSIS_H
+#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_OPCONFIGANALYSIS_H

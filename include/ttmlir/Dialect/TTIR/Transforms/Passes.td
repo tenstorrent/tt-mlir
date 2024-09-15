@@ -104,6 +104,10 @@ def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
           "llvm::StringMap<SmallVector<int64_t, 2>>",
           /*default=*/"llvm::StringMap<SmallVector<int64_t, 2>>()",
            "Override grid sizes for specific ops.">,
+    Option<"shardingPassEnabled", "sharding-pass-enabled",
+          "bool",
+          /*default=*/"false",
+           "Enable sharding pass.">,
   ];
 }
 

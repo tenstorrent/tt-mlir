@@ -19,7 +19,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
-#include "ttmlir/Dialect/TTIR/Analysis/OptimalTargetGridAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 #include <llvm/ADT/ArrayRef.h>
@@ -1220,16 +1221,49 @@ public:
       legalGrids[op] = legalGridAnalysis.getResult();
     });
 
-    OptimalTargetGridAnalysis optimalTargetGridAnalysis =
-        getAnalysis<OptimalTargetGridAnalysis>();
-    optimalTargetGridAnalysis.init(
-        OptimalTargetGridAnalysisInput(std::move(legalGrids)));
+    llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
+    if (shardingPassEnabled) {
+      // Perform sharding analysis.
+      //
+      ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
+      shardingAnalysis.init(
+          ShardingAnalysisInput(legalGrids, chipDesc.getUsableL1Size()));
+      legalGrids = shardingAnalysis.getResult().legalGrids;
+      opSchedule = shardingAnalysis.getResult().schedule;
+    }
+
+    // Pick optimal op configuration.
+    //
+    OpConfigAnalysis opConfigAnalysis = getAnalysis<OpConfigAnalysis>();
+    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalGrids)));
 
     // Pure application of determined grid sizes to the operations.
     // No further analysis.
     //
     moduleOp->walk([&](func::FuncOp func) {
       SmallVector<Type> funcResultTypes;
+
+      // If schedule is set, apply order of operations to func.
+      //
+      if (opSchedule[func].size() > 1) {
+        for (size_t i = 0; i < opSchedule[func].size() - 1; i++) {
+          Operation *op = opSchedule[func][i];
+
+          Operation *nextOp = opSchedule[func][i + 1];
+          nextOp->moveAfter(op);
+
+          // Move DPS operand with the op.
+          //
+          if (llvm::isa<mlir::DestinationStyleOpInterface>(nextOp)) {
+            nextOp->getOperands().back().getDefiningOp()->moveBefore(nextOp);
+          }
+        }
+      }
+
+      // TODO(nobradovic):
+      // Insert reshard ops here based on results of sharding analysis.
+      //
+
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
           func::ReturnOp funcReturn = dyn_cast<func::ReturnOp>(op);
@@ -1246,10 +1280,10 @@ public:
 
         // Update the output layout attribute with the new grid size.
         //
-        if (optimalTargetGridAnalysis.getResult().contains(op)) {
-          RankedTensorType newTensorType = RankedTensorType::get(
-              tensorShape, tensorType.getElementType(),
-              optimalTargetGridAnalysis.getResult().at(op));
+        if (opConfigAnalysis.getResult().contains(op)) {
+          RankedTensorType newTensorType =
+              RankedTensorType::get(tensorShape, tensorType.getElementType(),
+                                    opConfigAnalysis.getResult().at(op));
 
           op->getResult(0).setType(newTensorType);
 
