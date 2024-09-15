@@ -31,10 +31,10 @@ namespace tt::runtime::ttnn {
 class ProgramTensorPool {
 public:
   ProgramTensorPool(
-      std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &&liveTensors)
+      const std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors)
       : liveTensors(liveTensors) {}
 
-  auto try_emplace(std::uint32_t global_id, ::ttnn::Tensor &&tensor) {
+  auto try_emplace(std::uint32_t global_id, const ::ttnn::Tensor &tensor) {
     auto it = liveTensors.find(global_id);
     if (it != liveTensors.end()) {
       return std::make_pair(it, false);
@@ -44,7 +44,7 @@ public:
     return liveTensors.try_emplace(global_id, &intermedTensors.at(global_id));
   }
 
-  auto insert_or_assign(std::uint32_t global_id, ::ttnn::Tensor &&tensor) {
+  auto insert_or_assign(std::uint32_t global_id, const ::ttnn::Tensor &tensor) {
     intermedTensors.insert_or_assign(global_id, tensor);
     return liveTensors.insert_or_assign(global_id,
                                         &intermedTensors.at(global_id));
@@ -251,8 +251,7 @@ handleToHostMemoryConfigOp(const ::ttnn::Tensor &inputTensor,
     std::uint32_t size = result.volume() * result.element_size();
     std::memcpy(dst, src, size);
   } else {
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   }
 }
 
@@ -277,16 +276,14 @@ handleToDramMemoryConfigOp(::ttnn::Device &device,
     result = ::ttnn::to_device(result, &device, targetMemoryConfig);
     result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
                                      shouldUntilize);
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   } else if (isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
         inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
     result = ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   }
 }
 
@@ -320,16 +317,14 @@ handleToL1MemoryConfigOp(::ttnn::Device &device,
       result =
           ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
     }
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   } else if (isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
         inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
     result = ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
-    tensorPool.insert_or_assign(outputTensorRef->global_id(),
-                                std::move(result));
+    tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   }
 }
 
@@ -396,7 +391,7 @@ static void run(::tt::target::ttnn::ToLayoutOp const *op,
   ::ttnn::Tensor out = ::ttnn::to_layout(inputTensor, layout, std::nullopt,
                                          std::nullopt, &device);
 
-  tensorPool.try_emplace(op->out()->global_id(), std::move(out));
+  tensorPool.try_emplace(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::ToDeviceOp const *op,
@@ -474,7 +469,7 @@ static void run(::tt::target::ttnn::ToDeviceOp const *op,
   ::ttnn::Device &device = getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
-  tensorPool.try_emplace(op->out()->global_id(), std::move(out));
+  tensorPool.try_emplace(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::EmptyOp const *op,
@@ -497,7 +492,7 @@ static void run(::tt::target::ttnn::EmptyOp const *op,
                                      device, outputMemoryConfig);
 
   // use try emplace here so the program output tensor doesn't get overwritten
-  tensorPool.try_emplace(op->out()->global_id(), std::move(out));
+  tensorPool.try_emplace(op->out()->global_id(), out);
 }
 
 static void
@@ -530,7 +525,7 @@ static void runEltwiseBinaryOP(
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void runEltwiseBinaryCompositeOP(
@@ -548,7 +543,7 @@ static void runEltwiseBinaryCompositeOP(
       createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void
@@ -574,7 +569,7 @@ static void runEltwiseUnaryOP(
       createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void runEltwiseUnaryWithFastAndApproximateModeOP(
@@ -593,7 +588,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOP(
 
   ::ttnn::Tensor out =
       ttnnOp(*in, false /* parameter */, outputMemoryConfig, std::nullopt);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::EltwiseOp const *op,
@@ -679,7 +674,7 @@ static void runReductionOp(
       in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,
       std::nullopt /* compute_kernel_config */, 1.0f /* scalar */);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::ReductionOp const *op,
@@ -751,7 +746,7 @@ static void run(::tt::target::ttnn::ReshapeOp const *op,
     throw std::invalid_argument("Unsupported rank for reshape");
   }
 
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::EmbeddingOp const *op,
@@ -768,7 +763,7 @@ static void run(::tt::target::ttnn::EmbeddingOp const *op,
   ::ttnn::Tensor out =
       ::ttnn::embedding(input, weight, padToken, layout, embeddingsType,
                         outputDataType, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->output()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->output()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::SoftmaxOp const *op,
@@ -779,7 +774,7 @@ static void run(::tt::target::ttnn::SoftmaxOp const *op,
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       createMemoryConfig(op->out());
   ::ttnn::Tensor out = ::ttnn::softmax(in, dimension, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::TransposeOp const *op,
@@ -811,7 +806,7 @@ static void run(::tt::target::ttnn::TransposeOp const *op,
       createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::permute(unsqueezedInput, dimensionOrder, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void run(::tt::target::ttnn::ConcatOp const *op,
@@ -823,7 +818,7 @@ static void run(::tt::target::ttnn::ConcatOp const *op,
   }
   int32_t dim = op->dim();
   ::ttnn::Tensor out = ::ttnn::concat(inputs, dim);
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 // ANCHOR: adding_an_op_matmul_runtime
@@ -840,7 +835,7 @@ static void run(::tt::target::ttnn::MatmulOp const *op,
       ::ttnn::operations::matmul::Matmul{/*program_config=*/std::nullopt,
                                          /*bcast_batch=*/std::nullopt,
                                          outputMemoryConfig, outputDataType});
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 // ANCHOR_END: adding_an_op_matmul_runtime
 
@@ -866,7 +861,7 @@ static void run(::tt::target::ttnn::Conv2dOp const *op,
           {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
           config));
 
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
   return;
 }
 
@@ -885,7 +880,7 @@ static void run(::tt::target::ttnn::MaxPool2dOp const *op,
       {op->padding_height(), op->padding_width()},
       {op->dilation_height(), op->dilation_width()}, &device);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
   return;
 }
 
@@ -932,7 +927,7 @@ static void run(::tt::target::ttnn::FullOp const *op,
       ::ttnn::full(shape, fillValue, outputDataType, outputLayout, outputDevice,
                    outputMemoryConfig);
 
-  tensorPool.insert_or_assign(op->out()->global_id(), std::move(out));
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 static void
@@ -1047,7 +1042,7 @@ void runProgram(::ttnn::Device &device,
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
     assert(inserted && "Duplicate output tensor");
   }
-  ProgramTensorPool tensorPool(std::move(liveTensors));
+  ProgramTensorPool tensorPool(liveTensors);
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
     run(op, allDevices, devicePool, tensorPool);
   }
