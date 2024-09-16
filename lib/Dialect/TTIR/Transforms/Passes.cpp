@@ -289,10 +289,12 @@ public:
     auto constraints = rewriter.getArrayAttr(SmallVector<Attribute>(
         op->getNumOperands(), rewriter.getAttr<OperandConstraintAttr>(
                                   OperandConstraint::AnyDeviceTile)));
+    auto resultTypes = op->getResults().getTypes();
+    auto resultLayout = mlir::cast<LayoutAttr>(
+        mlir::cast<RankedTensorType>(resultTypes.front()).getEncoding());
     auto dispatch = rewriter.create<ttir::GenericOp>(
-        op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        dps.getDpsInits(), rewriter.getAttr<GridAttr>(), indexingMaps,
-        iteratorTypes, constraints);
+        op.getLoc(), resultTypes, dps.getDpsInputs(), dps.getDpsInits(),
+        resultLayout.getGrid(), indexingMaps, iteratorTypes, constraints);
 
     // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());
@@ -348,7 +350,7 @@ struct TTIRGenericOperandsToMemrefRewriter
                   ConversionPatternRewriter &rewriter) const final {
     Block *entry = &generic.getRegion().front();
     auto firstEntryArgType = entry->getArguments()[0].getType();
-    bool isConverted = static_cast<bool>(
+    bool isConverted = mlir::isa<BufferAttr>(
         mlir::cast<RankedTensorType>(firstEntryArgType).getEncoding());
     if (isConverted) {
       // Already converted
