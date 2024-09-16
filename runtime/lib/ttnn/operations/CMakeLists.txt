@@ -1,23 +1,23 @@
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d/conv2d.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty/empty.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/creation/full/full.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat/concat.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape/reshape.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose/transpose.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/deletion/dealloc/dealloc.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding/embedding.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device/to_device.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout/to_layout.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config/to_memory_config.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul/matmul.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax/softmax.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool/maxpool2d.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction/reduction.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device/get_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/deletion/dealloc.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
 )
 
 add_library(TTRuntimeTTNNOps
