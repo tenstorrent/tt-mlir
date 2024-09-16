@@ -3,6 +3,7 @@ add_library(TTMLIRConversions INTERFACE)
 add_subdirectory(TosaToTTIR)
 add_subdirectory(TTNNToEmitC)
 add_subdirectory(TTIRToTTNN)
+add_subdirectory(TTIRToTTMetal)
 add_subdirectory(TTKernelToEmitC)
 
 if (TTMLIR_ENABLE_STABLEHLO)
@@ -15,6 +16,7 @@ set(link_libs
 TTMLIRTosaToTTIR
 TTMLIRTTNNToEmitC
 TTMLIRTTIRToTTNN
+TTMLIRTTIRToTTMetal
 TTMLIRTTKernelToEmitC
 )
 
