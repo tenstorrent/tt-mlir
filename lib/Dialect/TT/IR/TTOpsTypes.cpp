@@ -1032,7 +1032,8 @@ DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
 
 ::mlir::LogicalResult
 TileType::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                 ArrayRef<int64_t> shape, DataType dataType) {
+                 ArrayRef<int64_t> shape, DataType dataType,
+                 bool isTransposed) {
   if (shape.size() != 2) {
     emitError() << "expected 2D shape";
     return ::mlir::failure();
@@ -1041,8 +1042,8 @@ TileType::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
 }
 
 TileType TileType::get(::mlir::MLIRContext *context, Type elementType,
-                       ArrayRef<int64_t> shape) {
-  return get(context, shape, elementTypeToDataType(elementType));
+                       ArrayRef<int64_t> shape, bool isTransposed) {
+  return get(context, shape, elementTypeToDataType(elementType), isTransposed);
 }
 
 llvm::SmallVector<int64_t>

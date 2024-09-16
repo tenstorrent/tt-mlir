@@ -11,10 +11,10 @@
 namespace mlir::tt {
 
 MlirType ttmlirTTTileTypeGet(MlirContext ctx, unsigned height, unsigned width,
-                             uint32_t dataType) {
+                             uint32_t dataType, bool isTransposed) {
   return wrap(TileType::get(unwrap(ctx),
                             SmallVector<std::int64_t>{height, width},
-                            static_cast<tt::DataType>(dataType)));
+                            static_cast<tt::DataType>(dataType), isTransposed));
 }
 
 MlirType ttmlirTTDeviceTypeGet(MlirContext ctx, MlirAttribute deviceAttr) {

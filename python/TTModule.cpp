@@ -257,10 +257,10 @@ void populateTTModule(py::module &m) {
   py::class_<tt::TileType>(m, "TileType")
       .def_static("get",
                   [](MlirContext ctx, std::int64_t height, std::int64_t width,
-                     uint32_t dataType) {
+                     uint32_t dataType, bool isTransposed) {
                     return wrap(tt::TileType::get(
                         unwrap(ctx), SmallVector<std::int64_t>{height, width},
-                        static_cast<tt::DataType>(dataType)));
+                        static_cast<tt::DataType>(dataType), isTransposed));
                   })
       .def_property_readonly("data_type", &tt::TileType::getDataType)
       .def_property_readonly("shape", [](tt::TileType const &tile) {

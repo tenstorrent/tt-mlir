@@ -62,7 +62,7 @@ class TTKernelBuilder(ast.NodeVisitor):
         arg_shape[-2] = (arg_shape[-2] + arg_tile_shape[-2] - 1) // arg_tile_shape[-2]
         arg_shape[-1] = (arg_shape[-1] + arg_tile_shape[-1] - 1) // arg_tile_shape[-1]
         element_type = tt.ir.TileType.get(
-            self.ctx, arg_tile_shape[-2], arg_tile_shape[-1], arg_dtype
+            self.ctx, arg_tile_shape[-2], arg_tile_shape[-1], arg_dtype, False
         )
         return MemRefType.get(arg_shape, element_type)
 

@@ -45,7 +45,7 @@ def tilize(tensor, dataType, tileShape=[32, 32]):
     return tt.ir.LayoutAttr.with_element_type_(
         ctx,
         tensor.encoding,
-        tt.ir.TileType.get(ctx, tileShape[0], tileShape[1], dataType),
+        tt.ir.TileType.get(ctx, tileShape[0], tileShape[1], dataType, False),
     )
 
 

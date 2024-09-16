@@ -13,7 +13,8 @@ extern "C" {
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTTileTypeGet(MlirContext ctx,
                                                 unsigned height, unsigned width,
-                                                uint32_t dataType);
+                                                uint32_t dataType,
+                                                bool isTransposed);
 
 MLIR_CAPI_EXPORTED MlirType ttmlirTTDeviceTypeGet(MlirContext ctx,
                                                   MlirAttribute deviceAttr);

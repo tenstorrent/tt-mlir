@@ -415,11 +415,13 @@ class TT_Type<string name, string typeMnemonic, list<Trait> traits = []>
 def TT_Tile : TT_Type<"Tile", "tile", [MemRefElementTypeInterface]> {
     let summary = "TT tile";
     let description = "Tile type in TT dialect";
-    let parameters = (ins ArrayRefParameter<"int64_t">:$shape, "DataType":$dataType);
-    let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType `>`";
+    let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
+                          "DataType":$dataType,
+                          DefaultValuedParameter<"bool", "false", "Tile is stored transposed if true">:$isTransposed);
+    let assemblyFormat = "`<` custom<DimensionList>($shape) `,` $dataType (`,` `transposed` $isTransposed^)? `>`";
 
     let extraClassDeclaration = [{
-      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = {32, 32});
+      static TileType get(::mlir::MLIRContext *context, Type elementType, ArrayRef<int64_t> shape = {32, 32}, bool isTransposed = false);
       SmallVector<int64_t> getScalarShape(SmallVector<int64_t> tiledShape) const;
       SmallVector<int64_t> getTiledShape(SmallVector<int64_t> scalarShape) const;
       uint64_t getSizeBytes() const;
