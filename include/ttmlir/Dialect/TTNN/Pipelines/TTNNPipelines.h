@@ -87,6 +87,14 @@ struct TTIRToTTNNBackendPipelineOptions
           llvm::cl::desc("Override grid sizes for specific ops."),
           llvm::cl::init(llvm::StringMap<SmallVector<int64_t, 2>>())};
 
+  // If this option is true, skip the conversion from TTIR to TTNN, runs
+  // override passes and all other TTIR passes.
+  Option<bool> skipTTNNConversion{
+      *this, "skip-ttnn-conversion",
+      llvm::cl::desc(
+          "Skips adding TTNN Conversion passes to TTIRtoTTNN pipeline."),
+      llvm::cl::init(false)};
+
   // If this option is true, run sharding pass and try to shard ops.
   //
   Option<bool> shardingPassEnabled{

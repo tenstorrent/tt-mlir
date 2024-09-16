@@ -39,7 +39,11 @@ void createTTIRToTTNNBackendPipeline(
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
     pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }
-  pm.addPass(createConvertTTIRToTTNNPass());
+
+  if (not options.skipTTNNConversion) {
+    // Passes to convert TTIR -> TTNN.
+    pm.addPass(createConvertTTIRToTTNNPass());
+  }
 }
 
 //===----------------------------------------------------------------------===//
