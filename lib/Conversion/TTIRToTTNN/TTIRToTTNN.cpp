@@ -19,12 +19,53 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
+
+// Map TT::MemorySpace to TTNN::BufferType
+//
+ttnn::BufferType toTTNNBufferType(const tt::MemorySpace memorySpace) {
+
+  switch (memorySpace) {
+  case tt::MemorySpace::System:
+  case tt::MemorySpace::SystemMMIO:
+    return ttnn::BufferType::SystemMemory;
+  case tt::MemorySpace::DeviceDRAM:
+    return ttnn::BufferType::DRAM;
+  case tt::MemorySpace::DeviceL1:
+    return ttnn::BufferType::L1;
+  }
+
+  llvm_unreachable("Unknown MemorySpace");
+}
+
+// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
+//
+ttnn::TensorMemoryLayout
+toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout) {
+
+  switch (ttTensorMemoryLayout) {
+  case tt::TensorMemoryLayout::HeightSharded:
+    return ttnn::TensorMemoryLayout::HeightSharded;
+  case tt::TensorMemoryLayout::Interleaved:
+    return ttnn::TensorMemoryLayout::Interleaved;
+  case tt::TensorMemoryLayout::WidthSharded:
+    return ttnn::TensorMemoryLayout::WidthSharded;
+  case tt::TensorMemoryLayout::BlockSharded:
+    return ttnn::TensorMemoryLayout::BlockSharded;
+  case tt::TensorMemoryLayout::SingleBank:
+    return ttnn::TensorMemoryLayout::SingleBank;
+  case tt::TensorMemoryLayout::None:
+    assert(false && "TensorMemoryLayout::None not supported");
+  }
+
+  llvm_unreachable("Unknown TensorMemoryLayout");
+}
 
 // Gets or inserts a GetDeviceOp at the top of the current block of the given
 // operation.
@@ -54,9 +95,61 @@ public:
   LogicalResult
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    // Get tt::LayoutAttr of the result type
+    //
+    tt::LayoutAttr ttLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+
+    // Get the shape of the tensor, tensor layout, and data type
+    //
+    mlir::MemRefType memref = ttLayoutAttr.getMemref();
+    ttnn::ShapeAttr shapeAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), memref.getShape());
+    Type elementType = memref.getElementType();
+    DataType dtype = DataType::Float32;
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      dtype = elementTypeToDataType(elementType);
+    }
+    DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    // If the tensor is not going to device, we can create the op without
+    // device-specific attributes
+    //
+    tt::TensorMemoryLayout ttTensorMemoryLayout = ttLayoutAttr.getMemLayout();
+    if (ttTensorMemoryLayout == TensorMemoryLayout::None) {
+      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), nullptr,
+          shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
+
+      return success();
+    }
+
+    ttnn::BufferType bufferType =
+        toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+    ttnn::TensorMemoryLayout tensorMemoryLayout =
+        toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+
+    // Create MemoryConfigAttr
+    //
     auto device = getOrInsertDevice(rewriter, op);
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(),
+        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
+
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), device);
+        op, this->getTypeConverter()->convertType(op.getType()), device,
+        shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+
     return success();
   }
 };
@@ -118,27 +211,15 @@ public:
     }
 
     // TODO(bug #665):
-    // Binary ops fail with row major layout in ttnn, defaulting to tile layout
-    // for all ops...
+    // Binary ops fail with row major layout in ttnn, defaulting to tile
+    // layout for all ops...
     //
     ttnnLayoutEnum = ttnn::Layout::Tile;
 
     // Map TT::MemorySpace to TTNN::BufferType
     //
-    tt::MemorySpace memorySpace = ttLayoutAttr.getMemorySpace();
-    ttnn::BufferType bufferType = ttnn::BufferType::DRAM; // default to DRAM
-    switch (memorySpace) {
-    case tt::MemorySpace::System:
-    case tt::MemorySpace::SystemMMIO:
-      bufferType = ttnn::BufferType::SystemMemory;
-      break;
-    case tt::MemorySpace::DeviceDRAM:
-      bufferType = ttnn::BufferType::DRAM;
-      break;
-    case tt::MemorySpace::DeviceL1:
-      bufferType = ttnn::BufferType::L1;
-      break;
-    }
+    ttnn::BufferType bufferType =
+        toTTNNBufferType(ttLayoutAttr.getMemorySpace());
 
     // If the ToLayoutOp is applied to empty tensor, we need to check whether
     // the empty tensor is going back to system memory; if so, we should not
@@ -154,27 +235,7 @@ public:
     // Set the tensor memory layout
     //
     ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::TensorMemoryLayout::HeightSharded;
-    switch (ttLayoutAttr.getMemLayout()) {
-    case tt::TensorMemoryLayout::None:
-      assert(false && "TensorMemoryLayout::None not supported");
-      break;
-    case tt::TensorMemoryLayout::HeightSharded:
-      tensorMemoryLayout = ttnn::TensorMemoryLayout::HeightSharded;
-      break;
-    case tt::TensorMemoryLayout::Interleaved:
-      tensorMemoryLayout = ttnn::TensorMemoryLayout::Interleaved;
-      break;
-    case tt::TensorMemoryLayout::WidthSharded:
-      tensorMemoryLayout = ttnn::TensorMemoryLayout::WidthSharded;
-      break;
-    case tt::TensorMemoryLayout::BlockSharded:
-      tensorMemoryLayout = ttnn::TensorMemoryLayout::BlockSharded;
-      break;
-    case tt::TensorMemoryLayout::SingleBank:
-      tensorMemoryLayout = ttnn::TensorMemoryLayout::SingleBank;
-      break;
-    }
+        toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
 
     // TODO(bug #621):
     // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
@@ -433,7 +494,7 @@ public:
                             ? static_cast<float>(valueAttr.getSplatValue<int>())
                             : valueAttr.getSplatValue<float>();
       if (fillValue == 0) {
-        rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
+        rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
             op, this->getTypeConverter()->convertType(op.getType()), device);
       } else {
         ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);

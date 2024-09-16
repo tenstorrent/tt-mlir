@@ -42,6 +42,8 @@ CoreRangeSet toCoreRangeSet(
   return CoreRangeSet(coreRanges);
 }
 
+// This method will soon be deprecated, prefer to use the method below
+//
 ::tt::tt_metal::MemoryConfig
 createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
@@ -88,6 +90,45 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
       ::tt::runtime::ttnn::utils::toTTNNBufferType(targetMemorySpace);
 
   return {ttnnMemLayout, ttnnBufferType, shardSpec};
+}
+
+// Prefer to use this method over the one above
+//
+::tt::tt_metal::MemoryConfig
+createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
+                   const ::tt::target::TensorRef *tensorRef) {
+
+  ::ttnn::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
+          memcfg->tensor_memory_layout());
+
+  ::ttnn::BufferType bufferType =
+      ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());
+
+  // TODO(bug #620):
+  // Until ShardSpec support is added in TTNN, read it from the output tensor.
+  // If ShardSpec is not supplied, an error will be thrown in ttnn lib.
+  //
+  // TODO(bug #620):
+  // Update the method signature above: remove tensorRef
+  //
+  const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
+  const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
+      *targetCoreRangeSet = layout->core_range_set();
+  const ::flatbuffers::Vector<int32_t> *targetShardShape =
+      layout->memory_desc()->shape();
+  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
+  std::array<uint32_t, 2> ttnnShardShape;
+  std::copy(targetShardShape->begin(), targetShardShape->end(),
+            ttnnShardShape.begin());
+  ::tt::tt_metal::ShardSpec shardSpec(
+      ttnnCoreRangeSet, ttnnShardShape,
+      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
+
+  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
+                                       shardSpec};
+
+  return memoryConfig;
 }
 
 } // namespace tt::runtime::ttnn::operations::utils

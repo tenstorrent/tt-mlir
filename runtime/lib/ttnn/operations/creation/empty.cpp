@@ -11,18 +11,28 @@ namespace tt::runtime::ttnn::operations::creation {
 void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.tensorPool;
   DeviceMap &devicePool = context.devicePool;
-  ::ttnn::DataType targetDataTypeTTNN = utils::getDataType(op->out());
+  ::ttnn::DataType dtype =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
   // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
   // using ROW_MAJOR until we fix it
-  auto desiredLayout = ::ttnn::Layout::ROW_MAJOR;
-  auto shape = ::ttnn::Shape(
-      ::tt::tt_metal::Shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+  ::ttnn::Layout layout __attribute__((unused)) =
+      ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
+  layout = ::ttnn::Layout::ROW_MAJOR;
+  ::ttnn::Shape shape =
+      ::ttnn::Shape(Shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->out()->desc()->shape())));
 
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
-  ::ttnn::Tensor out =
-      ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout, device);
-  // use try emplace here so the program output tensor doesn't get overwritten
+  const tt::target::DeviceRef *device = op->device();
+  ::ttnn::Tensor out;
+  if (device) {
+    ::ttnn::MemoryConfig memoryConfig =
+        utils::createMemoryConfig(op->memcfg(), op->out());
+    out = ::ttnn::empty(shape, dtype, layout,
+                        utils::getDevice(device, devicePool), memoryConfig);
+  } else {
+    out = ::ttnn::empty(shape, dtype, layout);
+  }
+
   tensorPool.try_emplace(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation
