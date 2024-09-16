@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <sstream>
+
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/runtime.h"
 
 #include <pybind11/pybind11.h>
@@ -64,4 +67,12 @@ PYBIND11_MODULE(_C, m) {
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
         py::arg("outputs"), "Submit a binary for execution");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
+
+  py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
+      .def_static("get", &tt::runtime::debug::Env::get)
+      .def("__str__", [](const tt::runtime::debug::Env &env) {
+        std::stringstream os;
+        os << env;
+        return os.str();
+      });
 }

@@ -27,6 +27,7 @@ enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
+debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 
 ext_modules = [
     Pybind11Extension(
@@ -65,6 +66,7 @@ if enable_ttmetal:
 
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libdevice.so", "libnng.so.1", "libuv.so.1"]
+    linklibs += ["TTRuntimeDebug"]
 
 if enable_perf:
     runlibs += ["libtracy.so.0.10.0"]
@@ -139,7 +141,7 @@ if enable_runtime:
 
     def package_files(directory):
         paths = []
-        for (path, directories, filenames) in os.walk(directory):
+        for path, directories, filenames in os.walk(directory):
             for filename in filenames:
                 paths.append(os.path.join("..", path, filename))
         return paths
@@ -182,7 +184,10 @@ if enable_runtime:
                 f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
                 f"{metaldir}/lib",
             ],
-            define_macros=[("VERSION_INFO", __version__)],
+            define_macros=[
+                ("VERSION_INFO", __version__),
+                ("TT_RUNTIME_DEBUG", "1" if debug_runtime else "0"),
+            ],
         )
     )
 

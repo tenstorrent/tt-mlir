@@ -4,6 +4,7 @@
 
 #include <unordered_map>
 
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
@@ -21,6 +22,7 @@ struct CQExecutor {
   std::unordered_map<std::uint32_t, std::shared_ptr<::tt::tt_metal::Event>>
       events;
   ::tt::tt_metal::CommandQueue *cq;
+  char const *currentProgramName;
 
   CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
              std::vector<InputBuffer> const &inputs,
@@ -29,7 +31,8 @@ struct CQExecutor {
   std::shared_ptr<::tt::tt_metal::Event>
   execute(::tt::target::metal::CommandQueue const *commandQueue);
   void execute(::tt::target::metal::Command const *command);
-  void execute(::tt::target::metal::EnqueueProgramCommand const *command);
+  void execute(::tt::target::metal::EnqueueProgramCommand const *command,
+               char const *debugInfo);
   void execute(::tt::target::metal::EnqueueWriteBufferCommand const *command);
   void execute(::tt::target::metal::EnqueueReadBufferCommand const *command);
   void execute(::tt::target::metal::CreateBufferCommand const *command);
@@ -64,6 +67,8 @@ CQExecutor::CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
 
 std::shared_ptr<::tt::tt_metal::Event>
 CQExecutor::execute(::tt::target::metal::CommandQueue const *commandQueue) {
+  currentProgramName = commandQueue->name()->c_str();
+
   for (auto const &event : initEvents) {
     ::tt::tt_metal::EnqueueWaitForEvent(*cq, event);
   }
@@ -83,7 +88,8 @@ CQExecutor::execute(::tt::target::metal::CommandQueue const *commandQueue) {
 void CQExecutor::execute(::tt::target::metal::Command const *command) {
   switch (command->type_type()) {
   case ::tt::target::metal::CommandType::EnqueueProgramCommand: {
-    execute(command->type_as_EnqueueProgramCommand());
+    execute(command->type_as_EnqueueProgramCommand(),
+            command->debug_info()->c_str());
     break;
   }
   case ::tt::target::metal::CommandType::EnqueueWriteBufferCommand: {
@@ -132,8 +138,73 @@ void CQExecutor::execute(::tt::target::metal::Command const *command) {
   }
 }
 
+static char const *
+kernelSourceTypeString(::tt::target::metal::KernelSource const *kernelSource) {
+  switch (kernelSource->config_type()) {
+  case ::tt::target::metal::KernelConfig::NONE: {
+    break;
+  }
+  case ::tt::target::metal::KernelConfig::NocConfig: {
+    switch (kernelSource->config_as_NocConfig()->noc_index()) {
+    case tt::target::metal::NocIndex::Noc0: {
+      return "noc0";
+    }
+    case tt::target::metal::NocIndex::Noc1: {
+      return "noc1";
+    }
+    }
+  }
+  case ::tt::target::metal::KernelConfig::EthernetConfig: {
+    switch (kernelSource->config_as_EthernetConfig()->eth_type()) {
+    case tt::target::metal::EthType::Sender: {
+      return "ethSender";
+    }
+    case tt::target::metal::EthType::Receiver: {
+      return "ethReceiver";
+    }
+    }
+  }
+  case ::tt::target::metal::KernelConfig::TensixConfig: {
+    return "tensix";
+  }
+  }
+  return "unknown";
+}
+
+static std::string parseLocFromDebugInfo(char const *programDebugInfo) {
+  if (!programDebugInfo) {
+    static int gUnknownId = 0;
+    return std::string("%unknown") + std::to_string(gUnknownId++);
+  }
+  std::string debugInfo(programDebugInfo);
+  std::size_t pos = debugInfo.find_first_of(' ');
+  if (pos == std::string::npos) {
+    return debugInfo;
+  }
+  return debugInfo.substr(0, pos);
+}
+
+static std::string createKernelFilePath(
+    char const *currentProgramName, char const *programDebugInfo,
+    ::tt::target::metal::KernelSource const *kernelSource,
+    char const *prefix = "/tmp/ttmlir_", char const *extention = ".cpp") {
+  std::string path(prefix);
+  path += currentProgramName;
+  path += "_";
+  path += parseLocFromDebugInfo(programDebugInfo);
+  path += "_";
+  path += kernelSourceTypeString(kernelSource);
+  path += extention;
+  return path;
+}
+
 static void writeFile(std::string const &fileName, char const *data,
                       std::size_t size) {
+  if (debug::Env::get().loadKernelsFromDisk) {
+    std::ifstream file(fileName);
+    assert(file.is_open() && "Kernel file not found");
+    return;
+  }
   std::ofstream file(fileName);
   file.write(data, size);
   file.close();
@@ -313,9 +384,8 @@ static void processRuntimeArgs(
 }
 
 void CQExecutor::execute(
-    ::tt::target::metal::EnqueueProgramCommand const *command) {
-  static int gKernelId = 0;
-
+    ::tt::target::metal::EnqueueProgramCommand const *command,
+    char const *debugInfo) {
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
 
   for (::tt::target::metal::KernelDesc const *kernelDesc :
@@ -326,7 +396,7 @@ void CQExecutor::execute(
     // We need a new API to create a kernel from source string, or directly from
     // binary
     std::string fileName =
-        "/tmp/ttmlir_" + std::to_string(gKernelId++) + ".cpp";
+        createKernelFilePath(currentProgramName, debugInfo, kernelSource);
     writeFile(fileName, kernelSource->source()->c_str(),
               kernelSource->source()->size());
     CoreRangeSet coreRange = toCoreRangeSet(kernelDesc->core_range_set());
