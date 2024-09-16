@@ -64,12 +64,11 @@ public:
 //
 struct TTIRToTTNNBackendPipelineOptions
     : public PassPipelineOptions<TTIRToTTNNBackendPipelineOptions> {
-  // If this option is true, run GridSet pass and try setting max available grid
-  // size for OP execution.
-  // If this option is false, skip running GridSet pass,
-  // thus leaving all ops on 1x1 grid.
-  Option<bool> gridSetPassEnabled{
-      *this, "enable-grid-set",
+  // If this option is true, run Optimizer trying to set optimal Op
+  // configuration for max performance. If this option is false, skip running
+  // Optimizer pass, thus leaving all ops on default configuration.
+  Option<bool> optimizerPassEnabled{
+      *this, "enable-optimizer",
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(true)};
 
@@ -80,7 +79,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // This will set the grid size for op1 to 2x2 and op2 to 4x4.
   //
-  // Note: This option is only valid if gridSetPassEnabled is true.
+  // Note: This option is only valid if optimizerPassEnabled is true.
   //
   Option<llvm::StringMap<SmallVector<int64_t, 2>>, GridSizeOverrideParser>
       overrideGridSizes{

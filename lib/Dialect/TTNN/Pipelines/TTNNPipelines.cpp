@@ -33,11 +33,11 @@ void createTTIRToTTNNBackendPipeline(
       mlir::tt::TensorMemoryLayout::Interleaved;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
 
-  if (options.gridSetPassEnabled) {
-    ttir::TTIRGridSetOptions gridSetOptions;
-    gridSetOptions.overrideGridSizes = options.overrideGridSizes;
-    gridSetOptions.shardingPassEnabled = options.shardingPassEnabled;
-    pm.addPass(mlir::tt::ttir::createTTIRGridSet(gridSetOptions));
+  if (options.optimizerPassEnabled) {
+    ttir::TTIROptimizerOptions optimizerOptions;
+    optimizerOptions.overrideGridSizes = options.overrideGridSizes;
+    optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
+    pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }
   pm.addPass(createConvertTTIRToTTNNPass());
 }

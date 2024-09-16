@@ -246,7 +246,7 @@ private:
     Paths paths;
   };
 
-  const std::vector<LayoutAttr> &getLegalGrids(Operation *operation) const;
+  const std::vector<LayoutAttr> &getLegalLayouts(Operation *operation) const;
   void reset();
 
   PathSet *getPathSetPt(const Edge &edge);
@@ -267,14 +267,15 @@ private:
   void addOperandsAndUsers(Operation *op, std::vector<Operation *> &needsUpdate,
                            Operation *ignoreOp = nullptr);
 
-  bool checkShardCompatible(const Operation *producerOp,
+  void preprocessFirstOp();
+  bool checkShardCompatible(Operation *producerOp,
                             LayoutAttr const &producerLayout,
-                            const Operation *consumerOp,
+                            Operation *consumerOp,
                             LayoutAttr const &consumerLayout) const;
 
 public:
   ShardSolver(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       const std::vector<ShardSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize);
@@ -282,10 +283,11 @@ public:
   void set(Operation *operation, LayoutAttr const &layout);
 
 private:
-  const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> *legalGrids;
+  const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> *legalLayouts;
   const std::vector<ShardSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
+  DeviceAttr deviceAttr;
 
   llvm::DenseMap<Operation *, std::vector<Edge>> operandOpEdges;
   llvm::DenseMap<Operation *, std::vector<Edge>> userOpEdges;

@@ -17,18 +17,18 @@ class DFShardingPolicy {
 private:
   Operation *rootOp;
   std::vector<ShardChainConfig> *shardChainConfigs;
-  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
   unsigned usableL1CacheSize = 0;
 
 public:
   DFShardingPolicy(
       Operation *rootOp, std::vector<ShardChainConfig> &shardChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
       : rootOp(rootOp), shardChainConfigs(&shardChainConfigs),
-        legalGrids(legalGrids), schedule(&schedule),
+        legalLayouts(legalLayouts), schedule(&schedule),
         usableL1CacheSize(usableL1CacheSize) {}
 
   void run();
