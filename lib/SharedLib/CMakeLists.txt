@@ -13,11 +13,13 @@ set(TTMLIR_LIBS
     MLIRTTNNDialect
     MLIRTTKernelDialect
     TTMLIRTTIRToTTNN
+    TTMLIRTTIRToTTMetal
     MLIRTTMetalDialect
     MLIRTTIRTransforms
     MLIRTTNNTransforms
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
+    MLIRTTMetalPipelines
     TTMLIRTTNNToEmitC
 )
 
