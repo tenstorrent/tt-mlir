@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
-#include "utils.h"
 
 namespace tt::runtime::ttnn {
 

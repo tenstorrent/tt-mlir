@@ -58,7 +58,7 @@ install_requires += ["pybind11"]
 linklibs = ["TTBinary", "TTRuntimeSysDesc"]
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
-    linklibs += ["TTRuntimeTTNN", ":_ttnn.so"]
+    linklibs += ["TTRuntimeTTNN", "TTRuntimeTTNNOps", ":_ttnn.so"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
@@ -179,6 +179,7 @@ if enable_runtime:
                 f"{src_dir}/build/runtime/lib",
                 f"{src_dir}/build/runtime/lib/common",
                 f"{src_dir}/build/runtime/lib/ttnn",
+                f"{src_dir}/build/runtime/lib/ttnn/operations",
                 f"{src_dir}/build/runtime/lib/ttmetal",
                 f"{toolchain}/lib",
                 f"{src_dir}/build/runtime/tools/python/ttrt/runtime",

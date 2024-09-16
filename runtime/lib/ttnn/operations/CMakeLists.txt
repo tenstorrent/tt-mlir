@@ -1,0 +1,38 @@
+set(TTNN_OPS_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/deletion/dealloc.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/pool/maxpool2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/reduction.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
+)
+
+add_library(TTRuntimeTTNNOps
+  STATIC
+  ${TTNN_OPS_SRCS}
+)
+
+set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
+target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+target_include_directories(TTRuntimeTTNNOps PUBLIC
+  ${PROJECT_SOURCE_DIR}/runtime/include
+  ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include
+  ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/operations/include
+  ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+)
+target_include_directories(TTRuntimeTTNNOps PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY)
+add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION)
