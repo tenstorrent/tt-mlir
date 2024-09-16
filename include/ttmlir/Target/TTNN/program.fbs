@@ -30,7 +30,11 @@ table ToDeviceOp {
 }
 
 table EmptyOp {
-  device: tt.target.DeviceRef;
+  shape: [int64];
+  dtype: DataType;
+  layout: TensorLayout;
+  device: tt.target.DeviceRef;         // optional
+  memcfg: tt.target.MemoryConfigDesc;  // optional
   out: tt.target.TensorRef;
 }
 

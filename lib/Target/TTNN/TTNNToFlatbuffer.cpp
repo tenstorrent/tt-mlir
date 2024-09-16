@@ -2,9 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cassert>
 #include <fstream>
 
 #include <llvm/Support/Casting.h>
+#include <llvm/Support/ErrorHandling.h>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -128,8 +130,6 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto device = getOperandThroughDPSOps(op.getDevice());
 
-  op.getMemoryConfig();
-
   ::tt::target::TensorMemoryLayout tensorMemoryLayout;
   ::tt::target::BufferType bufferType;
 
@@ -184,12 +184,111 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   constexpr uint64_t kHostAllocatedAddress = 0;
   constexpr uint64_t kHostAllocatedSize = 0;
-  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
+  ::tt::target::DataType dtype;
+  ::tt::target::TensorLayout layout;
+
+  switch (op.getDtype().value()) {
+  case tt::DataType::BFloat16:
+    dtype = ::tt::target::DataType::BFloat16;
+    break;
+  case tt::DataType::Float32:
+    dtype = ::tt::target::DataType::Float32;
+    break;
+  case tt::DataType::UInt32:
+    dtype = ::tt::target::DataType::UInt32;
+    break;
+  case tt::DataType::BFP_BFloat8:
+    dtype = ::tt::target::DataType::BFP_BFloat8;
+    break;
+  case tt::DataType::BFP_BFloat4:
+    dtype = ::tt::target::DataType::BFP_BFloat4;
+    break;
+  case tt::DataType::UInt8:
+    dtype = ::tt::target::DataType::UInt8;
+    break;
+  case tt::DataType::UInt16:
+    dtype = ::tt::target::DataType::UInt16;
+    break;
+  case tt::DataType::Float16:
+  case tt::DataType::BFP_Float2:
+  case tt::DataType::BFP_Float4:
+  case tt::DataType::BFP_Float8:
+  case tt::DataType::BFP_BFloat2:
+    llvm_unreachable("unsupported data type");
+  }
+
+  switch (op.getLayout().value()) {
+  case ttnn::Layout::RowMajor:
+    layout = ::tt::target::TensorLayout::RowMajor;
+    break;
+  case ttnn::Layout::Tile:
+    layout = ::tt::target::TensorLayout::Tile;
+    break;
+  case ttnn::Layout::Invalid:
+    llvm_unreachable("unsupported layout");
+  }
+
   auto output = getOperandThroughDPSOps(op.getResult());
-  return ::tt::target::ttnn::CreateEmptyOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device),
-      cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
-                        kHostAllocatedSize));
+
+  // If the device is not set, we create on host
+  //
+  if (!op.getDevice()) {
+    return ::tt::target::ttnn::CreateEmptyOp(
+        *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout, 0,
+        0,
+        cache.getOrCreate(output, tensorValueToFlatbuffer,
+                          kHostAllocatedAddress, kHostAllocatedSize));
+  } else {
+    auto device = getOperandThroughDPSOps(op.getDevice());
+    ::tt::target::TensorMemoryLayout tensorMemoryLayout;
+    ::tt::target::BufferType bufferType;
+
+    switch (op.getMemoryConfig()->getTensorMemoryLayout().getValue()) {
+    case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
+      tensorMemoryLayout = ::tt::target::TensorMemoryLayout::Interleaved;
+      break;
+    case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
+      tensorMemoryLayout = ::tt::target::TensorMemoryLayout::SingleBank;
+      break;
+    case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
+      tensorMemoryLayout = ::tt::target::TensorMemoryLayout::HeightSharded;
+      break;
+    case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
+      tensorMemoryLayout = ::tt::target::TensorMemoryLayout::WidthSharded;
+      break;
+    case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
+      tensorMemoryLayout = ::tt::target::TensorMemoryLayout::BlockSharded;
+      break;
+    }
+
+    switch (op.getMemoryConfig()->getBufferType().getValue()) {
+    case ::mlir::tt::ttnn::BufferType::DRAM:
+      bufferType = ::tt::target::BufferType::DRAM;
+      break;
+    case ::mlir::tt::ttnn::BufferType::L1:
+      bufferType = ::tt::target::BufferType::L1;
+      break;
+    case ::mlir::tt::ttnn::BufferType::SystemMemory:
+      bufferType = ::tt::target::BufferType::SystemMemory;
+      break;
+    case ::mlir::tt::ttnn::BufferType::L1Small:
+      bufferType = ::tt::target::BufferType::L1Small;
+      break;
+    case ::mlir::tt::ttnn::BufferType::Trace:
+      bufferType = ::tt::target::BufferType::Trace;
+      break;
+    }
+
+    auto memoryConfigDesc =
+        CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+    return ::tt::target::ttnn::CreateEmptyOp(
+        *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
+        cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+        cache.getOrCreate(output, tensorValueToFlatbuffer,
+                          kHostAllocatedAddress, kHostAllocatedSize));
+  }
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>

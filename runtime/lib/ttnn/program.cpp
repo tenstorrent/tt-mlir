@@ -162,6 +162,78 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   return {ttnnMemLayout, ttnnBufferType, shardSpec};
 }
 
+static ::tt::tt_metal::MemoryConfig
+createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
+                   const ::tt::target::TensorRef *tensorRef) {
+
+  ::ttnn::TensorMemoryLayout tensorMemoryLayout;
+  switch (memcfg->tensor_memory_layout()) {
+  case ::tt::target::TensorMemoryLayout::Interleaved:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::INTERLEAVED;
+    break;
+  case ::tt::target::TensorMemoryLayout::SingleBank:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::SINGLE_BANK;
+    break;
+  case ::tt::target::TensorMemoryLayout::HeightSharded:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
+    break;
+  case ::tt::target::TensorMemoryLayout::WidthSharded:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
+    break;
+  case ::tt::target::TensorMemoryLayout::BlockSharded:
+    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+    break;
+  case ::tt::target::TensorMemoryLayout::None:
+    assert(false &&
+           "Unsupported tensor memory layout TensorMemoryLayout::None");
+    break;
+  }
+
+  ::ttnn::BufferType bufferType;
+  switch (memcfg->buffer_type()) {
+  case ::tt::target::BufferType::DRAM:
+    bufferType = ::ttnn::BufferType::DRAM;
+    break;
+  case ::tt::target::BufferType::L1:
+    bufferType = ::ttnn::BufferType::L1;
+    break;
+  case ::tt::target::BufferType::SystemMemory:
+    bufferType = ::ttnn::BufferType::SYSTEM_MEMORY;
+    break;
+  case ::tt::target::BufferType::L1Small:
+    bufferType = ::ttnn::BufferType::L1_SMALL;
+    break;
+  case ::tt::target::BufferType::Trace:
+    bufferType = ::ttnn::BufferType::TRACE;
+    break;
+  }
+
+  // TODO(bug #620):
+  // Until ShardSpec support is added in TTNN, read it from the output tensor.
+  // If ShardSpec is not supplied, an error will be thrown in ttnn lib.
+  //
+  // TODO(bug #620):
+  // Update the method signature above: remove tensorRef
+  //
+  const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
+  const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
+      *targetCoreRangeSet = layout->core_range_set();
+  const ::flatbuffers::Vector<int32_t> *targetShardShape =
+      layout->memory_desc()->shape();
+  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
+  std::array<uint32_t, 2> ttnnShardShape;
+  std::copy(targetShardShape->begin(), targetShardShape->end(),
+            ttnnShardShape.begin());
+  ::tt::tt_metal::ShardSpec shardSpec(
+      ttnnCoreRangeSet, ttnnShardShape,
+      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
+
+  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
+                                       shardSpec};
+
+  return memoryConfig;
+}
+
 static ::ttnn::Tensor tilize(::ttnn::Tensor const &input) {
   // NOLINTNEXTLINE
   return ::ttnn::to_layout(input, ::ttnn::TILE_LAYOUT, std::nullopt,
@@ -402,70 +474,8 @@ static void run(::tt::target::ttnn::ToDeviceOp const *op,
   assert((isOnHost(inputTensor) or isOnDevice(inputTensor)) &&
          "Unsupported storage type");
 
-  op->memcfg()->tensor_memory_layout();
-  op->memcfg()->buffer_type();
-
-  ::ttnn::TensorMemoryLayout tensorMemoryLayout;
-  switch (op->memcfg()->tensor_memory_layout()) {
-  case ::tt::target::TensorMemoryLayout::Interleaved:
-    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::INTERLEAVED;
-    break;
-  case ::tt::target::TensorMemoryLayout::SingleBank:
-    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::SINGLE_BANK;
-    break;
-  case ::tt::target::TensorMemoryLayout::HeightSharded:
-    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
-    break;
-  case ::tt::target::TensorMemoryLayout::WidthSharded:
-    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
-    break;
-  case ::tt::target::TensorMemoryLayout::BlockSharded:
-    tensorMemoryLayout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
-    break;
-  case ::tt::target::TensorMemoryLayout::None:
-    assert(false &&
-           "Unsupported tensor memory layout TensorMemoryLayout::None");
-    break;
-  }
-
-  ::ttnn::BufferType bufferType;
-  switch (op->memcfg()->buffer_type()) {
-  case ::tt::target::BufferType::DRAM:
-    bufferType = ::ttnn::BufferType::DRAM;
-    break;
-  case ::tt::target::BufferType::L1:
-    bufferType = ::ttnn::BufferType::L1;
-    break;
-  case ::tt::target::BufferType::SystemMemory:
-    bufferType = ::ttnn::BufferType::SYSTEM_MEMORY;
-    break;
-  case ::tt::target::BufferType::L1Small:
-    bufferType = ::ttnn::BufferType::L1_SMALL;
-    break;
-  case ::tt::target::BufferType::Trace:
-    bufferType = ::ttnn::BufferType::TRACE;
-    break;
-  }
-
-  // TODO(bug #620):
-  // Until ShardSpec support is added in TTNN, read it from the output tensor.
-  // If ShardSpec is not supplied, an error will be thrown in ttnn lib.
-  //
-  const ::tt::target::LayoutDesc *layout = op->out()->desc()->layout();
-  const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
-      *targetCoreRangeSet = layout->core_range_set();
-  const ::flatbuffers::Vector<int32_t> *targetShardShape =
-      layout->memory_desc()->shape();
-  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  std::array<uint32_t, 2> ttnnShardShape;
-  std::copy(targetShardShape->begin(), targetShardShape->end(),
-            ttnnShardShape.begin());
-  ::tt::tt_metal::ShardSpec shardSpec(
-      ttnnCoreRangeSet, ttnnShardShape,
-      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
-
-  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
-                                       shardSpec};
+  ::ttnn::MemoryConfig memoryConfig =
+      createMemoryConfig(op->memcfg(), op->out());
   ::ttnn::Device &device = getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
@@ -475,23 +485,27 @@ static void run(::tt::target::ttnn::ToDeviceOp const *op,
 static void run(::tt::target::ttnn::EmptyOp const *op,
                 std::unordered_map<uint32_t, ::ttnn::Device *> &devicePool,
                 ProgramTensorPool &tensorPool) {
-  ::ttnn::DataType targetDataTypeTTNN = getDataType(op->out());
+
+  ::ttnn::DataType dtype = utils::toTTNNDataType(op->dtype());
   // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
   // using ROW_MAJOR until we fix it
-  auto desiredLayout = ::ttnn::Layout::ROW_MAJOR;
-  auto shape = ::ttnn::Shape(::tt::tt_metal::Shape(
-      utils::toShapeFromFBShape(*op->out()->desc()->shape())));
+  ::ttnn::Layout layout __attribute__((unused)) =
+      utils::toTTNNLayout(op->layout());
+  layout = ::ttnn::Layout::ROW_MAJOR;
+  ::ttnn::Shape shape = ::ttnn::Shape(
+      Shape(utils::toShapeFromFBShape(*op->out()->desc()->shape())));
 
-  // Create output memory config for the op
-  //
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      createMemoryConfig(op->out());
+  const tt::target::DeviceRef *device = op->device();
+  ::ttnn::Tensor out;
+  if (device) {
+    ::ttnn::MemoryConfig memoryConfig =
+        createMemoryConfig(op->memcfg(), op->out());
+    out = ::ttnn::empty(shape, dtype, layout, getDevice(device, devicePool),
+                        memoryConfig);
+  } else {
+    out = ::ttnn::empty(shape, dtype, layout);
+  }
 
-  ::ttnn::Device &device = getDevice(op->device(), devicePool);
-  ::ttnn::Tensor out = ::ttnn::empty(shape, targetDataTypeTTNN, desiredLayout,
-                                     device, outputMemoryConfig);
-
-  // use try emplace here so the program output tensor doesn't get overwritten
   tensorPool.try_emplace(op->out()->global_id(), out);
 }
 

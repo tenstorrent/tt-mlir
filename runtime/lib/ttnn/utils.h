@@ -8,6 +8,7 @@
 #include "flatbuffers/vector.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttnn/types.hpp"
+#include "types_generated.h"
 
 namespace tt::runtime::ttnn::utils {
 
@@ -53,6 +54,17 @@ inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
 
   default:
     throw std::runtime_error("Unsupported data type");
+  }
+}
+
+inline ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout) {
+  switch (layout) {
+  case ::tt::target::TensorLayout::Tile:
+    return ::ttnn::Layout::TILE;
+  case ::tt::target::TensorLayout::RowMajor:
+    return ::ttnn::Layout::ROW_MAJOR;
+  default:
+    throw std::runtime_error("Unsupported layout");
   }
 }
 

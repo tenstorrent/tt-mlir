@@ -3,28 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
+#include <cstdio>
 
-// Below is a snippet generated with:
-// ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-layout
-//  --convert-ttir-to-ttnn --convert-ttnn-to-emitc
+// To generate forward function, run:
+// ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-implicit-device
+// --ttir-layout --convert-ttir-to-ttnn --convert-ttnn-to-emitc
 // test/ttmlir/Dialect/TTNN/simple_multiply.mlir | ./build/bin/ttmlir-translate
 // -mlir-to-cpp -allow-unregistered-dialect
-//
-// #include "pch.hpp"
-// ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
-//   ttnn::device::Device& v3 = ttnn::device::open_device(0);
-//   ttnn::Tensor v4 = ttnn::full(v3);
-//   ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);
-//   ttnn::Tensor v6 = ttnn::full(v3);
-//   ttnn::Tensor v7 = ttnn::to_memory_config(v2, v6);
-//   ttnn::Tensor v8 = ttnn::full(v3);
-//   ttnn::Tensor v9 = ttnn::multiply(v5, v7, v8);
-//   ttnn::Tensor v10 = ttnn::full(v3);
-//   ttnn::Tensor v11 = ttnn::to_memory_config(v9, v10);
-//   ttnn::device::close_device(v3);
-//   return v11;
-// }
 
+// Forward function example
+//
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::Device &v3 = ttnn::open_device(0);
 
@@ -40,9 +28,9 @@ ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::Tensor v6 =
       ttnn::to_layout(v2, ttnn::Layout::TILE, std::nullopt, std::nullopt, &v3);
   ttnn::Tensor v7 = ttnn::to_device(v6, &v3, memConfig);
-
   ttnn::Tensor v8 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
                                 v2.tensor_attributes->layout, v3);
+
   ttnn::multiply(v5, v7, std::nullopt, std::nullopt, v8, std::nullopt,
                  std::nullopt);
 
