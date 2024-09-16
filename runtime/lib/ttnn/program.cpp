@@ -710,7 +710,14 @@ vectorToArray(const std::vector<int32_t> &vec) {
 template <int32_t Rank>
 static ::ttnn::Tensor invoke_reshape(const ::ttnn::Tensor &tensor,
                                      const std::vector<int32_t> &shape) {
-  return ::ttnn::reshape(tensor, vectorToArray<Rank>(shape));
+  // TDOO #686 - figure out how to call reshape in tile layout
+  if (tensor.get_layout() == ::ttnn::Layout::ROW_MAJOR) {
+    return ::ttnn::reshape(tensor, vectorToArray<Rank>(shape));
+  }
+
+  auto rowMajorTensor = untilize(tensor);
+  auto res = ::ttnn::reshape(rowMajorTensor, vectorToArray<Rank>(shape));
+  return tilize(res);
 }
 
 static void run(::tt::target::ttnn::ReshapeOp const *op,
