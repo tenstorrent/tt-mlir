@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
 #include "ttmlir/RegisterAll.h"
+#include "llvm/Support/CommandLine.h"
 
 namespace py = pybind11;
 

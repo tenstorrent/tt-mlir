@@ -15,9 +15,8 @@ namespace mlir::tt::ttnn {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-
+void createTTIRPipelineFirst(OpPassManager &pm,
+                             const TTIRToTTNNBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
@@ -39,11 +38,17 @@ void createTTIRToTTNNBackendPipeline(
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
     pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }
+}
 
-  if (not options.skipTTNNConversion) {
-    // Passes to convert TTIR -> TTNN.
-    pm.addPass(createConvertTTIRToTTNNPass());
-  }
+void createTTNNPipelineSecond(OpPassManager &pm,
+                              const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createConvertTTIRToTTNNPass());
+}
+
+void createTTIRToTTNNBackendPipeline(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTIRPipelineFirst(pm, options);
+  createTTNNPipelineSecond(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
