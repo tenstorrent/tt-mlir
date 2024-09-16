@@ -386,6 +386,8 @@ static void processRuntimeArgs(
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueProgramCommand const *command,
     char const *debugInfo) {
+
+  ZoneScopedN("EnqueueProgramCommand");
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
 
   for (::tt::target::metal::KernelDesc const *kernelDesc :
@@ -423,6 +425,7 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
+  ZoneScopedN("EnqueueWriteBufferCommand");
   assert(command->src()->desc()->constant_data() != nullptr &&
          "Only constant data supported");
   throw std::runtime_error("Unsupported EnqueueWriteBufferCommand");
@@ -430,12 +433,14 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueReadBufferCommand const *command) {
+  ZoneScopedN("EnqueueReadBufferCommand");
   // Maybe we will need this in the future, like paging to system mem?
   throw std::runtime_error("Unsupported EnqueueReadBufferCommand");
 }
 
 void CQExecutor::execute(
     ::tt::target::metal::CreateBufferCommand const *command) {
+  ZoneScopedN("CreateBufferCommand");
   if (buffers.find(command->ref()->global_id()) == buffers.end()) {
     buffers[command->ref()->global_id()] =
         createBufferFromTensorRef(device, command->ref());
@@ -444,6 +449,7 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::DeallocateBufferCommand const *command) {
+  ZoneScopedN("DeallocateBufferCommand");
   auto iter = buffers.find(command->ref()->global_id());
   assert(iter != buffers.end() && "Buffer not allocated");
   assert(iter->second != nullptr && "Buffer already deallocated");
@@ -453,6 +459,7 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::CreateEventCommand const *command) {
+  ZoneScopedN("CreateEventCommand");
   assert(events.find(command->ref()->global_id()) == events.end());
   events[command->ref()->global_id()] =
       std::make_shared<::tt::tt_metal::Event>();
@@ -460,24 +467,28 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueRecordEventCommand const *command) {
+  ZoneScopedN("EnqueueRecordEventCommand");
   auto event = events.at(command->ref()->global_id());
   ::tt::tt_metal::EnqueueRecordEvent(*cq, event);
 }
 
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWaitForEventCommand const *command) {
+  ZoneScopedN("EnqueueWaitForEventCommand");
   auto event = events.at(command->ref()->global_id());
   ::tt::tt_metal::EnqueueWaitForEvent(*cq, event);
 }
 
 void CQExecutor::execute(
     ::tt::target::metal::EventSynchronizeCommand const *command) {
+  ZoneScopedN("EventSynchronizeCommand");
   auto event = events.at(command->ref()->global_id());
   ::tt::tt_metal::EventSynchronize(event);
 }
 
 void CQExecutor::execute(
     ::tt::target::metal::EventQueryCommand const *command) {
+  ZoneScopedN("EventQueryCommand");
   auto event = events.at(command->ref()->global_id());
   (void)::tt::tt_metal::EventQuery(
       event); // todo, we need flatbuffer support for tracking and doing
@@ -485,6 +496,7 @@ void CQExecutor::execute(
 }
 
 void CQExecutor::execute(::tt::target::metal::FinishCommand const *) {
+  ZoneScopedN("FinishCommand");
   ::tt::tt_metal::Finish(*cq);
 }
 
@@ -493,6 +505,11 @@ executeCommandQueue(::tt::tt_metal::Device *device,
                     ::tt::target::metal::CommandQueue const *commandQueue,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
                     std::vector<OutputBuffer> const &outputs) {
+
+  ZoneScoped;
+  std::string zoneName = "executeCommandQueue_cq_" + std::to_string(cq_id);
+  ZoneName(zoneName.c_str(), zoneName.size());
+
   CQExecutor executor(device, cq_id, inputs, outputs);
   return executor.execute(commandQueue);
 }

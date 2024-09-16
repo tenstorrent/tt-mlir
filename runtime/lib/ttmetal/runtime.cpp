@@ -173,6 +173,12 @@ Event submit(Device deviceHandle, Binary executableHandle,
          "Device programs size mismatch");
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
     ::tt::tt_metal::Device *device = deviceMesh[i];
+
+    ZoneScoped;
+    std::string zoneName = "submit_" + std::string(program->name()->c_str()) +
+                           "_device_" + std::to_string(device->id());
+    ZoneName(zoneName.c_str(), zoneName.size());
+
     ::tt::target::metal::DeviceProgram const *deviceProgram =
         program->device_programs()->Get(i);
     Events deviceEvents;
@@ -208,9 +214,11 @@ Event submit(Device deviceHandle, Binary executableHandle,
     std::size_t cq_id = 0;
     for (::tt::target::metal::CommandQueue const *cq :
          *deviceProgram->command_queues()) {
+      FrameMark;
       deviceEvents.push_back(
           executeCommandQueue(device, cq, cq_id, inputs, outputs));
       ++cq_id;
+      FrameMark;
     }
 
     Events copyEvents =
