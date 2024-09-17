@@ -46,4 +46,6 @@ target_link_libraries(TTMLIR PRIVATE
     flatbuffers
 )
 
+install(TARGETS TTMLIR DESTINATION lib)
+
 target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
