@@ -484,21 +484,7 @@ LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
 // after the dimensions have been collapsed onto a grid.
 llvm::SmallVector<int64_t>
 LayoutAttr::getPhysicalShape(ArrayRef<int64_t> logicalShape) const {
-  llvm::SmallVector<int64_t> physicalShape(getGrid().getShape().size());
-  SmallVector<AffineExpr> logicalShapeExprs(
-      llvm::map_range(logicalShape, [context = getContext()](std::int64_t e) {
-        return getAffineConstantExpr(e - 1, context);
-      }));
-
-  for (size_t i = 0; i < physicalShape.size(); i++) {
-    AffineExpr expr = getLinear().getResult(i);
-    AffineExpr constantExpr = expr.replaceDims(logicalShapeExprs);
-    std::int64_t constant =
-        llvm::cast<AffineConstantExpr>(constantExpr).getValue() + 1;
-    physicalShape[i] = constant;
-  }
-
-  return physicalShape;
+  return ttmlir::utils::evalShape(getLinear(), logicalShape);
 }
 
 llvm::SmallVector<int64_t>

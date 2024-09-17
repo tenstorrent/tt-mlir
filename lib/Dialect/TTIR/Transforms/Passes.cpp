@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/Dialect/TTIR/Analysis/GenericAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
@@ -40,6 +41,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIRGRIDSET
+#define GEN_PASS_DEF_TTIRGENERICOPTIMIZER
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
 #define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -1302,6 +1304,28 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+  }
+};
+
+class TTIRGenericOptimizer
+    : public impl::TTIRGenericOptimizerBase<TTIRGenericOptimizer> {
+public:
+  using impl::TTIRGenericOptimizerBase<
+      TTIRGenericOptimizer>::TTIRGenericOptimizerBase;
+
+  void runOnOperation() final {
+    auto device = getCurrentScopeDevice(getOperation());
+    assert(device && "Device not found");
+    GenericAnalysis genericAnalysis = getAnalysis<GenericAnalysis>();
+    genericAnalysis.init(GenericAnalysisInput(device));
+    for (auto const& [op, gridShape] : genericAnalysis.getResult().gridShapes) {
+      op->dump();
+      llvm::errs() << "Grid shape: ";
+      for (auto const& shape : gridShape) {
+        llvm::errs() << shape << " ";
+      }
+      llvm::errs() << "\n";
+    }
   }
 };
 

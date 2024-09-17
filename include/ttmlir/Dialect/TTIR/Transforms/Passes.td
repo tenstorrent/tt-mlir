@@ -111,6 +111,14 @@ def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRGenericOptimizer: Pass<"ttir-generic-optimizer", "::mlir::ModuleOp"> {
+  let summary = "Determine grid size for generic ops.";
+  let description = [{
+    Go through the ops, set grid size for each op based on grid analysis,
+    by updating layout attribute of each op.
+  }];
+}
+
 def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   let summary = "Load system desc.";
   let description = [{

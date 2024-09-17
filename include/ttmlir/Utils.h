@@ -19,6 +19,8 @@ template <typename T> T alignDown(T ptr, T alignment) {
   return ptr & ~(alignment - 1);
 }
 
+template <typename T> T alignUpDiv(T n, T d) { return (n + d - 1) / d; }
+
 template <typename Vector, typename Fn>
 inline void sample(Vector const &shape, Fn fn) {
   llvm::SmallVector<std::int64_t, 8> strides(shape.size());
