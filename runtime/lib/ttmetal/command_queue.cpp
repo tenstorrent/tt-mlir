@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <iostream>
 #include <unordered_map>
 
 #include "tt/runtime/detail/debug.h"
@@ -10,6 +11,7 @@
 #include "tt/runtime/utils.h"
 
 #include "ttmlir/Target/TTMetal/Target.h"
+#include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Version.h"
 
 namespace tt::runtime::ttmetal {
@@ -434,6 +436,7 @@ void CQExecutor::execute(
   ::tt::tt_metal::EnqueueWriteBuffer(
       *cq, buffers[command->src()->global_id()],
       command->src()->desc()->constant_data()->data(), blocking);
+  std::cout << "EnqueueWriteBufferCommand completed." << std::endl;
 }
 
 void CQExecutor::execute(
@@ -443,6 +446,9 @@ void CQExecutor::execute(
   assert(buffers[command->dst()->global_id()] != nullptr &&
          "Buffer not allocated");
   constexpr bool blocking = false;
+  std::cout << "At EnqueueReadBufferCommand" << std::endl;
+  std::cout << "Global id: " << command->dst()->global_id() << std::endl;
+  std::cout << "Address: " << command->dst()->address() << std::endl;
   ::tt::tt_metal::EnqueueReadBuffer(
       *cq, buffers[command->dst()->global_id()],
       reinterpret_cast<void *>(command->dst()->address()), blocking);
@@ -451,6 +457,8 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::CreateBufferCommand const *command) {
   ZoneScopedN("CreateBufferCommand");
+  std::cout << "CreateBufferCommand global_id: " << command->ref()->global_id()
+            << std::endl;
   if (buffers.find(command->ref()->global_id()) == buffers.end()) {
     buffers[command->ref()->global_id()] =
         createBufferFromTensorRef(device, command->ref());
