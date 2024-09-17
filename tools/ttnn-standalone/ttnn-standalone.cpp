@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-precompiled.hpp"
-#include <cstdio>
 
 // To generate forward function, run:
 // ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-implicit-device
@@ -14,30 +13,29 @@
 // Forward function example
 //
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
-  ttnn::Device &v3 = ttnn::open_device(0);
-
-  MemoryConfig memConfig = ttnn::MemoryConfig{
-      .memory_layout = ttnn::TensorMemoryLayout::INTERLEAVED,
-      .buffer_type = ttnn::BufferType::DRAM,
-      // .shard_spec = std::nullopt,
-  };
-
+  ttnn::Device *v3 = ttnn::DeviceGetter::getInstance();
   ttnn::Tensor v4 =
-      ttnn::to_layout(v1, ttnn::Layout::TILE, std::nullopt, std::nullopt, &v3);
-  ttnn::Tensor v5 = ttnn::to_device(v4, &v3, memConfig);
-  ttnn::Tensor v6 =
-      ttnn::to_layout(v2, ttnn::Layout::TILE, std::nullopt, std::nullopt, &v3);
-  ttnn::Tensor v7 = ttnn::to_device(v6, &v3, memConfig);
-  ttnn::Tensor v8 = ttnn::empty(v2.shape(), v2.tensor_attributes->dtype,
-                                v2.tensor_attributes->layout, v3);
-
-  ttnn::multiply(v5, v7, std::nullopt, std::nullopt, v8, std::nullopt,
-                 std::nullopt);
-
-  v8 = v8.cpu(); // move to CPU
-  ttnn::close_device(v3);
-
-  return v8;
+      ttnn::to_layout(v1, ttnn::Layout::TILE, std::nullopt, std::nullopt, v3);
+  ttnn::MemoryConfig v5 = ttnn::MemoryConfig(
+      ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v6 = ttnn::to_device(v4, v3, v5);
+  ttnn::Tensor v7 =
+      ttnn::to_layout(v2, ttnn::Layout::TILE, std::nullopt, std::nullopt, v3);
+  ttnn::MemoryConfig v8 = ttnn::MemoryConfig(
+      ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v9 = ttnn::to_device(v7, v3, v8);
+  ttnn::Shape v10 = ttnn::Shape(Shape({
+      64,
+      128,
+  }));
+  ttnn::Device &v11 = *v3;
+  ttnn::MemoryConfig v12 = ttnn::MemoryConfig(
+      ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
+  ttnn::Tensor v13 = ttnn::empty(v10, ttnn::DataType::FLOAT32,
+                                 ttnn::Layout::ROW_MAJOR, v11, v12);
+  ttnn::Tensor v14 = ttnn::multiply(v6, v9, std::nullopt, std::nullopt, v13);
+  // ttnn::Tensor v15 = ttnn::to_memory_config(v14, v3);
+  return v14.cpu();
 }
 
 int main() {
@@ -45,8 +43,10 @@ int main() {
   //
   const size_t tensor_width = 32;
   const size_t tensor_height = 32;
-  ttnn::Shape xs = ttnn::Shape(Shape{1, 1, tensor_width, tensor_height});
-  ttnn::Shape ys = ttnn::Shape(Shape{1, 1, tensor_width, tensor_height});
+  ttnn::Shape xs =
+      ttnn::Shape(tt::tt_metal::Shape{1, 1, tensor_width, tensor_height});
+  ttnn::Shape ys =
+      ttnn::Shape(tt::tt_metal::Shape{1, 1, tensor_width, tensor_height});
 
   // Create tensors on cpu
   //

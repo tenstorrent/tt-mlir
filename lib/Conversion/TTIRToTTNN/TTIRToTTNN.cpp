@@ -20,59 +20,51 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
+#include <llvm/Support/ErrorHandling.h>
 
 using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
 
+// Map TT::MemorySpace to TTNN::BufferType
+//
 ttnn::BufferType toTTNNBufferType(const tt::MemorySpace memorySpace) {
-  // Map TT::MemorySpace to TTNN::BufferType
-  //
-  ttnn::BufferType bufferType = ttnn::BufferType::DRAM; // default to DRAM
+
   switch (memorySpace) {
   case tt::MemorySpace::System:
   case tt::MemorySpace::SystemMMIO:
-    bufferType = ttnn::BufferType::SystemMemory;
-    break;
+    return ttnn::BufferType::SystemMemory;
   case tt::MemorySpace::DeviceDRAM:
-    bufferType = ttnn::BufferType::DRAM;
-    break;
+    return ttnn::BufferType::DRAM;
   case tt::MemorySpace::DeviceL1:
-    bufferType = ttnn::BufferType::L1;
-    break;
+    return ttnn::BufferType::L1;
   }
 
-  return bufferType;
+  llvm_unreachable("Unknown MemorySpace");
 }
 
+// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
+//
 ttnn::TensorMemoryLayout
 toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout) {
-  // Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
-  //
-  ttnn::TensorMemoryLayout tensorMemoryLayout;
+
   switch (ttTensorMemoryLayout) {
+  case tt::TensorMemoryLayout::HeightSharded:
+    return ttnn::TensorMemoryLayout::HeightSharded;
+  case tt::TensorMemoryLayout::Interleaved:
+    return ttnn::TensorMemoryLayout::Interleaved;
+  case tt::TensorMemoryLayout::WidthSharded:
+    return ttnn::TensorMemoryLayout::WidthSharded;
+  case tt::TensorMemoryLayout::BlockSharded:
+    return ttnn::TensorMemoryLayout::BlockSharded;
+  case tt::TensorMemoryLayout::SingleBank:
+    return ttnn::TensorMemoryLayout::SingleBank;
   case tt::TensorMemoryLayout::None:
     assert(false && "TensorMemoryLayout::None not supported");
-    break;
-  case tt::TensorMemoryLayout::HeightSharded:
-    tensorMemoryLayout = ttnn::TensorMemoryLayout::HeightSharded;
-    break;
-  case tt::TensorMemoryLayout::Interleaved:
-    tensorMemoryLayout = ttnn::TensorMemoryLayout::Interleaved;
-    break;
-  case tt::TensorMemoryLayout::WidthSharded:
-    tensorMemoryLayout = ttnn::TensorMemoryLayout::WidthSharded;
-    break;
-  case tt::TensorMemoryLayout::BlockSharded:
-    tensorMemoryLayout = ttnn::TensorMemoryLayout::BlockSharded;
-    break;
-  case tt::TensorMemoryLayout::SingleBank:
-    tensorMemoryLayout = ttnn::TensorMemoryLayout::SingleBank;
-    break;
   }
 
-  return tensorMemoryLayout;
+  llvm_unreachable("Unknown TensorMemoryLayout");
 }
 
 // Gets or inserts a GetDeviceOp at the top of the current block of the given

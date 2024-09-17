@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#pragma once
+
+#ifndef TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
+#define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 #include "common/bfloat16.hpp"
 #include "core.hpp"
@@ -19,23 +21,28 @@
 
 namespace ttnn {
 
+// DeviceGetter class
+//
+// Singleton implementation for Device
+//
 class DeviceGetter {
 public:
   static ttnn::Device *getInstance() {
-    // ttnn::Device& device = open_device(0);
-    static ttnn::Device *instance;
+    static ttnn::Device *instance = &ttnn::open_device(0);
 
     return instance;
   }
 
 private:
-  ~DeviceGetter() { close_device(*device); }
+  ~DeviceGetter() { ttnn::close_device(*device); }
 
 public:
   DeviceGetter(DeviceGetter const &) = delete;
   void operator=(DeviceGetter const &) = delete;
 
-  Device *device;
+  ttnn::Device *device;
 };
 
 } // namespace ttnn
+
+#endif // TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP

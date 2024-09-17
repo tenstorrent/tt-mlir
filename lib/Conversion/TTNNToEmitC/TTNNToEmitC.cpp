@@ -31,10 +31,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include <cstdint>
-#include <numeric>
-#include <tuple>
-
 using namespace mlir;
 using namespace mlir::tt;
 
@@ -399,7 +395,14 @@ public:
 
     // Create ttnn::Shape() call
     //
-    // This one is a little more complicated
+    // ttnn:Shape has a couple constructors, but they are explicit and require
+    // specific datatypes on input. However, one of the constructors takes in a
+    // tt_metal::Shape - given that it's much easier to construct a
+    // tt_metal::Shape, we opted to do that here. The call looks like this:
+    // ttnn::Shape(tt::tt_metal::Shape{dim0, dim1, dim2, ...});
+    //
+    // To make it easier on the eyes, these two calls are packed into one, using
+    // EmitC's ExpressionOp.
     //
     emitc::ExpressionOp shapeExpressionOp =
         rewriter.create<emitc::ExpressionOp>(
@@ -410,7 +413,8 @@ public:
     auto currentPoint = rewriter.getInsertionPoint();
     rewriter.setInsertionPointToStart(&bodyBlock);
     emitc::CallOpaqueOp metalShapeOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp->getLoc(), emitc::OpaqueType::get(rewriter.getContext(), "Shape"),
+        srcOp->getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(), "tt::metal::Shape"),
         rewriter.getStringAttr("Shape"),
         rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)), nullptr,
         ValueRange());
@@ -426,11 +430,10 @@ public:
         shapeExpressionOp->getResult(0),
     };
 
-    // Device is the only input that is an operand, rest are attributes
-    // Here we check if there's a device operand and adjust the call accordingly
+    // If there is a device operand, create tensor on device
     //
     ArrayAttr arrayAttr;
-    if (!adaptor.getOperands().empty()) {
+    if (adaptor.getDevice()) {
       mlir::emitc::ApplyOp derefDevice = rewriter.create<emitc::ApplyOp>(
           srcOp->getLoc(), rewriter.getType<emitc::OpaqueType>("ttnn::Device&"),
           "*", adaptor.getDevice());
@@ -459,7 +462,6 @@ public:
       //
       arrayAttr = rewriter.getArrayAttr({
           rewriter.getIndexAttr(0), // ttnn::Shape
-          // convertShape(rewriter, shapeAttr),
           convertDType(rewriter, dataTypeAttr),
           convertLayoutAttr(rewriter, layoutAttr),
           rewriter.getIndexAttr(1), // ttnn::Device
@@ -468,12 +470,13 @@ public:
     } else {
       arrayAttr = rewriter.getArrayAttr({
           rewriter.getIndexAttr(0), // ttnn::Shape
-          // convertShape(rewriter, shapeAttr),
           convertDType(rewriter, dataTypeAttr),
           convertLayoutAttr(rewriter, layoutAttr),
       });
     }
 
+    // Finally, convert ttir::EmptyOp to ttnn::EmptyOp
+    //
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
         this->convertOpName(srcOp), arrayAttr, nullptr, operands);
@@ -503,9 +506,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor ops
   //
-  patterns.add<EmptyOpConversionPattern,
-               //  DefaultOpConversionPattern<ttnn::EmptyOp>,
-               DefaultOpConversionPattern<ttnn::FullOp>>(typeConverter, ctx);
+  patterns
+      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>>(
+          typeConverter, ctx);
 
   // Eltwise unary ops
   //
