@@ -432,7 +432,7 @@ void CQExecutor::execute(
          "Buffer not allocated");
   constexpr bool blocking = false;
   ::tt::tt_metal::EnqueueWriteBuffer(
-      *cq, buffers[command->src()->global_id()],
+      *cq, buffers[command->dst()->global_id()],
       command->src()->desc()->constant_data()->data(), blocking);
 }
 
@@ -444,7 +444,7 @@ void CQExecutor::execute(
          "Buffer not allocated");
   constexpr bool blocking = false;
   ::tt::tt_metal::EnqueueReadBuffer(
-      *cq, buffers[command->dst()->global_id()],
+      *cq, buffers[command->src()->global_id()],
       reinterpret_cast<void *>(command->dst()->address()), blocking);
 }
 
