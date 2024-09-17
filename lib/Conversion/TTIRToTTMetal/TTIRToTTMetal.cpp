@@ -14,11 +14,13 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -30,9 +32,6 @@
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttmetal {
-
-#define GEN_PASS_DEF_CONVERTTTIRTOTTMETAL
-#include "ttmlir/Dialect/TTMetal/Transforms/Passes.h.inc"
 
 // This routine walks the SSA value chain to find the address of the value.
 // It runs into and gets the address from one of the following:
@@ -841,43 +840,18 @@ public:
   }
 };
 
-class ConvertTTIRToTTMetal
-    : public impl::ConvertTTIRToTTMetalBase<ConvertTTIRToTTMetal> {
-public:
-  using impl::ConvertTTIRToTTMetalBase<
-      ConvertTTIRToTTMetal>::ConvertTTIRToTTMetalBase;
+} // namespace mlir::tt::ttmetal
 
-  void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRToTTMetalLayoutRewriter, TTIRToTTMetalKernelRewriter,
-                 TTIRToTTMetalDispatchRewriter, TTIRToTTMetalAllocRewriter,
-                 TTIRToTTMetalDeallocRewriter>(&getContext());
-    FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
-      signalPassFailure();
-    }
-  }
+namespace mlir::tt {
 
-  void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::ttmetal::TTMetalDialect>();
-    registry.insert<mlir::tt::ttkernel::TTKernelDialect>();
-    registry.insert<mlir::arith::ArithDialect>();
-  }
-};
-
-void createTTIRToTTMetalBackendPipeline(OpPassManager &pm) {
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice());
-  pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
-  mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
-  layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-  layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceL1;
-  layoutOptions.defaultDeviceMemoryLayout = mlir::tt::TensorMemoryLayout::None;
-  pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
-  pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
-  pm.addPass(mlir::tt::ttir::createTTIRAllocate());
-  pm.addPass(createConvertTTIRToTTMetal());
+void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter & /*typeConverter*/) {
+  patterns.add<ttmetal::TTIRToTTMetalLayoutRewriter,
+               ttmetal::TTIRToTTMetalKernelRewriter,
+               ttmetal::TTIRToTTMetalDispatchRewriter,
+               ttmetal::TTIRToTTMetalAllocRewriter,
+               ttmetal::TTIRToTTMetalDeallocRewriter>(ctx);
 }
 
-} // namespace mlir::tt::ttmetal
+} // namespace mlir::tt

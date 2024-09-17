@@ -24,9 +24,9 @@ MLIRTTNNDialect
 MLIRTTNNTransforms
 MLIRTTKernelDialect
 MLIRTTMetalDialect
-MLIRTTMetalTransforms
 MLIRTTIRPipelines
 MLIRTTNNPipelines
+MLIRTTMetalPipelines
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
