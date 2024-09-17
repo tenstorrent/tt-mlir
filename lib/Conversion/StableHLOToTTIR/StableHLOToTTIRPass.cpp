@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Dialect.h>
@@ -19,12 +20,6 @@
 using namespace mlir;
 using namespace mlir::tt;
 
-#define GET_TYPEDEF_CLASSES
-#include <stablehlo/dialect/Base.h>
-#include <stablehlo/dialect/Version.h>
-#include <stablehlo/dialect/VhloTypeDefs.h.inc>
-#include <stablehlo/dialect/VhloTypeInterfaces.h.inc>
-
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_CONVERTSTABLEHLOTOTTIR
@@ -37,24 +32,17 @@ namespace {
 class StablehloTypeConverter : public TypeConverter {
 public:
   StablehloTypeConverter(MLIRContext *ctx) {
-
-    addConversion([&](::mlir::vhlo::RankedTensorV1Type type) -> Type {
-      if (type.getShape().empty()) {
-        SmallVector<int64_t> targetShape;
-        targetShape.push_back(1);
-        return RankedTensorType::get(targetShape, type.getElementType());
-      }
-
+    addConversion([](Type type) {
+      assert(isa<RankedTensorType>(type) &&
+             "only ranked tensor type supported");
       return type;
     });
-
-    addConversion([&](::mlir::vhlo::FloatF32V1Type type) -> Type {
-      auto NewType = Float32Type::get(ctx);
-
-      SmallVector<int64_t> targetShape;
-      targetShape.push_back(1);
-
-      return RankedTensorType::get(targetShape, NewType);
+    addConversion([&](RankedTensorType type) -> RankedTensorType {
+      if (type.getShape().size() == 0) {
+        auto ElementType = type.getElementType();
+        return RankedTensorType::get({1}, ElementType);
+      }
+      return type;
     });
   }
 };
@@ -76,8 +64,22 @@ struct ConvertStableHLOToTTIRPass
     // For now keep the same type assuming StableHLO ops operate on builtin
     // tensor.
     StablehloTypeConverter typeConverter(&getContext());
-
     RewritePatternSet patterns(&getContext());
+
+    // Func type conversions
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
+    populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::ReturnOp>(
+        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+    populateCallOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::CallOp>(
+        [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
 
     // Apply conversion.
