@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cassert>
-#include <iostream>
 #include <memory>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -23,11 +22,9 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Target/TTMetal/Target.h"
-#include "ttmlir/Target/TTMetal/command_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
-#include "types_generated.h"
 
 namespace mlir::tt::ttmetal {
 
@@ -218,34 +215,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
           cache.getOrCreate(input, tensorValueToFlatbuffer,
                             argAlloc.getAddress(), argAlloc.getSize()));
     }
-    int temp = -1;
+
     entry->walk([&](mlir::Operation *op) {
-      temp++;
-      if (temp == 1) {
-        std::cout << "Debug mode" << std::endl;
-        std::vector<uint8_t> byte_vector_write = {0x01, 0x02, 0x03, 0x04};
-        auto vector_offset_write = fbb.CreateVector(byte_vector_write);
-        std::vector<uint8_t> byte_vector_read = {0x05, 0x06, 0x07, 0x08};
-        auto vector_offset_read = fbb.CreateVector(byte_vector_read);
-        uint32_t global_id = 3;
-        uint64_t address = 8;
-        auto tensorDescWrite =
-            ::tt::target::CreateTensorDesc(fbb, 0, 0, vector_offset_write);
-        auto tensorDescRead =
-            ::tt::target::CreateTensorDesc(fbb, 0, 0, vector_offset_read);
-        auto tensorRefWrite = ::tt::target::CreateTensorRef(
-            fbb, global_id, address, 0, tensorDescWrite);
-        auto tensorRefRead = ::tt::target::CreateTensorRef(
-            fbb, global_id, address, 0, tensorDescRead);
-        cqBuilder.appendCommand(
-            ::tt::target::metal::CreateEnqueueWriteBufferCommand(
-                fbb, tensorRefWrite, tensorRefWrite),
-            op);
-        cqBuilder.appendCommand(
-            ::tt::target::metal::CreateEnqueueReadBufferCommand(
-                fbb, tensorRefRead, tensorRefRead),
-            op);
-      }
       if (auto dispatchOp = dyn_cast_or_null<tt::ttmetal::DispatchOp>(op);
           dispatchOp) {
         std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> operands;
@@ -304,7 +275,6 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
             op);
       } else if (auto allocOp = dyn_cast_or_null<tt::ttmetal::AllocOp>(op);
                  allocOp) {
-        std::cout << "AllocOp - temp: " << temp << std::endl;
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateCreateBufferCommand(
                 fbb,
