@@ -69,6 +69,9 @@ Device openDevice(std::vector<int> const &deviceIds,
 
 void closeDevice(Device device) {
   auto &ttnn_device = device.as<::ttnn::Device>(DeviceRuntime::TTNN);
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  ::tt::tt_metal::detail::DumpDeviceProfileResults(&ttnn_device);
+#endif
   ::ttnn::close_device(ttnn_device);
 }
 
