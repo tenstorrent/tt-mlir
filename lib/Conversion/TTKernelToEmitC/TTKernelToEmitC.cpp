@@ -25,6 +25,10 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <llvm/ADT/StringRef.h>
+#include <mlir/IR/Attributes.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/Support/LLVM.h>
 
 using namespace mlir;
 using namespace tt;
@@ -187,6 +191,46 @@ public:
     return name;
   }
 
+  template <typename ReduceKindOp>
+  std::pair<StringRef, StringRef> getReduceTypeAndDim(ReduceKindOp op) const {
+    StringRef reduceType =
+        op.getReduceTypeAttr().getValue() == ttkernel::ReduceType::ReduceMAX
+            ? "PoolType::MAX"
+            : "PoolType::SUM";
+    StringRef reduceDim =
+        op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::ReduceDimCOL
+            ? "ReduceDim::REDUCE_COL"
+        : op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::ReduceDimROW
+            ? "ReduceDim::REDUCE_ROW"
+            : "ReduceDim::REDUCE_SCALAR";
+    return {reduceType, reduceDim};
+  }
+
+  ArrayAttr getTemplateArgs(SourceOp op) const {
+    if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
+                  std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
+      SmallVector<Attribute, 4> template_args;
+      StringRef reduceType, reduceDim;
+      if (mlir::isa<ttkernel::ReduceInitOp>(op)) {
+        auto reduceInitOp = mlir::cast<ttkernel::ReduceInitOp>(op);
+        template_args.push_back(emitc::OpaqueAttr::get(
+            op.getContext(), "true")); // "at_start" template argument
+        std::tie(reduceType, reduceDim) =
+            getReduceTypeAndDim<ttkernel::ReduceInitOp>(reduceInitOp);
+      } else {
+        auto reduceOp = mlir::cast<ttkernel::ReduceTileOp>(op);
+        std::tie(reduceType, reduceDim) =
+            getReduceTypeAndDim<ttkernel::ReduceTileOp>(reduceOp);
+      }
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), reduceType));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), reduceDim));
+      return ArrayAttr::get(op.getContext(), template_args);
+    }
+    return ArrayAttr();
+  }
+
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -198,9 +242,11 @@ public:
       }
       resultTypes.push_back(ct);
     }
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, resultTypes, getOpName(op), nullptr, nullptr,
+        op, resultTypes, getOpName(op), nullptr, getTemplateArgs(op),
         adaptor.getOperands());
+
     return success();
   }
 };
@@ -283,6 +329,8 @@ public:
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
@@ -322,7 +370,9 @@ public:
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
+    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+      builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
@@ -350,6 +400,14 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/recip.h",
           /*isStandard=*/false);
+      // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
+      // because they are default template parameters values in reduce api.
+      builder->create<emitc::VerbatimOp>(loc,
+                                         "#define REDUCE_OP PoolType::SUM");
+      builder->create<emitc::VerbatimOp>(
+          loc, "#define REDUCE_DIM ReduceDim::REDUCE_COL");
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
   }
@@ -357,7 +415,8 @@ public:
   ~ThreadConfigHelper() {
     if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
-      builder->create<emitc::VerbatimOp>(loc, "}"); // close namespace NAMESPACE
+      builder->create<emitc::VerbatimOp>(loc,
+                                         "}"); // close namespace NAMESPACE
     }
   }
 
@@ -395,7 +454,8 @@ emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
                           const ttkernel::KernelConfigInterface &kernelConfig) {
   OpBuilder builder(region->getContext());
 
-  // We will wrap everything in a module op so that we can run the translation.
+  // We will wrap everything in a module op so that we can run the
+  // translation.
   auto moduleWrapper =
       builder.create<mlir::ModuleOp>(region->getLoc(), "module_wrapper");
   builder.setInsertionPointToStart(moduleWrapper.getBody());

@@ -296,6 +296,43 @@ def TTKernel_RecipTileOp : TTKernel_Op<"recip_tile"> {
     let arguments = (ins I32:$tile_index);
 }
 
+def TTKernel_ReduceInitOp : TTKernel_Op<"reduce_init"> {
+    let summary = "Init function";
+    let description = [{
+      Must be run before reduce_tile.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_CB:$scaling_cb,
+                         TTKernel_CB:$out_cb,
+                         TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
+def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
+    let summary = "Reduce operation";
+    let description = [{
+      Performs a reduction operation *B = reduce(A)* using reduce_func for
+      dimension reduction on a tile in the CB at a given index and writes the
+      result to the DST register at index *dst_tile_index*. Reduction can be
+      either of type *Reduce::R*, *Reduce::C* or *Reduce::RC*, identifying the
+      dimension(s) to be reduced in size to 1. The DST register buffer must be in
+      acquired state via *acquire_dst* call.
+      The templates takes reduce_type which can be ReduceFunc::Sum, ReduceFunc::Max
+      and reduce_dim which can be Reduce::R, Reduce::C, Reduce::RC.
+      They can also be specified by defines REDUCE_OP and REDUCE_DIM.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_CB:$scaling_cb,
+                         I32:$in_tile_index,
+                         I32:$scaling_tile_index,
+                         I32:$dst_index,
+                         TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel CB operations
 //===----------------------------------------------------------------------===//

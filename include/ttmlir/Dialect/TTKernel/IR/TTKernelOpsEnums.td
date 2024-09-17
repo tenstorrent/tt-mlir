@@ -133,4 +133,32 @@ def TTKernel_CBPort : I32EnumAttr<"CBPort", "TTKernel Circular Buffer Ports",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+def TTKernel_ReduceSUM : I32EnumAttrCase<"ReduceSUM", 0, "reduce_sum">;
+def TTKernel_ReduceMAX : I32EnumAttrCase<"ReduceMAX", 1, "reduce_max">;
+
+def TTKernel_ReduceType : I32EnumAttr<"ReduceType", "TTKernel Reduce Types",
+                          [
+                            TTKernel_ReduceSUM,
+                            TTKernel_ReduceMAX
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
+def TTKernel_ReduceDimROW : I32EnumAttrCase<"ReduceDimROW", 0, "reduce_dim_row">;
+def TTKernel_ReduceDimCOL : I32EnumAttrCase<"ReduceDimCOL", 1, "reduce_dim_col">;
+def TTKernel_ReduceDimSCALAR : I32EnumAttrCase<"ReduceDimSCALAR", 2, "reduce_dim_scalar">;
+def TTKernel_ReduceDimNONE : I32EnumAttrCase<"ReduceDimNONE", 3, "reduce_dim_none">;
+
+def TTKernel_ReduceDim : I32EnumAttr<"ReduceDim", "TTKernel Reduce Dimensions",
+                         [
+                           TTKernel_ReduceDimROW,
+                           TTKernel_ReduceDimCOL,
+                           TTKernel_ReduceDimSCALAR,
+                           TTKernel_ReduceDimNONE
+                         ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 #endif

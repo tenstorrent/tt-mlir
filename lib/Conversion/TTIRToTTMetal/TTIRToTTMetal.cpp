@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
+#include <mlir/IR/Builders.h>
+#include <mlir/IR/Operation.h>
 
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
@@ -476,20 +478,41 @@ public:
     return maybePort.value();
   }
 
+  AffineMap getPermutedAffineMap(AffineMap map,
+                                 ArrayRef<bool> reductionDims) const {
+    SmallVector<uint32_t> permutation;
+    for (size_t i = 0; i < reductionDims.size(); i++) {
+      if (!reductionDims[i]) {
+        permutation.push_back(i);
+      }
+    }
+    if (permutation.size() == map.getNumDims()) {
+      return map;
+    }
+    for (size_t i = 0; i < reductionDims.size(); i++) {
+      if (reductionDims[i]) {
+        permutation.push_back(i);
+      }
+    }
+    return map.getPermutationMap(permutation, map.getContext());
+  }
+
   // This routine evaluates the memref's affine map with it's shape to return a
   // single result affine map, e.g.:
   //  - Given: shape{2, 4} and affine_map<(d0, d1) -> (d0, d1)>
   //  - Becomes: affine_map<(d0, d1) -> (d0 * 4 + d1)
   // This is useful for evaluating iterator increment steps between each loop.
-  AffineMap getAffineIterator(MemRefType memref) const {
+  AffineMap getAffineIterator(MemRefType memref,
+                              ArrayRef<bool> reducedMemrefDims) const {
     ArrayRef<std::int64_t> shape = memref.getShape();
-    SmallVector<std::int64_t> physShape =
-        memref.getLayout().getAffineMap().compose(shape);
+    SmallVector<int64_t> physShape(shape);
+    AffineMap physShapeMap = getPermutedAffineMap(
+        memref.getLayout().getAffineMap(), reducedMemrefDims);
 
     mlir::AffineExpr resultExpr = getAffineConstantExpr(0, memref.getContext());
     int volume = 1;
     for (int i = static_cast<int>(physShape.size()) - 1; i >= 0; i--) {
-      mlir::AffineExpr dimExpr = getAffineDimExpr(i, memref.getContext());
+      mlir::AffineExpr dimExpr = physShapeMap.getResult(i);
       mlir::AffineExpr strideExpr =
           getAffineConstantExpr(volume, memref.getContext());
       resultExpr = dimExpr * strideExpr + resultExpr;
@@ -522,12 +545,9 @@ public:
   //       %ii = %i0 * 4 + %i1
   //       %3 = ttkernel.add_tiles(%1, %2, %ii, %ii)
   LoopNest createLoopNest(ArrayRef<BlockArgument> blockArguments,
+                          ArrayRef<bool> reducedMemrefDims,
                           std::int64_t numDPSInputs, OpBuilder &builder) const {
     Value output = blockArguments[numDPSInputs];
-    ttkernel::CBType outputTy = mlir::cast<ttkernel::CBType>(output.getType());
-    MemRefType outputMemref = outputTy.getMemref();
-    ArrayRef<std::int64_t> outputShape = outputMemref.getShape();
-    AffineMap outputAffineMap = outputMemref.getLayout().getAffineMap();
 
     // Uniquify the iterators, i.e. operands that have identical access pattern
     // can be shared.
@@ -540,14 +560,27 @@ public:
       return iteratorMaps[affineIterator];
     };
 
+    size_t operandRank = 0;
+    ArrayRef<int64_t> walkingShape;
+
     // Map block arguments to their respective unique iterators Values
     SmallVector<Value> iterators;
     iterators.resize(blockArguments.size());
     for (BlockArgument operand : blockArguments) {
       auto cbType = mlir::cast<ttkernel::CBType>(operand.getType());
-      AffineMap affineIterator = getAffineIterator(cbType.getMemref());
-      assert(affineIterator.getNumDims() == outputAffineMap.getNumDims());
+      AffineMap affineIterator =
+          getAffineIterator(cbType.getMemref(), reducedMemrefDims);
+
+      assert(operandRank == 0 || affineIterator.getNumDims() == operandRank);
       iterators[operand.getArgNumber()] = getOrInsertIterator(affineIterator);
+      operandRank = affineIterator.getNumDims();
+
+      if (walkingShape.empty()) {
+        walkingShape =
+            getPermutedAffineMap(cbType.getMemref().getLayout().getAffineMap(),
+                                 reducedMemrefDims)
+                .compose(cbType.getMemref().getShape());
+      }
     }
 
     // Map block arguments to their respective unique iterator offset in the
@@ -557,7 +590,8 @@ public:
     blockArgIteratorMapping.resize(blockArguments.size());
     for (BlockArgument operand : blockArguments) {
       auto cbType = mlir::cast<ttkernel::CBType>(operand.getType());
-      AffineMap affineIterator = getAffineIterator(cbType.getMemref());
+      AffineMap affineIterator =
+          getAffineIterator(cbType.getMemref(), reducedMemrefDims);
       auto *match = iteratorMaps.find(affineIterator);
       assert(match != iteratorMaps.end());
       blockArgIteratorMapping[operand.getArgNumber()] =
@@ -585,24 +619,24 @@ public:
     SmallVector<scf::ForOp> loops;
     SmallVector<Region *> loopRegions;
     SmallVector<SmallVector<Value>> iteratorsNest = {uniqueIterators};
-    for (unsigned dim = 0; dim < outputAffineMap.getNumDims(); ++dim) {
+    for (unsigned dim = 0; dim < operandRank; ++dim) {
       OpBuilder regionBuilder(builder);
       if (!loopNest.loopRegions.empty()) {
         regionBuilder = OpBuilder(loopNest.loopRegions.back());
       }
       // Loop variables, these are decoupled from the iterators
       Value lowerBound = i32(0, regionBuilder);
-      Value upperBound = i32(outputShape[dim], regionBuilder);
+      Value upperBound = i32(walkingShape[dim], regionBuilder);
       Value loopStep = i32(1, regionBuilder);
       scf::ForOp forOp = regionBuilder.create<scf::ForOp>(
           output.getLoc(), lowerBound, upperBound, loopStep,
           iteratorsNest.back());
       loopNest.loops.push_back(forOp);
 
-      SmallVector<std::int64_t> innerIndexStep(outputAffineMap.getNumDims(), 0);
+      SmallVector<std::int64_t> innerIndexStep(operandRank, 0);
       innerIndexStep[dim] = 1;
+      bool innerLoop = dim == (operandRank - 1);
 
-      bool innerLoop = dim == (outputAffineMap.getNumDims() - 1);
       if (innerLoop) {
         OpBuilder innerLoopRegion(loopNest.loops.back().getRegion());
         SmallVector<Value> innerIndices;
@@ -623,8 +657,7 @@ public:
       // Backpedal and adjust the iterator offset for the current dimension.
       if (dim > 0) {
         SmallVector<Value> outerIndices;
-        SmallVector<std::int64_t> outerIndexStep(outputAffineMap.getNumDims(),
-                                                 0);
+        SmallVector<std::int64_t> outerIndexStep(operandRank, 0);
         outerIndexStep[dim - 1] = 1;
         int i = 0;
         for (auto [affineMap, iterator] : iteratorMaps) {
@@ -639,7 +672,7 @@ public:
           // Multiply by the number of steps that the inner loop took.
           // FIXME: test this for higher dims
           std::int64_t offset =
-              outerOffset[0] - innerOffset[0] * outputShape[dim];
+              outerOffset[0] - innerOffset[0] * walkingShape[dim];
           outerIndices.push_back(regionBuilder.create<arith::AddIOp>(
               output.getLoc(), forOp.getResult(i), i32(offset, regionBuilder)));
           ++i;
@@ -709,14 +742,27 @@ public:
   void convertComputeInitOp(Operation &arithOrMathOp,
                             ArrayRef<BlockArgument> cbOperands,
                             std::int64_t numDpsInputs,
+                            ttkernel::ReduceDim reduceDim,
                             OpBuilder &builder) const {
-    if (numDpsInputs == 1) {
+    if (reduceDim != ttkernel::ReduceDim::None) {
+      auto kernelOp = mlir::cast<ttir::KernelOp>(arithOrMathOp);
+      assert(kernelOp.getOp() == "reduce");
+      auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::ReduceSUM
+                                              : ttkernel::ReduceType::ReduceMAX;
+      builder.create<ttkernel::ReduceInitOp>(
+          arithOrMathOp.getLoc(), cbOperands[0],
+          cbOperands[0], // TODO(rpavlovic) insert proper
+                         // scaling cb
+          cbOperands[1],
+          ttkernel::ReduceTypeAttr::get(builder.getContext(), type),
+          ttkernel::ReduceDimAttr::get(builder.getContext(), reduceDim));
+    } else if (numDpsInputs == 1) {
       convertInitUnaryOp(arithOrMathOp, cbOperands, builder);
     } else if (numDpsInputs == 2) {
       convertInitBinaryOp(arithOrMathOp, cbOperands, builder);
     } else {
       llvm_unreachable("Unhandled conversion for operation which is neither "
-                       "unary nor binary.");
+                       "unary nor binary nor reduce.");
     }
   }
 
@@ -891,42 +937,132 @@ public:
   // Here iterators are the block arguments from the innermost scf.for loop.
   // The iterators are unique-ified so we need blockArgIteratorMapping to
   // recover which top level tensor operand is associated with which iterator.
-  void convertComputeOp(Operation &arithOrMathOp,
-                        ArrayRef<BlockArgument> cbOperands,
+  void convertComputeOp(Block *computeBlock, Operation &arithOrMathOp,
+                        LoopNest &loopNest, ArrayRef<BlockArgument> cbOperands,
                         ArrayRef<BlockArgument> iterators,
+                        ttkernel::ReduceDim reduceDim,
                         SmallVector<unsigned> blockArgIteratorMapping,
-                        OpBuilder &builder, std::int64_t numDpsInputs) const {
+                        OpBuilder &innerLoopBuilder,
+                        std::int64_t numDpsInputs) const {
 
-    if (numDpsInputs == 1) {
+    if (reduceDim != ttkernel::ReduceDim::None) {
+
+      convertReduceOp(computeBlock, arithOrMathOp, cbOperands, iterators,
+                      blockArgIteratorMapping, reduceDim, loopNest);
+
+      // auto kernelOp = mlir::cast<ttir::KernelOp>(arithOrMathOp);
+      // assert(kernelOp.getOp() == "reduce");
+      // auto type = kernelOp.getKind() == "sum" ?
+      // ttkernel::ReduceType::ReduceSUM
+      //                                         :
+      //                                         ttkernel::ReduceType::ReduceMAX;
+      // builder.create<ttkernel::ReduceTileOp>(
+      //     arithOrMathOp.getLoc(), cbOperands[0],
+      //     cbOperands[0], // TODO(rpavlovic) insert proper
+      //                                    // scaling cb
+      //     iterators[blockArgIteratorMapping[0]],
+      //     iterators[blockArgIteratorMapping[1]], dstIndex,
+      //     ttkernel::ReduceTypeAttr::get(builder.getContext(), type),
+      //     ttkernel::ReduceDimAttr::get(builder.getContext(), reduceDim));
+    } else if (numDpsInputs == 1) {
       convertComputeUnaryOp(arithOrMathOp, cbOperands, iterators,
-                            blockArgIteratorMapping, builder);
+                            blockArgIteratorMapping, innerLoopBuilder);
     } else if (numDpsInputs == 2) {
       convertComputeBinaryOp(arithOrMathOp, cbOperands, iterators,
-                             blockArgIteratorMapping, builder);
+                             blockArgIteratorMapping, innerLoopBuilder);
     } else {
       llvm_unreachable("Unhandled conversion for operation which is neither "
                        "unary nor binary.");
     }
   }
 
+  void convertReduceOp(Block *computeBlock, Operation &op,
+                       ArrayRef<BlockArgument> cbOperands,
+                       ArrayRef<BlockArgument> iterators,
+                       SmallVector<unsigned> blockArgIteratorMapping,
+                       ttkernel::ReduceDim reduceDim,
+                       LoopNest &loopNest) const {
+    assert(reduceDim != ttkernel::ReduceDim::None);
+
+    auto kernelOp = mlir::cast<ttir::KernelOp>(op);
+    assert(kernelOp.getOp() == "reduce");
+    auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::ReduceSUM
+                                            : ttkernel::ReduceType::ReduceMAX;
+
+    OpBuilder innerLoopBuilder(&loopNest.loopRegions.back()->front(),
+                               loopNest.loopRegions.back()->front().begin());
+    auto dstIndex = i32(0, innerLoopBuilder);
+
+    innerLoopBuilder.create<ttkernel::ReduceTileOp>(
+        op.getLoc(), cbOperands[0],
+        cbOperands[0], // TODO(rpavlovic) insert proper
+                       // scaling cb
+        iterators[blockArgIteratorMapping[0]],
+        iterators[blockArgIteratorMapping[0]], dstIndex,
+        ttkernel::ReduceTypeAttr::get(innerLoopBuilder.getContext(), type),
+        ttkernel::ReduceDimAttr::get(innerLoopBuilder.getContext(), reduceDim));
+
+    size_t numLoopRegions = loopNest.loopRegions.size();
+    size_t numReducedDims = reduceDim == ttkernel::ReduceDim::Row ||
+                                    reduceDim == ttkernel::ReduceDim::Col
+                                ? 1
+                                : 2;
+
+    Block *packingBlock =
+        numReducedDims == numLoopRegions
+            ? computeBlock
+            : &loopNest.loopRegions[numLoopRegions - 1 - numReducedDims]
+                   ->getBlocks()
+                   .front();
+    OpBuilder packingBuilder(packingBlock, packingBlock->begin());
+
+    packingBuilder.create<ttkernel::TileRegsAcquireOp>(
+        computeBlock->front().getLoc());
+
+    Value packSingleTile = i32(0, packingBuilder);
+    Value packingTileIndex =
+        numReducedDims == numLoopRegions
+            ? packSingleTile
+            : loopNest.loops[numLoopRegions - 1 - numReducedDims]
+                  .getRegionIterArgs()[blockArgIteratorMapping.back()];
+
+    if (packingBlock->mightHaveTerminator()) {
+      packingBuilder.setInsertionPoint(packingBlock->getTerminator());
+    } else {
+      packingBuilder.setInsertionPointToEnd(packingBlock);
+    }
+
+    packingBuilder.create<ttkernel::TileRegsCommitOp>(
+        computeBlock->front().getLoc());
+    packingBuilder.create<ttkernel::TileRegsWaitOp>(
+        computeBlock->front().getLoc());
+    packingBuilder.create<ttkernel::PackTileOp>(computeBlock->front().getLoc(),
+                                                dstIndex, cbOperands.back(),
+                                                packingTileIndex);
+    packingBuilder.create<ttkernel::TileRegsReleaseOp>(
+        computeBlock->front().getLoc());
+  }
+
   // Builds instructions to execute before looping over tiles has started.
-  void buildInitSection(Operation &arithOrMathOp,
-                        OpBuilder &dispatchBlockBuilder,
+  void buildInitSection(Operation &arithOrMathOp, OpBuilder &builder,
                         ArrayRef<BlockArgument> cbOperands,
+                        ttkernel::ReduceDim reduceDim,
                         std::int64_t numDPSInputs) const {
-    convertComputeInitOp(arithOrMathOp, cbOperands, numDPSInputs,
-                         dispatchBlockBuilder);
+    convertComputeInitOp(arithOrMathOp, cbOperands, numDPSInputs, reduceDim,
+                         builder);
   }
 
   // Builds nested loops which loop over tensor tiles after initalization is
   // done and computation to perform on each tile over which loops iterate.
-  void buildLoopsAndComputation(Operation &arithOrMathOp,
-                                OpBuilder &dispatchBlockBuilder,
+  void buildLoopsAndComputation(Block *computeBlock, Operation &arithOrMathOp,
+                                OpBuilder &builder,
+                                ArrayRef<bool> reducedMemrefDims,
+                                ttkernel::ReduceDim reduceDim,
                                 ArrayRef<BlockArgument> &cbOperands,
                                 std::int64_t numDPSInputs) const {
     // Create loops which iterate over tiles in tensor.
     LoopNest loopNest =
-        createLoopNest(cbOperands, numDPSInputs, dispatchBlockBuilder);
+        createLoopNest(cbOperands, reducedMemrefDims, numDPSInputs, builder);
     assert(loopNest.loops.size() == 2 && "Expected only two loops!");
 
     // The loop nest is created from outermost to innermost. Get the inner loop
@@ -942,8 +1078,9 @@ public:
 
     // Call compute function to execute on each tile. Result will be stored in
     // DST.
-    convertComputeOp(arithOrMathOp, cbOperands, iterators,
-                     blockArgIteratorMapping, innerLoopBuilder, numDPSInputs);
+    convertComputeOp(computeBlock, arithOrMathOp, loopNest, cbOperands,
+                     iterators, reduceDim, blockArgIteratorMapping,
+                     innerLoopBuilder, numDPSInputs);
   }
 
   // Builds instructions to execute after loops are finished.
@@ -954,10 +1091,31 @@ public:
         origGenericOpBlock->getTerminator()->getLoc());
   }
 
+  ttkernel::ReduceDim getReduceDim(ArrayRef<bool> reducedMemrefDims) const {
+    if (reducedMemrefDims.size() == 1) {
+      return reducedMemrefDims[0] ? ttkernel::ReduceDim::ReduceDimSCALAR
+                                  : ttkernel::ReduceDim::ReduceDimNONE;
+    }
+    if (reducedMemrefDims.size() == 2) {
+      if (reducedMemrefDims[0] && reducedMemrefDims[1]) {
+        return ttkernel::ReduceDim::ReduceDimSCALAR;
+      }
+      if (reducedMemrefDims[0]) {
+        return ttkernel::ReduceDim::ReduceDimCOL;
+      }
+      if (reducedMemrefDims[1]) {
+        return ttkernel::ReduceDim::ReduceDimROW;
+      }
+      return ttkernel::ReduceDim::ReduceDimNONE;
+    }
+    llvm_unreachable("Unhandled reduction dims");
+  }
+
   // Convert the original block into a lowered block that contains a fully
   // expanded loop nest and inner loop that implements the underlying arith or
   // math operation as a tile operation.
-  void lowerBlock(Block *origGenericOpBlock, Block *dispatchOpBlock,
+  void lowerBlock(Block *origGenericOpBlock, Block *computeBlock,
+                  ArrayAttr iteratorTypes, ArrayAttr indexingMaps,
                   std::int64_t numDPSInputs) const {
     Block::OpListType &operations = origGenericOpBlock->getOperations();
     assert(operations.size() == 2);
@@ -968,43 +1126,74 @@ public:
     assert((dispatchOpBlock->getNumArguments() - numDPSInputs) == 1 &&
            "Expected 1 output");
 
-    OpBuilder dispatchBlockBuilder(dispatchOpBlock, dispatchOpBlock->begin());
-    Operation &arithOrMathOp = operations.front();
-    auto cbOperands = dispatchOpBlock->getArguments();
+    auto outputMemref = mlir::cast<ttkernel::CBType>(
+                            computeBlock->getArgument(numDPSInputs).getType())
+                            .getMemref()
+                            .getLayout()
+                            .getAffineMap();
+    size_t j = iteratorTypes.size() - 1;
+    uint32_t outputRank = outputMemref.getNumDims();
+    SmallVector<bool> reducedMemrefDims(outputRank, false);
+    uint32_t numReducedDims = 0;
 
-    buildInitSection(arithOrMathOp, dispatchBlockBuilder, cbOperands,
+    // Collect the reduction dims going from innermost to outermost.
+    assert(outputRank <= iteratorTypes.size());
+    for (int i = outputRank - 1; i >= 0; --i, --j) {
+      auto itType = iteratorTypes[j];
+      if (mlir::cast<IteratorTypeAttr>(itType).getValue() ==
+          IteratorType::Reduction) {
+        reducedMemrefDims[i] = true;
+        ++numReducedDims;
+      }
+    }
+
+    auto kernelReduceDim = getReduceDim(reducedMemrefDims);
+
+    OpBuilder builder(computeBlock, computeBlock->begin());
+    Operation &arithOrMathOp = operations.front();
+    auto cbOperands = computeBlock->getArguments();
+
+    buildInitSection(arithOrMathOp, builder, cbOperands, kernelReduceDim,
                      numDPSInputs);
-    buildLoopsAndComputation(arithOrMathOp, dispatchBlockBuilder, cbOperands,
+    buildLoopsAndComputation(computeBlock, arithOrMathOp, builder,
+                             reducedMemrefDims, kernelReduceDim, cbOperands,
                              numDPSInputs);
-    buildEndSection(dispatchBlockBuilder, origGenericOpBlock);
+    buildEndSection(builder, origGenericOpBlock);
   }
 
   SmallVector<Type>
-  getBlockArgumentTypesAsCBs(mlir::OperandRange dispatchOperands,
+  getBlockArgumentTypesAsCBs(ttir::GenericOp op,
                              mlir::Block::BlockArgListType blockArguments,
-                             std::int64_t numDPSInputs,
                              PatternRewriter &rewriter) const {
     SmallVector<Type> rewrittenBlockArgumentTypes;
     for (auto arg : blockArguments) {
-      auto address = lookupAddress(dispatchOperands[arg.getArgNumber()]);
-      assert(address && "Expected valid address");
-      auto port = getPort(arg.getArgNumber(), numDPSInputs);
+      auto port = getPort(arg.getArgNumber(), op.getInputs().size());
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
       auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
       auto memref = buffer.getMemref();
       assert(buffer.getBufferAccess() == BufferAccess::Alias &&
              "Currently only alias mode is supported");
+
+      int32_t cbMapping = op.getOperandCbMapping()[arg.getArgNumber()];
+      auto matchingOperand = cbMapping == -1
+                                 ? op.getMatchingOperand(arg.getArgNumber())
+                                 : op.getCbs()[cbMapping];
+      auto address = lookupAddress(matchingOperand);
+      assert(address && "Expected valid address");
+
       rewrittenBlockArgumentTypes.push_back(
           rewriter.getType<ttkernel::CBType>(port, address, memref));
     }
+
     return rewrittenBlockArgumentTypes;
   }
 
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    if (hasUnloweredTTIRKernel(op)) {
-      return failure();
-    }
+    // Temporary fix that allows ttir::KernelOp to be lowered directly into
+    // ttkernel dialect. if (hasUnloweredTTIRKernel(op)) {
+    //   return failure();
+    // }
 
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
         ttkernel::MathFidelity::HiFi4, false, false, false);
@@ -1019,15 +1208,15 @@ public:
         rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
     auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
-        op->getOperands(), op->getRegion(0).getArguments(),
-        op.getNumDpsInputs(), rewriter);
+        op, op->getRegion(0).getArguments(), rewriter);
 
     Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
     }
 
-    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs());
+    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
+               op.getIndexingMaps(), op.getInputs().size());
 
     rewriter.replaceOp(op, metalDispatch);
 
@@ -1078,7 +1267,6 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRToTTMetalLayoutRewriter,
-               ttmetal::TTIRToTTMetalKernelRewriter,
                ttmetal::TTIRToTTMetalDispatchRewriter,
                ttmetal::TTIRToTTMetalAllocRewriter,
                ttmetal::TTIRToTTMetalDeallocRewriter,

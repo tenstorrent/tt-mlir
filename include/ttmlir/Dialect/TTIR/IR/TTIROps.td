@@ -56,8 +56,8 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
                          Variadic<AnyRankedTensor>:$cbs,
+                         Variadic<AnyRankedTensor>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
@@ -66,6 +66,17 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region AnyRegion:$region);
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      Value getMatchingOperand(size_t blockArgIndex) {
+        return blockArgIndex < getInputs().size() ?
+          getOperand(blockArgIndex) : getOperand(blockArgIndex + getCbs().size());
+      }
+
+      MutableOperandRange getDpsInitsMutable() {
+        return getOutputsMutable();
+      }
+    }];
 }
 
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {

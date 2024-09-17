@@ -225,7 +225,7 @@ public:
         createOperandConstraints(rewriter, op.getKind(), op.getOperands());
     auto dispatch = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(), ValueRange() /* cbs */, rewriter.getAttr<GridAttr>(),
+        ValueRange() /* cbs */, op.getOutputs(), rewriter.getAttr<GridAttr>(),
         indexingMaps, iteratorTypes, constraints);
 
     // Create a new basic block for the dispatch op and create block arguments
@@ -294,7 +294,7 @@ public:
 
     auto genericOp = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        dps.getDpsInits(), ValueRange() /* cbs */, rewriter.getAttr<GridAttr>(),
+        ValueRange() /* cbs */, dps.getDpsInits(), rewriter.getAttr<GridAttr>(),
         indexingMaps, iteratorTypes, constraints);
 
     // Create a new basic block for the generic op and create block arguments.
@@ -360,16 +360,20 @@ struct TTIRGenericOperandsToMemrefRewriter
 
     rewriter.modifyOpInPlace(generic, [&]() {
       DenseMap<Type, Type> typeMap;
+
       for (auto blockArg : entry->getArguments()) {
-        auto matchingOperand = generic->getOperand(blockArg.getArgNumber());
+        uint32_t blockArgNumber = blockArg.getArgNumber();
+        auto matchingOperand =
+            blockArgNumber < generic.getInputs().size()
+                ? generic->getOperand(blockArgNumber)
+                : generic->getOperand(blockArgNumber + generic.getCbs().size());
         auto operandType = matchingOperand.getType();
 
         auto bufferLayout = mlir::cast<LayoutAttr>(
             mlir::cast<RankedTensorType>(operandType).getEncoding());
         auto bufferType = operandType;
 
-        int64_t cbIndex =
-            generic.getOperandCbMapping()[blockArg.getArgNumber()];
+        int64_t cbIndex = generic.getOperandCbMapping()[blockArgNumber];
 
         if (cbIndex >= 0) {
           assert(static_cast<size_t>(cbIndex) < generic.getCbs().size());
@@ -1536,7 +1540,7 @@ public:
     rewriter.setInsertionPointAfter(generic);
     auto newGenericOp = rewriter.create<ttir::GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), cbValues, generic.getGrid(),
+        cbValues, generic.getOutputs(), generic.getGrid(),
         generic.getIndexingMaps(), generic.getIteratorTypes(), newConstraints,
         operandCBMapping);
 
