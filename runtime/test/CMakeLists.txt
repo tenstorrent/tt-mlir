@@ -28,7 +28,7 @@ if (NOT FLATBUFFERS_LIB)
 endif()
 
 add_library(TTRuntimeTEST INTERFACE)
-add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTRuntime TTMETAL_LIBRARY)
+add_dependencies(TTRuntimeTEST TTRuntimeTTNN TTRuntimeTTMetal TTRuntime TTRuntimeDebug TTMETAL_LIBRARY)
 target_include_directories(TTRuntimeTEST INTERFACE
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
@@ -41,6 +41,7 @@ target_link_libraries(TTRuntimeTEST INTERFACE
     TTRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
+    TTRuntimeDebug
     ${Python3_LIBRARIES}
     ${FLATBUFFERS_LIB}
     GTest::gtest_main

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
@@ -61,7 +62,8 @@ Device openDevice(std::vector<int> const &deviceIds,
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   assert(numHWCQs.empty() && "HWCQs are not supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front(), kL1SmallSize);
-  device.enable_async(true);
+  bool enableAsync = not debug::Env::get().disableAsyncTTNN;
+  device.enable_async(enableAsync);
   return Device::borrow(device, DeviceRuntime::TTNN);
 }
 

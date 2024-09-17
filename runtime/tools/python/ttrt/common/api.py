@@ -220,6 +220,14 @@ class API:
             help="Pickup the kernels from disk (/tmp) instead of the flatbuffer",
             api_only=False,
         )
+        API.Run.register_arg(
+            name="--disable-async-ttnn",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable async mode device execution for TTNN runtime",
+            api_only=False,
+        )
 
         # register all perf arguments
         API.Perf.register_arg(
@@ -846,7 +854,9 @@ class API:
                     self.logging.warning(f"no binaries found to run - returning early")
                     return
 
-                debug_env = ttrt.runtime.DebugEnv.get(self.load_kernels_from_disk)
+                debug_env = ttrt.runtime.DebugEnv.get(
+                    self.load_kernels_from_disk, self.disable_async_ttnn
+                )
                 self.logging.debug(f"setting tt runtime debug env={debug_env}")
 
                 self.logging.debug(f"setting torch manual seed={self['seed']}")
