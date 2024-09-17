@@ -35,6 +35,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
       utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::permute(unsqueezedInput, dimensionOrder, outputMemoryConfig);
+  out = ::ttnn::squeeze_from_4D(out, inputRank);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
