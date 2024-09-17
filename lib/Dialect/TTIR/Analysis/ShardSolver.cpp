@@ -11,16 +11,20 @@ namespace mlir::tt::ttir {
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
 ShardSolver::ShardSolver(
-    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
     const std::vector<ShardSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize)
-    : legalGrids(&legalGrids), shardSpecs(&shardSpecs), shardedOps(&shardedOps),
-      usableL1CacheSize(usableL1CacheSize) {
+    : legalLayouts(&legalLayouts), shardSpecs(&shardSpecs),
+      shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
   bitsets.reserve(shardedOps.size());
   bitsetIds.reserve(shardedOps.size());
+
+  // Cache DeviceAttr.
+  //
+  deviceAttr = getCurrentScopeDevice(shardSpecs.front().op);
 
   // Populate operandOpEdges and userOpEdges.
   //
@@ -56,10 +60,15 @@ bool ShardSolver::resolveStep() {
   selectedOpLayout.reserve(shardedOps->size());
   bool reshardInserted = false;
 
+  // We need special handling for the first op in the chain.
+  //
+  preprocessFirstOp();
+
   for (const auto shardSpec : *shardSpecs) {
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
-    std::vector<LayoutAttr> const &consumerGrids = getLegalGrids(consumerOp);
+    std::vector<LayoutAttr> const &consumerLayouts =
+        getLegalLayouts(consumerOp);
 
     for (Edge edge : operandOpEdges[consumerOp]) {
 
@@ -67,17 +76,18 @@ bool ShardSolver::resolveStep() {
 
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
-      std::vector<LayoutAttr> const &producerGrids = getLegalGrids(producerOp);
+      std::vector<LayoutAttr> const &producerLayouts =
+          getLegalLayouts(producerOp);
 
-      assert(not(consumerGrids.empty() && producerGrids.empty()));
+      assert(not(consumerLayouts.empty() && producerLayouts.empty()));
 
       PathSet::Paths paths;
       Bitset edgeProducerBitset = kBitsetNone;
       Bitset edgeConsumerBitset = kBitsetNone;
       std::uint64_t producer_count =
-          std::min(kNumBitsetBits, std::max(1lu, producerGrids.size()));
+          std::min(kNumBitsetBits, std::max(1lu, producerLayouts.size()));
       std::uint64_t consumer_count =
-          std::min(kNumBitsetBits, std::max(1lu, consumerGrids.size()));
+          std::min(kNumBitsetBits, std::max(1lu, consumerLayouts.size()));
       for (std::uint64_t producerId = 0; producerId < producer_count;
            ++producerId) {
         // If the producer cannot accomodate this path, continue.
@@ -102,8 +112,8 @@ bool ShardSolver::resolveStep() {
           //
           bool validShardPair =
               reshardOnEdge ||
-              checkShardCompatible(producerOp, producerGrids[producerId],
-                                   consumerOp, consumerGrids[consumerId]);
+              checkShardCompatible(producerOp, producerLayouts[producerId],
+                                   consumerOp, consumerLayouts[consumerId]);
 
           if (validShardPair) {
             assert(producerId <=
@@ -120,7 +130,7 @@ bool ShardSolver::resolveStep() {
       if (paths.empty() || ((*producerBitset & edgeProducerBitset) == 0) ||
           ((*consumerBitset & edgeConsumerBitset) == 0)) {
 
-        // No valid paths found for this edge, lets try self-cutting if enabled.
+        // No valid paths found for this edge, mark it for resharding.
         //
         insertReshard(edge);
         reshardInserted = true;
@@ -158,6 +168,66 @@ bool ShardSolver::resolveStep() {
   }
 
   return true;
+}
+
+// We need to check if first op requires sharded inputs and if so, insert
+// reshard edge, then invalidate all sharding options which would go above L1
+// size limits.
+//
+void ShardSolver::preprocessFirstOp() {
+  // TODO(nobradovic): Add check whether this op type can have sharded output
+  // from interleaved inputs. For now assuming it can not.
+  //
+  // Insert reshard edge for the first op to start the chain.
+  //
+  Operation *firstOp = shardSpecs->front().op;
+  Edge shardChainInputEdge =
+      Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
+
+  if (reshardedEdges.count(shardChainInputEdge) == 0) {
+    insertReshard(shardChainInputEdge);
+  }
+
+  Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
+  std::vector<LayoutAttr> const &firstOpLayouts = getLegalLayouts(firstOp);
+  Operation *operandOp = firstOp->getOperand(0).getDefiningOp();
+
+  RankedTensorType firstOpInputTensorType =
+      mlir::cast<RankedTensorType>(operandOp->getResult(0).getType());
+  LayoutAttr firstOpInputLayout =
+      mlir::cast<LayoutAttr>(firstOpInputTensorType.getEncoding());
+  constexpr float tensorL1UsageCap = 0.8;
+
+  for (size_t i = 0; i < firstOpLayouts.size(); ++i) {
+    if (!firstOpBitset->test(i)) {
+      continue;
+    }
+
+    LayoutAttr firstOpLayout = firstOpLayouts[i];
+    assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
+
+    LayoutAttr firstOpInputShardedLayout =
+        firstOpInputLayout
+            .withMemorySpace(firstOp->getContext(),
+                             firstOpLayout.getMemorySpace())
+            .withMemoryLayout(firstOp->getContext(),
+                              firstOpLayout.getMemLayout())
+            .withGrid(firstOp->getContext(), firstOpInputTensorType,
+                      firstOpLayout.getGrid());
+
+    uint64_t firstInputL1Usage = deviceAttr.getLayoutSizeBytes(
+        firstOpInputTensorType.getShape(), firstOpInputShardedLayout,
+        firstOpInputShardedLayout.getMemorySpace());
+    uint64_t firstOpL1OutputUsage = deviceAttr.getLayoutSizeBytes(
+        mlir::cast<RankedTensorType>(firstOp->getResult(0).getType())
+            .getShape(),
+        firstOpLayout, firstOpLayout.getMemorySpace());
+
+    if ((firstInputL1Usage + firstOpL1OutputUsage) >=
+        tensorL1UsageCap * usableL1CacheSize) {
+      firstOpBitset->reset(i);
+    }
+  }
 }
 
 void ShardSolver::insertReshard(const Edge &edge) {
@@ -273,7 +343,7 @@ void ShardSolver::updateSolver(Operation *root, bool expand_root,
       path_set->update(bitsets);
     }
 
-    // When op bitsets are updated(set of valid op grids), we need to update
+    // When op bitsets are updated(set of valid op layouts), we need to update
     // paths for all operands and users.
     //
     addOperandsAndUsers(root, needsUpdate);
@@ -371,34 +441,35 @@ ShardSolver::Bitset *ShardSolver::getOrInsertBitset(Operation *op,
 
 // Returns vector of legal LayoutAttrs for passed in op.
 //
-const std::vector<LayoutAttr> &ShardSolver::getLegalGrids(Operation *op) const {
-  static std::vector<LayoutAttr> nullGrids;
+const std::vector<LayoutAttr> &
+ShardSolver::getLegalLayouts(Operation *op) const {
+  static std::vector<LayoutAttr> nullLayouts;
 
-  const auto legalIt = legalGrids->find(op);
+  const auto legalIt = legalLayouts->find(op);
 
-  if (legalIt != legalGrids->end()) {
+  if (legalIt != legalLayouts->end()) {
     return legalIt->second;
   }
 
-  return nullGrids;
+  return nullLayouts;
 }
 
 ShardSolver::RemainingLayoutAttrs ShardSolver::at(Operation *op) const {
-  auto grids = RemainingLayoutAttrs(getLegalGrids(op), *getBitset(op));
-  assert(grids.begin() != grids.end());
-  return grids;
+  auto layouts = RemainingLayoutAttrs(getLegalLayouts(op), *getBitset(op));
+  assert(layouts.begin() != layouts.end());
+  return layouts;
 }
 
-void ShardSolver::set(Operation *op, LayoutAttr const &grid) {
+void ShardSolver::set(Operation *op, LayoutAttr const &layout) {
   assert(selectedOpLayout.count(op) == 0);
 
-  selectedOpLayout[op] = grid;
+  selectedOpLayout[op] = layout;
 
-  auto const &grids = getLegalGrids(op);
-  assert(!grids.empty());
-  size_t selection = grids.size();
-  for (size_t i = 0; i < grids.size(); ++i) {
-    if (grids[i] == grid) {
+  auto const &layouts = getLegalLayouts(op);
+  assert(!layouts.empty());
+  size_t selection = layouts.size();
+  for (size_t i = 0; i < layouts.size(); ++i) {
+    if (layouts[i] == layout) {
       selection = i;
       break;
     }
@@ -406,7 +477,7 @@ void ShardSolver::set(Operation *op, LayoutAttr const &grid) {
 
   Bitset *op_bitset = getBitset(op);
 
-  assert(selection != grids.size());
+  assert(selection != layouts.size());
   assert((*op_bitset)[selection]);
 
   op_bitset->reset();
@@ -415,9 +486,9 @@ void ShardSolver::set(Operation *op, LayoutAttr const &grid) {
   updateSolver(op, true /*expand_root*/, true /*invokedBySet*/);
 }
 
-bool ShardSolver::checkShardCompatible(const Operation *producerOp,
+bool ShardSolver::checkShardCompatible(Operation *producerOp,
                                        LayoutAttr const &producerLayout,
-                                       const Operation *consumerOp,
+                                       Operation *consumerOp,
                                        LayoutAttr const &consumerLayout) const {
 
   // TEMP : Dummy mock implementation, will be replaced.
@@ -435,26 +506,25 @@ bool ShardSolver::checkShardCompatible(const Operation *producerOp,
   // currentOp output tensor shard spec, nextOp exec and nextOp output
   // tensor.
   //
-  llvm::SmallVector<int64_t> producerOpShardShape =
-      producerLayout.getShardShape(false /*convertTileToScalar*/);
-  uint64_t l1InputUsage = producerLayout.getElementSizeBytes();
-  for (int64_t dim : producerOpShardShape) {
-    l1InputUsage *= dim;
-  }
+  assert(producerLayout.hasShardedL1TensorMemoryLayout() &&
+         consumerLayout.hasShardedL1TensorMemoryLayout());
+  RankedTensorType producerTensorType =
+      mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+  uint64_t producerL1OutputUsage = deviceAttr.getLayoutSizeBytes(
+      producerTensorType.getShape(), producerLayout,
+      producerLayout.getMemorySpace());
 
-  llvm::SmallVector<int64_t> consumerOpShardShape =
-      consumerLayout.getShardShape(false /*convertTileToScalar*/);
-  uint64_t l1OutputUsage = consumerLayout.getElementSizeBytes();
-  for (int64_t dim : consumerOpShardShape) {
-    l1OutputUsage *= dim;
-  }
-
+  RankedTensorType consumerTensorType =
+      mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
+  uint64_t consumerL1OutputUsage = deviceAttr.getLayoutSizeBytes(
+      consumerTensorType.getShape(), consumerLayout,
+      consumerLayout.getMemorySpace());
   // Figure out this const based on exec data, but will be replaced
   // with API.
   //
   constexpr float tensorL1UsageCap = 0.8;
-  bool l1UsageValid =
-      (l1InputUsage + l1OutputUsage) < tensorL1UsageCap * usableL1CacheSize;
+  bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <
+                      tensorL1UsageCap * usableL1CacheSize;
 
   return l1UsageValid;
 }
@@ -462,6 +532,7 @@ bool ShardSolver::checkShardCompatible(const Operation *producerOp,
 // Returns ShardSolverSolution.
 //
 ShardSolverSolution const ShardSolver::finish() {
+  assert(selectedOpLayout.size() == shardedOps->size());
   return ShardSolverSolution(selectedOpLayout, reshardedEdges);
 }
 } // namespace mlir::tt::ttir

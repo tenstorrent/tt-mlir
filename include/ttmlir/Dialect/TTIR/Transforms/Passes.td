@@ -93,7 +93,7 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
+def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
   let summary = "Determine grid size for ops.";
   let description = [{
     Go through the ops, set grid size for each op based on grid analysis,
@@ -108,6 +108,10 @@ def TTIRGridSet: Pass<"ttir-grid-set", "::mlir::ModuleOp"> {
           "bool",
           /*default=*/"false",
            "Enable sharding pass.">,
+    Option<"reshardingEnabled", "resharding-enabled",
+          "bool",
+          /*default=*/"false",
+          "Resharding pass. Temp disabled till we support all types of shard specs.">,
   ];
 }
 

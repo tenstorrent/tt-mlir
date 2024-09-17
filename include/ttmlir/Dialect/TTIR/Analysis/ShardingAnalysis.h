@@ -17,18 +17,18 @@ enum class ShardingPolicyType {
 };
 
 struct ShardingAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
 
-  ShardingAnalysisInput() : legalGrids() {}
+  ShardingAnalysisInput() : legalLayouts() {}
 
   ShardingAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       unsigned usableL1CacheSize)
-      : legalGrids(legalGrids), usableL1CacheSize(usableL1CacheSize) {}
+      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize) {}
 
   bool operator==(const ShardingAnalysisInput &rhs) const {
-    return legalGrids == rhs.legalGrids;
+    return legalLayouts == rhs.legalLayouts;
   }
 
   bool operator!=(const ShardingAnalysisInput &rhs) const {
@@ -37,16 +37,16 @@ struct ShardingAnalysisInput {
 };
 
 struct ShardingAnalysisResult {
-  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
   std::unordered_set<Edge> reshardedEdges;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
-  ShardingAnalysisResult() : legalGrids(), reshardedEdges(), schedule() {}
+  ShardingAnalysisResult() : legalLayouts(), reshardedEdges(), schedule() {}
 
   ShardingAnalysisResult(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       const std::unordered_set<Edge> &reshardedEdges)
-      : legalGrids(legalGrids), reshardedEdges(reshardedEdges) {}
+      : legalLayouts(legalLayouts), reshardedEdges(reshardedEdges) {}
 };
 
 // Determine shard chain configs.

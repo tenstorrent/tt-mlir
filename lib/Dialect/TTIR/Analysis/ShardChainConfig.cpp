@@ -13,14 +13,14 @@ void ShardChainConfig::build() {
 }
 
 ShardSolver ShardChainConfig::resolve(
-    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
     unsigned usableL1CacheSize) {
   assert(state == ShardChainState::Built);
 
   // Reconcile adjacent shard specs.
   // Generate reshard specs where needed.
   //
-  ShardSolver shardSolver(legalGrids, shardSpecs, shardedOps,
+  ShardSolver shardSolver(legalLayouts, shardSpecs, shardedOps,
                           usableL1CacheSize);
   state = ShardChainState::Resolved;
 
@@ -32,10 +32,10 @@ void ShardChainConfig::complete(
     std::unordered_set<Edge> &reshardedEdges) {
   assert(state == ShardChainState::Resolved);
   for (auto &shardSpec : shardSpecs) {
-    auto legalGridsIter = selectedOpLayout.find(shardSpec.op);
-    assert(legalGridsIter != selectedOpLayout.end());
+    auto legalLayoutsIter = selectedOpLayout.find(shardSpec.op);
+    assert(legalLayoutsIter != selectedOpLayout.end());
 
-    shardSpec.layout = legalGridsIter->second;
+    shardSpec.layout = legalLayoutsIter->second;
   }
 
   this->reshardedEdges.swap(reshardedEdges);

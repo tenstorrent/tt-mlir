@@ -573,6 +573,12 @@ mlir::Type LayoutAttr::getScalarElementType() const {
 }
 
 bool LayoutAttr::hasShardedTensorMemoryLayout() const {
+  return (getMemLayout() == TensorMemoryLayout::HeightSharded or
+          getMemLayout() == TensorMemoryLayout::WidthSharded or
+          getMemLayout() == TensorMemoryLayout::BlockSharded);
+}
+
+bool LayoutAttr::hasShardedL1TensorMemoryLayout() const {
   return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
          (getMemLayout() == TensorMemoryLayout::HeightSharded or
           getMemLayout() == TensorMemoryLayout::WidthSharded or
