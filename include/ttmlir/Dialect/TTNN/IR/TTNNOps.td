@@ -22,6 +22,8 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let description = [{
       This op returns the current runtime device.
     }];
+
+    let arguments = (ins OptionalAttr<TTNN_MeshShapeAttr>:$mesh_shape);
     let results = (outs TT_Device:$device);
 }
 
