@@ -34,7 +34,7 @@ int main() {
   {
     std::vector<uint32_t> shape = {1, 1, 32, 32 * 64 * 5};
     ttnn::mlir_interface::shard_spec_tuple shard_spec = {
-        {{0, 0, 8, 8}}, {32, 32 * 5}, "row_major", false};
+        {{0, 0, 7, 7}}, {32, 32 * 5}, "col_major", false};
     ttnn::mlir_interface::memory_config_tuple memory_config = {
         "width_sharded", "l1", shard_spec};
     std::string data_type = "bf16";
