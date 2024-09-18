@@ -65,8 +65,9 @@ public:
     // Get the shape of the tensor, tensor layout, and data type
     //
     mlir::MemRefType memref = ttLayoutAttr.getMemref();
-    ttnn::ShapeAttr shapeAttr =
-        ttnn::ShapeAttr::get(rewriter.getContext(), memref.getShape());
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(),
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
     Type elementType = memref.getElementType();
     DataType dtype = DataType::Float32;
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;

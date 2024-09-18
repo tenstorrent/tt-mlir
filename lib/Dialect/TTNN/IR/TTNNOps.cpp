@@ -408,13 +408,16 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 }
 
 ::mlir::LogicalResult mlir::tt::ttnn::EmptyOp::verify() {
-  // Check that attrs to empty op match the output tensor layout
-  // ======================== begin
-
-  // assert(::llvm::isa<RankedTensorType>(getResult().getType()));
+  // ==============================
+  // === CHECK ATTRIBUTES START ===
+  // ==============================
+  // Check that the attributes of the op match the attributes of the output
+  // tensor type.
+  //
+  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
   RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
 
-  // assert(::llvm::isa<tt::LayoutAttr>(output.getEncoding()));
+  assert(::llvm::isa<tt::LayoutAttr>(output.getEncoding()));
   tt::LayoutAttr ttLayoutAttr =
       mlir::cast<tt::LayoutAttr>(output.getEncoding());
 
@@ -426,32 +429,63 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   //
   mlir::MemRefType memref = ttLayoutAttr.getMemref();
   Type elementType = memref.getElementType();
-  ttnn::Layout ttnnLayoutEnum;
-  tt::DataType dtype;
-  if (llvm::isa<TileType>(elementType)) {
-    ttnnLayoutEnum = ttnn::Layout::Tile;
-    auto tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-  } else {
-    ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    dtype = elementTypeToDataType(elementType);
+  if (getLayout().has_value()) {
+    ttnn::Layout ttnnLayoutEnum;
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    }
+    assert(ttnnLayoutEnum == getLayoutAttr().getValue());
   }
-  assert(dtype == getDtype());
-  assert(ttnnLayoutEnum == getLayoutAttr().getValue());
+  if (getDtype().has_value()) {
+    tt::DataType dtype;
+    if (llvm::isa<TileType>(elementType)) {
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      dtype = elementTypeToDataType(elementType);
+    }
+    assert(dtype == getDtype());
+  }
 
   // MemoryConfig
+  // Check that op has MemoryConfigAttr set on itself, then compare internal
+  // attrs with output tensor attrs.
   //
-  ttnn::BufferType bufferType =
-      mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-  ttnn::TensorMemoryLayout tensorMemoryLayout =
-      mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
-          ttLayoutAttr.getMemLayout());
-  assert(bufferType == getMemoryConfig()->getBufferType().getValue());
-  assert(tensorMemoryLayout ==
-         getMemoryConfig()->getTensorMemoryLayout().getValue());
+  if (getMemoryConfig().has_value()) {
+    ttnn::BufferType bufferType =
+        mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+    ttnn::TensorMemoryLayout tensorMemoryLayout =
+        mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
+            ttLayoutAttr.getMemLayout());
+    assert(bufferType == getMemoryConfig()->getBufferType().getValue());
+    assert(tensorMemoryLayout ==
+           getMemoryConfig()->getTensorMemoryLayout().getValue());
+  }
+  //
+  // ==============================
+  // ==== CHECK ATTRIBUTES END ====
+  // ==============================
 
-  // ======================== end
-
+  // ==============================
+  // === CHECK SIGNATURES START ===
+  // ==============================
+  // Check that call-site uses the correct signature. We only allow 2 for now:
+  // 1. none, Shape, DataType, Layout, none
+  // 2. Device, Shape, DataType, Layout, MemoryConfig
+  //
+  assert(
+      // 1.
+      (!getDevice() && getDtype().has_value() && getLayout().has_value() &&
+       !getMemoryConfig().has_value()) ||
+      // 2.
+      (getDevice() && getDtype().has_value() && getLayout().has_value() &&
+       getMemoryConfig().has_value()));
+  //
+  // ==============================
+  // ==== CHECK SIGNATURES END ====
+  // ==============================
   return success();
 }
 

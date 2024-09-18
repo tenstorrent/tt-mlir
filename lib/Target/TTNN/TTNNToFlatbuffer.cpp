@@ -154,8 +154,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   //
   if (!op.getDevice()) {
     return ::tt::target::ttnn::CreateEmptyOp(
-        *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout, 0,
-        0,
+        *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
+        /* device */ 0, /* memcfg */ 0,
         cache.getOrCreate(output, tensorValueToFlatbuffer,
                           kHostAllocatedAddress, kHostAllocatedSize));
   }
