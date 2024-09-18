@@ -56,3 +56,11 @@ target_link_libraries(TTRuntime
 )
 
 add_dependencies(TTRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug FBS_GENERATION)
+
+if (TTMLIR_ENABLE_RUNTIME)
+  set_target_properties(TTRuntime PROPERTIES PUBLIC_HEADER "../include/tt/runtime/runtime.h;../include/tt/runtime/types.h;../include/tt/runtime/utils.h")
+  install(TARGETS TTRuntime
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/tt/runtime
+  )
+endif()
