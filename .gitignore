@@ -4,3 +4,5 @@ third_party/tt-metal
 .DS_STORE
 .vscode/*
 .cache
+**/__pycache__
+runtime/tools/python/ttrt/utils/debug_tensors.py

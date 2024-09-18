@@ -841,6 +841,8 @@ class API:
             def _execute(binaries):
                 import ttrt.runtime
                 import torch
+                # Don't summarize printing tensors.
+                torch.set_printoptions(precision=3, threshold=10000, linewidth=200)
 
                 if len(binaries) == 0:
                     self.logging.warning(f"no binaries found to run - returning early")
@@ -956,9 +958,7 @@ class API:
                                             "Failed: output tensor all zero"
                                         )
 
-                            self.logging.debug(
-                                f"input tensors for program={program_index}"
-                            )
+                            self.logging.debug(f"input tensors for program={program_index}")
                             for tensor in program.input_tensors:
                                 self.logging.debug(f"{tensor}\n")
 
@@ -967,6 +967,19 @@ class API:
                             )
                             for tensor in program.output_tensors:
                                 self.logging.debug(f"{tensor}\n")
+
+                            # TODO this is copied over from setup.py, should be imported from there instead.
+                            debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
+                            
+                            if debug_runtime:
+                                with open("runtime/tools/python/ttrt/utils/debug_tensors.py", "w") as f:
+                                    f.write("import numpy as np\n\n")
+
+                                    inputs = f"{program.input_tensors}".replace("tensor", "np.array")
+                                    f.write(f"device_input_tensors = {inputs}\n\n")
+
+                                    outputs = f"{program.output_tensors}".replace("tensor", "np.array")
+                                    f.write(f"device_output_tensors = {outputs}\n\n")
 
                             device.deallocate_buffers()
                 finally:
