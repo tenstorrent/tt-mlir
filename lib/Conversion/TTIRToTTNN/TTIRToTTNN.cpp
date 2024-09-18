@@ -121,10 +121,11 @@ public:
 // are required to achieve an arbitrary layout. There are two main distinct
 // paths in this conversion pattern:
 //
-// 1. If the layout calls for device memory, we will call TTNN:ToLayoutOp and
-//    TTNN:ToDeviceOp to achieve the desired layout.
+// 1. If the layout calls for device memory, we will call TTNN::ToLayoutOp and
+//    TTNN::ToDeviceOp to achieve the desired layout.
 //
-// 2. If the layout calls for system memory, we will only call TTNN:ToLayoutOp
+// 2. If the layout calls for system memory, we will call TTNN::FromDeviceOp and
+//    TTNN::ToLayoutOp to change to RowMajor
 //
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
@@ -183,14 +184,24 @@ public:
     ttnn::BufferType bufferType =
         ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
 
-    // If the ToLayoutOp is applied to empty tensor, we need to check whether
-    // the empty tensor is going back to system memory; if so, we should not
-    // call the ToDeviceOp
+    // If the ToLayoutOp is applied to empty tensor, check whether the empty
+    // tensor is going back to system memory; if so, convert the call to
+    // device->host path
     //
     if (bufferType == ttnn::BufferType::SystemMemory) {
-      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
+      ttnn::FromDeviceOp fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          op->getOperand(0));
+
+      // Unfortunately, ToLayoutOp needs a device operand, even though the
+      // tensor is on host memory and doesn't need a device, it is just the
+      // design of the TTNN API that requires it
+      //
+      rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          op.getInput(), device);
+          fromDeviceOp->getResult(0), device,
+          ttnn::LayoutAttr::get(op->getContext(), ttnn::Layout::RowMajor));
+
       return success();
     }
 

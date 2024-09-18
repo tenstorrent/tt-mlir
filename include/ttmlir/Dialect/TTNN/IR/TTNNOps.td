@@ -59,6 +59,16 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+    let summary = "FromDevice op.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
+}
+
+
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
     let extraClassDeclaration = [{

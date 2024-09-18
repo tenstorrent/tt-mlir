@@ -11,6 +11,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_memory_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/matmul/matmul.cpp
