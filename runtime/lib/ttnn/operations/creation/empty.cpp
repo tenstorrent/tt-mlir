@@ -18,8 +18,8 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   ::ttnn::Layout layout __attribute__((unused)) =
       ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
   layout = ::ttnn::Layout::ROW_MAJOR;
-  ::ttnn::Shape shape = ::ttnn::Shape(
-      tt_metal::Shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+  ::ttnn::Shape shape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
+      ::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->out()->desc()->shape())));
 
   const tt::target::DeviceRef *device = op->device();
@@ -28,9 +28,9 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
     ::ttnn::MemoryConfig memoryConfig =
         utils::createMemoryConfig(op->memcfg(), op->out());
     out = ::ttnn::empty(shape, dtype, layout,
-                        utils::getDevice(device, devicePool), memoryConfig);
+                        &utils::getDevice(device, devicePool), memoryConfig);
   } else {
-    out = ::ttnn::empty(shape, dtype, layout);
+    out = ::ttnn::zeros(shape, dtype, layout);
   }
 
   tensorPool.try_emplace(op->out()->global_id(), out);
