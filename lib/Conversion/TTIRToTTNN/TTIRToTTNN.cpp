@@ -124,8 +124,9 @@ public:
 // 1. If the layout calls for device memory, we will call TTNN::ToLayoutOp and
 //    TTNN::ToDeviceOp to achieve the desired layout.
 //
-// 2. If the layout calls for system memory, we will call TTNN::FromDeviceOp and
-//    TTNN::ToLayoutOp to change to RowMajor
+// 2. If the layout calls for system memory, we will call TTNN::ToLayoutOp to
+//    change the tensor to RowMajor layout, and then the TTNN::FromDeviceOp to
+//    move to host memory
 //
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
@@ -189,18 +190,18 @@ public:
     // device->host path
     //
     if (bufferType == ttnn::BufferType::SystemMemory) {
-      ttnn::FromDeviceOp fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
-          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-          op->getOperand(0));
-
-      // Unfortunately, ToLayoutOp needs a device operand, even though the
-      // tensor is on host memory and doesn't need a device, it is just the
-      // design of the TTNN API that requires it
+      // Change to RowMajor
       //
-      rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          fromDeviceOp->getResult(0), device,
+      ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          op.getOperand(0), device,
           ttnn::LayoutAttr::get(op->getContext(), ttnn::Layout::RowMajor));
+
+      // Move to host memory
+      //
+      rewriter.replaceOpWithNewOp<ttnn::FromDeviceOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          toLayoutOp->getResult(0));
 
       return success();
     }
