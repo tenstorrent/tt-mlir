@@ -70,6 +70,7 @@ def TT_MemorySpace : I32EnumAttr<"MemorySpace", "TT MemorySpace",
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
+  let symbolToStringFnName = "MemorySpaceEnumToString";
 }
 
 def TT_TensorMemoryLayoutNone : I32EnumAttrCase<"None", 0, "none">;
@@ -90,6 +91,7 @@ def TT_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TT TensorMemoryLa
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
+  let symbolToStringFnName = "TensorMemoryLayoutEnumToString";
 }
 
 def TT_Parallel : I32EnumAttrCase<"Parallel", 0, "parallel">;
