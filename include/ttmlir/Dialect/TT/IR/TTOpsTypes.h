@@ -92,8 +92,8 @@ inline DataType elementTypeToDataType(Type elementType) {
 
 struct LayoutOverrideParams {
   SmallVector<int64_t, 2> grid;
-  mlir::tt::MemorySpace memorySpace;
-  mlir::tt::TensorMemoryLayout memoryLayout;
+  MemorySpace memorySpace;
+  TensorMemoryLayout memoryLayout;
 };
 } // namespace mlir::tt
 
