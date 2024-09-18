@@ -45,6 +45,19 @@ void createTTNNPipelineSecond(OpPassManager &pm,
   pm.addPass(createConvertTTIRToTTNNPass());
 }
 
+void createTTIRPipelineFirstFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTIRPipelineFirst(pm, *optionsStruct);
+}
+
+void createTTNNPipelineSecondFromString(OpPassManager &pm,
+                                        std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineSecond(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTIRPipelineFirst(pm, options);

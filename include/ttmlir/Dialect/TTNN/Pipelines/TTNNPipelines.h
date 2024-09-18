@@ -121,6 +121,10 @@ void createTTIRPipelineFirst(OpPassManager &pm,
 void createTTNNPipelineSecond(OpPassManager &pm,
                               const TTIRToTTNNBackendPipelineOptions &options);
 
+void createTTIRPipelineFirstFromString(OpPassManager &pm, std::string options);
+
+void createTTNNPipelineSecondFromString(OpPassManager &pm, std::string options);
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 

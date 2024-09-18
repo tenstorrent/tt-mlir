@@ -21,14 +21,9 @@ void populatePassesModule(py::module &m) {
       "ttir_first_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getName());
-        mlir::OpPassManager &opm = pm.nest<mlir::ModuleOp>();
+        mlir::PassManager pm(moduleOp->getContext());
 
-        // Register the options fed into the pipeline.
-        auto optionsStruct =
-            tt::ttnn::TTIRToTTNNBackendPipelineOptions::createFromString(
-                options);
-        createTTIRPipelineFirst(opm, *optionsStruct);
+        tt::ttnn::createTTIRPipelineFirstFromString(pm, options);
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
@@ -40,13 +35,9 @@ void populatePassesModule(py::module &m) {
       "ttnn_second_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getName());
-        mlir::OpPassManager &opm = pm.nest<mlir::ModuleOp>();
+        mlir::PassManager pm(moduleOp->getContext());
 
-        auto optionsStruct =
-            tt::ttnn::TTIRToTTNNBackendPipelineOptions::createFromString(
-                options);
-        createTTNNPipelineSecond(opm, *optionsStruct);
+        tt::ttnn::createTTNNPipelineSecondFromString(pm, options);
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
