@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cassert>
+#include <iostream>
 #include <memory>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -281,6 +282,31 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
                 cache.getOrCreate(allocOp.getResult(), tensorValueToFlatbuffer,
                                   allocOp.getAddress(), allocOp.getSize())),
             op);
+
+        auto globalId = cache.global_id - 1;
+        std::cout << "TTMetalToFlatbuffer global id: " << globalId << std::endl;
+
+        std::vector<uint8_t> byteVectorSrc = {0x00, 0x00, 0x00, 0x00,
+                                              0x00, 0x00, 0x00, 0x00};
+        auto vectorOffsetSrc = fbb.CreateVector(byteVectorSrc);
+        std::vector<uint8_t> byteVectorDst = {0x00, 0x00, 0x00, 0x00,
+                                              0x00, 0x00, 0x00, 0x00};
+        auto vectorOffsetDst = fbb.CreateVector(byteVectorDst);
+        uint64_t addressSrc = 16;
+        uint64_t addressDst = 64;
+        auto tensorDescSrc =
+            ::tt::target::CreateTensorDesc(fbb, 0, 0, vectorOffsetSrc);
+        auto tensorDescDst =
+            ::tt::target::CreateTensorDesc(fbb, 0, 0, vectorOffsetDst);
+        auto tensorRefSrc = ::tt::target::CreateTensorRef(
+            fbb, globalId, addressSrc, 0, tensorDescSrc);
+        auto tensorRefDst = ::tt::target::CreateTensorRef(
+            fbb, globalId, addressDst, 0, tensorDescDst);
+        cqBuilder.appendCommand(
+            ::tt::target::metal::CreateEnqueueWriteBufferCommand(
+                fbb, tensorRefSrc, tensorRefDst),
+            op);
+
       } else if (auto deallocOp = dyn_cast_or_null<tt::ttmetal::DeallocOp>(op);
                  deallocOp) {
         cqBuilder.appendCommand(

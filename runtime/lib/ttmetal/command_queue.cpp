@@ -425,6 +425,8 @@ void CQExecutor::execute(
 
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
+  std::cout << "Buffer address "
+            << buffers[command->dst()->global_id()]->address() << std::endl;
   ZoneScopedN("EnqueueWriteBufferCommand");
   assert(command->src()->desc()->constant_data() != nullptr &&
          "Only constant data supported");
@@ -455,6 +457,8 @@ void CQExecutor::execute(
     buffers[command->ref()->global_id()] =
         createBufferFromTensorRef(device, command->ref());
   }
+  std::cout << "id at command_queue.cpp " << command->ref()->global_id()
+            << std::endl;
 }
 
 void CQExecutor::execute(
