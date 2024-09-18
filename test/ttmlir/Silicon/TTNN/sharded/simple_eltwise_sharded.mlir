@@ -2,6 +2,7 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 #l1_block_sharded = #tt.operand_constraint<l1_block_sharded>
+#l1_height_sharded = #tt.operand_constraint<l1|height_sharded|scalar|tile>
 
 func.func @subtract(%arg0: tensor<224x64xf32>, %arg1: tensor<224x64xf32>) -> tensor<224x64xf32> {
   // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
@@ -46,14 +47,14 @@ func.func @ge(%arg0: tensor<224x64xf32>, %arg1: tensor<224x64xf32>) -> tensor<22
 func.func @reshape(%arg0: tensor<4x2x224x64xbf16>) -> tensor<2x4x224x64xbf16> {
   %0 = tensor.empty() : tensor<2x4x224x64xbf16>
   // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
-  %1 = "ttir.reshape"(%arg0, %0) <{shape = [2: i32, 4: i32, 224: i32, 64: i32] , operand_constraints = [#l1_block_sharded, #l1_block_sharded]}> : (tensor<4x2x224x64xbf16>, tensor<2x4x224x64xbf16>) -> tensor<2x4x224x64xbf16>
+  %1 = "ttir.reshape"(%arg0, %0) <{shape = [2: i32, 4: i32, 224: i32, 64: i32] , operand_constraints = [#l1_height_sharded, #l1_height_sharded]}> : (tensor<4x2x224x64xbf16>, tensor<2x4x224x64xbf16>) -> tensor<2x4x224x64xbf16>
   return %1 : tensor<2x4x224x64xbf16>
 }
 
 func.func @squeeze(%arg0: tensor<1x2x1x224x64xbf16>) -> tensor<1x2x224x64xbf16> {
   %0 = tensor.empty() : tensor<1x2x224x64xbf16>
   // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
-  %1 = "ttir.squeeze"(%arg0, %0) <{dim = 2 : si32, operand_constraints = [#l1_block_sharded, #l1_block_sharded]}> : (tensor<1x2x1x224x64xbf16>, tensor<1x2x224x64xbf16>) -> tensor<1x2x224x64xbf16>
+  %1 = "ttir.squeeze"(%arg0, %0) <{dim = 2 : si32, operand_constraints = [#l1_height_sharded, #l1_height_sharded]}> : (tensor<1x2x1x224x64xbf16>, tensor<1x2x224x64xbf16>) -> tensor<1x2x224x64xbf16>
   return %1 : tensor<1x2x224x64xbf16>
 }
 

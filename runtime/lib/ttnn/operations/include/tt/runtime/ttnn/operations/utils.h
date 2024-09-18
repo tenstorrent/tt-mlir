@@ -28,5 +28,9 @@ CoreRangeSet toCoreRangeSet(
 ::tt::tt_metal::MemoryConfig
 createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
 
+::tt::tt_metal::MemoryConfig
+createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
+                   const ::tt::target::TensorRef *tensorRef);
+
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

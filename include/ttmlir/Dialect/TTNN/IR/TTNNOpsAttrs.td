@@ -67,6 +67,16 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let assemblyFormat = "`<` params `>`";
 }
 
+def TTNN_ShapeAttr : TTNN_Attr<"Shape", "shape"> {
+  let summary = "TTNN Shape attribute";
+  let description = [{
+    TTNN shape attribute
+  }];
+
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{
