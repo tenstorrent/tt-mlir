@@ -432,6 +432,8 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
                          OptionalAttr<TTNN_LayoutAttr>:$layout,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_FullOp : TTNN_Op<"full"> {

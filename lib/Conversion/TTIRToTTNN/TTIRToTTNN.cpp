@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -26,46 +27,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
-// Map TT::MemorySpace to TTNN::BufferType
-//
-ttnn::BufferType toTTNNBufferType(const tt::MemorySpace memorySpace) {
-
-  switch (memorySpace) {
-  case tt::MemorySpace::System:
-  case tt::MemorySpace::SystemMMIO:
-    return ttnn::BufferType::SystemMemory;
-  case tt::MemorySpace::DeviceDRAM:
-    return ttnn::BufferType::DRAM;
-  case tt::MemorySpace::DeviceL1:
-    return ttnn::BufferType::L1;
-  }
-
-  llvm_unreachable("Unknown MemorySpace");
-}
-
-// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
-//
-ttnn::TensorMemoryLayout
-toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout) {
-
-  switch (ttTensorMemoryLayout) {
-  case tt::TensorMemoryLayout::HeightSharded:
-    return ttnn::TensorMemoryLayout::HeightSharded;
-  case tt::TensorMemoryLayout::Interleaved:
-    return ttnn::TensorMemoryLayout::Interleaved;
-  case tt::TensorMemoryLayout::WidthSharded:
-    return ttnn::TensorMemoryLayout::WidthSharded;
-  case tt::TensorMemoryLayout::BlockSharded:
-    return ttnn::TensorMemoryLayout::BlockSharded;
-  case tt::TensorMemoryLayout::SingleBank:
-    return ttnn::TensorMemoryLayout::SingleBank;
-  case tt::TensorMemoryLayout::None:
-    assert(false && "TensorMemoryLayout::None not supported");
-  }
-
-  llvm_unreachable("Unknown TensorMemoryLayout");
-}
 
 // Gets or inserts a GetDeviceOp at the top of the current block of the given
 // operation.
@@ -134,9 +95,9 @@ public:
     }
 
     ttnn::BufferType bufferType =
-        toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+        ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
     ttnn::TensorMemoryLayout tensorMemoryLayout =
-        toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
 
     // Create MemoryConfigAttr
     //
@@ -219,7 +180,7 @@ public:
     // Map TT::MemorySpace to TTNN::BufferType
     //
     ttnn::BufferType bufferType =
-        toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+        ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
 
     // If the ToLayoutOp is applied to empty tensor, we need to check whether
     // the empty tensor is going back to system memory; if so, we should not
@@ -235,7 +196,7 @@ public:
     // Set the tensor memory layout
     //
     ttnn::TensorMemoryLayout tensorMemoryLayout =
-        toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
 
     // TODO(bug #621):
     // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated

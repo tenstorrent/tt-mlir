@@ -107,18 +107,8 @@ emitc::OpaqueAttr convertBufferType(Builder &builder,
 //
 emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
   llvm::ArrayRef shape = attr.getShape();
-
-  // auto s = fmt::format("{}",fmt::join(elems,delim));
-  // std::vector<std::string> shapeStrings = std::apply(std::to_string, shape);
-  // assert(!shape.empty());
-  // std::string q =
-  //     std::accumulate(std::next(shape.begin()), shape.end(), shape[0],
-  //                     [](const int64_t a, const int64_t b) {
-  //                       return std::to_string(a) + ", " + std::to_string(b);
-  //                     });
   std::ostringstream oss;
   std::copy(shape.begin(), shape.end(), std::ostream_iterator<int>(oss, ", "));
-  // oss.seekp(-2, std::ios_base::end);
   return builder.getType<emitc::OpaqueAttr>("{" + oss.str() + "}");
 }
 

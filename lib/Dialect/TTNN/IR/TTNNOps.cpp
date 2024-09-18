@@ -4,12 +4,15 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "mlir/IR/BuiltinOps.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include <llvm/ADT/ArrayRef.h>
-#include <optional>
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -400,6 +403,54 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
         "Allocating from a device memory space must have address "
         "set to a non-zero value, device addresses are statically allocated");
   }
+
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::EmptyOp::verify() {
+  // Check that attrs to empty op match the output tensor layout
+  // ======================== begin
+
+  // assert(::llvm::isa<RankedTensorType>(getResult().getType()));
+  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+
+  // assert(::llvm::isa<tt::LayoutAttr>(output.getEncoding()));
+  tt::LayoutAttr ttLayoutAttr =
+      mlir::cast<tt::LayoutAttr>(output.getEncoding());
+
+  // Shape
+  //
+  assert(output.getShape() == getShape().getShape());
+
+  // DataType and Layout
+  //
+  mlir::MemRefType memref = ttLayoutAttr.getMemref();
+  Type elementType = memref.getElementType();
+  ttnn::Layout ttnnLayoutEnum;
+  tt::DataType dtype;
+  if (llvm::isa<TileType>(elementType)) {
+    ttnnLayoutEnum = ttnn::Layout::Tile;
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+  } else {
+    ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    dtype = elementTypeToDataType(elementType);
+  }
+  assert(dtype == getDtype());
+  assert(ttnnLayoutEnum == getLayoutAttr().getValue());
+
+  // MemoryConfig
+  //
+  ttnn::BufferType bufferType =
+      mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+  ttnn::TensorMemoryLayout tensorMemoryLayout =
+      mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
+          ttLayoutAttr.getMemLayout());
+  assert(bufferType == getMemoryConfig()->getBufferType().getValue());
+  assert(tensorMemoryLayout ==
+         getMemoryConfig()->getTensorMemoryLayout().getValue());
+
+  // ======================== end
 
   return success();
 }
