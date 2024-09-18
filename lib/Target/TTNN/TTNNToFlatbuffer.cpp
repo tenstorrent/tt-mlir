@@ -126,8 +126,16 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       ::tt::mlir::ttnn::utils::toTargetBufferType(
           op.getMemoryConfig().getBufferType().getValue());
 
-  auto memoryConfigDesc =
-      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+  // TODO(svuckovic): This is a temporary solution until we have a proper
+  // ShardSpec defined in ttnn::MemoryConfig IR
+  //
+  tt::LayoutAttr ttLayoutAttr =
+      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+  auto shardShape =
+      cache.fbb->CreateVector<int64_t>(ttLayoutAttr.getShardShape());
+
+  auto memoryConfigDesc = CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout,
+                                                 bufferType, shardShape);
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);

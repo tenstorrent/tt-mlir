@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include <iostream>
 
 namespace tt::runtime::ttnn::operations::utils {
 
@@ -115,19 +116,23 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
-  const ::flatbuffers::Vector<int32_t> *targetShardShape =
-      layout->memory_desc()->shape();
+  //   const ::flatbuffers::Vector<int32_t> *targetShardShape =
+  //       layout->memory_desc()->shape();
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
   std::array<uint32_t, 2> ttnnShardShape;
-  std::copy(targetShardShape->begin(), targetShardShape->end(),
-            ttnnShardShape.begin());
+  auto q = memcfg->shard_shape();
+  std::vector<int32_t> temp;
+  for (size_t i = 0; i < q->size(); i++) {
+    temp.push_back(q->Get(i));
+    // std::cout << q->Get(i) << std::endl;
+  }
+  std::copy(temp.begin(), temp.end(), ttnnShardShape.begin());
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
       ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
 
   ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
                                        shardSpec};
-
   return memoryConfig;
 }
 
