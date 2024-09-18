@@ -33,7 +33,11 @@ set(TTMETAL_INCLUDE_DIRS
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib)
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
-set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
+else()
+  set(TRACY_LIBRARY_PATH "")
+endif()
 
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
 set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
@@ -59,11 +63,18 @@ ExternalProject_Add(
 
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
-list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY TRACY_LIBRARY)
-list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH})
+list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY)
+list(APPEND library_paths ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH})
+
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  list(APPEND library_names TRACY_LIBRARY)
+  list(APPEND library_paths ${TRACY_LIBRARY_PATH})
+endif()
 
 foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_library(${lib_name} SHARED IMPORTED GLOBAL)
   set_target_properties(${lib_name} PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${lib_path})
   add_dependencies(${lib_name} tt-metal)
 endforeach()
+
+install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR})

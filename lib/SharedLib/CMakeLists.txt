@@ -49,3 +49,5 @@ target_link_libraries(TTMLIR PRIVATE
 )
 
 target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+
+install(TARGETS TTMLIR DESTINATION ${CMAKE_INSTALL_LIBDIR})
