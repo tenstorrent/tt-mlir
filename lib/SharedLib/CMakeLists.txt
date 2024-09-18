@@ -47,7 +47,13 @@ target_link_libraries(TTMLIR PRIVATE
 
     flatbuffers
 )
-
-target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+target_link_directories(TTMLIR PRIVATE 
+    ${TTMLIR_TOOLCHAIN_DIR}/lib
+    ${CMAKE_INSTALL_PREFIX}/lib
+)
+set_target_properties(TTMLIR
+    PROPERTIES
+    INSTALL_RPATH_USE_LINK_PATH TRUE
+)
 
 install(TARGETS TTMLIR DESTINATION ${CMAKE_INSTALL_LIBDIR})
