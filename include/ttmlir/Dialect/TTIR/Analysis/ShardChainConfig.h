@@ -37,7 +37,7 @@ public:
   ShardChainConfig() : shardSpecs(), state() {}
 
   ShardSolver resolve(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids,
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       unsigned usableL1CacheSize);
   void build();
   void complete(const llvm::DenseMap<Operation *, LayoutAttr> &selectedOpLayout,
@@ -51,6 +51,9 @@ public:
   }
   const std::vector<ShardSpec> &getShardSpecs() const { return shardSpecs; }
   ShardChainState getState() const { return state; }
+  const std::unordered_set<Edge> &getReshardedEdges() const {
+    return reshardedEdges;
+  }
 };
 
 } // namespace mlir::tt::ttir

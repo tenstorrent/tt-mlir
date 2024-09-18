@@ -39,7 +39,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
 #define GEN_PASS_DEF_TTIRALLOCATE
-#define GEN_PASS_DEF_TTIRGRIDSET
+#define GEN_PASS_DEF_TTIROPTIMIZER
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
 #define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -1183,15 +1183,14 @@ public:
   }
 };
 
-class TTIRGridSet : public impl::TTIRGridSetBase<TTIRGridSet> {
+class TTIROptimizer : public impl::TTIROptimizerBase<TTIROptimizer> {
 public:
-  using impl::TTIRGridSetBase<TTIRGridSet>::TTIRGridSetBase;
+  using impl::TTIROptimizerBase<TTIROptimizer>::TTIROptimizerBase;
   void runOnOperation() final {
-    // Currently a placeholder pass for grid size optimization.
-    // Goes through all the operations and sets the grid size to max supported
-    // by target chip. Lacks:
-    // - Constraint checking, whether the grid size is supported by the current
-    // OP based on inputs and op type.
+    // Generate legal OP configuration candidates.
+    // Perform sharding analysis.
+    // Perform final configuration analysis.
+    // Apply graph transformations based on analysis results.
     //
     ModuleOp moduleOp = getOperation();
 
@@ -1205,7 +1204,7 @@ public:
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-    llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
+    llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -1218,24 +1217,26 @@ public:
           getChildAnalysis<LegalGridAnalysis>(op);
       legalGridAnalysis.init(LegalGridAnalysisInput(
           chipDesc, max_grid, tensorType, &overrideGridSizes));
-      legalGrids[op] = legalGridAnalysis.getResult();
+      legalLayouts[op] = legalGridAnalysis.getResult();
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
+    std::unordered_set<Edge> reshardedEdges;
     if (shardingPassEnabled) {
       // Perform sharding analysis.
       //
       ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
       shardingAnalysis.init(
-          ShardingAnalysisInput(legalGrids, chipDesc.getUsableL1Size()));
-      legalGrids = shardingAnalysis.getResult().legalGrids;
+          ShardingAnalysisInput(legalLayouts, chipDesc.getUsableL1Size()));
+      legalLayouts = shardingAnalysis.getResult().legalLayouts;
       opSchedule = shardingAnalysis.getResult().schedule;
+      reshardedEdges = shardingAnalysis.getResult().reshardedEdges;
     }
 
     // Pick optimal op configuration.
     //
     OpConfigAnalysis opConfigAnalysis = getAnalysis<OpConfigAnalysis>();
-    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalGrids)));
+    opConfigAnalysis.init(OpConfigAnalysisInput(std::move(legalLayouts)));
 
     // Pure application of determined grid sizes to the operations.
     // No further analysis.
@@ -1259,10 +1260,6 @@ public:
           }
         }
       }
-
-      // TODO(nobradovic):
-      // Insert reshard ops here based on results of sharding analysis.
-      //
 
       func->walk([&](Operation *op) {
         if (op->getNumResults() == 0) {
@@ -1294,6 +1291,10 @@ public:
         }
       });
 
+      if (reshardingEnabled) {
+        processReshardedEdges(reshardedEdges);
+      }
+
       // Update the function type to reflect the updated return operation's
       // result types.
       //
@@ -1302,6 +1303,88 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+  }
+
+  void processReshardedEdges(const std::unordered_set<Edge> &reshardedEdges) {
+    // Insert reshard ops here based on results of sharding analysis.
+    //
+    for (const Edge &edge : reshardedEdges) {
+      Operation *producerOp = edge.producerOp;
+      Operation *consumerOp = edge.consumerOp;
+
+      // If producerOp is a ToLayoutOp, adjust its output layout(update inplace)
+      // to reflect consumerOp's output layout. If producerOp is not a
+      // ToLayoutOp, insert a ToLayoutOp in between producerOp and consumerOp.
+      //
+      if (llvm::isa<ttir::ToLayoutOp>(producerOp)) {
+        ttir::ToLayoutOp toLayoutOp = llvm::cast<ttir::ToLayoutOp>(producerOp);
+        LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
+            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
+                .getEncoding());
+
+        RankedTensorType toLayoutOpTensorType =
+            mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
+        llvm::ArrayRef<int64_t> toLayoutOpTensorShape =
+            toLayoutOpTensorType.getShape();
+        LayoutAttr toLayoutOpLayout =
+            mlir::cast<LayoutAttr>(toLayoutOpTensorType.getEncoding());
+
+        // TODO(nobradovic): Match memory space and layout of consumer op. This
+        // actually needs to be properly resolved based on op type, output
+        // layout and other inputs.
+        //
+        RankedTensorType newTensorType = RankedTensorType::get(
+            toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
+            toLayoutOpLayout
+                .withMemorySpace(toLayoutOp.getContext(),
+                                 consumerOpOutputLayout.getMemorySpace())
+                .withMemoryLayout(toLayoutOp.getContext(),
+                                  consumerOpOutputLayout.getMemLayout())
+                .withGrid(toLayoutOp.getContext(), toLayoutOpTensorType,
+                          consumerOpOutputLayout.getGrid()));
+
+        toLayoutOp.getResult().setType(newTensorType);
+        toLayoutOp.getOperands().back().setType(newTensorType);
+      } else {
+        LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
+            mlir::cast<RankedTensorType>(producerOp->getResult(0).getType())
+                .getEncoding());
+
+        RankedTensorType producerOpTensorType =
+            mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+        llvm::ArrayRef<int64_t> producerOpTensorShape =
+            producerOpTensorType.getShape();
+        LayoutAttr producerOpLayout =
+            mlir::cast<LayoutAttr>(producerOpTensorType.getEncoding());
+
+        // TODO(nobradovic): Match memory space and layout of consumer op. This
+        // actually needs to be properly resolved based on op type, output
+        // layout and other inputs.
+        //
+        RankedTensorType newTensorType = RankedTensorType::get(
+            producerOpTensorShape, producerOpTensorType.getElementType(),
+            producerOpLayout
+                .withMemorySpace(consumerOp->getContext(),
+                                 consumerOpOutputLayout.getMemorySpace())
+                .withMemoryLayout(consumerOp->getContext(),
+                                  consumerOpOutputLayout.getMemLayout())
+                .withGrid(consumerOp->getContext(), producerOpTensorType,
+                          consumerOpOutputLayout.getGrid()));
+
+        OpBuilder builder(consumerOp);
+
+        mlir::tensor::EmptyOp emptyOp = builder.create<tensor::EmptyOp>(
+            consumerOp->getLoc(), producerOpTensorShape,
+            producerOpTensorType.getElementType(),
+            mlir::cast<LayoutAttr>(newTensorType.getEncoding()));
+
+        Operation *toLayoutOp = builder.create<ttir::ToLayoutOp>(
+            consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
+            emptyOp);
+
+        consumerOp->setOperand(edge.operandIndex, toLayoutOp->getResult(0));
+      }
+    }
   }
 };
 

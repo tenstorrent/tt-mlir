@@ -220,6 +220,14 @@ class API:
             help="Pickup the kernels from disk (/tmp) instead of the flatbuffer",
             api_only=False,
         )
+        API.Run.register_arg(
+            name="--disable-async-ttnn",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable async mode device execution for TTNN runtime",
+            api_only=False,
+        )
 
         # register all perf arguments
         API.Perf.register_arg(
@@ -237,11 +245,11 @@ class API:
             help="save all artifacts during run",
         )
         API.Perf.register_arg(
-            name="--device",
+            name="--host-only",
             type=bool,
             default=False,
             choices=[True, False],
-            help="collect performance trace on both host and device",
+            help="collect performance trace on host only",
         )
         API.Perf.register_arg(
             name="binary",
@@ -846,7 +854,9 @@ class API:
                     self.logging.warning(f"no binaries found to run - returning early")
                     return
 
-                debug_env = ttrt.runtime.DebugEnv.get(self.load_kernels_from_disk)
+                debug_env = ttrt.runtime.DebugEnv.get(
+                    self.load_kernels_from_disk, self.disable_async_ttnn
+                )
                 self.logging.debug(f"setting tt runtime debug env={debug_env}")
 
                 self.logging.debug(f"setting torch manual seed={self['seed']}")
@@ -1257,6 +1267,7 @@ class API:
                 TRACY_OPS_TIMES_FILE_NAME,
                 TRACY_OPS_DATA_FILE_NAME,
                 TRACY_FILE_NAME,
+                PROFILER_DEVICE_SIDE_LOG,
             )
 
             self.file_manager.remove_directory(PROFILER_LOGS_DIR)
@@ -1349,10 +1360,11 @@ class API:
 
                     env_vars = dict(os.environ)
                     env_vars["TRACY_PORT"] = port
-                    env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
-                    if self["device"]:
+                    if not self["host_only"]:
+                        env_vars["TT_METAL_CLEAR_L1"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
+                        env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "1"
 
                     current_pythonpath = env_vars.get("PYTHONPATH", "")
                     path1 = f"{get_ttrt_metal_home_path()}"
@@ -1412,6 +1424,11 @@ class API:
 
                     try:
                         self.tracy_capture_tool_process.communicate(timeout=15)
+                        if not self["host_only"]:
+                            self.file_manager.copy_file(
+                                PROFILER_LOGS_DIR / PROFILER_DEVICE_SIDE_LOG,
+                                f"{os.getcwd()}/generated/profiler/.logs/{PROFILER_DEVICE_SIDE_LOG}",
+                            )
                         generate_report(self.artifacts.get_binary_perf_folder_path(bin))
                     except subprocess.TimeoutExpired as e:
                         self.tracy_capture_tool_process.terminate()

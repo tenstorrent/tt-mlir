@@ -189,6 +189,9 @@ ttrt query --save-artifacts --log-file ttrt.log
 ### perf
 Run performance mode of a binary file or a directory of binary files
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
+Note: You can collect host only related performance data via `--host-only` flag. By default, host and device side performance data are both collected.
+Restriction: `/dir/of/flatbuffers` can only be used if collecting `--host-only` (as performance data is collected upon closing of device, if we run a directory of flatbuffers, we cannot get accurate device performance data since device is only closed at end of execution).
+Restriction: We can only run perf mode (for now) on .mlir files that have only 1 function (func.func)
 
 ```bash
 ttrt perf --help
@@ -198,10 +201,10 @@ ttrt perf out.ttnn --save-artifacts
 ttrt perf out.ttnn --loops 10
 ttrt perf --program-index all out.ttnn
 ttrt perf --program-index 0 out.ttnn
-ttrt perf --device out.ttnn
-ttrt perf /dir/of/flatbuffers
-ttrt perf /dir/of/flatbuffers --loops 10
-ttrt perf /dir/of/flatbuffers --log-file ttrt.log
+ttrt perf --host-only out.ttnn
+ttrt perf /dir/of/flatbuffers --host-only
+ttrt perf /dir/of/flatbuffers --loops 10 --host-only
+ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
 ```
 
 ### check

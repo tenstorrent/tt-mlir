@@ -16,20 +16,20 @@ bool ShardingAnalysis::applyOverrides() {
 }
 
 llvm::DenseMap<Operation *, std::vector<LayoutAttr>> filterShardedOnly(
-    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids) {
-  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> shardedGrids;
-  for (const auto &opGrids : legalGrids) {
-    std::vector<LayoutAttr> shardedLayouts;
-    for (const auto &layout : opGrids.second) {
-      if (layout.hasShardedTensorMemoryLayout()) {
-        shardedLayouts.push_back(layout);
+    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts) {
+  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> shardedLayouts;
+  for (const auto &opLayouts : legalLayouts) {
+    std::vector<LayoutAttr> opShardedLayouts;
+    for (const auto &layout : opLayouts.second) {
+      if (layout.hasShardedL1TensorMemoryLayout()) {
+        opShardedLayouts.push_back(layout);
       }
     }
 
-    shardedGrids[opGrids.first] = shardedLayouts;
+    shardedLayouts[opLayouts.first] = opShardedLayouts;
   }
 
-  return shardedGrids;
+  return shardedLayouts;
 }
 
 void ShardingAnalysis::analysisImplementation() {
@@ -38,7 +38,7 @@ void ShardingAnalysis::analysisImplementation() {
   switch (policy) {
   case ShardingPolicyType::DFSharding:
     DFShardingPolicy dfShardingPolicy(
-        op, shardChainConfigs, filterShardedOnly(analysisInput.legalGrids),
+        op, shardChainConfigs, filterShardedOnly(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     dfShardingPolicy.run();
     break;
@@ -46,16 +46,20 @@ void ShardingAnalysis::analysisImplementation() {
 
   // Copy over default legal layouts.
   //
-  analysisResult.legalGrids = analysisInput.legalGrids;
+  analysisResult.legalLayouts = analysisInput.legalLayouts;
 
   // Override with shard chain configs where applicable.
   //
   for (const auto &shardChainConfig : shardChainConfigs) {
     assert(shardChainConfig.getState() == ShardChainState::Completed);
     for (const auto &shardSpec : shardChainConfig.getShardSpecs()) {
-      analysisResult.legalGrids[shardSpec.op] =
+      analysisResult.legalLayouts[shardSpec.op] =
           std::vector<LayoutAttr>{shardSpec.layout};
     }
+
+    analysisResult.reshardedEdges.insert(
+        shardChainConfig.getReshardedEdges().begin(),
+        shardChainConfig.getReshardedEdges().end());
   }
 }
 } // namespace mlir::tt::ttir

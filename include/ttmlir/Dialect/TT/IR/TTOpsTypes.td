@@ -283,6 +283,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
       bool hasShardedTensorMemoryLayout() const;
+      bool hasShardedL1TensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;

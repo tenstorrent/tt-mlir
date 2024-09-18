@@ -8,6 +8,7 @@
 #include "flatbuffers/vector.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttnn/types.hpp"
+#include "types_generated.h"
 
 namespace tt::runtime::ttnn::utils {
 
@@ -56,25 +57,39 @@ inline ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType) {
   }
 }
 
-inline ::tt::tt_metal::TensorMemoryLayout
-toTTNNTensorMemoryLayout(::tt::target::TensorMemoryLayout memLayout) {
-  switch (memLayout) {
-  case ::tt::target::TensorMemoryLayout::Interleaved:
-    return ::tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
-  case ::tt::target::TensorMemoryLayout::SingleBank:
-    return ::tt::tt_metal::TensorMemoryLayout::SINGLE_BANK;
-  case ::tt::target::TensorMemoryLayout::HeightSharded:
-    return ::tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED;
-  case ::tt::target::TensorMemoryLayout::WidthSharded:
-    return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
-  case ::tt::target::TensorMemoryLayout::BlockSharded:
-    return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
-
+inline ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout) {
+  switch (layout) {
+  case ::tt::target::TensorLayout::Tile:
+    return ::ttnn::Layout::TILE;
+  case ::tt::target::TensorLayout::RowMajor:
+    return ::ttnn::Layout::ROW_MAJOR;
   default:
-    throw std::runtime_error("Unsupported memory layout");
+    throw std::runtime_error("Unsupported layout");
   }
 }
 
+inline ::ttnn::TensorMemoryLayout
+toTTNNTensorMemoryLayout(::tt::target::TensorMemoryLayout tensorMemoryLayout) {
+
+  switch (tensorMemoryLayout) {
+  case ::tt::target::TensorMemoryLayout::Interleaved:
+    return ::ttnn::TensorMemoryLayout::INTERLEAVED;
+  case ::tt::target::TensorMemoryLayout::SingleBank:
+    return ::ttnn::TensorMemoryLayout::SINGLE_BANK;
+  case ::tt::target::TensorMemoryLayout::HeightSharded:
+    return ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
+  case ::tt::target::TensorMemoryLayout::WidthSharded:
+    return ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
+  case ::tt::target::TensorMemoryLayout::BlockSharded:
+    return ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  case ::tt::target::TensorMemoryLayout::None:
+    assert(false &&
+           "Unsupported tensor memory layout TensorMemoryLayout::None");
+  }
+}
+
+// This method will be deprecated in favor of method below
+//
 inline ::tt::tt_metal::BufferType
 toTTNNBufferType(::tt::target::MemorySpace memorySpace) {
   switch (memorySpace) {
@@ -87,6 +102,25 @@ toTTNNBufferType(::tt::target::MemorySpace memorySpace) {
     return ::tt::tt_metal::BufferType::L1;
   }
 }
+
+// Prefer to use this method
+//
+inline ::ttnn::BufferType
+toTTNNBufferType(::tt::target::BufferType bufferType) {
+
+  switch (bufferType) {
+  case ::tt::target::BufferType::DRAM:
+    return ::ttnn::BufferType::DRAM;
+  case ::tt::target::BufferType::L1:
+    return ::ttnn::BufferType::L1;
+  case ::tt::target::BufferType::SystemMemory:
+    return ::ttnn::BufferType::SYSTEM_MEMORY;
+  case ::tt::target::BufferType::L1Small:
+    return ::ttnn::BufferType::L1_SMALL;
+  case ::tt::target::BufferType::Trace:
+    return ::ttnn::BufferType::TRACE;
+  }
+};
 
 inline std::vector<uint32_t>
 toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
