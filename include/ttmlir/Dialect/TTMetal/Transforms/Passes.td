@@ -7,11 +7,4 @@
 
 include "mlir/Pass/PassBase.td"
 
-def ConvertTTIRToTTMetal: Pass<"convert-ttir-to-ttmetal", "::mlir::ModuleOp"> {
-  let summary = "";
-  let description = [{
-    todo
-  }];
-}
-
 #endif

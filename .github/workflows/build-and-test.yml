@@ -228,8 +228,16 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
-    - name: Run tests
+    - name: Run functional tests
       shell: bash
+      if: matrix.build.enable_perf == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
+
+    - name: Run perf tests
+      shell: bash
+      if: matrix.build.enable_perf == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon --host-only
