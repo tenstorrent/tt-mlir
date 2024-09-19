@@ -77,4 +77,5 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
-install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+file(GLOB TTMTETAL_LIBRARIES "${TTMETAL_LIBRARY_DIR}/*.so*")
+install(FILES ${TTMTETAL_LIBRARIES} DESTINATION ${CMAKE_INSTALL_LIBDIR})
