@@ -15,8 +15,8 @@ namespace mlir::tt::ttnn {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
-void createTTIRPipelineFirst(OpPassManager &pm,
-                             const TTIRToTTNNBackendPipelineOptions &options) {
+void createTTNNPipelineTTIRPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
@@ -31,7 +31,10 @@ void createTTIRPipelineFirst(OpPassManager &pm,
   layoutOptions.defaultDeviceMemoryLayout =
       mlir::tt::TensorMemoryLayout::Interleaved;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
+}
 
+void createTTNNPipelineAnalysisPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
     ttir::TTIROptimizerOptions optimizerOptions;
     optimizerOptions.overrideGridSizes = options.overrideGridSizes;
@@ -40,28 +43,37 @@ void createTTIRPipelineFirst(OpPassManager &pm,
   }
 }
 
-void createTTNNPipelineSecond(OpPassManager &pm,
-                              const TTIRToTTNNBackendPipelineOptions &options) {
+void createTTNNPipelineLoweringPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(createConvertTTIRToTTNNPass());
 }
 
-void createTTIRPipelineFirstFromString(OpPassManager &pm, std::string options) {
+void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
+                                            std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTIRPipelineFirst(pm, *optionsStruct);
+  createTTNNPipelineTTIRPasses(pm, *optionsStruct);
 }
 
-void createTTNNPipelineSecondFromString(OpPassManager &pm,
-                                        std::string options) {
+void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
+                                                std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineSecond(pm, *optionsStruct);
+  createTTNNPipelineAnalysisPasses(pm, *optionsStruct);
+}
+
+void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
+                                                std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineLoweringPasses(pm, *optionsStruct);
 }
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  createTTIRPipelineFirst(pm, options);
-  createTTNNPipelineSecond(pm, options);
+  createTTNNPipelineTTIRPasses(pm, options);
+  createTTNNPipelineAnalysisPasses(pm, options);
+  createTTNNPipelineLoweringPasses(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
