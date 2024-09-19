@@ -292,10 +292,21 @@ public:
         op->getNumOperands(), rewriter.getAttr<OperandConstraintAttr>(
                                   OperandConstraint::AnyDeviceTile)));
 
+    // For testing purposes try getting grid of the resulting tensor and put the
+    // op in the grid.
+    // TODO(radenko) add a proper debug/test flag.
+    auto gridAttr = rewriter.getAttr<GridAttr>();
+    auto resEncoding =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding();
+    if (resEncoding) {
+      auto resLayout = mlir::cast<LayoutAttr>(resEncoding);
+      gridAttr = resLayout.getGrid();
+    }
+
     auto genericOp = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        ValueRange() /* cbs */, dps.getDpsInits(), rewriter.getAttr<GridAttr>(),
-        indexingMaps, iteratorTypes, constraints);
+        ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
+        iteratorTypes, constraints);
 
     // Create a new basic block for the generic op and create block arguments.
     Block *block = rewriter.createBlock(&genericOp.getRegion());
@@ -1526,6 +1537,9 @@ public:
         continue;
       }
 
+      // Creating a CB for the operand. It takes the same type as the operand,
+      // but changes its grid. This may result in overly large CBs at the
+      // moment.
       auto emptyOp = rewriter.create<tensor::EmptyOp>(
           generic->getLoc(), ty.getShape(), ty.getElementType(), desiredLayout);
       cbValues.push_back(emptyOp.getResult());

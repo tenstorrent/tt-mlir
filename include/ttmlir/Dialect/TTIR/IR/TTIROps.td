@@ -68,6 +68,8 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+      // For a given block argument index, return the corresponding operand of the surrounding generic op.
+      // This is needed because extra CB operands may be present in between the inputs and outputs.
       Value getMatchingOperand(size_t blockArgIndex) {
         return blockArgIndex < getInputs().size() ?
           getOperand(blockArgIndex) : getOperand(blockArgIndex + getCbs().size());

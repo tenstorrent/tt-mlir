@@ -13,7 +13,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -31,6 +36,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Utils.h"
 
@@ -110,9 +116,9 @@ public:
   //
   // The return value is a map of physical cores where each core has
   // an associated list of noc reads/writes to be performed.
-  llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>>
+  static llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>>
   calculateDataMovement(ArrayRef<int64_t> tensorShape, std::int64_t elemSize,
-                        AffineMap src, AffineMap dst, NocTx::Type type) const {
+                        AffineMap src, AffineMap dst, NocTx::Type type) {
     bool read = type == NocTx::Type::Read;
     llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>> txMap;
     assert(src.getNumResults() == MemoryMapResultIdx::NumIndices);
@@ -141,11 +147,11 @@ public:
     return txMap;
   }
 
-  void buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
+  static void buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
                        std::int64_t outputBaseAddress,
                        std::int64_t addressAlignment, NocTx nocTx,
                        PhysicalCoreCoordMapping const &physicalCoordMapping,
-                       mlir::OpBuilder &nocBuilder) const {
+                       mlir::OpBuilder &nocBuilder) {
     assert(nocTx.srcOffset % addressAlignment == 0);
     assert(nocTx.dstOffset % addressAlignment == 0);
     assert(nocTx.size % addressAlignment == 0);
@@ -248,6 +254,8 @@ public:
       coreRanges.push_back(
           rewriter.getAttr<ttmetal::CoreRangeAttr>(offset, size));
     };
+    std::int64_t inputBaseAddress = lookupAddress(op.getInput());
+    std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
 
     auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
         op.getLoc(), SmallVector<Type>({outputTy}),
@@ -255,39 +263,49 @@ public:
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
         rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
-    int i = 0;
     PhysicalCoreCoordMapping physicalCoordMapping =
         PhysicalCoreCoordMapping::getMemorySpaceMapping(
             device.getChipIds(), systemDesc.getChipDescs(),
             dataMovementType == NocTx::Type::Read
                 ? inputLayout.getMemorySpace()
                 : outputLayout.getMemorySpace());
-    std::int64_t inputBaseAddress = lookupAddress(op.getInput());
-    std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
+
+    int regIdx = 0;
+    for (auto [dstCoord, transactions] : dm) {
+      Block *block = rewriter.createBlock(&metalDispatch.getRegion(regIdx++));
+      createDataMovementThread(op->getLoc(), block, inputBaseAddress,
+                               outputBaseAddress, transactions,
+                               addressAlignment);
+    }
+    rewriter.replaceOp(op, metalDispatch);
+
+    return llvm::success();
+  }
+
+  static void createDataMovementThread(Location loc, Block *block,
+                                       int64_t inputBaseAddress,
+                                       int64_t outputBaseAddress,
+                                       ArrayRef<NocTx> transactions,
+                                       const PhysicalCoreCoordMapping &physicalCoordMapping,
+                                       std::int64_t addressAlignment) {
+
     assert(inputBaseAddress);
     assert(outputBaseAddress);
     assert(inputBaseAddress % addressAlignment == 0);
     assert(outputBaseAddress % addressAlignment == 0);
-    for (auto [coreCoord, txs] : dm) {
-      Block *nocBlock = rewriter.createBlock(&metalDispatch.getRegion(i++));
-      OpBuilder nocBuilder(nocBlock, nocBlock->begin());
-      NocTx::Type type = txs.front().type;
-      for (auto tx : txs) {
+      OpBuilder nocBuilder(block, block->begin());
+      NocTx::Type type = transactions.front().type;
+      for (auto tx : transactions) {
         assert(tx.type == type);
-        buildNocAsyncTx(op.getLoc(), inputBaseAddress, outputBaseAddress,
+        buildNocAsyncTx(loc, inputBaseAddress, outputBaseAddress,
                         addressAlignment, tx, physicalCoordMapping, nocBuilder);
       }
       if (type == NocTx::Type::Read) {
-        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
       } else {
-        nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+        nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
       }
-      nocBuilder.create<ttkernel::ReturnOp>(op.getLoc(), ValueRange());
-    }
-
-    rewriter.replaceOp(op, metalDispatch);
-
-    return success();
+      nocBuilder.create<ttkernel::ReturnOp>(loc, ValueRange());
   }
 
   LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
@@ -1161,37 +1179,105 @@ public:
     buildEndSection(builder, origGenericOpBlock);
   }
 
-  SmallVector<Type>
-  getBlockArgumentTypesAsCBs(ttir::GenericOp op,
-                             mlir::Block::BlockArgListType blockArguments,
-                             PatternRewriter &rewriter) const {
+  struct StreamedOperand {
+    uint64_t srcAddress;
+    uint64_t dstAddress;
+    size_t blockArgIndex;
+    llvm::MapVector<PhysicalCoreCoord,
+                    SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
+        dataMovement;
+    uint64_t numTiles;
+
+    StreamedOperand(
+        uint64_t srcAddress, uint64_t dstAddress, size_t blockArgIndex,
+        llvm::MapVector<PhysicalCoreCoord,
+                        SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
+            dataMovement,
+        uint64_t numTiles)
+        : srcAddress(srcAddress), dstAddress(dstAddress),
+          blockArgIndex(blockArgIndex), dataMovement(dataMovement),
+          numTiles(numTiles) {}
+  };
+
+  SmallVector<Type> getBlockArgumentTypesAsCBs(
+      ttir::GenericOp op, mlir::Block::BlockArgListType blockArguments,
+      PatternRewriter &rewriter,
+      SmallVector<StreamedOperand> &streamedOperands) const {
+
     SmallVector<Type> rewrittenBlockArgumentTypes;
     for (auto arg : blockArguments) {
       auto port = getPort(arg.getArgNumber(), op.getInputs().size());
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
       auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
       auto memref = buffer.getMemref();
-      assert(buffer.getBufferAccess() == BufferAccess::Alias &&
-             "Currently only alias mode is supported");
 
       int32_t cbMapping = op.getOperandCbMapping()[arg.getArgNumber()];
-      auto matchingOperand = cbMapping == -1
-                                 ? op.getMatchingOperand(arg.getArgNumber())
-                                 : op.getCbs()[cbMapping];
-      auto address = lookupAddress(matchingOperand);
+
+      // Operand that is directly mapped to block argument.
+      auto matchingOperand = op.getMatchingOperand(arg.getArgNumber());
+
+      // Operand that is either directly mapped to block argument or
+      // corresponding CB operand if it should be streamed.
+      auto correspondingOperand =
+          cbMapping == -1 ? matchingOperand : op.getCbs()[cbMapping];
+      auto address = lookupAddress(correspondingOperand);
       assert(address && "Expected valid address");
 
       rewrittenBlockArgumentTypes.push_back(
           rewriter.getType<ttkernel::CBType>(port, address, memref));
+      if (buffer.getBufferAccess() != BufferAccess::Stream) {
+        continue;
+      }
+
+      assert(cbMapping != -1 && "Expected streamed operand to have CB mapping");
+
+      auto matchingCB = op.getCbs()[cbMapping];
+      uint64_t numTiles = memref.getShape()[memref.getRank() - 1] *
+                          memref.getShape()[memref.getRank() - 2];
+      streamedOperands.push_back(StreamedOperand(
+          lookupAddress(matchingOperand), lookupAddress(matchingCB),
+          arg.getArgNumber(),
+          calculateDataMovement(
+              mlir::cast<RankedTensorType>(matchingOperand.getType()),
+              mlir::cast<RankedTensorType>(matchingCB.getType()),
+              op.getDevice().getGrid()),
+          numTiles));
     }
 
     return rewrittenBlockArgumentTypes;
   }
 
+  llvm::MapVector<PhysicalCoreCoord,
+                  SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
+  calculateDataMovement(const RankedTensorType &src,
+                        const RankedTensorType &dst,
+                        GridAttr deviceGrid) const {
+    auto srcLayout = mlir::cast<tt::LayoutAttr>(src.getEncoding());
+    assert(srcLayout.isTiled());
+
+    auto dstLayout = mlir::cast<tt::LayoutAttr>(dst.getEncoding());
+    assert(dstLayout.isTiled());
+
+    auto srcMap = srcLayout.getIdentityTileLinearMap();
+    auto srcShape = srcLayout.getTiledShape(src.getShape());
+    auto srcProjection = srcLayout.projectOnto(srcMap, srcShape, deviceGrid);
+
+    auto dstMap = dstLayout.getIdentityTileLinearMap();
+    auto dstShape = dstLayout.getTiledShape(dst.getShape());
+    auto dstProjection = dstLayout.projectOnto(dstMap, dstShape, deviceGrid);
+
+    auto dm = TTIRToTTMetalLayoutRewriter::calculateDataMovement(
+        srcShape, srcLayout.getElementSizeBytes(), srcProjection,
+        dstProjection);
+
+    return dm;
+  }
+
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     // Temporary fix that allows ttir::KernelOp to be lowered directly into
-    // ttkernel dialect. if (hasUnloweredTTIRKernel(op)) {
+    // ttkernel dialect.
+    // if (hasUnloweredTTIRKernel(op)) {
     //   return failure();
     // }
 
@@ -1202,21 +1288,94 @@ public:
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
     };
 
+    SmallVector<StreamedOperand> streamedOperands;
+    auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
+        op, op->getRegion(0).getArguments(), rewriter, streamedOperands);
+
+    if (streamedOperands.size() > 1) {
+      llvm::errs() << "Only 1 operand can be streamed\n";
+      return failure();
+    }
+
+    if (!streamedOperands.empty()) {
+      auto &dm = streamedOperands[0].dataMovement;
+      for (auto [dstCoord, srcs] : dm) {
+        threadTypes.push_back(ttkernel::ThreadTypeAttr::get(
+            rewriter.getContext(), ttkernel::ThreadType::Noc0));
+        coreRanges.push_back(ttmetal::CoreRangeAttr::get(
+            getContext(), {dstCoord.y, dstCoord.x}, {1, 1} /* size */));
+      }
+    }
+
+    // Wire generic's operands to dispatch op's operands with respect to the CB
+    // mapping.
+    SmallVector<Value> inputsToDispatchOp;
+    for (size_t i = 0; i < op.getInputs().size(); ++i) {
+      auto operand = op.getOperandCbMapping()[i] == -1
+                         ? op.getMatchingOperand(i)
+                         : op.getCbs()[op.getOperandCbMapping()[i]];
+      inputsToDispatchOp.push_back(operand);
+    }
+
     auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
-        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
+        op.getLoc(), op.getResults().getTypes(), inputsToDispatchOp,
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
         rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
-    auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
-        op, op->getRegion(0).getArguments(), rewriter);
-
     Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
+
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
     }
 
+    // TODO(radenko) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
+    // (& other data movement logic) into common place
+    int dmThreadIdx = 1;
+
+    if (!streamedOperands.empty()) {
+      PhysicalCoreCoordMapping coordMapping =
+        PhysicalCoreCoordMapping::getMemorySpaceMapping(
+            op.getDevice().getChipIds(), op.getSystemDesc().getChipDescs(),
+            MemorySpace::DeviceL1); // FIXME
+            // dataMovementType == NocTx::Type::Read
+            //     ? inputLayout.getMemorySpace()
+            //     : outputLayout.getMemorySpace());
+      for (auto [dstCoord, srcs] : streamedOperands[0].dataMovement) {
+        Block *block =
+            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
+        block->addArgument(
+            rewrittenBlockArgumentTypes[streamedOperands[0].blockArgIndex],
+            op.getLoc());
+        TTIRToTTMetalLayoutRewriter::createDataMovementThread(
+            op->getLoc(), block, streamedOperands[0].srcAddress,
+            streamedOperands[0].dstAddress, srcs, coordMapping,
+            op.getSystemDesc().getAddressAlignBytes());
+        OpBuilder b(block, block->begin());
+        b.setInsertionPoint(block->getTerminator());
+
+        auto streamedCB = block->getArgument(0);
+        auto numPages = b.create<arith::ConstantOp>(
+            op.getLoc(), b.getI32Type(),
+            b.getI32IntegerAttr(streamedOperands[0].numTiles));
+        b.create<ttkernel::CBPushBackOp>(op->getLoc(), streamedCB, numPages);
+      }
+    }
+
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
                op.getIndexingMaps(), op.getInputs().size());
+
+    if (threadTypes.size() > 1) {
+      // There is some data movement. Let's just insert waiting command at the
+      // start of compute block. We assume whole block is streamed.
+      OpBuilder builder(tensixBlock, tensixBlock->begin());
+      auto numPages = builder.create<arith::ConstantOp>(
+          op.getLoc(), builder.getI32Type(),
+          builder.getI32IntegerAttr(streamedOperands[0].numTiles));
+      auto streamedCB =
+          tensixBlock->getArgument(streamedOperands[0].blockArgIndex);
+      builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), streamedCB,
+                                              numPages);
+    }
 
     rewriter.replaceOp(op, metalDispatch);
 
