@@ -15,20 +15,11 @@
 namespace mlir::tt::ttmetal {
 
 ::mlir::LogicalResult HostWriteOp::verify() {
-  ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
-  if (not inputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
   auto outputLayout =
       mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
-  }
-  if (not inputLayout.isSystemMemorySpace()) {
-    return emitOpError("Input tensor must be in system memory space");
   }
   if (not outputLayout.isDeviceMemorySpace()) {
     return emitOpError("Output tensor must be in device memory space");
@@ -37,13 +28,7 @@ namespace mlir::tt::ttmetal {
 }
 
 ::mlir::LogicalResult HostReadOp::verify() {
-  ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
-  if (not inputLayout) {
-    return emitOpError("Input tensor missing layout attribute");
-  }
   auto outputLayout =
       mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
   if (not outputLayout) {
@@ -51,9 +36,6 @@ namespace mlir::tt::ttmetal {
   }
   if (not outputLayout.isSystemMemorySpace()) {
     return emitOpError("Output tensor must be in system memory space");
-  }
-  if (not inputLayout.isDeviceMemorySpace()) {
-    return emitOpError("Input tensor must be in device memory space");
   }
   return success();
 }

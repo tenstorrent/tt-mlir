@@ -8,8 +8,27 @@ table EnqueueProgramCommand {
   program: ProgramDesc;
 }
 
+table ConstantBuffer8 {
+  data: [uint8];
+}
+
+table ConstantBuffer16 {
+  data: [uint16];
+}
+
+table ConstantBuffer32 {
+  data: [uint32];
+}
+
+union HostBuffer {
+  TensorRef,
+  ConstantBuffer8,
+  ConstantBuffer16,
+  ConstantBuffer32,
+}
+
 table EnqueueWriteBufferCommand {
-  src: TensorRef;
+  src: HostBuffer;
   dst: TensorRef;
 }
 

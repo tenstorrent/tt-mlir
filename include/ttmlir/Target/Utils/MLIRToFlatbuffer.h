@@ -365,6 +365,23 @@ arrayAttrToFlatbuffer(FlatbufferObjectCache &cache,
                                   : 0;
 }
 
+inline flatbuffers::Offset<flatbuffers::Vector<uint32_t>>
+toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
+  assert(elementsAttr.getElementType().isIntOrIndexOrFloat() &&
+         "unsupported elements attr type");
+  assert(elementsAttr.isSplat() && "expected a splat elements attr");
+  assert(elementsAttr.getElementType().getIntOrFloatBitWidth() == 32 &&
+         "unsupported elements attr bit width");
+  uint32_t value = 0;
+  if (elementsAttr.getElementType().isInteger()) {
+    value = elementsAttr.getSplatValue<int>();
+  } else {
+    *(reinterpret_cast<float *>(&value)) = elementsAttr.getSplatValue<float>();
+  }
+  SmallVector<uint32_t> data({value});
+  return toFlatbuffer(cache, ArrayRef<uint32_t>(data));
+}
+
 inline flatbuffers::Offset<::tt::target::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ::mlir::tt::TensorMemoryLayout memLayout) {

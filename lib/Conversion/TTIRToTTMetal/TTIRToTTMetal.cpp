@@ -407,8 +407,7 @@ public:
     if (components.isMemorySpaceChange) {
       if (inputLayout.isSystemMemorySpace()) {
         assert(outputLayout.isDeviceMemorySpace());
-        rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
-            op, outputTy, op.getInput(), op.getOutput());
+        assert(false && "System memory to device memory is not supported yet");
       } else if (outputLayout.isSystemMemorySpace()) {
         assert(inputLayout.isDeviceMemorySpace());
         rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
@@ -840,6 +839,18 @@ public:
   }
 };
 
+class TTIRToTTMetalFillRewriter : public OpRewritePattern<ttir::FillOp> {
+public:
+  using OpRewritePattern<ttir::FillOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttir::FillOp op,
+                                PatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
+        op, op.getResult().getType(), op.getOutput(), op.getValue());
+    return success();
+  }
+};
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -851,7 +862,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                ttmetal::TTIRToTTMetalKernelRewriter,
                ttmetal::TTIRToTTMetalDispatchRewriter,
                ttmetal::TTIRToTTMetalAllocRewriter,
-               ttmetal::TTIRToTTMetalDeallocRewriter>(ctx);
+               ttmetal::TTIRToTTMetalDeallocRewriter,
+               ttmetal::TTIRToTTMetalFillRewriter>(ctx);
 }
 
 } // namespace mlir::tt

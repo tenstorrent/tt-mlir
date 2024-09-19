@@ -591,6 +591,29 @@ def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
     let hasFolder = 1;
 }
 
+def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
+    let summary = "Fill operation.";
+    let description = [{
+      Produces tensor filled with given fill value.
+
+      Examples:
+        %0 = tensor.empty() : () -> tensor<2x3xi32>
+        %1 = "ttir.fill"(%0) {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
+        %2 = tensor.empty() : () -> tensor<2xf32>
+        %3 = "ttir.fill"(%2) {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$output,
+                         ElementsAttr:$value,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";
