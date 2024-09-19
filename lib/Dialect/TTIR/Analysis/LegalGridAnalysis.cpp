@@ -119,17 +119,18 @@ bool mock_is_output_tensor_legal_for_op(Operation *op, LayoutAttr layout) {
   // call mlir_interface library per op name
   auto op_name_str = op->getName().getStringRef().str();
   bool is_valid = false;
-  if (op_name_str == "ttir.multiply" || op_name_str == "ttir.add" ||
-      op_name_str == "ttir.subtract") {
+
+  if (llvm::isa<MultiplyOp>(op) || llvm::isa<AddOp>(op) ||
+      llvm::isa<SubtractOp>(op)) {
     is_valid =
         ttnn::mlir_interface::does_binary_op_support_input_output_constraints(
             shape, memory_config, data_type, shape, memory_config, data_type,
             memory_config, data_type);
-  } else if (op_name_str == "ttir.softmax") {
+  } else if (llvm::isa<SoftmaxOp>(op)) {
     is_valid =
         ttnn::mlir_interface::does_softmax_op_support_input_output_constraints(
             shape, memory_config, data_type, shape, memory_config, data_type);
-  } else if (op_name_str == "ttir.relu") {
+  } else if (llvm::isa<ReluOp>(op)) {
     is_valid =
         ttnn::mlir_interface::does_unary_op_support_input_output_constraints(
             "RELU", // todo agree upon mapping to ttnn::mlir_interface
