@@ -7,4 +7,11 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTNNMemconfigOutputs: Pass<"ttir-memconfig", "::mlir::ModuleOp"> {
+  let summary = "Tensor tilize all generic ops.";
+  let description = [{
+    Transition between different tensor layouts.
+  }];
+}
+
 #endif

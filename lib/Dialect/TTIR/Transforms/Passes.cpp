@@ -21,6 +21,7 @@
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 #include <llvm/ADT/ArrayRef.h>
@@ -685,7 +686,7 @@ public:
 
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (mlir::isa<Conv2dOp>(op.getOperation()) && !isResult) {
+      if (mlir::isa<Conv2dOp>(op.getOperation())) {
         continue;
       }
       auto operandConstraint =
@@ -696,6 +697,107 @@ public:
       auto desiredLayout = createToLayoutOp(
           rewriter, op.getLoc(), operand.get(), operandConstraint,
           defaultMemorySpace, defaultDeviceMemoryLayout);
+
+      if (desiredLayout) {
+        rewriter.modifyOpInPlace(op, [&]() {
+          modified = true;
+          op->setOperand(operand.getOperandNumber(), *desiredLayout);
+          if (isResult) {
+            // If this is the output operand, update the result type
+            op->getResult(0).setType(desiredLayout->getType());
+          }
+        });
+      }
+    }
+    // auto operandConstraints =
+    //       mlir::cast<OperandConstraintAttr>(
+    //           mlir::cast<TTIROp>(op.getOperation())
+    //               .getOperandConstraints()[0]).getValue();
+
+    // auto outputLayout = createToLayoutOp(rewriter, op->getLoc(),
+    // op->getResult(0), operandConstraints, MemorySpace::DeviceDRAM,
+    // TensorMemoryLayout::Interleaved); if (outputLayout.has_value()) {
+    //   rewriter.replaceOp(op, outputLayout.value());
+    // }
+
+    return modified ? success() : failure();
+  }
+
+private:
+  MemorySpace defaultMemorySpace;
+  TensorMemoryLayout defaultDeviceMemoryLayout;
+};
+
+class TTIRLayoutMoveOpOutputToDRAMInterleavedRewriter
+    : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
+
+  std::optional<ToLayoutOp> createToLayoutOpForInput(
+      PatternRewriter &rewriter, Location loc, Value input,
+      OperandConstraint operandConstraint, MemorySpace desiredMemorySpace,
+      TensorMemoryLayout desiredMemLayout, bool is_eltwise) const {
+    bool tiled =
+        !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar) |
+        is_eltwise;
+
+    auto ty = mlir::cast<RankedTensorType>(input.getType());
+    auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
+    auto currMemorySpace = currLayout.getMemorySpace();
+    auto currElementType = currLayout.getElementType();
+    auto currMemLayout = currLayout.getMemLayout();
+    auto desiredElementType =
+        tiled ? rewriter.getType<TileType>(ty.getElementType())
+              : ty.getElementType();
+    if (currMemorySpace == desiredMemorySpace &&
+        currElementType == desiredElementType &&
+        currMemLayout == desiredMemLayout) {
+      return std::nullopt;
+    }
+
+    auto desiredLayout = rewriter.getAttr<LayoutAttr>(
+        ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType,
+        desiredMemLayout);
+    tensor::EmptyOp output = rewriter.create<tensor::EmptyOp>(
+        loc, ty.getShape(), ty.getElementType(), desiredLayout);
+    return rewriter.create<ttir::ToLayoutOp>(loc, output.getType(), input,
+                                             output);
+  }
+
+public:
+  TTIRLayoutMoveOpOutputToDRAMInterleavedRewriter(
+      MLIRContext *ctx, MemorySpace defaultMemorySpace,
+      TensorMemoryLayout defaultDeviceMemoryLayout)
+      : OpInterfaceRewritePattern<DestinationStyleOpInterface>(ctx),
+        defaultMemorySpace(defaultMemorySpace),
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
+
+  LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
+                                PatternRewriter &rewriter) const final {
+    if (mlir::isa<ToLayoutOp>(op.getOperation())) {
+      // Skip the ToLayoutOp itself
+      return failure();
+    }
+
+    assert(op->template hasTrait<TTIROp::Trait>());
+    bool modified = false;
+    for (auto &operand : op->getOpOperands()) {
+      bool isResult = op.isDpsInit(&operand);
+
+      // TTNN Conv2d moves input, weight, and bias from host to device
+      // itself. Inserting the ToLayoutOp on these operands is thus problematic.
+
+      if (isa<ToLayoutOp>(operand.getOwner())) {
+        continue;
+      }
+
+      auto operandConstraint =
+          mlir::cast<OperandConstraintAttr>(
+              mlir::cast<TTIROp>(op.getOperation())
+                  .getOperandConstraints()[operand.getOperandNumber()])
+              .getValue();
+      auto desiredLayout = createToLayoutOpForInput(
+          rewriter, op.getLoc(), operand.get(), operandConstraint,
+          defaultMemorySpace, defaultDeviceMemoryLayout,
+          isa<ElementwiseOp>(op.getOperation()));
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -778,14 +880,21 @@ public:
           &getContext(), defaultMemorySpace, defaultDeviceMemoryLayout);
       patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
                                                  defaultDeviceMemoryLayout);
+      // patterns.add<TTIRLayoutMoveOpOutputToDRAMInterleavedRewriter>(
+      //   &getContext(), MemorySpace::DeviceDRAM,
+      //   TensorMemoryLayout::Interleaved
+      // );
+
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
                                               config))) {
+        getOperation().dump();
         signalPassFailure();
         return;
       }
+      getOperation().dump();
     }
   }
 

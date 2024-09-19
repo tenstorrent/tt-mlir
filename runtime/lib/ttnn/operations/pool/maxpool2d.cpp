@@ -5,6 +5,7 @@
 #include "maxpool2d.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "ttnn/operations/data_movement/sharded/sharded_to_interleaved/sharded_to_interleaved.hpp"
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -50,6 +51,13 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
                        {op->stride_height(), op->stride_width()},
                        {op->padding_height(), op->padding_width()},
                        {op->dilation_height(), op->dilation_width()}, &device);
+
+  auto new_memconfig = out.memory_config();
+  new_memconfig.memory_layout = TensorMemoryLayout::INTERLEAVED;
+  new_memconfig.buffer_type = BufferType::DRAM;
+  auto sharded_to_interleaved =
+      ::ttnn::operations::data_movement::ShardedToInterleavedOperation();
+  out = sharded_to_interleaved.invoke(0, out, new_memconfig, out.dtype());
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
   return;
