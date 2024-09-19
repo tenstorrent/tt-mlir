@@ -426,8 +426,6 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
-  assert(command->src()->desc()->constant_data() != nullptr &&
-         "Only constant data supported");
   throw std::runtime_error("Unsupported EnqueueWriteBufferCommand");
 }
 

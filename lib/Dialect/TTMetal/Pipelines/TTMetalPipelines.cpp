@@ -20,6 +20,7 @@ void createTTIRToTTMetalBackendPipeline(
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
   implicitDeviceOptions.meshShape = options.meshShape;
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
+  pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::DeviceL1;
