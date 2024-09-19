@@ -10,16 +10,27 @@ cmake --build build -- ttrt
 ttrt --help
 ```
 
-## Installing ttrt as python whls (coming soon)
+## LOGGER Levels
+ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it will print all log messages.
+```bash
+TTRT_LOGGER_LEVEL=INFO
+TTRT_LOGGER_LEVEL=CRITICAL
+TTRT_LOGGER_LEVEL=ERROR
+TTRT_LOGGER_LEVEL=WARNING
+TTRT_LOGGER_LEVEL=DEBUG
+```
+
+## Installing ttrt as python whls
+Everytime you build ttrt, it will create a whls file in `build/runtime/tools/python/build`. Ex filename `ttrt-0.0.235-cp310-cp310-linux_x86_64.whl`. You can take this whls file and install it in any docker container and in any venv outside of ttmlir. After which, you can use all the following functionality as the same.
 1. Download whls
 2. Create a python venv
 ```bash
 python -m venv ttrt_env
 source ttrt_env/bin/activate
 ```
-3. Install whls
+3. Install whls (replace with your version of the whls)
 ```bash
-pip install *.whl
+pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
 ### Building runtime mode
@@ -38,17 +49,6 @@ Add the following flags when building the compiler
 ```bash
 -DTTMLIR_ENABLE_RUNTIME=ON
 -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
-```
-
-If you are building with perf mode on with `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`, you will have to install the following packages when using ttrt
-```bash
-pip install torch
-pip install loguru
-pip install pandas
-pip install seaborn
-pip install graphviz
-pip install pyyaml
-pip install click
 ```
 
 ## Generate a flatbuffer file from compiler
@@ -152,6 +152,7 @@ ttrt read --section all /dir/of/flatbuffers
 ttrt read system_desc.ttsys
 ttrt read --section system_desc system_desc.ttsys
 ttrt read system_desc.ttsys --log-file ttrt.log
+ttrt read out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ```
 
 ### run
@@ -173,6 +174,9 @@ ttrt run --program-index 0 out.ttnn
 ttrt run /dir/of/flatbuffers
 ttrt run /dir/of/flatbuffers --loops 10
 ttrt run /dir/of/flatbuffers --log-file ttrt.log
+ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
+ttrt run out.ttnn --load-kernels-from-disk
+ttrt run out.ttnn --disable-async-ttnn
 ```
 
 ### query
@@ -181,9 +185,12 @@ Note: It's required to be on a system with silicon and to have a runtime enabled
 
 ```bash
 ttrt query --help
+ttrt query
+ttrt query --quiet
 ttrt query --save-artifacts
 ttrt query --clean-artifacts
 ttrt query --save-artifacts --log-file ttrt.log
+ttrt query --save-artifacts --artifact-dir /path/to/some/dir
 ```
 
 ### perf
@@ -205,6 +212,7 @@ ttrt perf --host-only out.ttnn
 ttrt perf /dir/of/flatbuffers --host-only
 ttrt perf /dir/of/flatbuffers --loops 10 --host-only
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
+ttrt perf --save-artifacts --artifact-dir /path/to/some/dir
 ```
 
 ### check
@@ -219,6 +227,7 @@ ttrt check out.ttnn --clean-artifacts
 ttrt check out.ttnn --save-artifacts
 ttrt check out.ttnn --log-file ttrt.log
 ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
+ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
 ```
 
 ## ttrt as a python package
@@ -239,13 +248,10 @@ API.initialize_apis()
 You can specify certain arguments to pass to each API, or use the default arguments provided
 
 #### args
-This can be a dictionary of values to set inside your API instance. These are the same options as found via the command line. You can get the total list of support arguments via API.registered_args dictionary. Any argument not provided will be set to the default.
+This can be a dictionary of values to set inside your API instance. These are the same options as found via the command line. You can get the total list of support arguments via ttrt help command line. Any argument not provided will be set to the default.
 ```bash
-custom_args = API.Query.registered_args
-custom_args["clean-artifacts"] = True
-query_instance = API.Query(args=custom_args)
-
-custom_args = { "clean-artifacts": True }
+custom_args = {}
+custom_args["--clean-artifacts"] = True
 query_instance = API.Query(args=custom_args)
 ```
 
@@ -257,7 +263,7 @@ from ttrt.common.util import Logger
 
 log_file_name = "some_file_name.log"
 custom_logger = Logger(log_file_name)
-read_instance = API.Read(logging=custom_logger)
+read_instance = API.Read(logger=custom_logger)
 ```
 
 #### artifacts
@@ -269,7 +275,7 @@ from ttrt.common.util import Artifacts
 log_file_name = "some_file_name.log"
 artifacts_folder_path = "/opt/folder"
 custom_logger = Logger(log_file_name)
-custom_artifacts = Artifacts(logging=custom_logger, artifacts_folder_path=artifacts_folder_path)
+custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifacts_folder_path)
 run_instance = API.Run(artifacts=custom_artifacts)
 ```
 
@@ -292,20 +298,20 @@ from ttrt.common.util import Artifacts
 
 API.initialize_apis()
 
-custom_args = API.Run.registered_args
-custom_args["clean-artifacts"] = True
-custom_args["save-artifacts"] = True
-custom_args["loops"] = 10
-custom_args["init"] = "randn"
+custom_args = {}
+custom_args["--clean-artifacts"] = True
+custom_args["--save-artifacts"] = True
+custom_args["--loops"] = 10
+custom_args["--init"] = "randn"
 custom_args["binary"] = "/path/to/subtract.ttnn"
 
 log_file_name = "some_file_name.log"
 custom_logger = Logger(log_file_name)
 
 artifacts_folder_path = "/opt/folder"
-custom_artifacts = Artifacts(logging=custom_logger, artifacts_folder_path=artifacts_folder_path)
+custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifacts_folder_path)
 
-run_instance = API.Run(args=custom_args, logging=custom_logger, artifacts=custom_artifacts)
+run_instance = API.Run(args=custom_args, logger=custom_logger, artifacts=custom_artifacts)
 
 ```
 

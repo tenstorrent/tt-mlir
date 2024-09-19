@@ -50,12 +50,25 @@ class Logger:
 
         self.logging = logging
         self.file_name = file_name
+        LEVEL = self.logging.NOTSET
+
+        if "TTRT_LOGGER_LEVEL" in os.environ:
+            if os.environ["TTRT_LOGGER_LEVEL"] == "CRITICAL":
+                LEVEL = self.logging.CRITICAL
+            elif os.environ["TTRT_LOGGER_LEVEL"] == "ERROR":
+                LEVEL = self.logging.ERROR
+            elif os.environ["TTRT_LOGGER_LEVEL"] == "WARNING":
+                LEVEL = self.logging.WARNING
+            elif os.environ["TTRT_LOGGER_LEVEL"] == "INFO":
+                LEVEL = self.logging.INFO
+            elif os.environ["TTRT_LOGGER_LEVEL"] == "DEBUG":
+                LEVEL = self.logging.DEBUG
 
         self.logging.basicConfig(
             filename=self.file_name,
             filemode="w",
             format="%(asctime)s - %(levelname)s - %(message)s",
-            level=self.logging.NOTSET,
+            level=LEVEL,
         )
 
         self.logging.info(f"set log file={self.file_name}")
@@ -367,7 +380,9 @@ class Artifacts:
     def __init__(self, logger, file_manager=None, artifacts_folder_path=""):
         self.logger = logger
         self.logging = self.logger.get_logger()
-        self.file_manager = file_manager if file_manager != None else file_manager
+        self.file_manager = (
+            file_manager if file_manager != None else FileManager(self.logger)
+        )
         self.artifacts_folder_path = (
             artifacts_folder_path
             if artifacts_folder_path != ""

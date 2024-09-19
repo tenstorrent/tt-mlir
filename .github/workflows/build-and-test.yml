@@ -241,3 +241,120 @@ jobs:
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon --host-only
+
+  run-ttrt-tests:
+
+    timeout-minutes: 30
+    needs: build-ttmlir
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {runs-on: n150, enable_perf: ON, name: "perf"},
+        ]
+
+    runs-on:
+      - in-service
+      - ${{ matrix.build.runs-on }}
+
+    container:
+      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
+      options: --user root --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Use build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: install-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.install-output-dir }}
+
+    # This is needed to preserve file permissions
+    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
+    - name: 'Untar install directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.install-output-dir }}
+      run: tar xvf artifact.tar
+
+    - name: Remove existing whls files
+      shell: bash
+      run: |
+        rm -f *.whl
+
+    - name: Download ttrt run whls
+      uses: actions/download-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.name }}
+
+    - name: Install ttrt run whls
+      shell: bash
+      run: |
+        source env/activate
+        pip show ttrt && pip uninstall -y ttrt
+        pip install ttrt-${{ env.version }}*.whl --force-reinstall
+        pip install pytest
+
+    - name: Generate system descriptor
+      shell: bash
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+
+    - name: Generate tests
+      shell: bash
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
+
+    - name: ttrt read tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_read.py
+
+    - name: ttrt query tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_query.py
+
+    - name: ttrt check tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_check.py
+
+    - name: ttrt run tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_run.py
+
+    - name: ttrt perf tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_perf.py
