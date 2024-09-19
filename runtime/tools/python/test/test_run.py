@@ -265,15 +265,15 @@ def test_load_kernels_from_disk_cmd():
     sub_process_command(command)
 
 
-def test_disable_async_ttnn():
+def test_enable_async_ttnn():
     API.initialize_apis()
     custom_args = {}
     custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--disable-async-ttnn"] = True
+    custom_args["--enable-async-ttnn"] = True
     run_instance = API.Run(args=custom_args)
     run_instance()
 
 
-def test_disable_async_ttnn_cmd():
-    command = f"ttrt run {BINARY_FILE_PATH} --disable-async-ttnn --log-file {test_disable_async_ttnn_cmd.__name__}_run.log"
+def test_enable_async_ttnn_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --enable-async-ttnn --log-file {test_enable_async_ttnn_cmd.__name__}_run.log"
     sub_process_command(command)

@@ -62,7 +62,7 @@ Device openDevice(std::vector<int> const &deviceIds,
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   assert(numHWCQs.empty() && "HWCQs are not supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front(), kL1SmallSize);
-  bool enableAsync = not debug::Env::get().disableAsyncTTNN;
+  bool enableAsync = debug::Env::get().enableAsyncTTNN;
   device.enable_async(enableAsync);
   return Device::borrow(device, DeviceRuntime::TTNN);
 }
