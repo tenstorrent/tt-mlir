@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "mlir/Pass/PassOptions.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 
 namespace mlir::tt::ttnn {
 struct LayoutOverrideParser

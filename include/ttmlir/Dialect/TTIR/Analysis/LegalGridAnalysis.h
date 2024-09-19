@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_LEGALGRIDANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
 #include "llvm/ADT/StringMap.h"
 

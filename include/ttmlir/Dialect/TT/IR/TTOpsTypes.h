@@ -110,12 +110,6 @@ inline DataType elementTypeToDataType(Type elementType) {
   }
   return dtype;
 }
-
-struct LayoutOverrideParams {
-  SmallVector<int64_t, 2> grid;
-  MemorySpace memorySpace;
-  TensorMemoryLayout memoryLayout;
-};
 } // namespace mlir::tt
 
 #define GET_ATTRDEF_CLASSES
