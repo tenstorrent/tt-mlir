@@ -202,6 +202,25 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+def TTIR_WhereOp : TTIR_DPSOp<"where"> {
+    let summary = "Where operation.";
+    let description = [{
+      Select an element from on_true or on_false based on pred.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$pred,
+                         AnyRankedTensor:$on_true,
+                         AnyRankedTensor:$on_false,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {
     let summary = "Eltwise absolute op.";
     let description = [{

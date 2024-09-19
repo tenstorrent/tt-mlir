@@ -435,6 +435,21 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
+template <typename WhereOp>
+::flatbuffers::Offset<::tt::target::ttnn::WhereOp>
+createWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  auto pred = op.getPred();
+  auto ontrue = op.getOnTrue();
+  auto onfalse = op.getOnFalse();
+
+  return ::tt::target::ttnn::CreateWhereOp(*cache.fbb, in, out, pred, ontrue,
+                                           onfalse);
+}
+
 template <typename ConcatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatOp>
 createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {

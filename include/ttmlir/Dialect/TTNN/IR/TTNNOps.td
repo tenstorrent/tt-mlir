@@ -146,6 +146,20 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+def TTNN_WhereOp : TTNN_NamedDPSOp<"where"> {
+    let summary = "Where op.";
+    let description = [{
+      Select operation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$pred,
+                         AnyRankedTensor:$on_true,
+                         AnyRankedTensor:$on_false,
+                         AnyRankedTensor:$outputs);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let summary = "Eltwise absolute.";
     let description = [{

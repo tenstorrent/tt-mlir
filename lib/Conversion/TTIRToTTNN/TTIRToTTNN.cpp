@@ -836,7 +836,23 @@ public:
           srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
           adaptor.getOutputs().front());
     }
+    return success();
+  }
+};
 
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class SelectOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getPred(), adaptor.getOnTrue(), adaptor.getOnFalse(),
+        adaptor.getOutput());
     return success();
   }
 };
@@ -907,6 +923,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
+           SelectOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,

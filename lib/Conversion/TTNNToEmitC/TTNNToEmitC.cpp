@@ -686,6 +686,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AllGatherOp>>(typeConverter,
                                                               ctx);
+               DefaultOpConversionPattern<ttnn::EmbeddingOp>,
+               DefaultOpConversionPattern<ttnn::WhereOp>>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
