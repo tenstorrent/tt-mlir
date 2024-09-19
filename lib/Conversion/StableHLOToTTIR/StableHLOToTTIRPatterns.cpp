@@ -680,6 +680,33 @@ private:
   }
 };
 
+class StableHLOToTTIRSelectOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SelectOp> {
+  using OpConversionPattern<mlir::stablehlo::SelectOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SelectOp srcOp,
+                  mlir::stablehlo::SelectOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<::mlir::tt::ttir::WhereOp>(
+        srcOp, outputType, adaptor.getPred(), adaptor.getOnTrue(),
+        adaptor.getOnFalse(), Value(outputTensor),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+
+    return success();
+  }
+};
+
 class StableHLOToTTIRConcatOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
 
@@ -834,6 +861,12 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::MaxOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
 }
 
+void addSelectOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                  TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRSelectOpConversionPattern>(typeConverter, ctx);
+}
+
 void addReduceOpsConversionPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter &typeConverter) {
@@ -932,6 +965,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addLogicalOpConversionPattern(ctx, patterns, typeConverter);
+  addSelectOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
