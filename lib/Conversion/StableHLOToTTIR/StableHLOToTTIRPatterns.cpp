@@ -309,9 +309,10 @@ private:
     auto srcType =
         getTypeConverter()->convertType(srcOp.getOperand().getType());
     auto inputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
+    auto outputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
 
-    if (!OpTrait::util::getBroadcastedShape(
-            inputShape, adaptor.getBroadcastDimensions(), broadcastedShape)) {
+    if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
+                                            broadcastedShape)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Input cannot be broadcasted to provided dimensions.");
     }
