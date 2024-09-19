@@ -54,7 +54,7 @@ Tensor createTensor(std::shared_ptr<void> data,
 tt::target::DataType getTensorDataType(Tensor tensor) {
   const ::ttnn::Tensor &nnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  return utils::fromTTNNDataType(nnTensor.dtype());
+  return utils::fromTTNNDataType(nnTensor.get_dtype());
 }
 
 Device openDevice(std::vector<int> const &deviceIds,
