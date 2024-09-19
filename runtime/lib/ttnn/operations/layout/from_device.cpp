@@ -8,17 +8,13 @@
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
-void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
+void run(const ::tt::target::ttnn::FromDeviceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
-  assert(utils::isOnHost(inputTensor) &&
-         "Calling ttnn::to_device on a device tensor");
+  assert(utils::isOnDevice(inputTensor) &&
+         "Calling ttnn::from_device on a host tensor");
 
-  ::ttnn::MemoryConfig memoryConfig =
-      utils::createMemoryConfig(op->memcfg(), op->out());
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
-  ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
+  ::ttnn::Tensor out = ::ttnn::from_device(inputTensor);
 
   tensorPool.try_emplace(op->out()->global_id(), out);
 }

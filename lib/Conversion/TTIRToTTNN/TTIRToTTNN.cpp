@@ -121,10 +121,12 @@ public:
 // are required to achieve an arbitrary layout. There are two main distinct
 // paths in this conversion pattern:
 //
-// 1. If the layout calls for device memory, we will call TTNN:ToLayoutOp and
-//    TTNN:ToDeviceOp to achieve the desired layout.
+// 1. If the layout calls for device memory, we will call TTNN::ToLayoutOp and
+//    TTNN::ToDeviceOp to achieve the desired layout.
 //
-// 2. If the layout calls for system memory, we will only call TTNN:ToLayoutOp
+// 2. If the layout calls for system memory, we will call TTNN::ToLayoutOp to
+//    change the tensor to RowMajor layout, and then the TTNN::FromDeviceOp to
+//    move to host memory
 //
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
@@ -183,14 +185,24 @@ public:
     ttnn::BufferType bufferType =
         ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
 
-    // If the ToLayoutOp is applied to empty tensor, we need to check whether
-    // the empty tensor is going back to system memory; if so, we should not
-    // call the ToDeviceOp
+    // If the ToLayoutOp is applied to empty tensor, check whether the empty
+    // tensor is going back to system memory; if so, convert the call to
+    // device->host path
     //
     if (bufferType == ttnn::BufferType::SystemMemory) {
-      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
+      // Change to RowMajor
+      //
+      ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          op.getOperand(0), device,
+          ttnn::LayoutAttr::get(op->getContext(), ttnn::Layout::RowMajor));
+
+      // Move to host memory
+      //
+      rewriter.replaceOpWithNewOp<ttnn::FromDeviceOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          op.getInput(), device);
+          toLayoutOp->getResult(0));
+
       return success();
     }
 

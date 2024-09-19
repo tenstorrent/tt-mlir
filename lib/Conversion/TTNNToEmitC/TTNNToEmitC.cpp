@@ -331,6 +331,30 @@ public:
   }
 };
 
+// FromDeviceOp conversion pattern
+//
+class FromDeviceOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::FromDeviceOp> {
+
+public:
+  FromDeviceOpConversionPattern(const TypeConverter &typeConverter,
+                                MLIRContext *context,
+                                PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::FromDeviceOp>(
+            typeConverter, context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(ttnn::FromDeviceOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
 // ToLayoutOp conversion pattern
 //
 class ToLayoutOpConversionPattern
@@ -488,11 +512,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
-  patterns
-      .add<ToLayoutOpConversionPattern,
-           DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>,
-           ToDeviceOpConversionPattern /*, MemoryConfigOpConversionPattern*/>(
-          typeConverter, ctx);
+  patterns.add<ToLayoutOpConversionPattern,
+               DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>,
+               ToDeviceOpConversionPattern, FromDeviceOpConversionPattern>(
+      typeConverter, ctx);
 
   // Tensor ops
   //
