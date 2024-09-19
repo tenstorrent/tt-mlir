@@ -77,4 +77,4 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
-install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)
