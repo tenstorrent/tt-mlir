@@ -3,13 +3,144 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
+#include "mlir_interface_api.hpp"
+#include <llvm/Support/raw_ostream.h>
+#include <optional>
+#include <sstream>
+#include <string>
+
+// todo: move to a common place as ttnn_mlir_interface_wrapper
+namespace mlir::ttnn_wrapper {
+std::vector<uint32_t> memref_get_tensor_shape(const mlir::MemRefType &memref) {
+  std::vector<uint32_t> shape;
+  for (auto i = 0; i < memref.getRank(); i++) {
+    shape.push_back(memref.getShape()[i]);
+  }
+  return shape;
+}
+
+std::array<uint32_t, 2>
+layout_get_shard_shape(const mlir::tt::LayoutAttr &layout) {
+  const auto layout_shard_tile = layout.getShardShape(false);
+
+  if (layout_shard_tile.size() != 2) {
+    llvm::errs() << "ERROR: layout_shard_tile.size() != 2\n";
+    return {0, 0};
+  }
+
+  std::array<uint32_t, 2> shard_shape;
+  shard_shape[0] = layout_shard_tile[0];
+  shard_shape[1] = layout_shard_tile[1];
+  return shard_shape;
+}
+
+std::vector<std::array<uint32_t, 4>>
+layout_get_grid_shape(const mlir::tt::LayoutAttr &layout) {
+  // todo: handle more complex grid shapes
+  // assuming grid shape is one rect starting at (0,0)
+
+  const auto layout_grid = layout.getGrid();
+
+  if (layout_grid.getShape().size() != 2) {
+    llvm::errs() << "ERROR: layout_grid.getShape().size() == 2\n";
+    return {};
+  }
+
+  std::vector<std::array<uint32_t, 4>> grid_shapes;
+  std::array<uint32_t, 4> grid_shape;
+  grid_shape[0] = 0;
+  grid_shape[1] = 0;
+  grid_shape[2] = layout_grid.getShape()[0];
+  grid_shape[3] = layout_grid.getShape()[1];
+  grid_shapes.emplace_back(grid_shape);
+
+  return grid_shapes;
+}
+
+std::optional<ttnn::mlir_interface::shard_spec_tuple>
+layout_get_shard_spec(const mlir::tt::LayoutAttr &layout) {
+  return isShardedMemoryLayout(layout.getMemLayout())
+             ? std::make_optional(std::make_tuple(
+                   layout_get_grid_shape(layout),
+                   layout_get_shard_shape(layout),
+                   "row_major", // todo: expose parameter to LayoutAttr
+                   false))
+             : std::nullopt;
+}
+
+const std::string memref_get_buffer_type_str(const mlir::MemRefType &memref) {
+  return ::mlir::tt::MemorySpaceEnumToString(
+             mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace())
+                 .getValue())
+      .str();
+}
+
+const std::string
+layout_attr_get_tensor_memory_layout_str(const mlir::tt::LayoutAttr &layout) {
+  return ::mlir::tt::TensorMemoryLayoutEnumToString(layout.getMemLayout())
+      .str();
+}
+
+ttnn::mlir_interface::memory_config_tuple
+layout_get_memory_config(const mlir::tt::LayoutAttr &layout) {
+  std::string tensor_memory_layout =
+      layout_attr_get_tensor_memory_layout_str(layout);
+  std::string buffer_type = memref_get_buffer_type_str(layout.getMemref());
+  auto shard_spec = layout_get_shard_spec(layout);
+  return std::make_tuple(tensor_memory_layout, buffer_type, shard_spec);
+}
+
+std::string memref_get_element_type(const mlir::MemRefType &memref) {
+  mlir::Type element_type = memref.getElementType();
+  // what's better way to to this?
+  // auto data_type = mlir::cast<DataType>(element_type);
+  std::string ret_value;
+  llvm::raw_string_ostream os(ret_value);
+  element_type.print(os);
+  return os.str();
+}
+} // namespace mlir::ttnn_wrapper
 
 namespace mlir::tt::ttir {
 
 bool mock_is_output_tensor_legal_for_op(Operation *op, LayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
-  return true;
+
+  // serialize mlir structures to interface structures
+  auto memref = layout.getMemref();
+  auto shape = ttnn_wrapper::memref_get_tensor_shape(memref);
+  std::string data_type = ttnn_wrapper::memref_get_element_type(memref);
+  ttnn::mlir_interface::memory_config_tuple memory_config =
+      ttnn_wrapper::layout_get_memory_config(layout);
+
+  // call mlir_interface library per op name
+  auto op_name_str = op->getName().getStringRef().str();
+  bool is_valid = false;
+
+  if (llvm::isa<MultiplyOp>(op) || llvm::isa<AddOp>(op) ||
+      llvm::isa<SubtractOp>(op)) {
+    is_valid =
+        ttnn::mlir_interface::does_binary_op_support_input_output_constraints(
+            shape, memory_config, data_type, shape, memory_config, data_type,
+            memory_config, data_type);
+  } else if (llvm::isa<SoftmaxOp>(op)) {
+    is_valid =
+        ttnn::mlir_interface::does_softmax_op_support_input_output_constraints(
+            shape, memory_config, data_type, shape, memory_config, data_type);
+  } else if (llvm::isa<ReluOp>(op)) {
+    is_valid =
+        ttnn::mlir_interface::does_unary_op_support_input_output_constraints(
+            "RELU", // todo agree upon mapping to ttnn::mlir_interface
+            shape, memory_config, data_type, shape, memory_config, data_type);
+  } else {
+    llvm::outs() << op->getName() << " missing ttnn interface\n";
+    return false;
+  }
+
+  return is_valid;
 }
 
 bool tensor_shape_compatible_with_shard(Operation *op, LayoutAttr layout) {

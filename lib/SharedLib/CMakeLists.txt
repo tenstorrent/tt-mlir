@@ -2,7 +2,7 @@
 set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN TTBinary)
 
 # Dependency libs from tt-metal/ttnn project for ttnn runtime
-set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY)
+set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY TTNN_MLIR_INTERFACE_LIBRARY)
 
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
