@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Dialect.h>
@@ -28,6 +29,24 @@ namespace mlir::tt::ttir {
 
 namespace {
 
+class StablehloTypeConverter : public TypeConverter {
+public:
+  StablehloTypeConverter(MLIRContext *ctx) {
+    addConversion([](Type type) {
+      assert(isa<RankedTensorType>(type) &&
+             "only ranked tensor type supported");
+      return type;
+    });
+    addConversion([&](RankedTensorType type) -> RankedTensorType {
+      if (type.getShape().size() == 0) {
+        auto ElementType = type.getElementType();
+        return RankedTensorType::get({1}, ElementType);
+      }
+      return type;
+    });
+  }
+};
+
 struct ConvertStableHLOToTTIRPass
     : public ttir::impl::ConvertStableHLOToTTIRBase<
           ConvertStableHLOToTTIRPass> {
@@ -44,14 +63,23 @@ struct ConvertStableHLOToTTIRPass
 
     // For now keep the same type assuming StableHLO ops operate on builtin
     // tensor.
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) {
-      assert(isa<RankedTensorType>(type) &&
-             "only ranked tensor type supported");
-      return type;
-    });
-
+    StablehloTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
+
+    // Func type conversions
+    populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
+        patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return typeConverter.isSignatureLegal(op.getFunctionType()) &&
+             typeConverter.isLegal(&op.getBody());
+    });
+    populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::ReturnOp>(
+        [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
+    populateCallOpTypeConversionPattern(patterns, typeConverter);
+    target.addDynamicallyLegalOp<func::CallOp>(
+        [&](func::CallOp op) { return typeConverter.isLegal(op); });
+
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
 
     // Apply conversion.
