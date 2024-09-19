@@ -43,7 +43,8 @@ static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
   auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
-      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr));
+      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(op->getContext(), 1, 1));
   rewriter.restoreInsertionPoint(currentInsertionPoint);
   return deviceOp.getResult();
 }
