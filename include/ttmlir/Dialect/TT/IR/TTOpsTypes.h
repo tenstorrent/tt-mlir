@@ -62,6 +62,27 @@ parseDimensionList(::mlir::AsmParser &odsParser,
   return odsParser.parseDimensionList(dimensions, false, false);
 }
 
+template <typename... Args>
+inline void printVargDimensionList(::mlir::AsmPrinter &printer, Args... dims) {
+  printDimensionList(printer, ::llvm::SmallVector<int64_t>({dims...}));
+}
+
+template <typename... Args>
+inline ::mlir::ParseResult parseVargDimensionList(::mlir::AsmParser &odsParser,
+                                                  Args &...dims) {
+  ::llvm::SmallVector<int64_t> dimensions;
+  ::mlir::ParseResult result = parseDimensionList(odsParser, dimensions);
+  if (succeeded(result)) {
+    ::llvm::SmallVector<std::tuple_element_t<0, std::tuple<Args...>> *> copy(
+        {&dims...});
+    assert(dimensions.size() == sizeof...(dims));
+    for (size_t i = 0; i < dimensions.size(); ++i) {
+      *copy[i] = dimensions[i];
+    }
+  }
+  return result;
+}
+
 inline DataType elementTypeToDataType(Type elementType) {
   DataType dtype = DataType::Float32;
   if (isa<FloatType>(elementType)) {

@@ -66,7 +66,7 @@ def TT_CoreCoordAttr : TT_Attr<"CoreCoord", "core_coord"> {
   }];
 
   let parameters = (ins "int64_t":$y, "int64_t":$x);
-  let assemblyFormat = "`(` $y `,` $x `)`";
+  let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
 def TT_TileSizeAttr : TT_Attr<"TileSize", "tile_size"> {
@@ -76,7 +76,7 @@ def TT_TileSizeAttr : TT_Attr<"TileSize", "tile_size"> {
   }];
 
   let parameters = (ins "int64_t":$y, "int64_t":$x);
-  let assemblyFormat = "`(` $y `x` $x `)`";
+  let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
 
@@ -140,7 +140,7 @@ def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
   }];
 
   let parameters = (ins "unsigned":$rack, "unsigned":$shelf, "unsigned":$y, "unsigned":$x);
-  let assemblyFormat = "`<` $rack `,` $shelf `,` $y `,` $x `>`";
+  let assemblyFormat = "custom<VargDimensionList>($rack, $shelf, $y, $x)";
 }
 
 def TT_ChipChannelAttr : TT_Attr<"ChipChannel", "chip_channel"> {

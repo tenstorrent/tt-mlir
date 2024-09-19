@@ -84,7 +84,7 @@ def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
   }];
 
   let parameters = (ins "int64_t":$y, "int64_t":$x);
-  let assemblyFormat = "`<` $y `,` $x `>`";
+  let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD
