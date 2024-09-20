@@ -18,7 +18,6 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   ::ttnn::MemoryConfig memoryConfig =
       utils::createMemoryConfig(op->memcfg(), op->out());
 
-
   std::cout << "TO DEVICE OP" << std::endl;
   // std::cout << (int)inputTensor.memory_config().memory_layout << std::endl;
   // Print memory config

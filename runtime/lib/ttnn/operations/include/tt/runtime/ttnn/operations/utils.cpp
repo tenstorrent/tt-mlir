@@ -57,7 +57,7 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
       layout->memory_desc()->shape();
 
   // Print layout
-    // std::cout << "Memory layout: " << *layout << std::endl;
+  // std::cout << "Memory layout: " << *layout << std::endl;
 
   // TODO (jnie): Hardcoding to interleaved and block sharded for now
   // Add support for other types once compiler supports it
@@ -76,9 +76,7 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   std::copy(targetShardShape->begin(), targetShardShape->end(),
             ttnnShardShape.begin());
 
-    
-
-    // aaa
+  // aaa
   if (targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded) {
     // round shape up to 32x32
     // ttnnShardShape = {
@@ -88,9 +86,9 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
     //     ::tt::constants::TILE_WIDTH *
     //         ((ttnnShardShape[1] + ::tt::constants::TILE_WIDTH - 1) /
     //          ::tt::constants::TILE_WIDTH)};
-    // assert(ttnnShardShape[0] % ::tt::constants::TILE_HEIGHT == 0 &&
-    //        ttnnShardShape[1] % ::tt::constants::TILE_WIDTH == 0 &&
-    //        "Shard shape must divide tile shape (32, 32) evenly");
+    assert(ttnnShardShape[0] % ::tt::constants::TILE_HEIGHT == 0 &&
+           ttnnShardShape[1] % ::tt::constants::TILE_WIDTH == 0 &&
+           "Shard shape must divide tile shape (32, 32) evenly");
   }
 
   ::tt::tt_metal::ShardSpec shardSpec(
@@ -116,8 +114,9 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
       ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
           memcfg->tensor_memory_layout());
 
-// print fg->tensor_memory_layout()
-    std::cout << " SALE: Memory layout: " << (int)memcfg->tensor_memory_layout() << std::endl;
+  // print fg->tensor_memory_layout()
+  std::cout << " SALE: Memory layout: " << (int)memcfg->tensor_memory_layout()
+            << std::endl;
 
   ::ttnn::BufferType bufferType =
       ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());

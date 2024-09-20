@@ -6,4 +6,3 @@ add_2=8x8:dram:interleaved\
 cat mnist_ttnn.mlir && \
 ./build/bin/ttmlir-translate --ttnn-to-flatbuffer mnist_ttnn.mlir -o mnist.ttnn && \
 ttrt run --disable-async-ttnn mnist.ttnn
-

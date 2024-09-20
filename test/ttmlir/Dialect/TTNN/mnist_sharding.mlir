@@ -2,27 +2,27 @@
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #loc = loc("MNISTLinear":4294967295:0)
 module @"tt-forge-graph" attributes {} {
-  func.func @main(%arg0: tensor<32x784xf32> loc("MNISTLinear":4294967295:0), %arg1: tensor<32x32xf32> loc("MNISTLinear":4294967295:0), %arg2: tensor<256x32xf32> loc("MNISTLinear":4294967295:0), %arg3: tensor<32x256xf32> loc("MNISTLinear":4294967295:0), %arg4: tensor<784x256xf32> loc("MNISTLinear":4294967295:0)) -> tensor<32x32xf32> {
-    // CHECK: #[[LAYOUT_10:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <32x8>, memref<32x32xf32, #l1_>, block_sharded>
-    // CHECK: #[[LAYOUT_11:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <32x32>, memref<32x32xf32, #l1_>, block_sharded>
-    %0 = tensor.empty() : tensor<32x256xf32> loc(#loc8)
-    // CHECK: %[[C:.*]] = "ttnn.matmul"[[C:.*]] -> tensor<32x256xf32, #[[LAYOUT_10]]>
-    %1 = "ttir.matmul"(%arg0, %arg4, %0) <{operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x784xf32>, tensor<784x256xf32>, tensor<32x256xf32>) -> tensor<32x256xf32> loc(#loc8)
-    %2 = tensor.empty() : tensor<32x256xf32> loc(#loc9)
-    // CHECK: %[[C:.*]] = "ttnn.add"[[C:.*]] -> tensor<32x256xf32, #[[LAYOUT_10]]>
-    %3 = "ttir.add"(%1, %arg3, %2) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x256xf32>, tensor<32x256xf32>, tensor<32x256xf32>) -> tensor<32x256xf32> loc(#loc9)
-    %4 = tensor.empty() : tensor<32x256xf32> loc(#loc10)
-    // CHECK: %[[C:.*]] = "ttnn.relu"[[C:.*]] -> tensor<32x256xf32, #[[LAYOUT_10]]>
-    %5 = "ttir.relu"(%3, %4) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<32x256xf32>, tensor<32x256xf32>) -> tensor<32x256xf32> loc(#loc10)
-    %6 = tensor.empty() : tensor<32x32xf32> loc(#loc11)
-    // CHECK: %[[C:.*]] = "ttnn.matmul"[[C:.*]] -> tensor<32x32xf32, #[[LAYOUT_11]]>
-    %7 = "ttir.matmul"(%5, %arg2, %6) <{operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x256xf32>, tensor<256x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> loc(#loc11)
-    %8 = tensor.empty() : tensor<32x32xf32> loc(#loc12)
-    // CHECK: %[[C:.*]] = "ttnn.add"[[C:.*]] -> tensor<32x32xf32, #[[LAYOUT_11]]>
-    %9 = "ttir.add"(%7, %arg1, %8) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> loc(#loc12)
-    %10 = tensor.empty() : tensor<32x32xf32> loc(#loc13)
-    %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32, operand_constraints = [#any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> loc(#loc13)
-    return %11 : tensor<32x32xf32> loc(#loc7)
+  func.func @main(%arg0: tensor<1x784xf32> loc("MNISTLinear":4294967295:0), %arg1: tensor<1x10xf32> loc("MNISTLinear":4294967295:0), %arg2: tensor<256x10xf32> loc("MNISTLinear":4294967295:0), %arg3: tensor<1x256xf32> loc("MNISTLinear":4294967295:0), %arg4: tensor<784x256xf32> loc("MNISTLinear":4294967295:0)) -> tensor<1x10xf32> {
+    // CHECK: #[[LAYOUT_10:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x8>, memref<1x32xf32, #l1_>, block_sharded>
+    // CHECK: #[[LAYOUT_11:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<1x10xf32, #l1_>, block_sharded>
+    %0 = tensor.empty() : tensor<1x256xf32> loc(#loc8)
+    // CHECK: %[[C:.*]] = "ttnn.matmul"[[C:.*]] -> tensor<1x256xf32, #[[LAYOUT_10]]>
+    %1 = "ttir.matmul"(%arg0, %arg4, %0) <{operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<1x784xf32>, tensor<784x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc8)
+    %2 = tensor.empty() : tensor<1x256xf32> loc(#loc9)
+    // CHECK: %[[C:.*]] = "ttnn.add"[[C:.*]] -> tensor<1x256xf32, #[[LAYOUT_10]]>
+    %3 = "ttir.add"(%1, %arg3, %2) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<1x256xf32>, tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc9)
+    %4 = tensor.empty() : tensor<1x256xf32> loc(#loc10)
+    // CHECK: %[[C:.*]] = "ttnn.relu"[[C:.*]] -> tensor<1x256xf32, #[[LAYOUT_10]]>
+    %5 = "ttir.relu"(%3, %4) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<1x256xf32>, tensor<1x256xf32>) -> tensor<1x256xf32> loc(#loc10)
+    %6 = tensor.empty() : tensor<1x10xf32> loc(#loc11)
+    // CHECK: %[[C:.*]] = "ttnn.matmul"[[C:.*]] -> tensor<1x10xf32, #[[LAYOUT_11]]>
+    %7 = "ttir.matmul"(%5, %arg2, %6) <{operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<1x256xf32>, tensor<256x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc11)
+    %8 = tensor.empty() : tensor<1x10xf32> loc(#loc12)
+    // CHECK: %[[C:.*]] = "ttnn.add"[[C:.*]] -> tensor<1x10xf32, #[[LAYOUT_11]]>
+    %9 = "ttir.add"(%7, %arg1, %8) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<1x10xf32>, tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc12)
+    %10 = tensor.empty() : tensor<1x10xf32> loc(#loc13)
+    %11 = "ttir.softmax"(%9, %10) <{dimension = 1 : si32, operand_constraints = [#any_device, #any_device]}> : (tensor<1x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32> loc(#loc13)
+    return %11 : tensor<1x10xf32> loc(#loc7)
   } loc(#loc)
 } loc(#loc)
 #loc1 = loc("MNISTLinear":4294967295:10)

@@ -21,8 +21,8 @@
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
-#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/Support/Casting.h>
@@ -1296,11 +1296,11 @@ public:
             llvm::outs() << "Layout: " << layout << "\n";
           }
 
-            op->getResult(0).setType(newTensorType);
+          op->getResult(0).setType(newTensorType);
 
-            if (llvm::isa<mlir::DestinationStyleOpInterface>(op)) {
-              // Update dps operand layout as well.
-              op->getOperands().back().setType(newTensorType);
+          if (llvm::isa<mlir::DestinationStyleOpInterface>(op)) {
+            // Update dps operand layout as well.
+            op->getOperands().back().setType(newTensorType);
           }
         }
       });
@@ -1350,6 +1350,7 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
             toLayoutOpLayout
+                .withElementType(toLayoutOp->getContext(), consumerOpOutputLayout.getElementType())
                 .withMemorySpace(toLayoutOp.getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(toLayoutOp.getContext(),
@@ -1392,11 +1393,10 @@ public:
         consumerOpOutputLayout.dump();
         llvm::outs() << "\n";
 
-
-
         RankedTensorType newTensorType = RankedTensorType::get(
             producerOpTensorShape, producerOpTensorType.getElementType(),
             producerOpLayout
+                .withElementType(consumerOp->getContext(), consumerOpOutputLayout.getElementType())
                 .withMemorySpace(consumerOp->getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(consumerOp->getContext(),
