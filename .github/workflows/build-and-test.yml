@@ -148,9 +148,9 @@ jobs:
       matrix:
         build: [
           {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, name: "perf", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: ON, name: "perf"},
           {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, name: "perf", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
 
     runs-on:
