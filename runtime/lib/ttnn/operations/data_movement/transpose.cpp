@@ -12,7 +12,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();
-  auto inputRank = in.get_shape().rank();
+  auto inputRank = op->in()->desc()->layout()->stride()->size();
   // for the current version of permute, we need to work in 4D, so we add
   // leading dimensions of size 1
   std::vector<std::int64_t> dimensionOrder(4);

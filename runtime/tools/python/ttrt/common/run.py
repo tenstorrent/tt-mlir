@@ -117,7 +117,7 @@ class Run:
             help="pickup the kernels from disk (/tmp) instead of the flatbuffer",
         )
         Run.register_arg(
-            name="--disable-async-ttnn",
+            name="--enable-async-ttnn",
             type=bool,
             default=False,
             choices=[True, False],
@@ -234,7 +234,7 @@ class Run:
                 return
 
             debug_env = ttrt.runtime.DebugEnv.get(
-                self["--load-kernels-from-disk"], self["--disable-async-ttnn"]
+                self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
 

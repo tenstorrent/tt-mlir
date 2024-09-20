@@ -5,13 +5,17 @@
 #include "maxpool2d.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::pool {
 
 static ::ttnn::Tensor
-preshardForMaxPool2d(const ::ttnn::Tensor &input,
-                     const ::tt::target::ttnn::MaxPool2dOp *op,
-                     ::ttnn::Device &device) {
+preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
+                     ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
+  const ::ttnn::Shape inputShape = ::ttnn::Shape(
+      ::tt::tt_metal::Shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+          *op->in()->desc()->shape())));
   uint32_t output_height =
       1 + (op->input_height() + 2 * op->padding_height() -
            op->dilation_height() * (op->kernel_height() - 1) - 1) /
@@ -27,7 +31,7 @@ preshardForMaxPool2d(const ::ttnn::Tensor &input,
           op->channels(), output_height, output_width, op->channels(), &device,
           ShardOrientation::ROW_MAJOR);
   auto sharded_memory_config = ::ttnn::operations::conv::conv2d::
-      create_sharded_memory_config_from_parallel_config(input.shape(),
+      create_sharded_memory_config_from_parallel_config(inputShape,
                                                         parallel_config, 1);
   return ::ttnn::to_memory_config(input, sharded_memory_config, std::nullopt);
 }
@@ -35,14 +39,14 @@ preshardForMaxPool2d(const ::ttnn::Tensor &input,
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.tensorPool;
   DeviceMap &devicePool = context.devicePool;
-  const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
   const ::ttnn::operations::pool::MaxPool2DOp operation =
       ::ttnn::operations::pool::MaxPool2DOp();
 
   ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
 
   const ::ttnn::Tensor preShardedInput =
-      preshardForMaxPool2d(input, op, device);
+      preshardForMaxPool2d(op, device, tensorPool);
+
   ::ttnn::Tensor out =
       operation.invoke(0, preShardedInput, op->batch_size(), op->input_height(),
                        op->input_width(), op->channels(),

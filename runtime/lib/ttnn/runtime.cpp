@@ -54,7 +54,7 @@ Tensor createTensor(std::shared_ptr<void> data,
 tt::target::DataType getTensorDataType(Tensor tensor) {
   const ::ttnn::Tensor &nnTensor =
       tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
-  return utils::fromTTNNDataType(nnTensor.dtype());
+  return utils::fromTTNNDataType(nnTensor.get_dtype());
 }
 
 Device openDevice(std::vector<int> const &deviceIds,
@@ -62,7 +62,7 @@ Device openDevice(std::vector<int> const &deviceIds,
   assert(deviceIds.size() == 1 && "Only one device is supported for now");
   assert(numHWCQs.empty() && "HWCQs are not supported for now");
   auto &device = ::ttnn::open_device(deviceIds.front(), kL1SmallSize);
-  bool enableAsync = not debug::Env::get().disableAsyncTTNN;
+  bool enableAsync = debug::Env::get().enableAsyncTTNN;
   device.enable_async(enableAsync);
   return Device::borrow(device, DeviceRuntime::TTNN);
 }

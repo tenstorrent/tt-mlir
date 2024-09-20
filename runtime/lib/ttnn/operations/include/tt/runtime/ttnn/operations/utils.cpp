@@ -21,6 +21,7 @@ bool isOnDevice(const ::ttnn::Tensor &tensor) {
   return ::tt::runtime::ttnn::utils::toTTNNDataType(
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
+
 ::ttnn::Device &getDevice(const ::tt::target::DeviceRef *deviceRef,
                           DeviceMap &devicePool) {
   uint32_t deviceId = deviceRef->global_id();

@@ -176,7 +176,7 @@ ttrt run /dir/of/flatbuffers --loops 10
 ttrt run /dir/of/flatbuffers --log-file ttrt.log
 ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt run out.ttnn --load-kernels-from-disk
-ttrt run out.ttnn --disable-async-ttnn
+ttrt run out.ttnn --enable-async-ttnn
 ```
 
 ### query
