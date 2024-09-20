@@ -64,26 +64,32 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
+    std::cout << "Running Add operation" << std::endl;
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::add);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
+    std::cout << "Running Multiply operation" << std::endl;
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::multiply);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Subtract: {
+    std::cout << "Running Subtract operation" << std::endl;
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::subtract);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
+    std::cout << "Running GreaterEqual operation" << std::endl;
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::ge);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
+    std::cout << "Running Div operation" << std::endl;
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::divide);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Maximum: {
+    std::cout << "Running Maximum operation" << std::endl;
     runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::maximum);
     break;
   }

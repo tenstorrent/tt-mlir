@@ -60,6 +60,9 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
+  std::cout << "OUT TENSOR" << std::endl;
+  std::cout << (int)out.memory_config().memory_layout << std::endl;
+
   tensorPool.try_emplace(op->out()->global_id(), out);
 }
 

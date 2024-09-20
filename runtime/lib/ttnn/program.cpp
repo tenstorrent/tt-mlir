@@ -40,63 +40,116 @@ private:
 };
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
+
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
-    return operations::context::run(op->type_as_GetDeviceOp(), context);
+    std::cout << "OpType: GetDeviceOp" << std::endl;
+    operations::context::run(op->type_as_GetDeviceOp(), context);
+    std::cout << "Op finished: GetDeviceOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
-    return operations::layout::run(op->type_as_ToMemoryConfigOp(), context);
+    std::cout << "OpType: ToMemoryConfigOp" << std::endl;
+    operations::layout::run(op->type_as_ToMemoryConfigOp(), context);
+    std::cout << "Op finished: ToMemoryConfigOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
-    return operations::layout::run(op->type_as_ToLayoutOp(), context);
+    std::cout << "OpType: ToLayoutOp" << std::endl;
+    operations::layout::run(op->type_as_ToLayoutOp(), context);
+    std::cout << "Op finished: ToLayoutOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::ToDeviceOp: {
-    return operations::layout::run(op->type_as_ToDeviceOp(), context);
+    std::cout << "OpType: ToDeviceOp" << std::endl;
+    operations::layout::run(op->type_as_ToDeviceOp(), context);
+    std::cout << "Op finished: ToDeviceOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
-    return operations::creation::run(op->type_as_EmptyOp(), context);
+    std::cout << "OpType: EmptyOp" << std::endl;
+    operations::creation::run(op->type_as_EmptyOp(), context);
+    std::cout << "Op finished: EmptyOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::FullOp: {
-    return operations::creation::run(op->type_as_FullOp(), context);
+    std::cout << "OpType: FullOp" << std::endl;
+    operations::creation::run(op->type_as_FullOp(), context);
+    std::cout << "Op finished: FullOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
+    std::cout << "OpType: EltwiseOp" << std::endl;
     const ::tt::target::ttnn::EltwiseOp *eltwiseOp = op->type_as_EltwiseOp();
     if (operations::unary::isUnaryOp(eltwiseOp)) {
-      return operations::unary::run(eltwiseOp, context);
+      operations::unary::run(eltwiseOp, context);
+    } else {
+      assert(operations::binary::isBinaryOp(eltwiseOp) &&
+             "Eltwise op should be either unary or binary");
+      operations::binary::run(eltwiseOp, context);
     }
-    assert(operations::binary::isBinaryOp(eltwiseOp) &&
-           "Eltwise op should be either unary or binary");
-    return operations::binary::run(eltwiseOp, context);
+    std::cout << "Op finished: EltwiseOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::MatmulOp: {
-    return operations::matmul::run(op->type_as_MatmulOp(), context);
+    std::cout << "OpType: MatmulOp" << std::endl;
+    operations::matmul::run(op->type_as_MatmulOp(), context);
+    std::cout << "Op finished: MatmulOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
-    return operations::reduction::run(op->type_as_ReductionOp(), context);
+    std::cout << "OpType: ReductionOp" << std::endl;
+    operations::reduction::run(op->type_as_ReductionOp(), context);
+    std::cout << "Op finished: ReductionOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    return operations::embedding::run(op->type_as_EmbeddingOp(), context);
+    std::cout << "OpType: EmbeddingOp" << std::endl;
+    operations::embedding::run(op->type_as_EmbeddingOp(), context);
+    std::cout << "Op finished: EmbeddingOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
-    return operations::normalization::run(op->type_as_SoftmaxOp(), context);
+    std::cout << "OpType: SoftmaxOp" << std::endl;
+    operations::normalization::run(op->type_as_SoftmaxOp(), context);
+    std::cout << "Op finished: SoftmaxOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
-    return operations::data_movement::run(op->type_as_TransposeOp(), context);
+    std::cout << "OpType: TransposeOp" << std::endl;
+    operations::data_movement::run(op->type_as_TransposeOp(), context);
+    std::cout << "Op finished: TransposeOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
-    return operations::data_movement::run(op->type_as_ConcatOp(), context);
+    std::cout << "OpType: ConcatOp" << std::endl;
+    operations::data_movement::run(op->type_as_ConcatOp(), context);
+    std::cout << "Op finished: ConcatOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
-    return operations::data_movement::run(op->type_as_ReshapeOp(), context);
+    std::cout << "OpType: ReshapeOp" << std::endl;
+    operations::data_movement::run(op->type_as_ReshapeOp(), context);
+    std::cout << "Op finished: ReshapeOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
-    return operations::conv::run(op->type_as_Conv2dOp(), context);
+    std::cout << "OpType: Conv2dOp" << std::endl;
+    operations::conv::run(op->type_as_Conv2dOp(), context);
+    std::cout << "Op finished: Conv2dOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::DeallocOp: {
-    return operations::deletion::run(op->type_as_DeallocOp(), context);
+    std::cout << "OpType: DeallocOp" << std::endl;
+    operations::deletion::run(op->type_as_DeallocOp(), context);
+    std::cout << "Op finished: DeallocOp" << std::endl;
+    break;
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
-    return operations::pool::run(op->type_as_MaxPool2dOp(), context);
+    std::cout << "OpType: MaxPool2dOp" << std::endl;
+    operations::pool::run(op->type_as_MaxPool2dOp(), context);
+    std::cout << "Op finished: MaxPool2dOp" << std::endl;
+    break;
   }
   default: {
     throw std::runtime_error("Unsupported operation type");
