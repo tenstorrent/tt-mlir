@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
           {runs-on: ubuntu-latest, enable_perf: ON, name: "perf", ttrt_flags: ""},
         ]
 
@@ -147,10 +147,10 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run"},
-          {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run"},
-          {runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: ON, name: "perf", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: ON, name: "perf", ttrt_flags: "--non-zero"},
         ]
 
     runs-on:
