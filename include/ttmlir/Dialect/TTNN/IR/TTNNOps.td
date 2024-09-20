@@ -132,6 +132,13 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise rsqrt.";
+    let description = [{
+      Eltwise rsqrt operation.
+    }];
+}
+
 def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate.";
     let description = [{

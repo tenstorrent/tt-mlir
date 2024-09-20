@@ -68,6 +68,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sqrt);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Rsqrt: {
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::rsqrt);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
     break;
