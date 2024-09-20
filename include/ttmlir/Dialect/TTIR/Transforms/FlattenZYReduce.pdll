@@ -1,0 +1,82 @@
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.td"
+#include "mlir/Dialect/Tensor/IR/TensorOps.td"
+#include "mlir/IR/BuiltinTypes.td"
+
+Constraint hasSingleDimArg(attr: I32ArrayAttr) [{
+    return mlir::success(attr.size() == 1);
+}];
+
+Constraint dimArgIsZ(attr: I32ArrayAttr) [{
+    return mlir::success(mlir::cast<mlir::IntegerAttr>(attr[0]).getInt() == -3);
+}];
+
+Constraint dimArgIsY(attr: I32ArrayAttr) [{
+    return mlir::success(mlir::cast<mlir::IntegerAttr>(attr[0]).getInt() == -2);
+}];
+
+Constraint keepDimTrue(attr: BoolAttr) [{
+    return mlir::success(mlir::cast<mlir::BoolAttr>(attr).getValue());
+}];
+
+Rewrite BuildZYFlattenReshapeDPS(input: Value, operand_constraints: ArrayAttr) -> Op [{
+    auto shapei64 = mlir::cast<mlir::RankedTensorType>(input.getType()).getShape().vec();
+    int64_t zdim = shapei64.size() - 3;
+    int64_t ydim = shapei64.size() - 2;
+
+    shapei64[ydim] = shapei64[ydim]*shapei64[zdim];
+    shapei64[zdim] = 1;
+
+    auto ty = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto output =
+        rewriter.create<mlir::tensor::EmptyOp>(input.getLoc(), shapei64, ty.getElementType());
+
+    auto shape_attr = rewriter.getI32ArrayAttr(
+        {static_cast<int32_t>(shapei64[0]), static_cast<int32_t>(shapei64[1]),
+         static_cast<int32_t>(shapei64[2]), static_cast<int32_t>(shapei64[3])});
+
+    return rewriter.create<mlir::tt::ttir::ReshapeOp>(input.getLoc(), output.getType(), input, output, shape_attr, operand_constraints);
+}];
+
+Rewrite GetSecondReduceDPSOutput(new_reshape: Value) -> Op [{
+    auto ty = mlir::cast<mlir::RankedTensorType>(new_reshape.getType());
+    auto shape = mlir::cast<mlir::RankedTensorType>(new_reshape.getType()).getShape().vec();
+    shape[shape.size()-2] = 1;
+    auto output =
+        rewriter.create<mlir::tensor::EmptyOp>(new_reshape.getLoc(), shape, ty.getElementType());
+    return output;
+}];
+
+Pattern FlattenZYReduce {
+    let input: Value;
+    let reduce1_empty = op<tensor.empty>();
+    let reduce2_empty = op<tensor.empty>() -> (reduce2_type: Builtin_RankedTensor);
+    let reduce1 = op<ttir.mean>(input, reduce1_empty) {dim_arg = reduce1_dim: I32ArrayAttr, keep_dim = reduce1_keepdim: BoolAttr, operand_constraints = reduce1_constraints: TT_OperandConstraintArrayAttr};
+    let reduce2 = op<ttir.mean>(reduce1, reduce2_empty) {dim_arg = reduce2_dim: I32ArrayAttr, keep_dim = reduce2_keepdim: BoolAttr, operand_constraints = reduce2_constraints: TT_OperandConstraintArrayAttr};
+
+    // Ensure both reduces have exactly one dim arg
+    hasSingleDimArg(reduce1_dim);
+    hasSingleDimArg(reduce2_dim);
+
+    // Ensure the pattern is reduce(-3) --> reduce(-2)
+    dimArgIsZ(reduce1_dim);
+    dimArgIsY(reduce2_dim);
+
+    // Ensure both reduce ops have keepdim = True
+    keepDimTrue(reduce1_keepdim);
+    keepDimTrue(reduce2_keepdim);
+
+    rewrite reduce2 with {
+        // Use native function to build dps reshape since we need to acces and change the shape attr
+        let reshape = BuildZYFlattenReshapeDPS(input, reduce1_constraints);
+        replace reduce1 with reshape;
+
+        // Use native function to build DPS output for second reduce since we need to access the shape attr of the reshape.
+        let reduce2_empty_new = GetSecondReduceDPSOutput(reshape);
+        let new_reduce = op<ttir.mean>(reshape, reduce2_empty_new) {dim_arg = attr<"[-2: i32]">, keep_dim =  attr<"true">, operand_constraints = reduce1_constraints} -> (reduce2_type);
+        replace reduce2 with new_reduce;
+    };
+}

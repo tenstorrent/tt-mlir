@@ -6,6 +6,8 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRPASSES_TD
 
 include "mlir/Pass/PassBase.td"
+include "mlir/Dialect/PDL/IR/PDLDialect.td"
+include "mlir/Dialect/PDLInterp/IR/PDLInterpOps.td"
 
 def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   let summary = "Create an implicit device";
@@ -17,6 +19,18 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   let options = [
     ListOption<"meshShape", "mesh-shape", "int64_t",
                "Set the multi-device mesh shape.">,
+  ];
+}
+
+def TTIRFlattenZYReduction: Pass<"ttir-flatten-zy-reduction", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Transforms the pattern reduce(-3) --> reduce(-2) to reshape(W, 1, Z*Y, X) --> reduce(-2)
+  }];
+
+  let dependentDialects = [
+    "::mlir::pdl::PDLDialect",
+    "::mlir::pdl_interp::PDLInterpDialect",
   ];
 }
 

@@ -43,6 +43,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIROPTIMIZER
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
 #define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
+#define GEN_PASS_DEF_TTIRFLATTENZYREDUCTION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 class TTIRImplicitDevice
@@ -818,8 +819,8 @@ public:
                             Value input, ::llvm::ArrayRef<int64_t> shapei64,
                             ::mlir::ArrayAttr operandConstraints) const {
     auto ty = mlir::cast<RankedTensorType>(input.getType());
-    auto output =
-        rewriter.create<tensor::EmptyOp>(loc, shapei64, ty.getElementType());
+    auto output = rewriter.create<mlir::tensor::EmptyOp>(loc, shapei64,
+                                                         ty.getElementType());
 
     auto shape_attr = rewriter.getI32ArrayAttr(
         {static_cast<int32_t>(shapei64[0]), static_cast<int32_t>(shapei64[1]),
@@ -1446,6 +1447,113 @@ public:
       module->setAttr(tt::SystemDescAttr::name,
                       tt::SystemDescAttr::getDefault(&getContext()));
     }
+  }
+};
+
+class TTIRFlattenZYReductionRewriter : public OpRewritePattern<MeanOp> {
+public:
+  using OpRewritePattern<MeanOp>::OpRewritePattern;
+
+  ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                            Value input, ::llvm::ArrayRef<int64_t> shapei64,
+                            ::mlir::ArrayAttr operandConstraints) const {
+    auto ty = mlir::cast<RankedTensorType>(input.getType());
+    auto output =
+        rewriter.create<tensor::EmptyOp>(loc, shapei64, ty.getElementType());
+
+    auto shape_attr = rewriter.getI32ArrayAttr(
+        {static_cast<int32_t>(shapei64[0]), static_cast<int32_t>(shapei64[1]),
+         static_cast<int32_t>(shapei64[2]), static_cast<int32_t>(shapei64[3])});
+    return rewriter.create<ttir::ReshapeOp>(
+        loc, output.getType(), input, output, shape_attr, operandConstraints);
+  }
+
+  LogicalResult matchAndRewrite(MeanOp reduce1,
+                                PatternRewriter &rewriter) const final {
+
+    if (!reduce1.getDimArg().has_value()) {
+      return failure();
+    }
+
+    if (reduce1.getDimArg().value().size() != 1) {
+      return failure();
+    }
+
+    int64_t reduce1_dim =
+        mlir::cast<IntegerAttr>(reduce1.getDimArg().value().getValue()[0])
+            .getInt();
+    if (reduce1_dim != -3) {
+      return failure();
+    }
+
+    MeanOp reduce2;
+    bool found = false;
+    for (auto user : reduce1->getUsers()) {
+      user->getName().dump();
+      if (isa<MeanOp>(user)) {
+        reduce2 = mlir::cast<MeanOp>(user);
+        found = true;
+      }
+    }
+    if (!found) {
+      return failure();
+    }
+
+    if (!reduce2.getDimArg().has_value()) {
+      return failure();
+    }
+
+    if (reduce2.getDimArg().value().size() != 1) {
+      return failure();
+    }
+
+    int64_t reduce2_dim =
+        mlir::cast<IntegerAttr>(reduce2.getDimArg().value().getValue()[0])
+            .getInt();
+    if (reduce2_dim != -2) {
+      return failure();
+    }
+
+    auto input = reduce1->getOperand(0);
+    auto input_type = mlir::cast<RankedTensorType>(input.getType());
+    std::vector<int64_t> input_shape = input_type.getShape();
+    input_shape[input_shape.size() - 2] = input_shape[input_shape.size() - 2] *
+                                          input_shape[input_shape.size() - 3];
+    input_shape[input_shape.size() - 3] = 1;
+
+    llvm::ArrayRef<int64_t> shape_attr = {
+        (int32_t)input_shape[0], (int32_t)input_shape[1],
+        (int32_t)input_shape[2], (int32_t)input_shape[3]};
+
+    auto reshape = createReshapeOp(rewriter, reduce1->getLoc(), input,
+                                   shape_attr, reduce1.getOperandConstraints());
+
+    rewriter.replaceOp(reduce1, reshape);
+    rewriter.modifyOpInPlace(reduce2,
+                             [&]() { reduce2.setOperand(0, reshape); });
+    return success();
+  }
+};
+
+class TTIRFlattenZYReduction
+    : public impl::TTIRFlattenZYReductionBase<TTIRFlattenZYReduction> {
+public:
+  using impl::TTIRFlattenZYReductionBase<
+      TTIRFlattenZYReduction>::TTIRFlattenZYReductionBase;
+
+  void runOnOperation() final {
+    mlir::pdl::PDLType typ;
+    (void)typ;
+
+    RewritePatternSet patterns(&getContext());
+    populateGeneratedPDLLPatterns(patterns);
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      getOperation().dump();
+      signalPassFailure();
+      return;
+    }
+    getOperation().dump();
   }
 };
 

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/Support/LLVM.h>
 #include <string>
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -590,3 +592,198 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
 
   return success();
 }
+
+// InferType
+
+// ::llvm::LogicalResult
+// mlir::tt::ttir::ReshapeOp::inferReturnTypes(::mlir::MLIRContext *context,
+//                                               ::std::optional<::mlir::Location>
+//                                               location,
+//                                               ::mlir::ValueRange operands,
+//                                               ::mlir::DictionaryAttr
+//                                               attributes,
+//                                               ::mlir::OpaqueProperties
+//                                               properties,
+//                                               ::mlir::RegionRange regions,
+//                                               ::llvm::SmallVectorImpl<::mlir::Type>&inferredReturnTypes)
+//                                               {
+
+//    std::vector<int64_t> shape_vec;
+//    mlir::tt::ttir::ReshapeOp::Adaptor adaptor(operands, attributes,
+//    properties, regions); for (int64_t dim :
+//    mlir::cast<RankedTensorType>(operands[0].getType()).getShape()) {
+//     shape_vec.push_back(dim);
+//    }
+
+//    ArrayRef<int64_t> new_shape_i64(shape_vec);
+
+//    auto input_type = mlir::cast<RankedTensorType>(operands[0].getType());
+//    inferredReturnTypes.push_back(input_type.cloneWith(new_shape_i64,
+//    input_type.getElementType())); return success();
+// }
+
+// ::llvm::LogicalResult
+// mlir::tt::ttir::MeanOp::inferReturnTypes(::mlir::MLIRContext *context,
+//                                               ::std::optional<::mlir::Location>
+//                                               location,
+//                                               ::mlir::ValueRange operands,
+//                                               ::mlir::DictionaryAttr
+//                                               attributes,
+//                                               ::mlir::OpaqueProperties
+//                                               properties,
+//                                               ::mlir::RegionRange regions,
+//                                               ::llvm::SmallVectorImpl<::mlir::Type>&inferredReturnTypes)
+//                                               {
+
+//    mlir::tt::ttir::MeanOp::Adaptor adaptor(operands, attributes, properties,
+//    regions);
+
+//    std::vector<int64_t> shape_vec;
+//    for (int64_t dim :
+//    mlir::cast<RankedTensorType>(operands[0].getType()).getShape()) {
+//     shape_vec.push_back(dim);
+//    }
+//    auto outty = mlir::cast<RankedTensorType>(operands[1].getType());
+//    (void)outty;
+
+//    bool keepdim = true; //attributes.contains("keep_dim");
+
+//    if (adaptor.getDimArg().has_value()) {
+//     ArrayRef reduce_dims_ = adaptor.getDimArg()->getValue();
+//     std::vector<int32_t> reduce_dims;
+//     for (Attribute dim_attr : reduce_dims_) {
+//       int32_t dim = mlir::cast<IntegerAttr>(dim_attr).getInt();
+//       if (dim < 0) {
+//         dim += shape_vec.size();
+//       }
+//       reduce_dims.push_back(dim);
+//     }
+
+//     if (keepdim) {
+//       for (int32_t dim : reduce_dims) {
+//         shape_vec[dim] = 1;
+//       }
+//     } else {
+//       std::sort(reduce_dims.begin(), reduce_dims.end());
+//       for (int32_t dim : reduce_dims) {
+//         shape_vec.erase(shape_vec.begin() + dim);
+//       }
+//       // In the event the reduce brings the tensor to a single value, make
+//       sure shape is still [1] if (shape_vec.size() == 0) {
+//         shape_vec = {1};
+//       }
+//     }
+
+//    } else {
+//     if (keepdim) {
+//       for (uint64_t i = 0; i < shape_vec.size(); i++) {
+//         shape_vec[i] = 1;
+//       }
+//     } else {
+//       shape_vec = {1};
+//     }
+//    }
+
+//     auto input_type = mlir::cast<RankedTensorType>(operands[0].getType());
+//     inferredReturnTypes.push_back(input_type.cloneWith(shape_vec,
+//     input_type.getElementType()));
+//    return success();
+// }
+
+// ::llvm::LogicalResult
+// mlir::tt::ttir::MaxOp::inferReturnTypes(::mlir::MLIRContext *context,
+//                                               ::std::optional<::mlir::Location>
+//                                               location,
+//                                               ::mlir::ValueRange operands,
+//                                               ::mlir::DictionaryAttr
+//                                               attributes,
+//                                               ::mlir::OpaqueProperties
+//                                               properties,
+//                                               ::mlir::RegionRange regions,
+//                                               ::llvm::SmallVectorImpl<::mlir::Type>&inferredReturnTypes)
+//                                               {
+
+//    std::vector<int64_t> shape_vec;
+//    for (int64_t dim :
+//    mlir::cast<RankedTensorType>(operands[0].getType()).getShape()) {
+//     shape_vec.push_back(dim);
+//    }
+//    bool keepdim = attributes.getAs<BoolAttr>("keep_dim").getValue();
+
+//    if (attributes.getAs<ArrayAttr>("dim_arg")) {
+//     int32_t reduce_dim =
+//     mlir::cast<IntegerAttr>(attributes.getAs<ArrayAttr>("dim_arg")[0]).getInt();
+//     if (reduce_dim < 0) {
+//       reduce_dim += shape_vec.size();
+//     }
+
+//     if (keepdim) {
+//       shape_vec[reduce_dim] = 1;
+//     } else {
+//       shape_vec.erase(shape_vec.begin() + reduce_dim);
+//     }
+
+//    } else {
+//     if (keepdim) {
+//       for (uint64_t i = 0; i < shape_vec.size(); i++) {
+//         shape_vec[i] = 1;
+//       }
+//     } else {
+//       shape_vec = {1};
+//     }
+//    }
+
+//     auto input_type = mlir::cast<RankedTensorType>(operands[0].getType());
+//     inferredReturnTypes.push_back(input_type.cloneWith(shape_vec,
+//     input_type.getElementType()));
+//    return success();
+// }
+
+// ::llvm::LogicalResult
+// mlir::tt::ttir::SumOp::inferReturnTypes(::mlir::MLIRContext *context,
+//                                               ::std::optional<::mlir::Location>
+//                                               location,
+//                                               ::mlir::ValueRange operands,
+//                                               ::mlir::DictionaryAttr
+//                                               attributes,
+//                                               ::mlir::OpaqueProperties
+//                                               properties,
+//                                               ::mlir::RegionRange regions,
+//                                               ::llvm::SmallVectorImpl<::mlir::Type>&inferredReturnTypes)
+//                                               {
+
+//    std::vector<int64_t> shape_vec;
+//    for (int64_t dim :
+//    mlir::cast<RankedTensorType>(operands[0].getType()).getShape()) {
+//     shape_vec.push_back(dim);
+//    }
+//    bool keepdim = attributes.getAs<BoolAttr>("keep_dim").getValue();
+
+//    if (attributes.getAs<ArrayAttr>("dim_arg")) {
+//     int32_t reduce_dim =
+//     mlir::cast<IntegerAttr>(attributes.getAs<ArrayAttr>("dim_arg")[0]).getInt();
+//     if (reduce_dim < 0) {
+//       reduce_dim += shape_vec.size();
+//     }
+
+//     if (keepdim) {
+//       shape_vec[reduce_dim] = 1;
+//     } else {
+//       shape_vec.erase(shape_vec.begin() + reduce_dim);
+//     }
+
+//    } else {
+//     if (keepdim) {
+//       for (uint64_t i = 0; i < shape_vec.size(); i++) {
+//         shape_vec[i] = 1;
+//       }
+//     } else {
+//       shape_vec = {1};
+//     }
+//    }
+
+//     auto input_type = mlir::cast<RankedTensorType>(operands[0].getType());
+//     inferredReturnTypes.push_back(input_type.cloneWith(shape_vec,
+//     input_type.getElementType()));
+//    return success();
+// }
