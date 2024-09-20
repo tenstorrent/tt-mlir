@@ -6,32 +6,54 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "mlir/Pass/PassOptions.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 
 namespace mlir::tt::ttnn {
-struct GridSizeOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<SmallVector<int64_t, 2>>> {
+struct LayoutOverrideParser
+    : public llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>> {
 public:
-  GridSizeOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<SmallVector<int64_t, 2>>>(opt) {}
+  LayoutOverrideParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>>(opt) {}
 
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<SmallVector<int64_t, 2>> &value) {
-    SmallVector<StringRef> overrideList;
-    constexpr size_t kvPairSize = 2;
+             llvm::StringMap<LayoutOverrideParams> &value) {
+    SmallVector<StringRef> opOverrideList;
     constexpr size_t kMaxGridSize = 2;
+    constexpr size_t kvPairSize = 2;
+    constexpr size_t kMaxLayoutOverrideParams = 3;
     constexpr size_t iOpName = 0;
-    constexpr size_t iGrid = 1;
-    arg.split(overrideList, ',');
-    for (const StringRef override : overrideList) {
-      SmallVector<StringRef, kvPairSize> kv;
-      override.split(kv, '=');
-      if (kv.size() != kvPairSize) {
+    constexpr size_t iLayoutOverrideParams = 1;
+    constexpr size_t iGrid = 0;
+    constexpr size_t iMemorySpace = 1;
+    constexpr size_t iMemoryLayout = 2;
+    constexpr char opSeparator = ',';
+    constexpr char opNameSeparator = '=';
+    constexpr char paramSepataor = ':';
+    constexpr char gridSeparator = 'x';
+
+    arg.split(opOverrideList, opSeparator);
+    for (const StringRef override : opOverrideList) {
+      SmallVector<StringRef, kvPairSize> opOverrideParts;
+      override.split(opOverrideParts, opNameSeparator);
+      if (opOverrideParts.size() != kvPairSize) {
         opt.error("Invalid format for override grid sizes: " + override);
         return true;
       }
+
+      SmallVector<StringRef, kMaxLayoutOverrideParams> layoutParamParts;
+      // Split into layout parameters.
+      opOverrideParts[iLayoutOverrideParams].split(layoutParamParts,
+                                                   paramSepataor);
+      if (layoutParamParts.size() != kMaxLayoutOverrideParams) {
+        opt.error("Invalid number of layout parameters: " +
+                  std::to_string(layoutParamParts.size()));
+        return true;
+      }
+
+      // Parse grid.
       SmallVector<int64_t, kMaxGridSize> grid;
       SmallVector<StringRef, kMaxGridSize> gridParts;
-      kv[iGrid].split(gridParts, 'x');
+      layoutParamParts[iGrid].split(gridParts, gridSeparator);
       for (const StringRef gridPart : gridParts) {
         int64_t gridValue;
         if (gridPart.getAsInteger(10 /*Radix*/, gridValue)) {
@@ -40,18 +62,49 @@ public:
         }
         grid.push_back(gridValue);
       }
-      value[kv[iOpName]] = grid;
+
+      // Parse memory space.
+      std::optional<mlir::tt::MemorySpace> memorySpace =
+          mlir::tt::symbolizeMemorySpace(layoutParamParts[iMemorySpace]);
+      if (!memorySpace.has_value()) {
+        opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
+        return true;
+      }
+
+      // Parse tensor memory layout.
+      std::optional<mlir::tt::TensorMemoryLayout> memoryLayout =
+          mlir::tt::symbolizeTensorMemoryLayout(
+              layoutParamParts[iMemoryLayout]);
+      if (!memoryLayout.has_value()) {
+        opt.error("Invalid tensor memory layout: " +
+                  layoutParamParts[iMemoryLayout]);
+        return true;
+      }
+
+      // Set parsed op overrides.
+      value[opOverrideParts[iOpName]] =
+          LayoutOverrideParams{grid, memorySpace.value(), memoryLayout.value()};
     }
     return false;
   }
 
   static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<SmallVector<int64_t, 2>> &value) {
-    os << "override-grid-sizes=";
+                    const llvm::StringMap<LayoutOverrideParams> &value) {
+    os << "override-output-layout=";
     size_t count = 0;
     for (const auto &entry : value) {
       os << entry.getKey() << "=";
-      os << entry.getValue()[0] << "x" << entry.getValue()[1];
+      const LayoutOverrideParams &params = entry.getValue();
+      // Print grid values
+      for (size_t i = 0; i < params.grid.size(); ++i) {
+        os << params.grid[i];
+        if (i < params.grid.size() - 1) {
+          os << "x";
+        }
+      }
+      // Print memory space and memory layout
+      // os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace);
+      // os << ":" << mlir::tt::stringifyTensorMemoryLayout(params.memoryLayout);
       if (++count < value.size()) {
         os << ",";
       }
@@ -72,20 +125,29 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(true)};
 
-  // Option to override grid size for specific ops.
-  // The format is a comma separated list of op names and grid sizes.
+  // Option to override output layout for specific ops.
+  // The format is a comma separated list of op names equal to the output layout
+  // params separated by ":"
   //
-  // Example: "op1=2x2,op2=4x4"
+  // op_name=grid_size:memory_space:tensor_memory_layout
   //
-  // This will set the grid size for op1 to 2x2 and op2 to 4x4.
+  // * grid_size=2x2
+  // * memory_space: system, mmio, dram or l1
+  // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
+  //   width_sharded or block_sharded
+  //
+  // Full Example: "op1=2x2:dram:interleaved,op2=4x4:l1:block_sharded"
+  //
+  // This will set the output layout for op1 to grid 2x2,dram,interleaved and
+  // op2 4x4,l1,block_sharded.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<SmallVector<int64_t, 2>>, GridSizeOverrideParser>
-      overrideGridSizes{
-          *this, "override-grid-sizes",
-          llvm::cl::desc("Override grid sizes for specific ops."),
-          llvm::cl::init(llvm::StringMap<SmallVector<int64_t, 2>>())};
+  Option<llvm::StringMap<LayoutOverrideParams>, LayoutOverrideParser>
+      overrideOutputLayout{
+          *this, "override-output-layout",
+          llvm::cl::desc("Override output tensor layout for specific ops."),
+          llvm::cl::init(llvm::StringMap<LayoutOverrideParams>())};
 
   // If this option is true, run sharding pass and try to shard ops.
   //
