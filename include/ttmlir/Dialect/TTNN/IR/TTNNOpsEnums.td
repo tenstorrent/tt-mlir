@@ -57,4 +57,24 @@ def TTNN_BufferType : I32EnumAttr<"BufferType", "TTNN Buffer Type",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
+def TTNN_ReduceType_Mean : I32EnumAttrCase<"Mean", 1, "mean">;
+def TTNN_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
+def TTNN_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
+def TTNN_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
+def TTNN_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+
+def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
+                          [
+                           TTNN_ReduceType_Sum,
+                           TTNN_ReduceType_Mean,
+                           TTNN_ReduceType_Max,
+                           TTNN_ReduceType_Min,
+                           TTNN_ReduceType_Std,
+                           TTNN_ReduceType_Var,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn::operations::reduction";
+}
+
 #endif
