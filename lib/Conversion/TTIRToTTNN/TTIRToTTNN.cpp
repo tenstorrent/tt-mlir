@@ -718,6 +718,31 @@ public:
   }
 };
 
+class AllGatherOpConversionPattern
+    : public OpConversionPattern<ttir::AllGatherOp> {
+public:
+  using OpConversionPattern<ttir::AllGatherOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllGatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType type = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    Value device = getOrInsertDevice(rewriter, op);
+    //ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        //rewriter.getContext(),
+        //mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+    tensor::EmptyOp emptyOp = rewriter.create<tensor::EmptyOp>(
+            op.getLoc(), this->getTypeConverter()->convertType(type), device);
+
+    rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        emptyOp,
+        adaptor.getDim(),
+        adaptor.getNumLinks());
+    return success();
+  }
+};
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -765,7 +790,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
-           SubtractOpConversionPattern
+           SubtractOpConversionPattern,
+           AllGatherOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

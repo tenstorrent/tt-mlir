@@ -754,4 +754,12 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
+::mlir::LogicalResult AllGatherOp::verify() {
+  return success();
+}
+
+::mlir::LogicalResult ReduceScatterOp::verify() {
+  return success();
+}
+
 } // namespace mlir::tt::ttnn
