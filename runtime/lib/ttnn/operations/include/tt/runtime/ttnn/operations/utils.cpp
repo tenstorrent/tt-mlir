@@ -6,6 +6,11 @@
 
 namespace tt::runtime::ttnn::operations::utils {
 
+// TODO (bug #701)
+// Currently the memory layout/location in flatbuffer is incorrect
+// These methods are workarounds such that we query the info directly from the
+// TTNN tensor Ideally, we should be able to get all of this info directly from
+// the flatbuffer
 bool isOnHost(const ::ttnn::Tensor &tensor) {
   // Currently only supports borrowed or owned host storage
   return tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED or
@@ -57,15 +62,9 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   const ::flatbuffers::Vector<int32_t> *targetShardShape =
       layout->memory_desc()->shape();
 
-  // TODO (jnie): Hardcoding to interleaved and block sharded for now
-  // Add support for other types once compiler supports it
-  assert(targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved ||
-         targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded);
-  assert(targetMemoryLayout != target::TensorMemoryLayout::BlockSharded ||
-         targetMemorySpace == target::MemorySpace::DeviceL1 &&
-             "Only L1 memory space supports sharded memory layout");
   assert(targetCoreRangeSet->size() == 1 &&
          "Currently only single core range/grid is supported");
+
   assert(targetShardShape->size() == 2 &&
          "Only 2D shard shape is supported in TTNN backend");
 
@@ -73,12 +72,6 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   std::array<uint32_t, 2> ttnnShardShape;
   std::copy(targetShardShape->begin(), targetShardShape->end(),
             ttnnShardShape.begin());
-
-  if (targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded) {
-    assert(ttnnShardShape[0] % ::tt::constants::TILE_HEIGHT == 0 &&
-           ttnnShardShape[1] % ::tt::constants::TILE_WIDTH == 0 &&
-           "Shard shape must divide tile shape (32, 32) evenly");
-  }
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,

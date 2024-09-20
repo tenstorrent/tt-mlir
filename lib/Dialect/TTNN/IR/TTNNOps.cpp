@@ -62,19 +62,21 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   }
 
   if (outputLayout.hasShardedTensorMemoryLayout()) {
-    if (outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::BlockSharded) {
-      return emitOpError("Currently only block sharding is supported for "
-                         "sharded memory layouts");
+    if (not outputLayout.hasShardedL1TensorMemoryLayout()) {
+      return emitOpError("Sharded tensors layout must reside in L1");
     }
     ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
     // Currently TTNN backend only supports 2D shard shape
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-    if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
-        shardShape[1] % TTNN_TILE_WIDTH != 0) {
-      return emitOpError("Shard shape must divide tile shape (32, 32) evenly");
+    if (outputMemoryLayout == ::mlir::tt::TensorMemoryLayout::BlockSharded) {
+      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
+      if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
+          shardShape[1] % TTNN_TILE_WIDTH != 0) {
+        return emitOpError(
+            "Shard shape must divide tile shape (32, 32) evenly");
+      }
     }
   }
   return success();
