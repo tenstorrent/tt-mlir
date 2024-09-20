@@ -186,24 +186,14 @@ public:
     ttnn::BufferType bufferType =
         ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
 
-    // If the ToLayoutOp is applied to empty tensor, check whether the empty
-    // tensor is going back to system memory; if so, convert the call to
-    // device->host path
+    // If the ToLayoutOp is applied to empty tensor, we need to check whether
+    // the empty tensor is going back to system memory; if so, we should not
+    // call the ToDeviceOp
     //
     if (bufferType == ttnn::BufferType::SystemMemory) {
-      // Change to RowMajor
-      //
-      ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-          op.getOperand(0), device,
-          ttnn::LayoutAttr::get(op->getContext(), ttnn::Layout::RowMajor));
-
-      // Move to host memory
-      //
-      rewriter.replaceOpWithNewOp<ttnn::FromDeviceOp>(
+      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          toLayoutOp->getResult(0));
-
+          op.getInput(), device);
       return success();
     }
 
