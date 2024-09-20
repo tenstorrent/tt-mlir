@@ -1258,7 +1258,7 @@ public:
       LegalGridAnalysis legalGridAnalysis =
           getChildAnalysis<LegalGridAnalysis>(op);
       legalGridAnalysis.init(LegalGridAnalysisInput(
-          chipDesc, max_grid, tensorType, &overrideGridSizes));
+          chipDesc, max_grid, tensorType, &overrideOutputLayout));
       legalLayouts[op] = legalGridAnalysis.getResult();
     });
 

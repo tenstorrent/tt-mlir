@@ -35,7 +35,7 @@ void createTTIRToTTNNBackendPipeline(
 
   if (options.optimizerPassEnabled) {
     ttir::TTIROptimizerOptions optimizerOptions;
-    optimizerOptions.overrideGridSizes = options.overrideGridSizes;
+    optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
     pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }

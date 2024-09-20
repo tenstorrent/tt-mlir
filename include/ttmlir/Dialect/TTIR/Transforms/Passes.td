@@ -102,16 +102,16 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
 }
 
 def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
-  let summary = "Determine grid size for ops.";
+  let summary = "Determine op configurations for maximum performance.";
   let description = [{
-    Go through the ops, set grid size for each op based on grid analysis,
+    Go through the ops, set sharding specs for each op based on sharding analysis,
     by updating layout attribute of each op.
   }];
   let options = [
-    Option<"overrideGridSizes", "override-grid-sizes",
-          "llvm::StringMap<SmallVector<int64_t, 2>>",
-          /*default=*/"llvm::StringMap<SmallVector<int64_t, 2>>()",
-           "Override grid sizes for specific ops.">,
+    Option<"overrideOutputLayout", "override-output-layout",
+          "llvm::StringMap<LayoutOverrideParams>",
+          /*default=*/"llvm::StringMap<LayoutOverrideParams>()",
+           "Override output tensor layout for specific ops.">,
     Option<"shardingPassEnabled", "sharding-pass-enabled",
           "bool",
           /*default=*/"false",

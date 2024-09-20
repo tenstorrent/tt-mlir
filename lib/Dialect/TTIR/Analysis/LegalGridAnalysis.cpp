@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 namespace mlir::tt::ttir {
@@ -51,33 +52,38 @@ bool cantChangeOutputLayout(Operation *op) {
 }
 
 bool LegalGridAnalysis::applyOverrides() {
-  // Lookup grid size overrides based on location information for current
+  // Lookup layout overrides based on location information for current
   // operation.
   //
 
-  // TODO(odjuricic): Need to override all params, not just grid size.
+  if (not analysisInput.outputLayoutOverrides) {
+    return false;
+  }
+
+  if (not isa<NameLoc>(op->getLoc())) {
+    return false;
+  }
+
+  StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+  auto gridOverride = analysisInput.outputLayoutOverrides->find(opLocName);
+
+  if (gridOverride == analysisInput.outputLayoutOverrides->end()) {
+    return false;
+  }
+
+  LayoutOverrideParams override = gridOverride->getValue();
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  if (analysisInput.gridSizeOverrides && isa<NameLoc>(op->getLoc())) {
-    StringRef loc_str_op_name = mlir::cast<NameLoc>(op->getLoc()).getName();
-    auto gridOverride = analysisInput.gridSizeOverrides->find(loc_str_op_name);
-    if (gridOverride != analysisInput.gridSizeOverrides->end()) {
-      analysisResult.push_back(layout.withGrid(
-          op->getContext(), tensorShape,
-          GridAttr::get(op->getContext(),
-                        ArrayRef<int64_t>(gridOverride->second))));
-      analysisResult.push_back(layout.withGrid(
-          op->getContext(), tensorShape,
-          GridAttr::get(op->getContext(),
-                        {gridOverride->second[0], gridOverride->second[1]})));
-      return true;
-    }
-  }
+  analysisResult.push_back(
+      layout.withMemorySpace(op->getContext(), override.memorySpace)
+          .withMemoryLayout(op->getContext(), override.memoryLayout)
+          .withGrid(op->getContext(), tensorType,
+                    GridAttr::get(op->getContext(),
+                                  ArrayRef<int64_t>(override.grid))));
 
-  return false;
+  return true;
 }
 
 void LegalGridAnalysis::analysisImplementation() {
