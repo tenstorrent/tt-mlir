@@ -169,6 +169,24 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 };
 
+void createTTNNPipelineTTIRPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNPipelineAnalysisPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNPipelineLoweringPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
+                                            std::string options);
+
+void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
+                                                std::string options);
+
+void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
+                                                std::string options);
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
