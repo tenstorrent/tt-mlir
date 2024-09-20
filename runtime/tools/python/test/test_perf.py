@@ -171,7 +171,6 @@ def test_loops_cmd():
     sub_process_command(command)
 
 
-@pytest.mark.skip
 def test_device():
     API.initialize_apis()
     custom_args = {}
@@ -180,7 +179,6 @@ def test_device():
     perf_instance()
 
 
-@pytest.mark.skip
 def test_device_cmd():
     command = (
         f"ttrt perf {BINARY_FILE_PATH} --log-file {test_device_cmd.__name__}_perf.log"
