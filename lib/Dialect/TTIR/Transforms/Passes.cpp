@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Utils.h"
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/Support/Casting.h>
@@ -1282,11 +1283,24 @@ public:
               RankedTensorType::get(tensorShape, tensorType.getElementType(),
                                     opConfigAnalysis.getResult().at(op));
 
-          op->getResult(0).setType(newTensorType);
+          if (llvm::isa<TTIROp>(op)) {
+            // Print op name
+            //
+            llvm::outs() << "Op: " << op->getName() << " ";
+            if (isa<NameLoc>(op->getLoc())) {
+              StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+              llvm::outs() << "Loc: " << opLocName << "\n";
+            }
+            // Dump layout
+            auto layout = opConfigAnalysis.getResult().at(op);
+            llvm::outs() << "Layout: " << layout << "\n";
+          }
 
-          if (llvm::isa<mlir::DestinationStyleOpInterface>(op)) {
-            // Update dps operand layout as well.
-            op->getOperands().back().setType(newTensorType);
+            op->getResult(0).setType(newTensorType);
+
+            if (llvm::isa<mlir::DestinationStyleOpInterface>(op)) {
+              // Update dps operand layout as well.
+              op->getOperands().back().setType(newTensorType);
           }
         }
       });
@@ -1347,7 +1361,7 @@ public:
         toLayoutOp.getOperands().back().setType(newTensorType);
       } else {
         LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
-            mlir::cast<RankedTensorType>(producerOp->getResult(0).getType())
+            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
                 .getEncoding());
 
         RankedTensorType producerOpTensorType =
@@ -1361,6 +1375,25 @@ public:
         // actually needs to be properly resolved based on op type, output
         // layout and other inputs.
         //
+
+        // Print the producer op
+
+        llvm::outs() << "Producer Op: ";
+        producerOp->dump();
+        llvm::outs() << "\n";
+
+        // COnsumer op
+        llvm::outs() << "Consumer Op: ";
+        consumerOp->dump();
+        llvm::outs() << "\n";
+
+        // Consumer layout
+        llvm::outs() << "Consumer Layout: " << consumerOpOutputLayout << "\n";
+        consumerOpOutputLayout.dump();
+        llvm::outs() << "\n";
+
+
+
         RankedTensorType newTensorType = RankedTensorType::get(
             producerOpTensorShape, producerOpTensorType.getElementType(),
             producerOpLayout

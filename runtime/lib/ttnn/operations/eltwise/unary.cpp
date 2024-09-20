@@ -26,6 +26,10 @@ static void runEltwiseUnaryOP(
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOPInputTensor(op, tensorPool, &in);
 
+  // Print in tensor
+  std::cout << "IN TENSOR" << std::endl;
+  std::cout << (int)in->memory_config().memory_layout << std::endl;
+
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
 
@@ -57,26 +61,32 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.tensorPool;
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Abs: {
+    std::cout << "Running Abs operation" << std::endl;
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::abs);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
+    std::cout << "Running Relu operation" << std::endl;
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::relu);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sqrt: {
+    std::cout << "Running Sqrt operation" << std::endl;
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sqrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
+    std::cout << "Running Sigmoid operation" << std::endl;
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
+    std::cout << "Running Reciprocal operation" << std::endl;
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
+    std::cout << "Running Exp operation" << std::endl;
     runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
     break;
   }

@@ -135,6 +135,8 @@ void LegalGridAnalysis::analysisImplementation() {
   // L1 Sharded
   LayoutAttr shardedBase =
       layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1);
+      // Tho this is a hack, we need to somehow check what is supported or generate all elemet types
+      // .withElementType(op->getContext(), TileType::get(op->getContext(), tensorType.getElementType()));
   std::vector<LayoutAttr> shardedResults;
 
   // Block Sharded

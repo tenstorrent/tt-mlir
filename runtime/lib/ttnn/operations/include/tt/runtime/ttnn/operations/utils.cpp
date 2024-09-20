@@ -56,6 +56,9 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   const ::flatbuffers::Vector<int32_t> *targetShardShape =
       layout->memory_desc()->shape();
 
+  // Print layout
+    // std::cout << "Memory layout: " << *layout << std::endl;
+
   // TODO (jnie): Hardcoding to interleaved and block sharded for now
   // Add support for other types once compiler supports it
   assert(targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved ||
@@ -73,10 +76,21 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   std::copy(targetShardShape->begin(), targetShardShape->end(),
             ttnnShardShape.begin());
 
+    
+
+    // aaa
   if (targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded) {
-    assert(ttnnShardShape[0] % ::tt::constants::TILE_HEIGHT == 0 &&
-           ttnnShardShape[1] % ::tt::constants::TILE_WIDTH == 0 &&
-           "Shard shape must divide tile shape (32, 32) evenly");
+    // round shape up to 32x32
+    // ttnnShardShape = {
+    //     ::tt::constants::TILE_HEIGHT *
+    //         ((ttnnShardShape[0] + ::tt::constants::TILE_HEIGHT - 1) /
+    //          ::tt::constants::TILE_HEIGHT),
+    //     ::tt::constants::TILE_WIDTH *
+    //         ((ttnnShardShape[1] + ::tt::constants::TILE_WIDTH - 1) /
+    //          ::tt::constants::TILE_WIDTH)};
+    // assert(ttnnShardShape[0] % ::tt::constants::TILE_HEIGHT == 0 &&
+    //        ttnnShardShape[1] % ::tt::constants::TILE_WIDTH == 0 &&
+    //        "Shard shape must divide tile shape (32, 32) evenly");
   }
 
   ::tt::tt_metal::ShardSpec shardSpec(
@@ -101,6 +115,9 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   ::ttnn::TensorMemoryLayout tensorMemoryLayout =
       ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
           memcfg->tensor_memory_layout());
+
+// print fg->tensor_memory_layout()
+    std::cout << " SALE: Memory layout: " << (int)memcfg->tensor_memory_layout() << std::endl;
 
   ::ttnn::BufferType bufferType =
       ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());

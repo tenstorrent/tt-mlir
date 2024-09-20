@@ -110,7 +110,7 @@ def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
            "Enable sharding pass.">,
     Option<"reshardingEnabled", "resharding-enabled",
           "bool",
-          /*default=*/"false",
+          /*default=*/"true",
           "Resharding pass. Temp disabled till we support all types of shard specs.">,
   ];
 }
