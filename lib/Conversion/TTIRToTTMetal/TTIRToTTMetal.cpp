@@ -147,11 +147,12 @@ public:
     return txMap;
   }
 
-  static void buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
-                       std::int64_t outputBaseAddress,
-                       std::int64_t addressAlignment, NocTx nocTx,
-                       PhysicalCoreCoordMapping const &physicalCoordMapping,
-                       mlir::OpBuilder &nocBuilder) {
+  static void
+  buildNocAsyncTx(mlir::Location loc, std::int64_t inputBaseAddress,
+                  std::int64_t outputBaseAddress, std::int64_t addressAlignment,
+                  NocTx nocTx,
+                  PhysicalCoreCoordMapping const &physicalCoordMapping,
+                  mlir::OpBuilder &nocBuilder) {
     assert(nocTx.srcOffset % addressAlignment == 0);
     assert(nocTx.dstOffset % addressAlignment == 0);
     assert(nocTx.size % addressAlignment == 0);
@@ -275,37 +276,37 @@ public:
       Block *block = rewriter.createBlock(&metalDispatch.getRegion(regIdx++));
       createDataMovementThread(op->getLoc(), block, inputBaseAddress,
                                outputBaseAddress, transactions,
-                               addressAlignment);
+                               physicalCoordMapping, addressAlignment);
     }
     rewriter.replaceOp(op, metalDispatch);
 
     return llvm::success();
   }
 
-  static void createDataMovementThread(Location loc, Block *block,
-                                       int64_t inputBaseAddress,
-                                       int64_t outputBaseAddress,
-                                       ArrayRef<NocTx> transactions,
-                                       const PhysicalCoreCoordMapping &physicalCoordMapping,
-                                       std::int64_t addressAlignment) {
+  static void
+  createDataMovementThread(Location loc, Block *block, int64_t inputBaseAddress,
+                           int64_t outputBaseAddress,
+                           ArrayRef<NocTx> transactions,
+                           const PhysicalCoreCoordMapping &physicalCoordMapping,
+                           std::int64_t addressAlignment) {
 
     assert(inputBaseAddress);
     assert(outputBaseAddress);
     assert(inputBaseAddress % addressAlignment == 0);
     assert(outputBaseAddress % addressAlignment == 0);
-      OpBuilder nocBuilder(block, block->begin());
-      NocTx::Type type = transactions.front().type;
-      for (auto tx : transactions) {
-        assert(tx.type == type);
-        buildNocAsyncTx(loc, inputBaseAddress, outputBaseAddress,
-                        addressAlignment, tx, physicalCoordMapping, nocBuilder);
-      }
-      if (type == NocTx::Type::Read) {
-        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-      } else {
-        nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
-      }
-      nocBuilder.create<ttkernel::ReturnOp>(loc, ValueRange());
+    OpBuilder nocBuilder(block, block->begin());
+    NocTx::Type type = transactions.front().type;
+    for (auto tx : transactions) {
+      assert(tx.type == type);
+      buildNocAsyncTx(loc, inputBaseAddress, outputBaseAddress,
+                      addressAlignment, tx, physicalCoordMapping, nocBuilder);
+    }
+    if (type == NocTx::Type::Read) {
+      nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+    } else {
+      nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+    }
+    nocBuilder.create<ttkernel::ReturnOp>(loc, ValueRange());
   }
 
   LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
@@ -1187,16 +1188,17 @@ public:
                     SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
         dataMovement;
     uint64_t numTiles;
+    PhysicalCoreCoordMapping coordMappping;
 
     StreamedOperand(
         uint64_t srcAddress, uint64_t dstAddress, size_t blockArgIndex,
         llvm::MapVector<PhysicalCoreCoord,
                         SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
             dataMovement,
-        uint64_t numTiles)
+        uint64_t numTiles, const PhysicalCoreCoordMapping &coordMappping)
         : srcAddress(srcAddress), dstAddress(dstAddress),
           blockArgIndex(blockArgIndex), dataMovement(dataMovement),
-          numTiles(numTiles) {}
+          numTiles(numTiles), coordMappping(coordMappping) {}
   };
 
   SmallVector<Type> getBlockArgumentTypesAsCBs(
@@ -1240,8 +1242,12 @@ public:
           calculateDataMovement(
               mlir::cast<RankedTensorType>(matchingOperand.getType()),
               mlir::cast<RankedTensorType>(matchingCB.getType()),
-              op.getDevice().getGrid()),
-          numTiles));
+              op.getDevice()),
+          numTiles,
+          // TODO(rpavlovic) fix the assumption that input is always in L1.
+          PhysicalCoreCoordMapping::getMemorySpaceMapping(
+              op.getDevice().getChipIds(), op.getSystemDesc().getChipDescs(),
+              MemorySpace::DeviceL1)));
     }
 
     return rewrittenBlockArgumentTypes;
@@ -1250,8 +1256,7 @@ public:
   llvm::MapVector<PhysicalCoreCoord,
                   SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
   calculateDataMovement(const RankedTensorType &src,
-                        const RankedTensorType &dst,
-                        GridAttr deviceGrid) const {
+                        const RankedTensorType &dst, DeviceAttr device) const {
     auto srcLayout = mlir::cast<tt::LayoutAttr>(src.getEncoding());
     assert(srcLayout.isTiled());
 
@@ -1260,15 +1265,19 @@ public:
 
     auto srcMap = srcLayout.getIdentityTileLinearMap();
     auto srcShape = srcLayout.getTiledShape(src.getShape());
-    auto srcProjection = srcLayout.projectOnto(srcMap, srcShape, deviceGrid);
+    auto srcProjection = srcLayout.projectOnto(
+        srcMap, device.getMapForMemorySpace(srcLayout.getMemorySpace()),
+        srcShape);
 
     auto dstMap = dstLayout.getIdentityTileLinearMap();
     auto dstShape = dstLayout.getTiledShape(dst.getShape());
-    auto dstProjection = dstLayout.projectOnto(dstMap, dstShape, deviceGrid);
+    auto dstProjection = dstLayout.projectOnto(
+        dstMap, device.getMapForMemorySpace(dstLayout.getMemorySpace()),
+        dstShape);
 
     auto dm = TTIRToTTMetalLayoutRewriter::calculateDataMovement(
-        srcShape, srcLayout.getElementSizeBytes(), srcProjection,
-        dstProjection);
+        srcShape, srcLayout.getElementSizeBytes(), srcProjection, dstProjection,
+        TTIRToTTMetalLayoutRewriter::NocTx::Type::Read);
 
     return dm;
   }
@@ -1300,8 +1309,10 @@ public:
     if (!streamedOperands.empty()) {
       auto &dm = streamedOperands[0].dataMovement;
       for (auto [dstCoord, srcs] : dm) {
-        threadTypes.push_back(ttkernel::ThreadTypeAttr::get(
-            rewriter.getContext(), ttkernel::ThreadType::Noc0));
+        kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
+            rewriter.getContext(),
+            ttkernel::NocIndex::Noc0)); // TODO(rpavlovic) choose Noc0 vs Noc1
+                                        // based off transaction type
         coreRanges.push_back(ttmetal::CoreRangeAttr::get(
             getContext(), {dstCoord.y, dstCoord.x}, {1, 1} /* size */));
       }
@@ -1333,13 +1344,6 @@ public:
     int dmThreadIdx = 1;
 
     if (!streamedOperands.empty()) {
-      PhysicalCoreCoordMapping coordMapping =
-        PhysicalCoreCoordMapping::getMemorySpaceMapping(
-            op.getDevice().getChipIds(), op.getSystemDesc().getChipDescs(),
-            MemorySpace::DeviceL1); // FIXME
-            // dataMovementType == NocTx::Type::Read
-            //     ? inputLayout.getMemorySpace()
-            //     : outputLayout.getMemorySpace());
       for (auto [dstCoord, srcs] : streamedOperands[0].dataMovement) {
         Block *block =
             rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
@@ -1348,7 +1352,8 @@ public:
             op.getLoc());
         TTIRToTTMetalLayoutRewriter::createDataMovementThread(
             op->getLoc(), block, streamedOperands[0].srcAddress,
-            streamedOperands[0].dstAddress, srcs, coordMapping,
+            streamedOperands[0].dstAddress, srcs,
+            streamedOperands[0].coordMappping,
             op.getSystemDesc().getAddressAlignBytes());
         OpBuilder b(block, block->begin());
         b.setInsertionPoint(block->getTerminator());
@@ -1364,7 +1369,7 @@ public:
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
                op.getIndexingMaps(), op.getInputs().size());
 
-    if (threadTypes.size() > 1) {
+    if (kernelConfigs.size() > 1) {
       // There is some data movement. Let's just insert waiting command at the
       // start of compute block. We assume whole block is streamed.
       OpBuilder builder(tensixBlock, tensixBlock->begin());

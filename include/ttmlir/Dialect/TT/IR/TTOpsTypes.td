@@ -270,7 +270,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             MemorySpace memorySpace,
                             GridAttr grid,
                             Type elementType,
-                            TensorMemoryLayout memLayout);
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::None);
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,

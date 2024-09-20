@@ -167,6 +167,17 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), kernelOp->getResults());
 }
 
+void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  auto kernelOp = buildKernelOp(
+      opBuilder, getLoc(), "reduce", "max", block->getArgument(0),
+      block->getArgument(1),
+      opBuilder.getArrayAttr(SmallVector<Attribute>(
+          block->getNumArguments(), opBuilder.getAttr<OperandConstraintAttr>(
+                                        OperandConstraint::AnyDeviceTile))));
+  opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), kernelOp->getResults());
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();

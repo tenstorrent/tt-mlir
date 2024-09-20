@@ -370,7 +370,7 @@ public:
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
-    if (threadType.getValue() == ttkernel::ThreadType::Tensix) {
+    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
