@@ -31,6 +31,10 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
+#include <cstdint>
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -95,11 +99,12 @@ public:
     std::int64_t srcOffset = 0;
     std::int64_t dstOffset = 0;
     std::int64_t size = 0;
+    std::int32_t numElements = 0;
 
     NocTx(Type type, PhysicalCoreCoord coreCoord, std::int64_t srcOffset,
-          std::int64_t dstOffset, std::int64_t size)
+          std::int64_t dstOffset, std::int64_t size, std::int32_t numElements)
         : type(type), coreCoord(coreCoord), srcOffset(srcOffset),
-          dstOffset(dstOffset), size(size) {}
+          dstOffset(dstOffset), size(size), numElements(numElements) {}
 
     bool isContiguous(PhysicalCoreCoord nextCoord, std::int64_t nextSrcOffset,
                       std::int64_t nextDstOffset) const {
@@ -117,32 +122,39 @@ public:
   // The return value is a map of physical cores where each core has
   // an associated list of noc reads/writes to be performed.
   static llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>>
-  calculateDataMovement(ArrayRef<int64_t> tensorShape, std::int64_t elemSize,
-                        AffineMap src, AffineMap dst, NocTx::Type type) {
+  calculateDataMovement(ArrayRef<int64_t> tensorShape, AffineMap srcToDstShape,
+                        std::int64_t elemSize, AffineMap src, AffineMap dst,
+                        NocTx::Type type, std::int64_t dstCapacity) {
     bool read = type == NocTx::Type::Read;
     llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>> txMap;
     assert(src.getNumResults() == MemoryMapResultIdx::NumIndices);
     assert(dst.getNumResults() == MemoryMapResultIdx::NumIndices);
 
-    ::ttmlir::utils::sample(tensorShape, [&txMap, src, dst, elemSize, read,
-                                          type](ArrayRef<std::int64_t> index) {
-      SmallVector<int64_t> srcResults = src.compose(index);
-      SmallVector<int64_t> dstResults = dst.compose(index);
-      assert(srcResults.size() == src.getNumResults());
-      assert(dstResults.size() == dst.getNumResults());
-      PhysicalCoreCoord srcCoord(srcResults);
-      PhysicalCoreCoord dstCoord(dstResults);
-      std::int64_t srcOffset = srcResults.back() * elemSize;
-      std::int64_t dstOffset = dstResults.back() * elemSize;
-      SmallVector<NocTx> &txs = txMap[read ? dstCoord : srcCoord];
-      if (not txs.empty() && txs.back().isContiguous(read ? srcCoord : dstCoord,
-                                                     srcOffset, dstOffset)) {
-        txs.back().size += elemSize;
-      } else {
-        txs.push_back(NocTx(type, read ? srcCoord : dstCoord, srcOffset,
-                            dstOffset, elemSize));
-      }
-    });
+    ::ttmlir::utils::sample(
+        tensorShape, [&txMap, &srcToDstShape, src, dst, elemSize, read, type,
+                      dstCapacity](ArrayRef<std::int64_t> index) {
+          SmallVector<int64_t> srcResults = src.compose(index);
+          SmallVector<int64_t> dstResults =
+              dst.compose(srcToDstShape.compose(index));
+          assert(srcResults.size() == src.getNumResults());
+          assert(dstResults.size() == dst.getNumResults());
+          PhysicalCoreCoord srcCoord(srcResults);
+          PhysicalCoreCoord dstCoord(dstResults);
+          std::int64_t srcOffset = srcResults.back() * elemSize;
+          std::int64_t dstOffset = dstResults.back() * elemSize;
+
+          SmallVector<NocTx> &txs = txMap[read ? dstCoord : srcCoord];
+          if (not txs.empty() &&
+              txs.back().isContiguous(read ? srcCoord : dstCoord, srcOffset,
+                                      dstOffset) &&
+              txs.back().size + elemSize <= dstCapacity) {
+            txs.back().size += elemSize;
+            txs.back().numElements++;
+          } else {
+            txs.push_back(NocTx(type, read ? srcCoord : dstCoord, srcOffset,
+                                dstOffset, elemSize, 1));
+          }
+        });
 
     return txMap;
   }
@@ -233,16 +245,18 @@ public:
 
     AffineMap src = inputLayout.projectOnto(
         inputLinearMap,
-        device.getMapForMemorySpace(inputLayout.getMemorySpace()), inputShape);
+        device.getMapForMemorySpace(inputLayout.getMemorySpace()));
 
     AffineMap dst = outputLayout.projectOnto(
         outputLinearMap,
-        device.getMapForMemorySpace(outputLayout.getMemorySpace()),
-        outputShape);
+        device.getMapForMemorySpace(outputLayout.getMemorySpace()));
 
-    auto dm =
-        calculateDataMovement(inputShape, inputLayout.getElementSizeBytes(),
-                              src, dst, dataMovementType);
+    // Src/dst shapes are identical so we will use identity mapping.
+    AffineMap srcToDstShape = AffineMap::getMultiDimIdentityMap(
+        inputShape.size(), rewriter.getContext());
+    auto dm = calculateDataMovement(
+        inputShape, srcToDstShape, inputLayout.getElementSizeBytes(), src, dst,
+        dataMovementType, outputLayout.getMemrefSizeBytes());
 
     auto noc0Attr =
         rewriter.getAttr<ttkernel::NocConfigAttr>(ttkernel::NocIndex::Noc0);
@@ -283,12 +297,11 @@ public:
     return llvm::success();
   }
 
-  static void
-  createDataMovementThread(Location loc, Block *block, int64_t inputBaseAddress,
-                           int64_t outputBaseAddress,
-                           ArrayRef<NocTx> transactions,
-                           const PhysicalCoreCoordMapping &physicalCoordMapping,
-                           std::int64_t addressAlignment) {
+  static void createDataMovementThread(
+      Location loc, Block *block, int64_t inputBaseAddress,
+      int64_t outputBaseAddress, ArrayRef<NocTx> transactions,
+      const PhysicalCoreCoordMapping &physicalCoordMapping,
+      std::int64_t addressAlignment, Value *inputCB = nullptr) {
 
     assert(inputBaseAddress);
     assert(outputBaseAddress);
@@ -298,13 +311,30 @@ public:
     NocTx::Type type = transactions.front().type;
     for (auto tx : transactions) {
       assert(tx.type == type);
+      if (inputCB) {
+        auto numElementsConst = nocBuilder.create<arith::ConstantOp>(
+            loc, nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(tx.numElements));
+        nocBuilder.create<ttkernel::CBReserveBackOp>(loc, *inputCB,
+                                                     numElementsConst);
+      }
       buildNocAsyncTx(loc, inputBaseAddress, outputBaseAddress,
                       addressAlignment, tx, physicalCoordMapping, nocBuilder);
+      if (inputCB) {
+        auto numElementsConst = nocBuilder.create<arith::ConstantOp>(
+            loc, nocBuilder.getI32Type(),
+            nocBuilder.getI32IntegerAttr(tx.numElements));
+        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+        nocBuilder.create<ttkernel::CBPushBackOp>(loc, *inputCB,
+                                                  numElementsConst);
+      }
     }
-    if (type == NocTx::Type::Read) {
-      nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-    } else {
-      nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+    if (!inputCB) {
+      if (type == NocTx::Type::Read) {
+        nocBuilder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+      } else {
+        nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+      }
     }
     nocBuilder.create<ttkernel::ReturnOp>(loc, ValueRange());
   }
@@ -497,6 +527,8 @@ public:
     return maybePort.value();
   }
 
+  // Returns permutation of the memref affine map such that reduced dims are
+  // placed at the end.
   AffineMap getPermutedAffineMap(AffineMap map,
                                  ArrayRef<bool> reductionDims) const {
     SmallVector<uint32_t> permutation;
@@ -1240,6 +1272,7 @@ public:
           lookupAddress(matchingOperand), lookupAddress(matchingCB),
           arg.getArgNumber(),
           calculateDataMovement(
+              op.getIteratorTypes(),
               mlir::cast<RankedTensorType>(matchingOperand.getType()),
               mlir::cast<RankedTensorType>(matchingCB.getType()),
               op.getDevice()),
@@ -1255,7 +1288,7 @@ public:
 
   llvm::MapVector<PhysicalCoreCoord,
                   SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
-  calculateDataMovement(const RankedTensorType &src,
+  calculateDataMovement(ArrayAttr iteratorTypes, const RankedTensorType &src,
                         const RankedTensorType &dst, DeviceAttr device) const {
     auto srcLayout = mlir::cast<tt::LayoutAttr>(src.getEncoding());
     assert(srcLayout.isTiled());
@@ -1263,21 +1296,46 @@ public:
     auto dstLayout = mlir::cast<tt::LayoutAttr>(dst.getEncoding());
     assert(dstLayout.isTiled());
 
+    assert(iteratorTypes.size() >= 2 && "Expected at least 2 iterator types");
+
+    auto lastDimIterType =
+        mlir::cast<IteratorTypeAttr>(iteratorTypes[iteratorTypes.size() - 1]);
+    auto penLastDimIterType =
+        mlir::cast<IteratorTypeAttr>(iteratorTypes[iteratorTypes.size() - 2]);
+    bool transposeLast2Dims = false;
+    if (penLastDimIterType.getValue() == IteratorType::Reduction &&
+        lastDimIterType.getValue() == IteratorType::Parallel) {
+      transposeLast2Dims = true;
+    }
+
     auto srcMap = srcLayout.getIdentityTileLinearMap();
-    auto srcShape = srcLayout.getTiledShape(src.getShape());
+    if (transposeLast2Dims) {
+      auto mapRank = srcMap.getNumResults();
+      SmallVector<uint32_t> permutation;
+      for (size_t i = 0; i < mapRank; i++) {
+        permutation.push_back(i);
+      }
+      permutation[mapRank - 1] = mapRank - 2;
+      permutation[mapRank - 2] = mapRank - 1;
+      srcMap = srcMap.getPermutationMap(permutation, srcMap.getContext());
+    }
+
+    auto srcShape = srcMap.compose(srcLayout.getTiledShape(src.getShape()));
     auto srcProjection = srcLayout.projectOnto(
-        srcMap, device.getMapForMemorySpace(srcLayout.getMemorySpace()),
-        srcShape);
+        srcMap, device.getMapForMemorySpace(srcLayout.getMemorySpace()));
 
     auto dstMap = dstLayout.getIdentityTileLinearMap();
     auto dstShape = dstLayout.getTiledShape(dst.getShape());
     auto dstProjection = dstLayout.projectOnto(
-        dstMap, device.getMapForMemorySpace(dstLayout.getMemorySpace()),
-        dstShape);
+        dstMap, device.getMapForMemorySpace(dstLayout.getMemorySpace()));
 
+    // Because we need to walk shapes in lockstep, but source shape is
+    // transposed, we need to provide map that will transpose it back.
+    AffineMap srcToDstShape = srcMap;
     auto dm = TTIRToTTMetalLayoutRewriter::calculateDataMovement(
-        srcShape, srcLayout.getElementSizeBytes(), srcProjection, dstProjection,
-        TTIRToTTMetalLayoutRewriter::NocTx::Type::Read);
+        srcShape, srcToDstShape, srcLayout.getElementSizeBytes(), srcProjection,
+        dstProjection, TTIRToTTMetalLayoutRewriter::NocTx::Type::Read,
+        dstLayout.getMemrefSizeBytes());
 
     return dm;
   }
@@ -1301,10 +1359,8 @@ public:
     auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
         op, op->getRegion(0).getArguments(), rewriter, streamedOperands);
 
-    if (streamedOperands.size() > 1) {
-      llvm::errs() << "Only 1 operand can be streamed\n";
-      return failure();
-    }
+    assert(streamedOperands.size() <= 1 &&
+           "Expecting at most one streamed operand for now");
 
     if (!streamedOperands.empty()) {
       auto &dm = streamedOperands[0].dataMovement;
@@ -1350,19 +1406,13 @@ public:
         block->addArgument(
             rewrittenBlockArgumentTypes[streamedOperands[0].blockArgIndex],
             op.getLoc());
+        auto streamedCB = block->getArgument(0);
+
         TTIRToTTMetalLayoutRewriter::createDataMovementThread(
             op->getLoc(), block, streamedOperands[0].srcAddress,
             streamedOperands[0].dstAddress, srcs,
             streamedOperands[0].coordMappping,
-            op.getSystemDesc().getAddressAlignBytes());
-        OpBuilder b(block, block->begin());
-        b.setInsertionPoint(block->getTerminator());
-
-        auto streamedCB = block->getArgument(0);
-        auto numPages = b.create<arith::ConstantOp>(
-            op.getLoc(), b.getI32Type(),
-            b.getI32IntegerAttr(streamedOperands[0].numTiles));
-        b.create<ttkernel::CBPushBackOp>(op->getLoc(), streamedCB, numPages);
+            op.getSystemDesc().getAddressAlignBytes(), &streamedCB);
       }
     }
 
@@ -1380,13 +1430,16 @@ public:
           tensixBlock->getArgument(streamedOperands[0].blockArgIndex);
       builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), streamedCB,
                                               numPages);
+
+      builder.setInsertionPoint(tensixBlock->getTerminator());
+      builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), streamedCB, numPages);
     }
 
     rewriter.replaceOp(op, metalDispatch);
 
     return success();
   }
-};
+}; // namespace mlir::tt::ttmetal
 
 class TTIRToTTMetalAllocRewriter : public OpRewritePattern<ttir::AllocOp> {
 public:

@@ -42,7 +42,7 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
         grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
         indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
         iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
-        operandSegmentSizes = array<i32: 2, 1, 1>,   // Sizes of the operand segments, i.e. 2 inputs, 1 output and 1 cb.
+        operandSegmentSizes = array<i32: 2, 1, 1>,   // Sizes of the operand segments, i.e. 2 inputs, 1 cb and 1 output.
         operand_cb_mapping = array<i64: -1, 0, -1>,  // Mapping of input & output operands to cbs. -1 means no mapping.
                                                      // Mapped operands correspond to buffers in streaming mode.
                                                      // Non-mapped operands correspond to buffers in alias mode.

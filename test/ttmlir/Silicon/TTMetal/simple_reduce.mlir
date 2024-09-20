@@ -38,3 +38,14 @@ func.func @reduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32, #
     (tensor<256x384xf32, #layout1>, tensor<32x32xf32, #layout4>) -> tensor<32x32xf32, #layout4>
   return %1 : tensor<32x32xf32, #layout4>
 }
+
+func.func @maxReduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32, #layout4> {
+  %0 = tensor.empty() : tensor<32x32xf32, #layout4>
+  // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
+  %1 = "ttir.max" (%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
+                               dim_arg = [-1: i32, -2: i32],
+                               keep_dim = true,
+                               operand_constraints = [#any_device, #any_device, #any_device]}> :
+    (tensor<256x384xf32, #layout1>, tensor<32x32xf32, #layout4>) -> tensor<32x32xf32, #layout4>
+  return %1 : tensor<32x32xf32, #layout4>
+}
