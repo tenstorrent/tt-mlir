@@ -110,7 +110,7 @@ class Perf:
                 artifacts_folder_path=self["--artifact-dir"],
             )
         )
-        self.query = Query({}, self.logger, self.artifacts)
+        self.query = Query({"--quiet": True}, self.logger, self.artifacts)
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.tracy_capture_tool_path = (
