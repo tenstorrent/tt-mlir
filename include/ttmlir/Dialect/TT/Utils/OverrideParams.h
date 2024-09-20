@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TT_OVERRIDE_PARAMS_H
-#define TTMLIR_DIALECT_TT_OVERRIDE_PARAMS_H
+#ifndef TTMLIR_DIALECT_TT_OVERRIDEPARAMS_H
+#define TTMLIR_DIALECT_TT_OVERRIDEPARAMS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
