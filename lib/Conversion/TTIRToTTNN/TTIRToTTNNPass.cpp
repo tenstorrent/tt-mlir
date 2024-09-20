@@ -50,6 +50,7 @@ struct ConvertTTIRToTTNNPass
       signalPassFailure();
       return;
     }
+    getOperation().dump();
   }
 };
 

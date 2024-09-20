@@ -25,6 +25,18 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
+def TTNN_ShardedToInterleavedOp : TTNN_Op<"sharded_to_interleaved"> {
+  let summary = "ShardedToInterleaved op.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{

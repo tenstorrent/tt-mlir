@@ -32,7 +32,9 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
+#include <flatbuffers/vector.h>
 #include <fstream>
+#include <llvm/ADT/ArrayRef.h>
 
 namespace mlir::tt::ttnn {
 
@@ -91,6 +93,32 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
   return ::tt::target::ttnn::CreateToMemoryConfigOp(
+      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
+}
+
+// ::flatbuffers::Offset<::tt::target::ttnn::ShardedToInterleavedOp>
+// createOp(FlatbufferObjectCache &cache, ShardedToInterleavedOp op) {
+//   constexpr uint64_t kHostAllocatedAddress = 0;
+//   constexpr uint64_t kHostAllocatedSize = 0;
+//   auto input =
+//       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+//   auto device = getOperandThroughDPSOps(op.getDevice());
+//   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+//                                   kHostAllocatedAddress, kHostAllocatedSize);
+//   return ::tt::target::ttnn::CreateShardedToInterleavedOp(*cache.fbb, input,
+//   cache.at<::tt::target::DeviceRef>(device), output);
+// }
+
+::flatbuffers::Offset<::tt::target::ttnn::ShardedToInterleavedOp>
+createOp(FlatbufferObjectCache &cache, ShardedToInterleavedOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateShardedToInterleavedOp(
       *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
 }
 
@@ -496,6 +524,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
     return createOperation(cache, createDeallocOp(cache, deallocOp),
+                           debugString);
+  }
+  if (auto shardedToInterleavedOp = dyn_cast<ShardedToInterleavedOp>(op);
+      shardedToInterleavedOp) {
+    return createOperation(cache, createOp(cache, shardedToInterleavedOp),
                            debugString);
   }
 

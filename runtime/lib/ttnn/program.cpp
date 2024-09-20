@@ -12,6 +12,7 @@
 #include "operations/eltwise/binary.h"
 #include "operations/eltwise/unary.h"
 #include "operations/embedding/embedding.h"
+#include "operations/layout/sharded_to_interleaved.h"
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
@@ -47,6 +48,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     return operations::layout::run(op->type_as_ToMemoryConfigOp(), context);
   }
+  // case ::tt::target::ttnn::OpType::ShardedToInterleavedOp: {
+  //   return operations::layout::run(op->type_as_ShardedToInterleavedOp(),
+  //   context);
+  // }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), context);
   }

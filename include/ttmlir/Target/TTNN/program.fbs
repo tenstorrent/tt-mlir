@@ -15,6 +15,12 @@ table ToMemoryConfigOp {
   out: tt.target.TensorRef;
 }
 
+table ShardedToInterleavedOp {
+  in0: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  out: tt.target.TensorRef;
+}
+
 table ToLayoutOp {
   in: tt.target.TensorRef;
   layout: tt.target.TensorLayout;
@@ -167,6 +173,7 @@ table DeallocOp {
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
+  ShardedToInterleavedOp,
   ToLayoutOp,
   ToDeviceOp,
   EmptyOp,

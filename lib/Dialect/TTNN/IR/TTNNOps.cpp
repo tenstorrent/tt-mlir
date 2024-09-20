@@ -407,6 +407,10 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttnn::ShardedToInterleavedOp::verify() {
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::EmptyOp::verify() {
   // ==============================
   // === CHECK ATTRIBUTES START ===

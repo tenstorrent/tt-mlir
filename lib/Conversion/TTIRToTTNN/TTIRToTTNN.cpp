@@ -560,13 +560,44 @@ public:
     auto dilation_width =
         rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
     auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
-    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
+
+    auto new_conv = rewriter.create<ttnn::Conv2dOp>(
+        op->getLoc(), this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
         adaptor.getOutput(), device, in_channels, out_channels, batch_size,
         input_height, input_width, kernel_height, kernel_width, stride_height,
         stride_width, padding_height, padding_width, dilation_height,
         dilation_width, groups);
+
+    // auto shapeattr = ttnn::ShapeAttr::get(
+    //     rewriter.getContext(),
+    //     mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
+
+    // ttnn::LayoutAttr tensorLayoutAttr =
+    //     ttnn::LayoutAttr::get(op.getContext(),
+    //     mlir::tt::ttnn::Layout::RowMajor);
+
+    // tt::LayoutAttr ttLayoutAttr =
+    //     mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+
+    // ttnn::TensorMemoryLayout tensorMemoryLayout =
+    //     ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+
+    // ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+    //     op.getContext(),
+    //     ttnn::TensorMemoryLayoutAttr::get(op.getContext(),
+    //     tensorMemoryLayout), ttnn::BufferTypeAttr::get(op.getContext(),
+    //     mlir::tt::ttnn::BufferType::DRAM));
+
+    // DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(),
+    // elementTypeToDataType(op.getResult().getType().getElementType())); auto
+    // new_empty = rewriter.create<ttnn::EmptyOp>(op->getLoc(),
+    // this->getTypeConverter()->convertType(op.getType()), device, shapeattr,
+    // dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+    rewriter.replaceOpWithNewOp<ttnn::ShardedToInterleavedOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        new_conv.getResult(), device);
+
     return success();
   }
 };
