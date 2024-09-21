@@ -13,8 +13,8 @@ static ::ttnn::Tensor
 preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
                      ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
   const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
-  const ::ttnn::Shape inputShape = ::ttnn::Shape(
-      ::tt::tt_metal::Shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+  const ::ttnn::Shape inputShape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
+      ::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->in()->desc()->shape())));
   uint32_t output_height =
       1 + (op->input_height() + 2 * op->padding_height() -

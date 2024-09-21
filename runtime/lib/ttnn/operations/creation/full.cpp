@@ -13,8 +13,8 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
   DeviceMap devicePool = context.devicePool;
   ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  auto shape = ::ttnn::Shape(
-      ::tt::tt_metal::Shape(::tt::runtime::ttnn::utils::toShapeFromFBShape(
+  auto shape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
+      ::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->out()->desc()->shape())));
   float fillValue = op->fill_value();
   // TODO(bug #272), determine correct layout by tile shape in the future

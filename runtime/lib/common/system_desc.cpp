@@ -262,24 +262,21 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
 
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  size_t numPciDevices = ::tt::tt_metal::GetNumPCIeDevices();
-  assert(numDevices % numPciDevices == 0 &&
-         "Unexpected non-rectangular grid of devices");
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::MeshShape grid =
-      std::make_pair(numDevices / numPciDevices, numPciDevices);
-  ::tt::tt_metal::MeshDevice meshDevice = ::tt::tt_metal::MeshDevice(
-      grid, deviceIds, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-      ::tt::tt_metal::DispatchCoreType::WORKER);
+  ::tt::tt_metal::MeshShape meshShape = std::make_pair(1, numDevices);
+  std::shared_ptr<::tt::tt_metal::MeshDevice> meshDevice =
+      ::tt::tt_metal::MeshDevice::create(
+          meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
+          ::tt::tt_metal::DispatchCoreType::WORKER);
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
-    desc = getCurrentSystemDescImpl(meshDevice);
+    desc = getCurrentSystemDescImpl(*meshDevice);
   } catch (...) {
     eptr = std::current_exception();
   }
-  meshDevice.close_devices();
+  meshDevice->close_devices();
   if (eptr) {
     std::rethrow_exception(eptr);
   }
