@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <string>
 #include <unordered_map>
 
 #include "tt/runtime/detail/debug.h"
@@ -184,8 +185,28 @@ static std::string parseLocFromDebugInfo(char const *programDebugInfo) {
   return debugInfo.substr(0, pos);
 }
 
+// Produces string representation of CoreRangeSet that is suitable for embedding
+// in file name. Encode core range set so that ranges are separated by
+// double underscore '__'. Range is represented with start and end coordinates
+// as "startY_startX-endY_endX".
+static std::string coreRangeToString(const CoreRangeSet &coreRanges) {
+  std::string result;
+  for (const auto &coreRange : coreRanges.ranges()) {
+    result += std::to_string(coreRange.start_coord.y) + "_" +
+              std::to_string(coreRange.start_coord.x) + "-" +
+              std::to_string(coreRange.end_coord.y) + "_" +
+              std::to_string(coreRange.end_coord.x);
+    result += "__";
+  }
+  result.pop_back();
+  result.pop_back();
+
+  return result;
+}
+
 static std::string createKernelFilePath(
     char const *currentProgramName, char const *programDebugInfo,
+    const CoreRangeSet &coreRangeSet,
     ::tt::target::metal::KernelSource const *kernelSource,
     char const *prefix = "/tmp/ttmlir_", char const *extention = ".cpp") {
   std::string path(prefix);
@@ -194,6 +215,10 @@ static std::string createKernelFilePath(
   path += parseLocFromDebugInfo(programDebugInfo);
   path += "_";
   path += kernelSourceTypeString(kernelSource);
+
+  // Double underscore to visually separate core ranges from the rest.
+  path += "__";
+  path += coreRangeToString(coreRangeSet);
   path += extention;
   return path;
 }
@@ -395,27 +420,27 @@ void CQExecutor::execute(
     ::tt::target::metal::KernelSource const *kernelSource =
         kernelDesc->kernel_as_KernelSource();
     assert(kernelSource && "Only source kernels supported for now");
+    CoreRangeSet coreRangeSet = toCoreRangeSet(kernelDesc->core_range_set());
     // We need a new API to create a kernel from source string, or directly from
     // binary
-    std::string fileName =
-        createKernelFilePath(currentProgramName, debugInfo, kernelSource);
+    std::string fileName = createKernelFilePath(currentProgramName, debugInfo,
+                                                coreRangeSet, kernelSource);
     writeFile(fileName, kernelSource->source()->c_str(),
               kernelSource->source()->size());
-    CoreRangeSet coreRange = toCoreRangeSet(kernelDesc->core_range_set());
     std::variant<DataMovementConfig, ComputeConfig, EthernetConfig> config =
         createKernelConfig(kernelSource);
 
     ::tt::tt_metal::KernelHandle handle =
-        ::tt::tt_metal::CreateKernel(program, fileName, coreRange, config);
+        ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
 
     for (::tt::target::CBRef const *cbRef : *kernelDesc->cbs()) {
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
-      ::tt::tt_metal::CreateCircularBuffer(program, coreRange, config);
+      ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
     // Process Kernel's runtime args based on variant and call metal APIs.
-    processRuntimeArgs(program, kernelDesc, handle, coreRange,
+    processRuntimeArgs(program, kernelDesc, handle, coreRangeSet,
                        command->operands(), buffers);
   }
 
