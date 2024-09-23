@@ -1378,6 +1378,8 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
             toLayoutOpLayout
+                .withElementType(toLayoutOp->getContext(),
+                                 consumerOpOutputLayout.getElementType())
                 .withMemorySpace(toLayoutOp.getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(toLayoutOp.getContext(),
@@ -1389,7 +1391,7 @@ public:
         toLayoutOp.getOperands().back().setType(newTensorType);
       } else {
         LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
-            mlir::cast<RankedTensorType>(producerOp->getResult(0).getType())
+            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
                 .getEncoding());
 
         RankedTensorType producerOpTensorType =
@@ -1406,6 +1408,8 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             producerOpTensorShape, producerOpTensorType.getElementType(),
             producerOpLayout
+                .withElementType(consumerOp->getContext(),
+                                 consumerOpOutputLayout.getElementType())
                 .withMemorySpace(consumerOp->getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(consumerOp->getContext(),
