@@ -2,17 +2,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include <optional>
+
+#include "mlir/Dialect/Traits.h"
+#include "mlir/IR/BuiltinTypes.h"
+
+#include <llvm/ADT/ArrayRef.h>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/BuiltinTypes.h"
+#include "ttmlir/Utils.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -61,19 +62,21 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   }
 
   if (outputLayout.hasShardedTensorMemoryLayout()) {
-    if (outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::BlockSharded) {
-      return emitOpError("Currently only block sharding is supported for "
-                         "sharded memory layouts");
+    if (not outputLayout.hasShardedL1TensorMemoryLayout()) {
+      return emitOpError("Sharded tensors layout must reside in L1");
     }
     ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
     // Currently TTNN backend only supports 2D shard shape
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-    if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
-        shardShape[1] % TTNN_TILE_WIDTH != 0) {
-      return emitOpError("Shard shape must divide tile shape (32, 32) evenly");
+    if (outputMemoryLayout == ::mlir::tt::TensorMemoryLayout::BlockSharded) {
+      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
+      if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
+          shardShape[1] % TTNN_TILE_WIDTH != 0) {
+        return emitOpError(
+            "Shard shape must divide tile shape (32, 32) evenly");
+      }
     }
   }
   return success();
@@ -269,34 +272,124 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
-  auto inputAShape = inputAType.getShape();
-  auto inputBShape = inputBType.getShape();
-  auto outputShape = outputType.getShape();
-  if (inputAShape.size() < 2) {
-    return emitOpError("Input A must be at least a 2D tensor");
+
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+
+  // Verify that the input A is at least 1D tensor
+  if (inputAType.getRank() < 1) {
+    return emitOpError("Input A must be at least a 1D tensor");
   }
-  if (inputBShape.size() < 2) {
-    return emitOpError("Input B must be at least a 2D tensor");
+
+  // Verify that the input B is at least 1D tensor
+  if (inputBType.getRank() < 1) {
+    return emitOpError("Input B must be at least a 1D tensor");
   }
-  if (inputAShape.size() != inputBShape.size()) {
-    return emitOpError("Input A and B must have the same rank");
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
+  // purpose of the matrix multiply. After the matrix multiply, the prepended
+  // dimension is removed.
+  if (inputAType.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
   }
-  if (inputAShape.size() != outputShape.size()) {
-    return emitOpError("Input A and B must have the same rank as the output");
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
+  // the purpose of the matrix-vector product and removed after.
+  if (inputBType.getRank() == 1) {
+    inputBShape.push_back(1);
   }
+
+  // Verify that the input A and input B has matching inner dimensions
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError("Input A and B must have matching inner dimensions");
-  }
-  if (outputShape[outputShape.size() - 2] !=
-      inputAShape[inputAShape.size() - 2]) {
-    return emitOpError("Output must have the same number of rows as input A");
-  }
-  if (outputShape[outputShape.size() - 1] !=
-      inputBShape[inputBShape.size() - 1]) {
     return emitOpError(
-        "Output must have the same number of columns as input B");
+        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
+        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
+        ") must have matching inner dimensions");
   }
+
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  // Verify that the batch dimensions are broadcast compatible and construct the
+  // expected output shape
+  if (inputAShape.size() > 2 || inputBShape.size() > 2) {
+    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
+
+    if (inputAShape.size() > 2) {
+      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
+                             inputAShape.end() - 2);
+    }
+
+    if (inputBShape.size() > 2) {
+      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
+                             inputBShape.end() - 2);
+    }
+
+    // Verify that the batch dimensions of input A and B are broadcast
+    // compatible
+    llvm::SmallVector<int64_t, 4> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
+                                            broadcastedShape)) {
+
+      return emitOpError("Batch dimensions of input A(" +
+                         ttmlir::utils::join(inputABatchDims, ",") +
+                         ") and B(" +
+                         ttmlir::utils::join(inputBBatchDims, ",") +
+                         ") are not broadcast compatible");
+    }
+
+    // Insert the broadcasted batch dimensions in the expected output shape
+    expectedOutputShape.insert(expectedOutputShape.begin(),
+                               broadcastedShape.begin(),
+                               broadcastedShape.end());
+  }
+
+  // Insert the input A and B inner dimensions in expected output shape
+  // Consider the case where input A and B are vectors. In that case,
+  // the dimension 1 is ommited from the output shape.
+  if (inputAType.getRank() > 1) {
+    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
+  }
+
+  if (inputBType.getRank() > 1) {
+    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
+  }
+
+  // Check the case of a vector-vector product. At this moment we don't support
+  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
+  if (expectedOutputShape.size() == 0) {
+    if (outputType.getRank() < 1) {
+      return emitOpError("Scalar output is not supported, output must be at "
+                         "least a 1D tensor");
+    }
+
+    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
+      return emitOpError("Scalar output must be a 1D tensor of size 1");
+    }
+
+    return llvm::success();
+  }
+
+  // Verify that the output shape is correct
+  if (outputShape.size() != expectedOutputShape.size()) {
+    return emitOpError("Output shape rank(" +
+                       std::to_string(outputShape.size()) +
+                       ") must match the expected output shape rank(" +
+                       std::to_string(expectedOutputShape.size()) + ")");
+  }
+
+  // Verify each dim of the output shape
+  for (size_t i = 0; i < outputShape.size(); i++) {
+    if (outputShape[i] != expectedOutputShape[i]) {
+      return emitOpError(
+          "Output shape dimension[" + std::to_string(i) + "](" +
+          std::to_string(outputShape[i]) +
+          ") doesn't match the expected output shape dimension[" +
+          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
+          ")");
+    }
+  }
+
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify

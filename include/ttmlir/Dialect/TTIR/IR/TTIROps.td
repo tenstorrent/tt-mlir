@@ -274,6 +274,13 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
+def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise reciprocal square root.";
+    let description = [{
+      Eltwise reciprocal square root operation.
+    }];
+}
+
 def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate op.";
     let description = [{
@@ -589,6 +596,29 @@ def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
+}
+
+def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
+    let summary = "Fill operation.";
+    let description = [{
+      Produces tensor filled with given fill value.
+
+      Examples:
+        %0 = tensor.empty() : () -> tensor<2x3xi32>
+        %1 = "ttir.fill"(%0) {value = dense<0> : tensor<2x3xi32>} : () -> tensor<2x3xi32>
+        %2 = tensor.empty() : () -> tensor<2xf32>
+        %3 = "ttir.fill"(%2) {value = dense<[0.2, 1.3]> : tensor<2xf32>} : () -> tensor<2xf32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$output,
+                         ElementsAttr:$value,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 }
 
 // ANCHOR: adding_an_op_matmul_ttir

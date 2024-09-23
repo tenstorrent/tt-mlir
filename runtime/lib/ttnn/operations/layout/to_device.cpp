@@ -12,8 +12,8 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.tensorPool;
   DeviceMap &devicePool = context.devicePool;
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
-  assert((utils::isOnHost(inputTensor) or utils::isOnDevice(inputTensor)) &&
-         "Unsupported storage type");
+  assert(utils::isOnHost(inputTensor) &&
+         "Calling ttnn::to_device on a device tensor");
 
   ::ttnn::MemoryConfig memoryConfig =
       utils::createMemoryConfig(op->memcfg(), op->out());

@@ -79,6 +79,14 @@ def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleO
   }];
 }
 
+def TTIRConstantAsFill: Pass<"ttir-constant-as-fill", "::mlir::ModuleOp"> {
+  let summary = "Converts constant ops to empty + fill.";
+  let description = [{
+    This pass converts constant ops to empty + fill ops to allow for better
+    optimization and easier lowering for some backend targets.
+  }];
+}
+
 def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   let summary = "Insert allocate/deallocate ops for tensors.";
   let description = [{

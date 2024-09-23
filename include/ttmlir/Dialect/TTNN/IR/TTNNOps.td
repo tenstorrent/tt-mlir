@@ -22,6 +22,8 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let description = [{
       This op returns the current runtime device.
     }];
+
+    let arguments = (ins OptionalAttr<TTNN_MeshShapeAttr>:$mesh_shape);
     let results = (outs TT_Device:$device);
 }
 
@@ -58,6 +60,16 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
                          TTNN_MemoryConfigAttr:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 }
+
+def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+    let summary = "FromDevice op.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
+}
+
 
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
@@ -117,6 +129,13 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
       Eltwise sqrt operation.
+    }];
+}
+
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise rsqrt.";
+    let description = [{
+      Eltwise rsqrt operation.
     }];
 }
 

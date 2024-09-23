@@ -8,8 +8,8 @@
 
 namespace tt::runtime::debug {
 
-Env const &Env::get(bool loadKernelsFromDisk, bool disableAsyncTTNN) {
-  static Env config(loadKernelsFromDisk, disableAsyncTTNN);
+Env const &Env::get(bool loadKernelsFromDisk, bool enableAsyncTTNN) {
+  static Env config(loadKernelsFromDisk, enableAsyncTTNN);
   return config;
 }
 

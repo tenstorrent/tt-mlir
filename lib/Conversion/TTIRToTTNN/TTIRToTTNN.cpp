@@ -43,7 +43,8 @@ static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
   auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
-      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr));
+      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(op->getContext(), 1, 1));
   rewriter.restoreInsertionPoint(currentInsertionPoint);
   return deviceOp.getResult();
 }
@@ -121,10 +122,12 @@ public:
 // are required to achieve an arbitrary layout. There are two main distinct
 // paths in this conversion pattern:
 //
-// 1. If the layout calls for device memory, we will call TTNN:ToLayoutOp and
-//    TTNN:ToDeviceOp to achieve the desired layout.
+// 1. If the layout calls for device memory, we will call TTNN::ToLayoutOp and
+//    TTNN::ToDeviceOp to achieve the desired layout.
 //
-// 2. If the layout calls for system memory, we will only call TTNN:ToLayoutOp
+// 2. If the layout calls for system memory, we will call TTNN::ToLayoutOp to
+//    change the tensor to RowMajor layout, and then the TTNN::FromDeviceOp to
+//    move to host memory
 //
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
@@ -632,6 +635,11 @@ public:
     mlir::Value input = srcOp.getOperand(0);
     mlir::Value result = srcOp.getResult();
 
+    if (srcOp->getUsers().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ttir.broadcast op should have at least one use.");
+    }
+
     rewriter.replaceAllUsesWith(result, input);
     rewriter.eraseOp(srcOp);
 
@@ -657,6 +665,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
+           ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
            ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,

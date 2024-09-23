@@ -98,7 +98,6 @@ table LayoutDesc {
 table TensorDesc {
   shape: [int];
   layout: LayoutDesc;
-  constant_data: [ubyte];
 }
 
 table CBDesc {

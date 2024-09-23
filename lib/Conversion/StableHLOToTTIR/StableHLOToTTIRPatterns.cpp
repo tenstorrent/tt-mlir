@@ -34,12 +34,15 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        ValueRange(outputTensor),
+        srcOp,
+        TypeRange(
+            this->getTypeConverter()->convertType(outputTensor.getType())),
+        adaptor.getOperands(), ValueRange(outputTensor),
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -101,8 +104,8 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::ReduceOp &srcOp,
                           mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                           ConversionPatternRewriter &rewriter) const {
-    auto outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResultTypes().front());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
@@ -135,7 +138,8 @@ public:
   matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
@@ -145,9 +149,9 @@ public:
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
-        srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
-        Value(outputTensor), adaptor.getPermutation()[0],
-        adaptor.getPermutation()[1],
+        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
+        Value(adaptor.getOperand()), Value(outputTensor),
+        adaptor.getPermutation()[0], adaptor.getPermutation()[1],
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -178,7 +182,8 @@ public:
   matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
@@ -192,8 +197,8 @@ public:
     }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
-        srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
-        Value(outputTensor),
+        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
+        adaptor.getLhs(), adaptor.getRhs(), Value(outputTensor),
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -250,7 +255,8 @@ public:
   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             srcOp.getValue());
@@ -274,7 +280,8 @@ public:
       return err;
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
@@ -282,8 +289,8 @@ public:
         rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
-        srcOp, outputTensor.getType(), Value(adaptor.getOperand()),
-        Value(outputTensor), dimArg,
+        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
+        Value(adaptor.getOperand()), Value(outputTensor), dimArg,
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -299,12 +306,13 @@ private:
                      ConversionPatternRewriter &rewriter) const {
 
     llvm::SmallVector<int64_t, 4> broadcastedShape;
-    auto inputShape =
-        mlir::cast<mlir::RankedTensorType>((srcOp.getOperand()).getType())
-            .getShape();
+    auto srcType =
+        getTypeConverter()->convertType(srcOp.getOperand().getType());
+    auto inputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
+    auto outputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
 
-    if (!OpTrait::util::getBroadcastedShape(
-            inputShape, adaptor.getBroadcastDimensions(), broadcastedShape)) {
+    if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
+                                            broadcastedShape)) {
       return rewriter.notifyMatchFailure(
           srcOp, "Input cannot be broadcasted to provided dimensions.");
     }
@@ -319,6 +327,10 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
 
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::SqrtOp, mlir::tt::ttir::SqrtOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::RsqrtOp, mlir::tt::ttir::RsqrtOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<

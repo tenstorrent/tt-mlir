@@ -29,6 +29,11 @@ table ToDeviceOp {
   out: tt.target.TensorRef;
 }
 
+table FromDeviceOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+}
+
 table EmptyOp {
   shape: [int64];
   dtype: DataType;
@@ -58,6 +63,7 @@ enum EltwiseOpType: uint32 {
   Maximum = 10,
   Abs = 11,
   Neg = 12,
+  Rsqrt = 13,
 }
 
 table EltwiseOp {
@@ -169,6 +175,7 @@ union OpType {
   ToMemoryConfigOp,
   ToLayoutOp,
   ToDeviceOp,
+  FromDeviceOp,
   EmptyOp,
   FullOp,
   EltwiseOp,

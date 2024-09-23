@@ -137,6 +137,19 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       memoryConfigDesc, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::FromDeviceOp>
+createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateFromDeviceOp(*cache.fbb, input, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   constexpr uint64_t kHostAllocatedAddress = 0;
@@ -249,6 +262,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Relu;
   } else if constexpr (std::is_same_v<EltwiseOp, SqrtOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sqrt;
+  } else if constexpr (std::is_same_v<EltwiseOp, RsqrtOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Rsqrt;
   } else if constexpr (std::is_same_v<EltwiseOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Reciprocal;
   } else if constexpr (std::is_same_v<EltwiseOp, DivOp>) {
@@ -405,6 +420,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto toDeviceOp = dyn_cast<ToDeviceOp>(op); toDeviceOp) {
     return createOperation(cache, createOp(cache, toDeviceOp), debugString);
   }
+  if (auto fromDeviceOp = dyn_cast<FromDeviceOp>(op); fromDeviceOp) {
+    return createOperation(cache, createOp(cache, fromDeviceOp), debugString);
+  }
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString);
   }
@@ -440,6 +458,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
     return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString);
+  }
+  if (auto rsqrtOp = dyn_cast<RsqrtOp>(op); rsqrtOp) {
+    return createOperation(cache, createEltwiseOp(cache, rsqrtOp), debugString);
   }
   if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
     return createOperation(cache, createEltwiseOp(cache, expOp), debugString);
