@@ -635,12 +635,15 @@ public:
     mlir::Value input = srcOp.getOperand(0);
     mlir::Value result = srcOp.getResult();
 
-    if (srcOp->getUsers().empty()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "ttir.broadcast op should have at least one use.");
+    SmallVector<Operation *> srcOpUsers;
+    for (Operation *nextOp : srcOp->getUsers()) {
+      srcOpUsers.push_back(nextOp);
     }
 
-    rewriter.replaceAllUsesWith(result, input);
+    for (Operation *nextOp : srcOpUsers) {
+      nextOp->replaceUsesOfWith(result, input);
+    }
+
     rewriter.eraseOp(srcOp);
 
     return success();
