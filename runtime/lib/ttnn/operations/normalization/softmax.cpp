@@ -8,7 +8,7 @@
 
 namespace tt::runtime::ttnn::operations::normalization {
 void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   int32_t dimension = op->dimension();
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =

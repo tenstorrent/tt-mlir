@@ -104,10 +104,6 @@ struct Binary : public Flatbuffer {
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-
-  template <typename T> static Device borrow(T &object, DeviceRuntime runtime) {
-    return Device(utils::unsafe_borrow_shared(&object), runtime);
-  }
 };
 
 struct Event : public detail::RuntimeCheckedObjectImpl {

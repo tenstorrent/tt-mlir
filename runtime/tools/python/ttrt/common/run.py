@@ -241,8 +241,8 @@ class Run:
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
-            self.logging.debug(f"opening device id={self.query.device_ids[0]}")
-            device = ttrt.runtime.open_device([self.query.device_ids[0]])
+            self.logging.debug(f"opening devices={self.query.device_ids}")
+            device = ttrt.runtime.open_device(self.query.device_ids)
 
             try:
                 for bin in binaries:

@@ -9,15 +9,17 @@
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  // TODO (jnie): Update this once we support multi device tensors
+  ::ttnn::Device &device =
+      context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
   assert(utils::isOnHost(inputTensor) &&
          "Calling ttnn::to_device on a device tensor");
 
   ::ttnn::MemoryConfig memoryConfig =
       utils::createMemoryConfig(op->memcfg(), op->out());
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
+
   ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
   tensorPool.try_emplace(op->out()->global_id(), out);
