@@ -46,6 +46,7 @@ void createTTNNPipelineAnalysisPasses(
 void createTTNNPipelineLoweringPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(createConvertTTIRToTTNNPass());
+  pm.addPass(createTTNNForceDRAMInterleaved());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,

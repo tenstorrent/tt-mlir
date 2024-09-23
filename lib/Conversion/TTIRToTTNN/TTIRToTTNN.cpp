@@ -22,6 +22,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
+#include <mlir/IR/BuiltinAttributes.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -508,6 +509,37 @@ public:
 };
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+static ttnn::EmptyOp genDPSOutput(ConversionPatternRewriter &rewriter,
+                                  Operation *conv, RankedTensorType new_type,
+                                  tt::LayoutAttr ttLayoutAttr) {
+
+  ttnn::ShapeAttr shape =
+      ttnn::ShapeAttr::get(rewriter.getContext(), new_type.getShape());
+  DataTypeAttr dtype = DataTypeAttr::get(
+      rewriter.getContext(), elementTypeToDataType(new_type.getElementType()));
+  ttnn::BufferType bufferType =
+      ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+  ttnn::TensorMemoryLayout tensorMemoryLayout =
+      ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+
+  ttnn::Layout ttnnLayoutEnum =
+      isa<TileType>(ttLayoutAttr.getMemref().getElementType())
+          ? ttnn::Layout::Tile
+          : ttnn::Layout::RowMajor;
+  ttnn::LayoutAttr tensorLayoutAttr =
+      ttnn::LayoutAttr::get(rewriter.getContext(), ttnnLayoutEnum);
+
+  ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+      rewriter.getContext(),
+      ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                        tensorMemoryLayout),
+      ttnn::BufferTypeAttr::get(rewriter.getContext(), bufferType));
+  ttnn::EmptyOp empty = rewriter.create<ttnn::EmptyOp>(
+      conv->getLoc(), new_type, getOrInsertDevice(rewriter, conv), shape, dtype,
+      tensorLayoutAttr, memoryConfigAttr);
+  return empty;
+}
+
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -563,13 +595,39 @@ public:
     auto dilation_width =
         rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
     auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
-    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
+
+    RankedTensorType new_type = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    tt::LayoutAttr ttLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(new_type.getEncoding());
+
+    // ------ CONV SHARDING METRIC ------
+    int64_t num_cores_y;
+    auto grid_shape = getCurrentScopeDevice(op).getWorkerGrid().getShape();
+    num_cores_y = grid_shape[1];
+    TensorMemoryLayout shard_layout = in_channels.getInt() / num_cores_y >= 32
+                                          ? TensorMemoryLayout::BlockSharded
+                                          : TensorMemoryLayout::HeightSharded;
+    // ----------------------------------
+
+    ttLayoutAttr =
+        ttLayoutAttr.withMemoryLayout(rewriter.getContext(), shard_layout);
+    ttLayoutAttr = ttLayoutAttr.withMemorySpace(rewriter.getContext(),
+                                                MemorySpace::DeviceL1);
+    new_type = RankedTensorType::get(
+        op.getType().getShape(), op.getType().getElementType(), ttLayoutAttr);
+
+    op.getResult().setType(new_type);
+    ttnn::Conv2dOp ttnn_conv = rewriter.create<ttnn::Conv2dOp>(
+        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getOutput(), device, in_channels, out_channels, batch_size,
-        input_height, input_width, kernel_height, kernel_width, stride_height,
-        stride_width, padding_height, padding_width, dilation_height,
-        dilation_width, groups);
+        genDPSOutput(rewriter, op, new_type, ttLayoutAttr), device, in_channels,
+        out_channels, batch_size, input_height, input_width, kernel_height,
+        kernel_width, stride_height, stride_width, padding_height,
+        padding_width, dilation_height, dilation_width, groups,
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(shard_layout)));
+
+    rewriter.replaceOp(op, ttnn_conv);
     return success();
   }
 };
@@ -606,15 +664,30 @@ public:
            "ttir::MaxPool2dOp must have original_width set before translating "
            "to TTNN dialect.");
 
-    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), device, batch_size,
-        adaptor.getOriginalHeightAttr(), adaptor.getOriginalWidthAttr(),
-        channels, adaptor.getKernelHeightAttr(), adaptor.getKernelWidthAttr(),
-        adaptor.getStrideHeightAttr(), adaptor.getStrideWidthAttr(),
-        adaptor.getDilationHeightAttr(), adaptor.getDilationWidthAttr(),
-        adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
-        adaptor.getPaddingRightAttr());
+    RankedTensorType new_type = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    tt::LayoutAttr ttLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(new_type.getEncoding());
+
+    ttLayoutAttr = ttLayoutAttr.withMemoryLayout(
+        rewriter.getContext(), TensorMemoryLayout::HeightSharded);
+    ttLayoutAttr = ttLayoutAttr.withMemorySpace(rewriter.getContext(),
+                                                MemorySpace::DeviceL1);
+    new_type = RankedTensorType::get(
+        op.getType().getShape(), op.getType().getElementType(), ttLayoutAttr);
+
+    op.getResult().setType(new_type);
+    ttnn::MaxPool2dOp ttnn_maxpool2d = rewriter.create<ttnn::MaxPool2dOp>(
+        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), genDPSOutput(rewriter, op, new_type, ttLayoutAttr),
+        device, batch_size, adaptor.getOriginalHeightAttr(),
+        adaptor.getOriginalWidthAttr(), channels, adaptor.getKernelHeightAttr(),
+        adaptor.getKernelWidthAttr(), adaptor.getStrideHeightAttr(),
+        adaptor.getStrideWidthAttr(), adaptor.getDilationHeightAttr(),
+        adaptor.getDilationWidthAttr(), adaptor.getCeilModeAttr(),
+        adaptor.getPaddingTopAttr(), adaptor.getPaddingRightAttr());
+
+    rewriter.replaceOp(op, ttnn_maxpool2d);
     return success();
   }
 };

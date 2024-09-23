@@ -7,4 +7,8 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTNNForceDRAMInterleaved: Pass<"ttir-force-dram-interleaved", "::mlir::ModuleOp"> {
+    let summary = "Place to_memory_config ops on all op outputs that do not have dram interleaved outputs.";
+}
+
 #endif

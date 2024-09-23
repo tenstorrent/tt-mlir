@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "conv2d.h"
+#include "impl/buffers/buffer_constants.hpp"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -19,6 +20,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
+  config.shard_layout = TensorMemoryLayout(op->shard_layout());
   ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
   ::ttnn::Tensor out =
       std::get<0>(::ttnn::operations::conv::conv2d::conv2d<::ttnn::Device>(

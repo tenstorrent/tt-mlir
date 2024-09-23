@@ -145,6 +145,7 @@ table Conv2dOp {
   dilation_height: uint32;
   dilation_width: uint32;
   groups: uint32;
+  shard_layout: uint32;
 }
 
 table MaxPool2dOp {

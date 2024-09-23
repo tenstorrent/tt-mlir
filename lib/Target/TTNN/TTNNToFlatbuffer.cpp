@@ -237,7 +237,7 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
       op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
       op.getPaddingWidth(), op.getDilationHeight(), op.getDilationWidth(),
-      op.getGroups());
+      op.getGroups(), op.getShardLayout());
 }
 
 template <typename EltwiseOp>

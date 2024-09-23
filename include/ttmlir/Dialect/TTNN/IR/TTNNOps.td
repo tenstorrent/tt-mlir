@@ -396,7 +396,8 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
                          I32Attr:$padding_width,
                          I32Attr:$dilation_height,
                          I32Attr:$dilation_width,
-                         I32Attr:$groups);
+                         I32Attr:$groups,
+                         I32Attr:$shard_layout);
 
     let results = (outs AnyRankedTensor:$result);
 
