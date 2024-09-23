@@ -1392,7 +1392,8 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
             toLayoutOpLayout
-                .withElementType(toLayoutOp->getContext(), consumerOpOutputLayout.getElementType())
+                .withElementType(toLayoutOp->getContext(),
+                                 consumerOpOutputLayout.getElementType())
                 .withMemorySpace(toLayoutOp.getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(toLayoutOp.getContext(),
@@ -1438,7 +1439,8 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             producerOpTensorShape, producerOpTensorType.getElementType(),
             producerOpLayout
-                .withElementType(consumerOp->getContext(), consumerOpOutputLayout.getElementType())
+                .withElementType(consumerOp->getContext(),
+                                 consumerOpOutputLayout.getElementType())
                 .withMemorySpace(consumerOp->getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(consumerOp->getContext(),
