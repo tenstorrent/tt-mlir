@@ -31,10 +31,18 @@ def test_clean_artifacts():
     query_instance = API.Query(args=custom_args)
     query_instance()
 
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_clean_artifacts.__name__}"
+
 
 def test_clean_artifacts_cmd():
     command = f"ttrt query --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_query.log"
     sub_process_command(command)
+
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_clean_artifacts_cmd.__name__}"
 
 
 def test_save_artifacts():
@@ -45,10 +53,18 @@ def test_save_artifacts():
     query_instance = API.Query(args=custom_args)
     query_instance()
 
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_save_artifacts.__name__}"
+
 
 def test_save_artifacts_cmd():
     command = f"ttrt query --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_query.log"
     sub_process_command(command)
+
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_save_artifacts_cmd.__name__}"
 
 
 def test_log_file():
@@ -58,10 +74,18 @@ def test_log_file():
     query_instance = API.Query(args=custom_args)
     query_instance()
 
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_log_file.__name__}"
+
 
 def test_log_file_cmd():
     command = f"ttrt query --log-file {test_log_file_cmd.__name__}_query.log"
     sub_process_command(command)
+
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_log_file_cmd.__name__}"
 
 
 def test_artifact_dir():
@@ -73,10 +97,18 @@ def test_artifact_dir():
     query_instance = API.Query(args=custom_args)
     query_instance()
 
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_artifact_dir.__name__}"
+
 
 def test_artifact_dir_cmd():
     command = f"ttrt query --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/test-artifacts --log-file {test_artifact_dir_cmd.__name__}_query.log"
     sub_process_command(command)
+
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_artifact_dir_cmd.__name__}"
 
 
 def test_logger():
@@ -86,6 +118,10 @@ def test_logger():
     custom_logger = Logger(log_file_name)
     query_instance = API.Query(args=custom_args, logger=custom_logger)
     query_instance()
+
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_logger.__name__}"
 
 
 def test_artifacts():
@@ -100,6 +136,10 @@ def test_artifacts():
     query_instance = API.Query(args=custom_args, artifacts=custom_artifacts)
     query_instance()
 
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_artifacts.__name__}"
+
 
 def test_quiet():
     API.initialize_apis()
@@ -108,7 +148,15 @@ def test_quiet():
     query_instance = API.Query(args=custom_args)
     query_instance()
 
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_quiet.__name__}"
+
 
 def test_quiet_cmd():
     command = f"ttrt query --quiet --log-file {test_quiet_cmd.__name__}_query.log"
     sub_process_command(command)
+
+    assert (
+        check_results("query_results.json") == 0
+    ), f"one of more tests failed in={test_quiet_cmd.__name__}"

@@ -162,9 +162,10 @@ class Run:
         self.query = Query({"--quiet": True}, self.logger, self.artifacts)
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
+        self.results = Results(self.logger, self.file_manager)
 
     def preprocess(self):
-        self.logging.debug(f"preprocessing run API")
+        self.logging.debug(f"------preprocessing run API")
         self.query()
 
         if self["--clean-artifacts"]:
@@ -173,10 +174,10 @@ class Run:
         if self["--save-artifacts"]:
             self.artifacts.create_artifacts()
 
-        self.logging.debug(f"finished preprocessing read API")
+        self.logging.debug(f"------finished preprocessing read API")
 
     def check_constraints(self):
-        self.logging.debug(f"checking constraints for run API")
+        self.logging.debug(f"------checking constraints for run API")
 
         ttnn_binary_paths = self.file_manager.find_ttnn_binary_paths(self["binary"])
         ttmetal_binary_paths = self.file_manager.find_ttmetal_binary_paths(
@@ -188,42 +189,102 @@ class Run:
 
         for path in ttnn_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
-            if not bin.check_version():
+            try:
+                bin.check_version()
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
                 continue
 
-            if not bin.check_system_desc(self.query):
+            try:
+                bin.check_system_desc(self.query)
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
                 continue
 
             if self["--program-index"] != "all":
                 if not bin.check_program_index_exists(int(self["--program-index"])):
-                    self.logging.warning(
-                        f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                    )
+                    message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                    self.logging.warning(message)
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": message,
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
             self.ttnn_binaries.append(bin)
 
         for path in ttmetal_binary_paths:
             bin = Binary(self.logger, self.file_manager, path)
-            if not bin.check_version():
+            try:
+                bin.check_version()
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
                 continue
 
-            if not bin.check_system_desc(self.query):
+            try:
+                bin.check_system_desc(self.query)
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
                 continue
 
             if self["--program-index"] != "all":
                 if not bin.check_program_index_exists(int(self["--program-index"])):
-                    self.logging.warning(
-                        f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                    )
+                    message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                    self.logging.warning(message)
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": message,
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
             self.ttmetal_binaries.append(bin)
 
-        self.logging.debug(f"finished checking constraints for run API")
+        self.logging.debug(f"------finished checking constraints for run API")
 
     def execute(self):
-        self.logging.debug(f"executing run API")
+        self.logging.debug(f"------executing run API")
 
         def _execute(binaries):
             import ttrt.runtime
@@ -246,114 +307,131 @@ class Run:
 
             try:
                 for bin in binaries:
-                    self.logging.info(f"evaluating binary={bin.file_path}")
+                    try:
+                        self.logging.info(f"evaluating binary={bin.file_path}")
 
-                    program_indices = []
-                    if self["--program-index"] == "all":
-                        program_indices.extend(range(bin.get_num_programs()))
-                    else:
-                        program_indices.append(int(self["--program-index"]))
+                        program_indices = []
+                        if self["--program-index"] == "all":
+                            program_indices.extend(range(bin.get_num_programs()))
+                        else:
+                            program_indices.append(int(self["--program-index"]))
 
-                    for program_index in program_indices:
-                        self.logging.debug(
-                            f"evaluating program={program_index} for binary={bin.file_path}"
-                        )
-
-                        program = bin.get_program(program_index)
-                        program.populate_inputs(
-                            Run.TorchInitializer.get_initilizer(self["--init"])
-                        )
-                        program.populate_outputs(
-                            Run.TorchInitializer.get_initilizer("zeros")
-                        )
-
-                        total_inputs = []
-                        total_outputs = []
-                        for loop in range(self["--loops"]):
+                        for program_index in program_indices:
                             self.logging.debug(
-                                f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                                f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
-                            inputs = []
-                            outputs = []
-                            for i in program.input_tensors:
-                                inputs.append(
-                                    ttrt.runtime.create_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
-                                    )
+                            program = bin.get_program(program_index)
+                            program.populate_inputs(
+                                Run.TorchInitializer.get_initilizer(self["--init"])
+                            )
+                            program.populate_outputs(
+                                Run.TorchInitializer.get_initilizer("zeros")
+                            )
+
+                            total_inputs = []
+                            total_outputs = []
+                            for loop in range(self["--loops"]):
+                                self.logging.debug(
+                                    f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
 
-                            for i in program.output_tensors:
-                                outputs.append(
-                                    ttrt.runtime.create_tensor(
-                                        i.data_ptr(),
-                                        list(i.shape),
-                                        list(i.stride()),
-                                        i.element_size(),
-                                        Binary.Program.to_data_type(i.dtype),
+                                inputs = []
+                                outputs = []
+                                for i in program.input_tensors:
+                                    inputs.append(
+                                        ttrt.runtime.create_tensor(
+                                            i.data_ptr(),
+                                            list(i.shape),
+                                            list(i.stride()),
+                                            i.element_size(),
+                                            Binary.Program.to_data_type(i.dtype),
+                                        )
                                     )
+
+                                for i in program.output_tensors:
+                                    outputs.append(
+                                        ttrt.runtime.create_tensor(
+                                            i.data_ptr(),
+                                            list(i.shape),
+                                            list(i.stride()),
+                                            i.element_size(),
+                                            Binary.Program.to_data_type(i.dtype),
+                                        )
+                                    )
+
+                                total_inputs.append(inputs)
+                                total_outputs.append(outputs)
+
+                            event = None
+                            for loop in range(self["--loops"]):
+                                self.logging.debug(
+                                    f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
 
-                            total_inputs.append(inputs)
-                            total_outputs.append(outputs)
+                                event = ttrt.runtime.submit(
+                                    device,
+                                    bin.fbb,
+                                    program_index,
+                                    total_inputs[loop],
+                                    total_outputs[loop],
+                                )
 
-                        event = None
-                        for loop in range(self["--loops"]):
-                            self.logging.debug(
-                                f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
-                            )
+                                self.logging.debug(
+                                    f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                                )
 
-                            event = ttrt.runtime.submit(
-                                device,
-                                bin.fbb,
-                                program_index,
-                                total_inputs[loop],
-                                total_outputs[loop],
-                            )
+                            ttrt.runtime.wait(event)
 
-                            self.logging.debug(
-                                f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
-                            )
+                            if self["--identity"]:
+                                self.logging.debug(
+                                    f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
+                                )
 
-                        ttrt.runtime.wait(event)
-
-                        if self["--identity"]:
-                            self.logging.debug(
-                                f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
-                            )
-
-                            for i, o in zip(
-                                program.input_tensors, program.output_tensors
-                            ):
-                                if not torch.allclose(
-                                    i, o, rtol=self["--rtol"], atol=self["--atol"]
+                                for i, o in zip(
+                                    program.input_tensors, program.output_tensors
                                 ):
-                                    self.logging.error(
-                                        f"Failed: inputs and outputs do not match in binary"
-                                    )
-                                    self.logging.error(i - o)
+                                    if not torch.allclose(
+                                        i, o, rtol=self["--rtol"], atol=self["--atol"]
+                                    ):
+                                        self.logging.error(
+                                            f"Failed: inputs and outputs do not match in binary"
+                                        )
+                                        self.logging.error(i - o)
 
-                        if self["--non-zero"]:
-                            self.logging.debug("checking outputs are non-zero")
-                            for o in program.output_tensors:
-                                if not torch.any(o):
-                                    self.logging.error("Failed: output tensor all zero")
+                            if self["--non-zero"]:
+                                self.logging.debug("checking outputs are non-zero")
+                                for o in program.output_tensors:
+                                    if not torch.any(o):
+                                        self.logging.error(
+                                            "Failed: output tensor all zero"
+                                        )
 
-                        self.logging.debug(f"input tensors for program={program_index}")
-                        for tensor in program.input_tensors:
-                            self.logging.debug(f"{tensor}\n")
+                            self.logging.debug(
+                                f"input tensors for program={program_index}"
+                            )
+                            for tensor in program.input_tensors:
+                                self.logging.debug(f"{tensor}\n")
 
-                        self.logging.debug(
-                            f"output tensors for program={program_index}"
-                        )
-                        for tensor in program.output_tensors:
-                            self.logging.debug(f"{tensor}\n")
+                            self.logging.debug(
+                                f"output tensors for program={program_index}"
+                            )
+                            for tensor in program.output_tensors:
+                                self.logging.debug(f"{tensor}\n")
 
-                        device.deallocate_buffers()
+                            device.deallocate_buffers()
+                    except Exception as e:
+                        test_result = {
+                            "file_path": bin.file_path,
+                            "result": "error",
+                            "exception": str(e),
+                            "log_file": self.logger.file_name,
+                            "artifacts": self.artifacts.artifacts_folder_path,
+                            "program_index": self["--program-index"],
+                        }
+                        self.results.add_result(test_result)
+                        bin.test_result = "error"
+                        continue
             finally:
                 ttrt.runtime.close_device(device)
 
@@ -365,10 +443,10 @@ class Run:
         _execute(self.ttmetal_binaries)
         self.logging.debug(f"finished executing ttmetal binaries")
 
-        self.logging.debug(f"finished executing run API")
+        self.logging.debug(f"------finished executing run API")
 
     def postprocess(self):
-        self.logging.debug(f"postprocessing run API")
+        self.logging.debug(f"------postprocessing run API")
 
         if self["--save-artifacts"]:
             for bin in self.ttnn_binaries:
@@ -377,7 +455,33 @@ class Run:
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin, self.query)
 
-        self.logging.debug(f"finished postprocessing run API")
+        for bin in self.ttnn_binaries:
+            if bin.test_result == "pass":
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
+
+        for bin in self.ttmetal_binaries:
+            if bin.test_result == "pass":
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
+
+        self.results.save_results("run_results.json")
+
+        self.logging.debug(f"------finished postprocessing run API")
 
     def __getitem__(self, key):
         return getattr(self, key)

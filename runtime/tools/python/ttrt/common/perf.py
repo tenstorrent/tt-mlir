@@ -120,9 +120,10 @@ class Perf:
             f"{self.globals.get_ttmetal_home_path()}/csvexport-release"
         )
         self.tracy_capture_tool_process = None
+        self.results = Results(self.logger, self.file_manager)
 
     def preprocess(self):
-        self.logging.debug(f"preprocessing perf API")
+        self.logging.debug(f"------preprocessing perf API")
         self.query()
 
         if self["--clean-artifacts"]:
@@ -130,10 +131,10 @@ class Perf:
 
         self.artifacts.create_artifacts()
 
-        self.logging.debug(f"finished preprocessing perf API")
+        self.logging.debug(f"------finished preprocessing perf API")
 
     def check_constraints(self):
-        self.logging.debug(f"checking constraints for perf API")
+        self.logging.debug(f"------checking constraints for perf API")
 
         assert self.file_manager.check_file_exists(
             self.tracy_capture_tool_path
@@ -175,17 +176,47 @@ class Perf:
 
             for path in ttnn_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
-                if not bin.check_version():
+                try:
+                    bin.check_version()
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
-                if not bin.check_system_desc(self.query):
+                try:
+                    bin.check_system_desc(self.query)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
                 if self["--program-index"] != "all":
                     if not bin.check_program_index_exists(int(self["--program-index"])):
-                        self.logging.warning(
-                            f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                        )
+                        message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                        self.logging.warning(message)
+                        test_result = {
+                            "file_path": path,
+                            "result": "skip",
+                            "exception": message,
+                            "log_file": self.logger.file_name,
+                            "artifacts": self.artifacts.artifacts_folder_path,
+                            "program_index": self["--program-index"],
+                        }
+                        self.results.add_result(test_result)
                         continue
 
                 self.ttnn_binaries.append(bin)
@@ -194,25 +225,55 @@ class Perf:
 
             for path in ttmetal_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
-                if not bin.check_version():
+                try:
+                    bin.check_version()
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
-                if not bin.check_system_desc(self.query):
+                try:
+                    bin.check_system_desc(self.query)
+                except Exception as e:
+                    test_result = {
+                        "file_path": path,
+                        "result": "skip",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
                     continue
 
                 if self["--program-index"] != "all":
                     if not bin.check_program_index_exists(int(self["--program-index"])):
-                        self.logging.warning(
-                            f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
-                        )
+                        message = f"program index={int(self['--program-index'])} is greater than number of programs in: {bin.file_path} - skipping this test"
+                        self.logging.warning(message)
+                        test_result = {
+                            "file_path": path,
+                            "result": "skip",
+                            "exception": message,
+                            "log_file": self.logger.file_name,
+                            "artifacts": self.artifacts.artifacts_folder_path,
+                            "program_index": self["--program-index"],
+                        }
+                        self.results.add_result(test_result)
                         continue
 
                 self.ttmetal_binaries.append(bin)
 
-        self.logging.debug(f"finished checking constraints for perf API")
+        self.logging.debug(f"------finished checking constraints for perf API")
 
     def execute(self):
-        self.logging.debug(f"executing perf API")
+        self.logging.debug(f"------executing perf API")
 
         sys.path.append(f"{get_ttrt_metal_home_path()}")
         sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
@@ -307,72 +368,85 @@ class Perf:
                 return
 
             for bin in binaries:
-                port = get_available_port()
-
-                if not port:
-                    raise Exception("No available port found")
-
-                env_vars = dict(os.environ)
-                env_vars["TRACY_PORT"] = port
-
-                if not self["--host-only"]:
-                    env_vars["TT_METAL_CLEAR_L1"] = "1"
-                    env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
-                    env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "1"
-
-                current_pythonpath = env_vars.get("PYTHONPATH", "")
-                path1 = f"{get_ttrt_metal_home_path()}"
-                path2 = f"{get_ttrt_metal_home_path()}/ttnn"
-                new_pythonpath = (
-                    f"{current_pythonpath}{os.pathsep}{path1}{os.pathsep}{path2}"
-                )
-                env_vars["PYTHONPATH"] = new_pythonpath
-
-                tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {PROFILER_LOGS_DIR / TRACY_FILE_NAME} -f -p {port}"
-                self.tracy_capture_tool_process = subprocess.Popen(
-                    tracy_capture_tool_command, shell=True
-                )
-
-                command_options = f"--program-index {self['--program-index']} --loops {self['--loops']}"
-
-                library_link_path = self.globals.get_ld_path(
-                    f"{self.globals.get_ttmetal_home_path()}"
-                )
-                test_env_flags = f"LD_LIBRARY_PATH={library_link_path}"
-
-                ttrt_executable_path = shutil.which("ttrt")
-                test_command = f"{test_env_flags} python -m tracy -p {ttrt_executable_path} run {bin.file_path} --save-artifacts {command_options}"
-                print(f"test command for binary={bin.file_path} is: {test_command}")
-                testProcess = subprocess.Popen(
-                    [test_command], shell=True, env=env_vars, preexec_fn=os.setsid
-                )
-
-                def signal_handler(sig, frame):
-                    os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
-                    self.tracy_capture_tool_process.terminate()
-                    self.tracy_capture_tool_process.communicate()
-                    sys.exit(3)
-
-                signal.signal(signal.SIGINT, signal_handler)
-                signal.signal(signal.SIGTERM, signal_handler)
-                testProcess.communicate()
-
                 try:
-                    self.tracy_capture_tool_process.communicate(timeout=15)
+                    port = get_available_port()
+
+                    if not port:
+                        raise Exception("No available port found")
+
+                    env_vars = dict(os.environ)
+                    env_vars["TRACY_PORT"] = port
+
                     if not self["--host-only"]:
-                        self.file_manager.copy_file(
-                            PROFILER_LOGS_DIR / PROFILER_DEVICE_SIDE_LOG,
-                            f"{os.getcwd()}/generated/profiler/.logs/{PROFILER_DEVICE_SIDE_LOG}",
-                        )
-                    generate_report(self.artifacts.get_binary_perf_folder_path(bin))
-                except subprocess.TimeoutExpired as e:
-                    self.tracy_capture_tool_process.terminate()
-                    self.tracy_capture_tool_process.communicate()
-                    raise Exception(
-                        f"No profiling data could be captured. Please make sure you are on the correct build"
+                        env_vars["TT_METAL_CLEAR_L1"] = "1"
+                        env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
+                        env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "1"
+
+                    current_pythonpath = env_vars.get("PYTHONPATH", "")
+                    path1 = f"{get_ttrt_metal_home_path()}"
+                    path2 = f"{get_ttrt_metal_home_path()}/ttnn"
+                    new_pythonpath = (
+                        f"{current_pythonpath}{os.pathsep}{path1}{os.pathsep}{path2}"
+                    )
+                    env_vars["PYTHONPATH"] = new_pythonpath
+
+                    tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {PROFILER_LOGS_DIR / TRACY_FILE_NAME} -f -p {port}"
+                    self.tracy_capture_tool_process = subprocess.Popen(
+                        tracy_capture_tool_command, shell=True
                     )
 
-                save_perf_artifacts(self.artifacts.get_binary_perf_folder_path(bin))
+                    command_options = f"--program-index {self['--program-index']} --loops {self['--loops']}"
+
+                    library_link_path = self.globals.get_ld_path(
+                        f"{self.globals.get_ttmetal_home_path()}"
+                    )
+                    test_env_flags = f"LD_LIBRARY_PATH={library_link_path}"
+
+                    ttrt_executable_path = shutil.which("ttrt")
+                    test_command = f"{test_env_flags} python -m tracy -p {ttrt_executable_path} run {bin.file_path} --save-artifacts {command_options}"
+                    print(f"test command for binary={bin.file_path} is: {test_command}")
+                    testProcess = subprocess.Popen(
+                        [test_command], shell=True, env=env_vars, preexec_fn=os.setsid
+                    )
+
+                    def signal_handler(sig, frame):
+                        os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
+                        self.tracy_capture_tool_process.terminate()
+                        self.tracy_capture_tool_process.communicate()
+                        sys.exit(3)
+
+                    signal.signal(signal.SIGINT, signal_handler)
+                    signal.signal(signal.SIGTERM, signal_handler)
+                    testProcess.communicate()
+
+                    try:
+                        self.tracy_capture_tool_process.communicate(timeout=15)
+                        if not self["--host-only"]:
+                            self.file_manager.copy_file(
+                                PROFILER_LOGS_DIR / PROFILER_DEVICE_SIDE_LOG,
+                                f"{os.getcwd()}/generated/profiler/.logs/{PROFILER_DEVICE_SIDE_LOG}",
+                            )
+                        generate_report(self.artifacts.get_binary_perf_folder_path(bin))
+                    except subprocess.TimeoutExpired as e:
+                        self.tracy_capture_tool_process.terminate()
+                        self.tracy_capture_tool_process.communicate()
+                        raise Exception(
+                            f"No profiling data could be captured. Please make sure you are on the correct build"
+                        )
+
+                    save_perf_artifacts(self.artifacts.get_binary_perf_folder_path(bin))
+                except Exception as e:
+                    test_result = {
+                        "file_path": bin.file_path,
+                        "result": "error",
+                        "exception": str(e),
+                        "log_file": self.logger.file_name,
+                        "artifacts": self.artifacts.artifacts_folder_path,
+                        "program_index": self["--program-index"],
+                    }
+                    self.results.add_result(test_result)
+                    bin.test_result = "error"
+                    continue
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
@@ -382,10 +456,10 @@ class Perf:
         _execute(self.ttmetal_binaries)
         self.logging.debug(f"finished executing ttmetal binaries")
 
-        self.logging.debug(f"finished executing perf API")
+        self.logging.debug(f"------finished executing perf API")
 
     def postprocess(self):
-        self.logging.debug(f"postprocessing perf API")
+        self.logging.debug(f"------postprocessing perf API")
 
         if self["--save-artifacts"]:
             for bin in self.ttnn_binaries:
@@ -394,7 +468,33 @@ class Perf:
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin, self.query)
 
-        self.logging.debug(f"finished postprocessing perf API")
+        for bin in self.ttnn_binaries:
+            if bin.test_result == "pass":
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
+
+        for bin in self.ttmetal_binaries:
+            if bin.test_result == "pass":
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "pass",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                    "program_index": self["--program-index"],
+                }
+                self.results.add_result(test_result)
+
+        self.results.save_results("perf_results.json")
+
+        self.logging.debug(f"------finished postprocessing perf API")
 
     def __getitem__(self, key):
         return getattr(self, key)

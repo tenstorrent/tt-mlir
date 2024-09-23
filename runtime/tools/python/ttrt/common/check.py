@@ -100,9 +100,10 @@ class Check:
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.system_desc_binaries = []
+        self.results = Results(self.logger, self.file_manager)
 
     def preprocess(self):
-        self.logging.debug(f"preprocessing check API")
+        self.logging.debug(f"------preprocessing check API")
 
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
@@ -110,10 +111,10 @@ class Check:
         if self["--save-artifacts"]:
             self.artifacts.create_artifacts()
 
-        self.logging.debug(f"finished preprocessing check API")
+        self.logging.debug(f"------finished preprocessing check API")
 
     def check_constraints(self):
-        self.logging.debug(f"checking constraints for check API")
+        self.logging.debug(f"------checking constraints for check API")
 
         ttsys_binary_paths = self.file_manager.find_ttsys_binary_paths(
             self["--system-desc"]
@@ -128,28 +129,54 @@ class Check:
         self.logging.debug(f"ttmetal_binary_paths={ttmetal_binary_paths}")
 
         for path in ttsys_binary_paths:
-            bin = SystemDesc(self.logger, self.file_manager, path)
-            if bin.check_version():
-                self.system_desc_binaries.append(bin)
+            try:
+                bin = SystemDesc(self.logger, self.file_manager, path)
+                if bin.check_version():
+                    self.system_desc_binaries.append(bin)
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+                self.results.add_result(test_result)
 
         for path in ttnn_binary_paths:
-            bin = Binary(self.logger, self.file_manager, path)
-            if not bin.check_version():
-                continue
-
-            self.ttnn_binaries.append(bin)
+            try:
+                bin = Binary(self.logger, self.file_manager, path)
+                if bin.check_version():
+                    self.ttnn_binaries.append(bin)
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+                self.results.add_result(test_result)
 
         for path in ttmetal_binary_paths:
-            bin = Binary(self.logger, self.file_manager, path)
-            if not bin.check_version():
-                continue
+            try:
+                bin = Binary(self.logger, self.file_manager, path)
+                if bin.check_version():
+                    self.ttmetal_binaries.append(bin)
+            except Exception as e:
+                test_result = {
+                    "file_path": path,
+                    "result": "skip",
+                    "exception": str(e),
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+                self.results.add_result(test_result)
 
-            self.ttmetal_binaries.append(bin)
-
-        self.logging.debug(f"finished checking constraints for check API")
+        self.logging.debug(f"------finished checking constraints for check API")
 
     def execute(self):
-        self.logging.debug(f"executing check API")
+        self.logging.debug(f"------executing check API")
 
         def _execute(binaries, system_desc_to_check):
             if len(binaries) == 0:
@@ -157,6 +184,14 @@ class Check:
                 return
 
             for bin in binaries:
+                test_result = {
+                    "file_path": bin.file_path,
+                    "result": "fail",
+                    "exception": "",
+                    "log_file": self.logger.file_name,
+                    "artifacts": self.artifacts.artifacts_folder_path,
+                }
+
                 if system_desc_to_check != None:
                     if (
                         bin.fbb_dict["system_desc"]
@@ -165,20 +200,30 @@ class Check:
                         self.logging.info(
                             f"system desc for device did not match flatbuffer: {bin.file_path}"
                         )
+                        test_result[
+                            "exception"
+                        ] = f"system desc for device did not match flatbuffer: {bin.file_path}"
                     else:
                         self.logging.info(
                             f"system desc for device matched flatbuffer: {bin.file_path}"
                         )
+                        test_result["result"] = "pass"
                 else:
                     for desc in self.system_desc_binaries:
                         if bin.fbb_dict["system_desc"] != desc.fbb_dict["system_desc"]:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
                             )
+                            test_result[
+                                "exception"
+                            ] = f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
                         else:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} matched flatbuffer: {bin.file_path}"
                             )
+                            test_result["result"] = "pass"
+
+                self.results.add_result(test_result)
 
         system_desc_to_check = None
         if self["--system-desc"] == "" or len(self.system_desc_binaries) == 0:
@@ -196,10 +241,10 @@ class Check:
         _execute(self.ttmetal_binaries, system_desc_to_check)
         self.logging.debug(f"finished executing ttmetal binaries")
 
-        self.logging.debug(f"finished executing check API")
+        self.logging.debug(f"------finished executing check API")
 
     def postprocess(self):
-        self.logging.debug(f"postprocessing check API")
+        self.logging.debug(f"------postprocessing check API")
 
         if self["--save-artifacts"]:
             for bin in self.ttnn_binaries:
@@ -208,7 +253,9 @@ class Check:
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin)
 
-        self.logging.debug(f"finished postprocessing check API")
+        self.results.save_results("check_results.json")
+
+        self.logging.debug(f"------finished postprocessing check API")
 
     def __getitem__(self, key):
         return getattr(self, key)
