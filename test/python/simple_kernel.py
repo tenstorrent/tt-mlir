@@ -20,8 +20,8 @@ class TTKernelBuilder(ast.NodeVisitor):
         "pop": ttkernel.cb_pop_front,
     }
     t6_fn_map = {
-        "acquire_dst": ttkernel.acquire_dst,
-        "release_dst": ttkernel.release_dst,
+        "tile_regs_acquire": ttkernel.tile_regs_acquire,
+        "tile_regs_release": ttkernel.tile_regs_release,
         "pack": ttkernel.pack,
         "unpack_a": ttkernel.unpack_a,
         "unpack_ab": ttkernel.unpack_ab,
@@ -210,10 +210,10 @@ class Tensix:
     def __init__(self, srcA_dtype, srcB_dtype, dst_dtype):
         pass
 
-    def acquire_dst(self):
+    def tile_regs_acquire(self):
         pass
 
-    def release_dst(self):
+    def tile_regs_release(self):
         pass
 
 
@@ -244,11 +244,11 @@ def ttkernel_compile(f):
         # CHECK: "scf.for"[[C:.*]]
         # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
         # CHECK: "ttkernel.cb_reserve_back"[[C:.*]]
-        # CHECK: "ttkernel.acquire_dst"[[C:.*]]
+        # CHECK: "ttkernel.tile_regs_acquire"[[C:.*]]
         # CHECK: "ttkernel.unpack_ab"[[C:.*]]
         # CHECK: "ttkernel.add"[[C:.*]]
         # CHECK: "ttkernel.pack"[[C:.*]]
-        # CHECK: "ttkernel.release_dst"[[C:.*]]
+        # CHECK: "ttkernel.tile_regs_release"[[C:.*]]
         # CHECK: "ttkernel.cb_pop_front"[[C:.*]]
         # CHECK: "ttkernel.cb_push_back"[[C:.*]]
         print(b.module)
@@ -277,11 +277,11 @@ def eltwise(
                 in0.wait()
                 in1.wait()
                 out.reserve()
-                t6.acquire_dst()
+                t6.tile_regs_acquire()
                 t6.unpack_ab(in0, 0, in1, 0)
                 t6.add(0)
                 t6.pack(0, out, 0)
-                t6.release_dst()
+                t6.tile_regs_release()
                 in0.pop()
                 in1.pop()
                 out.push()

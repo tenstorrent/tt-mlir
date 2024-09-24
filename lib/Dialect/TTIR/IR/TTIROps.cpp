@@ -6,6 +6,7 @@
 #include <string>
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -72,6 +73,9 @@ template <typename OpTy>
 static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
                                             ::mlir::OpBuilder &opBuilder,
                                             ::mlir::Block *block) {
+  assert(block->getNumArguments() == 3 &&
+         "Binary op block expects two input and one output argument.");
+
   auto lhs = block->getArgument(0);
   auto rhs = block->getArgument(1);
   auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
@@ -80,14 +84,29 @@ static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
 
 void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder,
-                                                        block);
+  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
 }
 
 void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
     ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder,
-                                                        block);
+  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
+}
+
+template <typename OpTy>
+static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
+                                           ::mlir::OpBuilder &opBuilder,
+                                           ::mlir::Block *block) {
+  assert(block->getNumArguments() == 2 &&
+         "Unary op block expects one input and one output argument.");
+
+  auto arg = block->getArgument(0);
+  auto result = opBuilder.create<OpTy>(loc, arg);
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+}
+
+void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
