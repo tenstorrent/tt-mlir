@@ -98,3 +98,34 @@ llvm_config.with_environment(
     ],
     append_path=True,
 )
+
+# add test related parameters
+test_arch = os.getenv("TEST_ARCH", "").split(",")
+test_pipeline = os.getenv("TEST_PIPELINE", "").split(",")
+test_target_family = os.getenv("TEST_TARGET_FAMILY", "").split(",")
+test_target_silicon = os.getenv("TEST_TARGET_SILICON", "").split(",")
+test_duration = os.getenv("TEST_DURATION", "").split(",")
+
+if "wormhole_b0" in test_arch:
+    config.available_features.add("wormhole_b0")
+
+if "functional" in test_pipeline:
+    config.available_features.add("functional")
+
+if "perf" in test_pipeline:
+    config.available_features.add("perf")
+
+if "functional" in test_pipeline or "perf" in test_pipeline:
+    config.available_features.add("functional,perf")
+
+if "n150" in test_target_family:
+    config.available_features.add("n150")
+
+if "n300" in test_target_family:
+    config.available_features.add("n300")
+
+if "n150" in test_target_family or "n300" in test_target_family:
+    config.available_features.add("n150,n300")
+
+if "push" in test_duration:
+    config.available_features.add("push")

@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, name: "functional", ttrt_flags: ""},
           {runs-on: ubuntu-latest, enable_perf: ON, name: "perf", ttrt_flags: ""},
         ]
 
@@ -147,9 +147,9 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: OFF, name: "functional", ttrt_flags: "--non-zero"},
           {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: OFF, name: "functional", ttrt_flags: "--non-zero"},
           {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
 
@@ -223,6 +223,10 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export TEST_ARCH=wormhole_b0
+        export TEST_PIPELINE=${{ matrix.build.name }}
+        export TEST_TARGET_FAMILY=${{ matrix.build.runs-on }}
+        export TEST_DURATION=push
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
@@ -324,6 +328,10 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        export TEST_ARCH=wormhole_b0
+        export TEST_PIPELINE=${{ matrix.build.name }}
+        export TEST_TARGET_FAMILY=${{ matrix.build.runs-on }}
+        export TEST_DURATION=push
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
