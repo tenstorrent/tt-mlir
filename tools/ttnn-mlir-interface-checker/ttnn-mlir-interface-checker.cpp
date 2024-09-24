@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include <assert.h>
 #include <iostream>
 
@@ -23,11 +27,13 @@ int main() {
     ttnn::mlir_interface::memory_config_tuple memory_config = {
         "interleaved", "dram", std::nullopt};
     std::string data_type = "bf16";
+    std::string layout = "tile";
 
     checker(true == ttnn::mlir_interface::
                         does_binary_op_support_input_output_constraints(
-                            shape_a, memory_config, data_type, shape_b,
-                            memory_config, data_type, memory_config, data_type),
+                            shape_a, memory_config, data_type, layout, shape_b,
+                            memory_config, data_type, layout, memory_config,
+                            data_type),
             "binary");
   }
   // binary sharded
@@ -38,11 +44,12 @@ int main() {
     ttnn::mlir_interface::memory_config_tuple memory_config = {
         "width_sharded", "l1", shard_spec};
     std::string data_type = "bf16";
+    std::string layout = "tile";
 
     checker(
         ttnn::mlir_interface::does_binary_op_support_input_output_constraints(
-            shape, memory_config, data_type, shape, memory_config, data_type,
-            memory_config, data_type),
+            shape, memory_config, data_type, layout, shape, memory_config,
+            data_type, layout, memory_config, data_type),
         "binary sharded");
   }
   // unary
@@ -51,11 +58,12 @@ int main() {
     ttnn::mlir_interface::memory_config_tuple l1_interleaved_memory_config = {
         "interleaved", "l1", std::nullopt};
     std::string data_type = "bf16";
+    std::string layout = "tile";
 
     checker(
         ttnn::mlir_interface::does_unary_op_support_input_output_constraints(
-            "RELU", shape, l1_interleaved_memory_config, data_type, shape,
-            l1_interleaved_memory_config, data_type),
+            "RELU", shape, l1_interleaved_memory_config, data_type, layout,
+            shape, l1_interleaved_memory_config, data_type),
         "unary");
   }
 
@@ -65,10 +73,11 @@ int main() {
     ttnn::mlir_interface::memory_config_tuple l1_interleaved_memory_config = {
         "interleaved", "l1", std::nullopt};
     std::string data_type = "bf16";
+    std::string layout = "tile";
 
     checker(
         ttnn::mlir_interface::does_softmax_op_support_input_output_constraints(
-            shape, l1_interleaved_memory_config, data_type, shape,
+            shape, l1_interleaved_memory_config, data_type, layout, shape,
             l1_interleaved_memory_config, data_type),
         "softmax");
   }
