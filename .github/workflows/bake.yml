@@ -1,6 +1,7 @@
 # "Bake" workflow check if 24 hours have passed since opening pull request
 # making sure that reviewers have enough time to review the code
 
+name: Bake for 24h
 on:
     pull_request:
       types:
