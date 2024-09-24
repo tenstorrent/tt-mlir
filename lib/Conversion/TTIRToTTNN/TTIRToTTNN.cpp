@@ -104,8 +104,7 @@ public:
     auto device = getOrInsertDevice(rewriter, op);
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(),
-                                          ttTensorMemoryLayout),
+        TensorMemoryLayoutAttr::get(op.getContext(), ttTensorMemoryLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
@@ -221,7 +220,7 @@ public:
     //
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
     // Create ToDeviceOp
