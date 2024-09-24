@@ -122,20 +122,19 @@ public:
   // The return value is a map of physical cores where each core has
   // an associated list of noc reads/writes to be performed.
   static llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>>
-  calculateDataMovement(ArrayRef<int64_t> tensorShape, AffineMap srcToDstShape,
-                        std::int64_t elemSize, AffineMap src, AffineMap dst,
-                        NocTx::Type type, std::int64_t dstCapacity) {
+  calculateDataMovement(ArrayRef<int64_t> tensorShape, std::int64_t elemSize,
+                        AffineMap src, AffineMap dst, NocTx::Type type,
+                        std::int64_t dstCapacity) {
     bool read = type == NocTx::Type::Read;
     llvm::MapVector<PhysicalCoreCoord, mlir::SmallVector<NocTx>> txMap;
     assert(src.getNumResults() == MemoryMapResultIdx::NumIndices);
     assert(dst.getNumResults() == MemoryMapResultIdx::NumIndices);
 
     ::ttmlir::utils::sample(
-        tensorShape, [&txMap, &srcToDstShape, src, dst, elemSize, read, type,
+        tensorShape, [&txMap, src, dst, elemSize, read, type,
                       dstCapacity](ArrayRef<std::int64_t> index) {
           SmallVector<int64_t> srcResults = src.compose(index);
-          SmallVector<int64_t> dstResults =
-              dst.compose(srcToDstShape.compose(index));
+          SmallVector<int64_t> dstResults = dst.compose(index);
           assert(srcResults.size() == src.getNumResults());
           assert(dstResults.size() == dst.getNumResults());
           PhysicalCoreCoord srcCoord(srcResults);
@@ -251,11 +250,8 @@ public:
         outputLinearMap,
         device.getMapForMemorySpace(outputLayout.getMemorySpace()));
 
-    // Src/dst shapes are identical so we will use identity mapping.
-    AffineMap srcToDstShape = AffineMap::getMultiDimIdentityMap(
-        inputShape.size(), rewriter.getContext());
     auto dm = calculateDataMovement(
-        inputShape, srcToDstShape, inputLayout.getElementSizeBytes(), src, dst,
+        inputShape, inputLayout.getElementSizeBytes(), src, dst,
         dataMovementType, outputLayout.getMemrefSizeBytes());
 
     auto noc0Attr =
@@ -599,6 +595,10 @@ public:
                           ArrayRef<bool> reducedMemrefDims,
                           std::int64_t numDPSInputs, OpBuilder &builder) const {
     Value output = blockArguments[numDPSInputs];
+    ttkernel::CBType outputTy = mlir::cast<ttkernel::CBType>(output.getType());
+    MemRefType outputMemref = outputTy.getMemref();
+    AffineMap outputAffineMap = outputMemref.getLayout().getAffineMap();
+    size_t mapRank = outputAffineMap.getNumDims();
 
     // Uniquify the iterators, i.e. operands that have identical access pattern
     // can be shared.
@@ -611,9 +611,6 @@ public:
       return iteratorMaps[affineIterator];
     };
 
-    size_t operandRank = 0;
-    ArrayRef<int64_t> walkingShape;
-
     // Map block arguments to their respective unique iterators Values
     SmallVector<Value> iterators;
     iterators.resize(blockArguments.size());
@@ -622,17 +619,20 @@ public:
       AffineMap affineIterator =
           getAffineIterator(cbType.getMemref(), reducedMemrefDims);
 
-      assert(operandRank == 0 || affineIterator.getNumDims() == operandRank);
+      assert(affineIterator.getNumDims() == mapRank);
       iterators[operand.getArgNumber()] = getOrInsertIterator(affineIterator);
-      operandRank = affineIterator.getNumDims();
-
-      if (walkingShape.empty()) {
-        walkingShape =
-            getPermutedAffineMap(cbType.getMemref().getLayout().getAffineMap(),
-                                 reducedMemrefDims)
-                .compose(cbType.getMemref().getShape());
-      }
     }
+
+    // Walking shape is the shape which should be traversed with loop nest. For
+    // eltwise ops, all operands have the same shape so we can just use the
+    // first operand. Reduce ops are kind of unary ops so we can use the first
+    // operand as well.
+    auto firstArg =
+        mlir::cast<ttkernel::CBType>(blockArguments.front().getType());
+    SmallVector<int64_t> walkingShape =
+        getPermutedAffineMap(firstArg.getMemref().getLayout().getAffineMap(),
+                             reducedMemrefDims)
+            .compose(firstArg.getMemref().getShape());
 
     // Map block arguments to their respective unique iterator offset in the
     // map. This is needed by the caller to know how to wire the iterators into
@@ -670,7 +670,7 @@ public:
     SmallVector<scf::ForOp> loops;
     SmallVector<Region *> loopRegions;
     SmallVector<SmallVector<Value>> iteratorsNest = {uniqueIterators};
-    for (unsigned dim = 0; dim < operandRank; ++dim) {
+    for (unsigned dim = 0; dim < mapRank; ++dim) {
       OpBuilder regionBuilder(builder);
       if (!loopNest.loopRegions.empty()) {
         regionBuilder = OpBuilder(loopNest.loopRegions.back());
@@ -684,9 +684,9 @@ public:
           iteratorsNest.back());
       loopNest.loops.push_back(forOp);
 
-      SmallVector<std::int64_t> innerIndexStep(operandRank, 0);
+      SmallVector<std::int64_t> innerIndexStep(mapRank, 0);
       innerIndexStep[dim] = 1;
-      bool innerLoop = dim == (operandRank - 1);
+      bool innerLoop = dim == (mapRank - 1);
 
       if (innerLoop) {
         OpBuilder innerLoopRegion(loopNest.loops.back().getRegion());
@@ -708,7 +708,7 @@ public:
       // Backpedal and adjust the iterator offset for the current dimension.
       if (dim > 0) {
         SmallVector<Value> outerIndices;
-        SmallVector<std::int64_t> outerIndexStep(operandRank, 0);
+        SmallVector<std::int64_t> outerIndexStep(mapRank, 0);
         outerIndexStep[dim - 1] = 1;
         int i = 0;
         for (auto [affineMap, iterator] : iteratorMaps) {
@@ -798,8 +798,8 @@ public:
     if (reduceDim != ttkernel::ReduceDim::None) {
       auto kernelOp = mlir::cast<ttir::KernelOp>(arithOrMathOp);
       assert(kernelOp.getOp() == "reduce");
-      auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::ReduceSUM
-                                              : ttkernel::ReduceType::ReduceMAX;
+      auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::Sum
+                                              : ttkernel::ReduceType::Max;
       builder.create<ttkernel::ReduceInitOp>(
           arithOrMathOp.getLoc(), cbOperands[0],
           cbOperands[0], // TODO(rpavlovic) insert proper
@@ -1144,20 +1144,20 @@ public:
 
   ttkernel::ReduceDim getReduceDim(ArrayRef<bool> reducedMemrefDims) const {
     if (reducedMemrefDims.size() == 1) {
-      return reducedMemrefDims[0] ? ttkernel::ReduceDim::ReduceDimSCALAR
-                                  : ttkernel::ReduceDim::ReduceDimNONE;
+      return reducedMemrefDims[0] ? ttkernel::ReduceDim::Scalar
+                                  : ttkernel::ReduceDim::None;
     }
     if (reducedMemrefDims.size() == 2) {
       if (reducedMemrefDims[0] && reducedMemrefDims[1]) {
-        return ttkernel::ReduceDim::ReduceDimSCALAR;
+        return ttkernel::ReduceDim::Scalar;
       }
       if (reducedMemrefDims[0]) {
-        return ttkernel::ReduceDim::ReduceDimCOL;
+        return ttkernel::ReduceDim::Col;
       }
       if (reducedMemrefDims[1]) {
-        return ttkernel::ReduceDim::ReduceDimROW;
+        return ttkernel::ReduceDim::Row;
       }
-      return ttkernel::ReduceDim::ReduceDimNONE;
+      return ttkernel::ReduceDim::None;
     }
     llvm_unreachable("Unhandled reduction dims");
   }
@@ -1329,12 +1329,13 @@ public:
     auto dstProjection = dstLayout.projectOnto(
         dstMap, device.getMapForMemorySpace(dstLayout.getMemorySpace()));
 
-    // Because we need to walk shapes in lockstep, but source shape is
-    // transposed, we need to provide map that will transpose it back.
-    AffineMap srcToDstShape = srcMap;
+    // dstProjection is composed with srcMap to cover the case where srcMap is
+    // transposed. Then its shape is transposed too, therefore dstProjection
+    // must work with transposed shape.
     auto dm = TTIRToTTMetalLayoutRewriter::calculateDataMovement(
-        srcShape, srcToDstShape, srcLayout.getElementSizeBytes(), srcProjection,
-        dstProjection, TTIRToTTMetalLayoutRewriter::NocTx::Type::Read,
+        srcShape, srcLayout.getElementSizeBytes(), srcProjection,
+        dstProjection.compose(srcMap),
+        TTIRToTTMetalLayoutRewriter::NocTx::Type::Read,
         dstLayout.getMemrefSizeBytes());
 
     return dm;

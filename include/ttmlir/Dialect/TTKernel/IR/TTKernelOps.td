@@ -317,7 +317,7 @@ def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
       result to the DST register at index *dst_tile_index*. Reduction can be
       either of type *Reduce::R*, *Reduce::C* or *Reduce::RC*, identifying the
       dimension(s) to be reduced in size to 1. The DST register buffer must be in
-      acquired state via *acquire_dst* call.
+      acquired state via *tile_regs_acquire* call.
       The templates takes reduce_type which can be ReduceFunc::Sum, ReduceFunc::Max
       and reduce_dim which can be Reduce::R, Reduce::C, Reduce::RC.
       They can also be specified by defines REDUCE_OP and REDUCE_DIM.

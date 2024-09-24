@@ -25,10 +25,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
-#include <llvm/ADT/StringRef.h>
-#include <mlir/IR/Attributes.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/Support/LLVM.h>
 
 using namespace mlir;
 using namespace tt;
@@ -194,13 +190,13 @@ public:
   template <typename ReduceKindOp>
   std::pair<StringRef, StringRef> getReduceTypeAndDim(ReduceKindOp op) const {
     StringRef reduceType =
-        op.getReduceTypeAttr().getValue() == ttkernel::ReduceType::ReduceMAX
+        op.getReduceTypeAttr().getValue() == ttkernel::ReduceType::Max
             ? "PoolType::MAX"
             : "PoolType::SUM";
     StringRef reduceDim =
-        op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::ReduceDimCOL
+        op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::Col
             ? "ReduceDim::REDUCE_COL"
-        : op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::ReduceDimROW
+        : op.getReduceDimAttr().getValue() == ttkernel::ReduceDim::Row
             ? "ReduceDim::REDUCE_ROW"
             : "ReduceDim::REDUCE_SCALAR";
     return {reduceType, reduceDim};

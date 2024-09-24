@@ -18,12 +18,14 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/IR/Attributes.h"
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-#include <llvm/ADT/ArrayRef.h>
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/LogicalResult.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -374,10 +376,7 @@ struct TTIRGenericOperandsToMemrefRewriter
 
       for (auto blockArg : entry->getArguments()) {
         uint32_t blockArgNumber = blockArg.getArgNumber();
-        auto matchingOperand =
-            blockArgNumber < generic.getInputs().size()
-                ? generic->getOperand(blockArgNumber)
-                : generic->getOperand(blockArgNumber + generic.getCbs().size());
+        auto matchingOperand = generic.getMatchingOperand(blockArgNumber);
         auto operandType = matchingOperand.getType();
 
         auto bufferLayout = mlir::cast<LayoutAttr>(
@@ -1517,8 +1516,14 @@ public:
 
     SmallVector<Value> cbValues;
     SmallVector<int64_t> operandCBMapping;
+    SmallVector<Attribute> oldConstraints;
+    SmallVector<Attribute> cbConstraints;
+    size_t i = 0;
 
     for (auto operand : generic->getOperands()) {
+      size_t operandIdx = i++;
+      oldConstraints.push_back(generic.getOperandConstraints()[operandIdx]);
+
       auto ty = mlir::cast<RankedTensorType>(operand.getType());
 
       // Enforcing tiled layout as in kernel we always want to work with tiles.
@@ -1544,19 +1549,33 @@ public:
           generic->getLoc(), ty.getShape(), ty.getElementType(), desiredLayout);
       cbValues.push_back(emptyOp.getResult());
       operandCBMapping.push_back(cbValues.size() - 1);
+
+      OperandConstraint inherittedConstraint =
+          mlir::cast<OperandConstraintAttr>(
+              generic.getOperandConstraints()[operandIdx])
+              .getValue();
+      cbConstraints.push_back(rewriter.getAttr<OperandConstraintAttr>(
+          inherittedConstraint &
+              ~(OperandConstraint::System | OperandConstraint::DRAM) |
+          OperandConstraint::L1));
     }
 
-    // TODO(rpavlovic): CBs could have constraint L1.
-    auto newConstraints = rewriter.getArrayAttr(
-        SmallVector<Attribute>(generic->getNumOperands() + cbValues.size(),
-                               rewriter.getAttr<OperandConstraintAttr>(
-                                   OperandConstraint::AnyDeviceTile)));
+    SmallVector<Attribute> combinedConstraints;
+    combinedConstraints.append(oldConstraints.begin(),
+                               oldConstraints.begin() +
+                                   generic.getInputs().size());
+    combinedConstraints.append(cbConstraints.begin(), cbConstraints.end());
+    combinedConstraints.append(oldConstraints.begin() +
+                                   generic.getInputs().size(),
+                               oldConstraints.end());
+    auto newConstraintsArray = rewriter.getArrayAttr(combinedConstraints);
+
     rewriter.setInsertionPointAfter(generic);
     auto newGenericOp = rewriter.create<ttir::GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         cbValues, generic.getOutputs(), generic.getGrid(),
-        generic.getIndexingMaps(), generic.getIteratorTypes(), newConstraints,
-        operandCBMapping);
+        generic.getIndexingMaps(), generic.getIteratorTypes(),
+        newConstraintsArray, operandCBMapping);
 
     auto &oldRegion = generic.getRegion();
     newGenericOp->getRegion(0).takeBody(oldRegion);
