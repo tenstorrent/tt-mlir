@@ -29,7 +29,9 @@
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/Value.h>
+#include <mlir/IR/ValueRange.h>
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
+#include <utility>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSLIDINGWINDOW2DFIXSHAPES
@@ -598,7 +600,8 @@ public:
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  MemorySpace desiredMemorySpace,
-                 TensorMemoryLayout desiredMemLayout, bool tiled) {
+                 TensorMemoryLayout desiredMemLayout, GridAttr defaultGrid,
+                 bool tiled) {
 
   auto ty = mlir::cast<RankedTensorType>(input.getType());
   auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
@@ -615,7 +618,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   }
 
   auto desiredLayout =
-      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
+      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, defaultGrid,
                                    desiredElementType, desiredMemLayout);
 
   tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
@@ -645,11 +648,10 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       ->getResult(0);
 }
 
-static std::optional<Value>
-createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint,
-                 MemorySpace defaultMemorySpace,
-                 TensorMemoryLayout defaultDeviceMemoryLayout) {
+static std::optional<Value> createToLayoutOp(
+    PatternRewriter &rewriter, Location loc, Value input,
+    OperandConstraint operandConstraint, MemorySpace defaultMemorySpace,
+    TensorMemoryLayout defaultDeviceMemoryLayout, GridAttr defaultGrid) {
   auto desiredMemorySpace =
       getLegalMemorySpace(operandConstraint, defaultMemorySpace);
 
@@ -659,18 +661,42 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   bool tiled =
       !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
   return createToLayoutOp(rewriter, loc, input, desiredMemorySpace,
-                          desiredMemoryLayout, tiled);
+                          desiredMemoryLayout, defaultGrid, tiled);
 }
 
 class TTIRLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
-  TTIRLayoutDPSOperandsRewriter(MLIRContext *ctx,
+  TTIRLayoutDPSOperandsRewriter(MLIRContext *ctx, DeviceAttr device,
                                 MemorySpace defaultMemorySpace,
-                                TensorMemoryLayout defaultDeviceMemoryLayout)
+                                TensorMemoryLayout defaultDeviceMemoryLayout,
+                                GridAttr defaultGrid)
       : OpInterfaceRewritePattern<DestinationStyleOpInterface>(ctx),
-        defaultMemorySpace(defaultMemorySpace),
-        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
+        device(device), defaultMemorySpace(defaultMemorySpace),
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout),
+        defaultGrid(defaultGrid) {}
+
+  std::tuple<MemorySpace, TensorMemoryLayout, GridAttr>
+  getMemorySpaceLayout(Operation *op) const {
+
+    // if sliding window
+    if (isa<Conv2dOp>(op) || isa<MaxPool2dOp>(op)) {
+      int64_t num_cores_y = device.getWorkerGrid().getShape()[1];
+      llvm::ArrayRef<int64_t> input_shape =
+          isa<Conv2dOp>(op) ? mlir::cast<Conv2dOp>(op).getType().getShape()
+                            : mlir::cast<MaxPool2dOp>(op).getType().getShape();
+      int64_t in_channels = input_shape.back();
+
+      if (in_channels / num_cores_y >= 32) {
+        return {MemorySpace::DeviceL1, TensorMemoryLayout::BlockSharded,
+                defaultGrid};
+      }
+      return {MemorySpace::DeviceL1, TensorMemoryLayout::HeightSharded,
+              defaultGrid};
+    } else {
+      return {defaultMemorySpace, defaultDeviceMemoryLayout, defaultGrid};
+    }
+  }
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
@@ -684,19 +710,23 @@ public:
     for (auto &operand : op->getOpOperands()) {
       bool isResult = op.isDpsInit(&operand);
 
+      auto [memory_space, memory_layout, grid] = getMemorySpaceLayout(op);
+
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (mlir::isa<Conv2dOp>(op.getOperation()) && !isResult) {
-        continue;
+      if (mlir::isa<Conv2dOp>(op.getOperation())) {
+        if (!isResult) {
+          continue;
+        }
       }
       auto operandConstraint =
           mlir::cast<OperandConstraintAttr>(
               mlir::cast<TTIROp>(op.getOperation())
                   .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
-      auto desiredLayout = createToLayoutOp(
-          rewriter, op.getLoc(), operand.get(), operandConstraint,
-          defaultMemorySpace, defaultDeviceMemoryLayout);
+      auto desiredLayout = createToLayoutOp(rewriter, op.getLoc(),
+                                            operand.get(), operandConstraint,
+                                            memory_space, memory_layout, grid);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -714,18 +744,22 @@ public:
   }
 
 private:
+  DeviceAttr device;
   MemorySpace defaultMemorySpace;
   TensorMemoryLayout defaultDeviceMemoryLayout;
+  GridAttr defaultGrid;
 };
 
 class TTIRLayoutFuncReturnRewriter
     : public OpRewritePattern<mlir::func::ReturnOp> {
 public:
   TTIRLayoutFuncReturnRewriter(MLIRContext *ctx, MemorySpace initMemorySpace,
-                               TensorMemoryLayout defaultDeviceMemoryLayout)
+                               TensorMemoryLayout defaultDeviceMemoryLayout,
+                               GridAttr defaultGrid)
       : OpRewritePattern<mlir::func::ReturnOp>(ctx),
         initMemorySpace(initMemorySpace),
-        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout) {}
+        defaultDeviceMemoryLayout(defaultDeviceMemoryLayout),
+        defaultGrid(defaultGrid) {}
 
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
@@ -738,9 +772,9 @@ public:
       if (isDeviceMemorySpace(initMemorySpace)) {
         initMemoryLayout = defaultDeviceMemoryLayout;
       }
-      if (auto layout =
-              createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                               initMemorySpace, initMemoryLayout, tiled);
+      if (auto layout = createToLayoutOp(rewriter, op.getLoc(), operand.get(),
+                                         initMemorySpace, initMemoryLayout,
+                                         defaultGrid, tiled);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -753,6 +787,49 @@ public:
 private:
   MemorySpace initMemorySpace;
   TensorMemoryLayout defaultDeviceMemoryLayout;
+  GridAttr defaultGrid;
+};
+
+class TTIRLayoutFuncResultRewriter
+    : public OpRewritePattern<mlir::func::FuncOp> {
+public:
+  TTIRLayoutFuncResultRewriter(MLIRContext *ctx, MemorySpace memorySpace,
+                               TensorMemoryLayout memoryLayout, GridAttr grid)
+      : OpRewritePattern<mlir::func::FuncOp>(ctx), memorySpace(memorySpace),
+        memoryLayout(memoryLayout), grid(grid) {}
+
+  LogicalResult matchAndRewrite(mlir::func::FuncOp op,
+                                PatternRewriter &rewriter) const final {
+
+    auto ty = mlir::cast<RankedTensorType>(op.getFunctionType().getResult(0));
+    auto current_layout = mlir::cast<LayoutAttr>(ty.getEncoding());
+
+    TensorMemoryLayout memory_layout_to_use = memoryLayout;
+
+    if (!isDeviceMemorySpace(memorySpace)) {
+      memory_layout_to_use = TensorMemoryLayout::None;
+    }
+
+    if (current_layout.getMemLayout() == memory_layout_to_use &&
+        current_layout.getMemorySpace() == memorySpace &&
+        current_layout.getGrid() == grid) {
+      return failure();
+    }
+
+    auto desired_layout = rewriter.getAttr<LayoutAttr>(
+        ty, memorySpace, grid, ty.getElementType(), memory_layout_to_use);
+    auto new_type = RankedTensorType::get(ty.getShape(), ty.getElementType(),
+                                          desired_layout);
+    // op->getResult(0).setType(new_type);
+    op.setFunctionType(mlir::FunctionType::get(
+        rewriter.getContext(), op.getFunctionType().getInputs(), new_type));
+    return success();
+  }
+
+private:
+  MemorySpace memorySpace;
+  TensorMemoryLayout memoryLayout;
+  GridAttr grid;
 };
 
 class TTIRLayout : public impl::TTIRLayoutBase<TTIRLayout> {
@@ -760,9 +837,9 @@ public:
   using impl::TTIRLayoutBase<TTIRLayout>::TTIRLayoutBase;
 
   void runOnOperation() final {
+    auto device = getCurrentScopeDevice(getOperation());
+    assert(device && "Device not found");
     {
-      auto device = getCurrentScopeDevice(getOperation());
-      assert(device && "Device not found");
       TTIRLayoutTensorTypeConverter typeConverter(
           &getContext(), initMemorySpace, device.getWorkerGrid());
       RewritePatternSet patterns(&getContext());
@@ -774,11 +851,18 @@ public:
       }
     }
     {
+
+      GridAttr defaultGrid = device.getWorkerGrid();
       RewritePatternSet patterns(&getContext());
       patterns.add<TTIRLayoutDPSOperandsRewriter>(
-          &getContext(), defaultMemorySpace, defaultDeviceMemoryLayout);
+          &getContext(), getCurrentScopeDevice(getOperation()),
+          defaultMemorySpace, defaultDeviceMemoryLayout, defaultGrid);
       patterns.add<TTIRLayoutFuncReturnRewriter>(&getContext(), initMemorySpace,
-                                                 defaultDeviceMemoryLayout);
+                                                 defaultDeviceMemoryLayout,
+                                                 defaultGrid);
+      patterns.add<TTIRLayoutFuncResultRewriter>(&getContext(), initMemorySpace,
+                                                 defaultDeviceMemoryLayout,
+                                                 defaultGrid);
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
@@ -787,6 +871,7 @@ public:
         signalPassFailure();
         return;
       }
+      getOperation().dump();
     }
   }
 
@@ -1260,6 +1345,9 @@ public:
       legalGridAnalysis.init(LegalGridAnalysisInput(
           chipDesc, max_grid, tensorType, &overrideOutputLayout));
       legalLayouts[op] = legalGridAnalysis.getResult();
+      if (isa<Conv2dOp>(op)) {
+        (void)2;
+      }
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
@@ -1323,6 +1411,10 @@ public:
           RankedTensorType newTensorType =
               RankedTensorType::get(tensorShape, tensorType.getElementType(),
                                     opConfigAnalysis.getResult().at(op));
+
+          if (isa<Conv2dOp>(op)) {
+            (void)2;
+          }
 
           op->getResult(0).setType(newTensorType);
 

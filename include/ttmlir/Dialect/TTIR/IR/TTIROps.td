@@ -61,6 +61,22 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let hasVerifier = 1;
 }
 
+def TTIR_EmptyOp : TTIR_Op<"empty"> {
+    let summary = "Empty op.";
+    let description = [{
+      Tensor empty operation
+    }];
+
+    let arguments = (ins Optional<TT_Device>:$device,
+                         I32ArrayAttr:$shape,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTIR_LayoutAttr>:$layout,
+                         OptionalAttr<TTIR_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
     let summary = "Layout op.";
     let description = [{

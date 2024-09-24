@@ -38,7 +38,7 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
-        return GridAttr::get(context, {1, 1});
+        return GridAttr::get(context, {8, 8});
       }
 
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {

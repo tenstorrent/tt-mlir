@@ -209,6 +209,10 @@ public:
     // Also update the function header comment to reflect this added op
     //
     (void)dtype;
+    auto operand_type =
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    auto operand_memory_space =
+        mlir::cast<LayoutAttr>(operand_type.getEncoding()).getMemorySpace();
 
     // Create ToLayoutOp
     //
@@ -222,16 +226,21 @@ public:
     // TODO(bug #620):
     // Add support for ShardSpec
     //
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
+    if (operand_memory_space == MemorySpace::System) {
+      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+          op.getContext(),
+          ttnn::TensorMemoryLayoutAttr::get(op.getContext(),
+                                            tensorMemoryLayout),
+          ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
-    // Create ToDeviceOp
-    //
-    rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
-        device, memoryConfigAttr);
+      // Create ToDeviceOp
+      //
+      rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
+          device, memoryConfigAttr);
+    } else {
+      rewriter.replaceOp(op, toLayoutOp);
+    }
     return success();
   }
 };
@@ -601,19 +610,21 @@ public:
     tt::LayoutAttr ttLayoutAttr =
         mlir::cast<tt::LayoutAttr>(new_type.getEncoding());
 
-    // ------ CONV SHARDING METRIC ------
-    int64_t num_cores_y;
-    auto grid_shape = getCurrentScopeDevice(op).getWorkerGrid().getShape();
-    num_cores_y = grid_shape[1];
-    TensorMemoryLayout shard_layout = in_channels.getInt() / num_cores_y >= 32
-                                          ? TensorMemoryLayout::BlockSharded
-                                          : TensorMemoryLayout::HeightSharded;
-    // ----------------------------------
+    // // ------ CONV SHARDING METRIC ------
+    // int64_t num_cores_y;
+    // auto grid_shape = getCurrentScopeDevice(op).getWorkerGrid().getShape();
+    // num_cores_y = grid_shape[1];
+    // TensorMemoryLayout shard_layout = in_channels.getInt() / num_cores_y >=
+    // 32
+    //                                       ? TensorMemoryLayout::BlockSharded
+    //                                       :
+    //                                       TensorMemoryLayout::HeightSharded;
+    // // ----------------------------------
 
-    ttLayoutAttr =
-        ttLayoutAttr.withMemoryLayout(rewriter.getContext(), shard_layout);
-    ttLayoutAttr = ttLayoutAttr.withMemorySpace(rewriter.getContext(),
-                                                MemorySpace::DeviceL1);
+    // ttLayoutAttr =
+    //     ttLayoutAttr.withMemoryLayout(rewriter.getContext(), shard_layout);
+    // ttLayoutAttr = ttLayoutAttr.withMemorySpace(rewriter.getContext(),
+    //                                             MemorySpace::DeviceL1);
     new_type = RankedTensorType::get(
         op.getType().getShape(), op.getType().getElementType(), ttLayoutAttr);
 
@@ -621,11 +632,12 @@ public:
     ttnn::Conv2dOp ttnn_conv = rewriter.create<ttnn::Conv2dOp>(
         op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        genDPSOutput(rewriter, op, new_type, ttLayoutAttr), device, in_channels,
-        out_channels, batch_size, input_height, input_width, kernel_height,
-        kernel_width, stride_height, stride_width, padding_height,
-        padding_width, dilation_height, dilation_width, groups,
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(shard_layout)));
+        adaptor.getOutput(), device, in_channels, out_channels, batch_size,
+        input_height, input_width, kernel_height, kernel_width, stride_height,
+        stride_width, padding_height, padding_width, dilation_height,
+        dilation_width, groups,
+        rewriter.getI32IntegerAttr(
+            static_cast<int32_t>(ttLayoutAttr.getMemLayout())));
 
     rewriter.replaceOp(op, ttnn_conv);
     return success();
@@ -669,10 +681,10 @@ public:
     tt::LayoutAttr ttLayoutAttr =
         mlir::cast<tt::LayoutAttr>(new_type.getEncoding());
 
-    ttLayoutAttr = ttLayoutAttr.withMemoryLayout(
-        rewriter.getContext(), TensorMemoryLayout::HeightSharded);
-    ttLayoutAttr = ttLayoutAttr.withMemorySpace(rewriter.getContext(),
-                                                MemorySpace::DeviceL1);
+    // ttLayoutAttr = ttLayoutAttr.withMemoryLayout(
+    //     rewriter.getContext(), TensorMemoryLayout::HeightSharded);
+    // ttLayoutAttr = ttLayoutAttr.withMemorySpace(rewriter.getContext(),
+    //                                             MemorySpace::DeviceL1);
     new_type = RankedTensorType::get(
         op.getType().getShape(), op.getType().getElementType(), ttLayoutAttr);
 

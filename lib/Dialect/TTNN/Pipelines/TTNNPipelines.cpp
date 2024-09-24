@@ -39,14 +39,14 @@ void createTTNNPipelineAnalysisPasses(
     ttir::TTIROptimizerOptions optimizerOptions;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
-    pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
+    // pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }
 }
 
 void createTTNNPipelineLoweringPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(createConvertTTIRToTTNNPass());
-  pm.addPass(createTTNNForceDRAMInterleaved());
+  // pm.addPass(createTTNNForceDRAMInterleaved());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
