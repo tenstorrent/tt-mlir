@@ -119,6 +119,45 @@ Default parameters
 ```bash
 Location: test/ttmlir/Silicon
 File Type: .mlir
-REQUIRES: [Architecture] [Pipeline] [Target Family] [Target Silicon] [Duration] (coming soon)
-UNSUPPORTED: [Target Family] [Target Silicon] (coming soon)
+REQUIRES: [Architecture] [Pipeline] [Target Family] [Target Silicon] [Duration]
+UNSUPPORTED: [Target Family] [Target Silicon]
 ```
+
+The following tags can be set on an mlir file, which will run the file on a wormhole_b0 machine, both functional and performance pipelines, on an n150 and n300 machine and in push pipeline.
+```bash
+// REQUIRES: wormhole_b0
+// REQUIRES: functional,perf
+// REQUIRES: n150,n300
+// REQUIRES: push
+```
+
+You can also set tests as unsupported in your .mlir file. By default, if you specify no flags, it will attempt to run on everything
+```bash
+// UNSUPPORTED: perf
+// UNSUPPORTED: n300
+```
+
+
+## Running tests
+When running tests, you have to specify certain test environment flags that llvm-lit will pick up. The following flags are supported with their accepted values
+
+```bash
+TEST_ARCH=wormhole_b0
+TEST_PIPELINE=functional,perf
+TEST_TARGET_FAMILY=n150,n300
+TEST_TARGET_SILICON=(coming soon)
+TEST_DURATION=push
+```
+
+For example, if you wanted to test all wormhole_b0 tests, that run on push pipeline, performance tests, and only on n150 systems, you could do something like this. This will generate all the supported tests that have these features set. Multiple values can be set for the flags that support it, separated by comma delimiter
+
+```bash
+export TEST_ARCH=wormhole_b0
+export TEST_PIPELINE=perf
+export TEST_TARGET_FAMILY=n150
+export TEST_DURATION=push
+
+cmake --build build -- check-ttmlir
+```
+
+CI will also set the required flags when it's pipelines are run, so as a developer, all you need to make sure is you define in the test itself where it should run and on what machines.

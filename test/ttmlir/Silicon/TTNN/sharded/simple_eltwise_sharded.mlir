@@ -1,3 +1,7 @@
+// REQUIRES: wormhole_b0
+// REQUIRES: functional,perf
+// REQUIRES: n150,n300
+// REQUIRES: push
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=false" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
