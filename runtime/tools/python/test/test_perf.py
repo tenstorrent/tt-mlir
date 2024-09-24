@@ -32,10 +32,18 @@ def test_flatbuffer():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_flatbuffer.__name__}"
+
 
 def test_flatbuffer_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --log-file {test_flatbuffer_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_flatbuffer_cmd.__name__}"
 
 
 def test_dir_flatbuffer():
@@ -46,10 +54,18 @@ def test_dir_flatbuffer():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_dir_flatbuffer.__name__}"
+
 
 def test_dir_flatbuffer_cmd():
     command = f"ttrt perf {DIRECTORY_PATH} --host-only --log-file {test_dir_flatbuffer_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_dir_flatbuffer_cmd.__name__}"
 
 
 def test_logger():
@@ -61,6 +77,10 @@ def test_logger():
     custom_logger = Logger(log_file_name)
     perf_instance = API.Perf(args=custom_args, logger=custom_logger)
     perf_instance()
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_logger.__name__}"
 
 
 def test_artifacts():
@@ -77,6 +97,10 @@ def test_artifacts():
     perf_instance = API.Perf(args=custom_args, artifacts=custom_artifacts)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_artifacts.__name__}"
+
 
 def test_clean_artifacts():
     API.initialize_apis()
@@ -87,10 +111,18 @@ def test_clean_artifacts():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_clean_artifacts.__name__}"
+
 
 def test_clean_artifacts_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_clean_artifacts_cmd.__name__}"
 
 
 def test_save_artifacts():
@@ -103,10 +135,18 @@ def test_save_artifacts():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_save_artifacts.__name__}"
+
 
 def test_save_artifacts_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_save_artifacts_cmd.__name__}"
 
 
 def test_log_file():
@@ -118,10 +158,18 @@ def test_log_file():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_log_file.__name__}"
+
 
 def test_log_file_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --log-file test.log --log-file {test_log_file_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_log_file_cmd.__name__}"
 
 
 def test_artifact_dir():
@@ -135,10 +183,18 @@ def test_artifact_dir():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_artifact_dir.__name__}"
+
 
 def test_artifact_dir_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/test-artifacts --log-file {test_artifact_dir_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_artifact_dir_cmd.__name__}"
 
 
 def test_program_index():
@@ -150,10 +206,18 @@ def test_program_index():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_program_index.__name__}"
+
 
 def test_program_index_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --program-index 0 --log-file {test_program_index_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_program_index_cmd.__name__}"
 
 
 def test_loops():
@@ -165,10 +229,18 @@ def test_loops():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_loops.__name__}"
+
 
 def test_loops_cmd():
     command = f"ttrt perf {BINARY_FILE_PATH} --host-only --loops 1 --log-file {test_loops_cmd.__name__}_perf.log"
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_loops_cmd.__name__}"
 
 
 def test_device():
@@ -178,9 +250,17 @@ def test_device():
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_device.__name__}"
+
 
 def test_device_cmd():
     command = (
         f"ttrt perf {BINARY_FILE_PATH} --log-file {test_device_cmd.__name__}_perf.log"
     )
     sub_process_command(command)
+
+    assert (
+        check_results("perf_results.json") == 0
+    ), f"one of more tests failed in={test_device_cmd.__name__}"
