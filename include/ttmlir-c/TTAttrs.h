@@ -60,7 +60,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTOOBValAttrGet(MlirContext ctx,
                                                        uint32_t oobVal);
 
 MLIR_CAPI_EXPORTED MlirAttribute
-ttmlirTTensorMemoryLayoutAttrGet(MlirContext ctx, uint32_t memLayout);
+ttmlirTensorMemoryLayoutAttrGet(MlirContext ctx, uint32_t memLayout);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTIteratorTypeAttrGet(MlirContext ctx, uint32_t iteratorType);

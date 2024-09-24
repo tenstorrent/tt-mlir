@@ -19,7 +19,7 @@ toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
 // Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
 //
 TensorMemoryLayout
-toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout);
+toTTNNTensorMemoryLayout(const TensorMemoryLayout TensorMemoryLayout);
 
 } // namespace mlir::tt::ttnn::utils
 
