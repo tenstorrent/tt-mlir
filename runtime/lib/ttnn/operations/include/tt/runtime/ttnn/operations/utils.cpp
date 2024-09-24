@@ -27,13 +27,6 @@ bool isOnDevice(const ::ttnn::Tensor &tensor) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
-::ttnn::Device &getDevice(const ::tt::target::DeviceRef *deviceRef,
-                          DeviceMap &devicePool) {
-  uint32_t deviceId = deviceRef->global_id();
-  assert(devicePool.contains(deviceId) && "Device not found in device pool");
-  return *devicePool.at(deviceId);
-}
-
 CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
   std::set<CoreRange> coreRanges;

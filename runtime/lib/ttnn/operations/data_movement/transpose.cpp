@@ -8,7 +8,7 @@
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();

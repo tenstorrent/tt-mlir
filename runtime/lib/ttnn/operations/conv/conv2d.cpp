@@ -9,8 +9,11 @@
 
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  // TODO (jnie): Update this once we support multi device tensors
+  // Investigate how to handle multi device in conv2d
+  ::ttnn::Device &device =
+      context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   std::optional<::ttnn::Tensor> bias =
@@ -19,7 +22,6 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
   ::ttnn::Tensor out =
       std::get<0>(::ttnn::operations::conv::conv2d::conv2d<::ttnn::Device>(
           input, weight, &device, op->in_channels(), op->out_channels(),

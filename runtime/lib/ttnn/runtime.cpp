@@ -57,26 +57,45 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   return utils::fromTTNNDataType(nnTensor.get_dtype());
 }
 
-Device openDevice(std::vector<int> const &deviceIds,
-                  std::vector<std::uint8_t> const &numHWCQs) {
-  assert(deviceIds.size() == 1 && "Only one device is supported for now");
-  assert(numHWCQs.empty() && "HWCQs are not supported for now");
-  auto &device = ::ttnn::open_device(deviceIds.front(), kL1SmallSize);
+size_t getNumAvailableDevices() {
+  return ::tt::tt_metal::GetNumAvailableDevices();
+}
+
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+  assert(deviceIds.size() && "No devices specified");
+  ::tt::tt_metal::MeshShape grid = std::make_pair(1, deviceIds.size());
+  std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
+      grid, kL1SmallSize, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
+      ::tt::tt_metal::DispatchCoreType::WORKER);
+
   bool enableAsync = debug::Env::get().enableAsyncTTNN;
-  device.enable_async(enableAsync);
-  return Device::borrow(device, DeviceRuntime::TTNN);
+  for (::ttnn::Device *device : meshDevice->get_devices()) {
+    device->enable_async(enableAsync);
+  }
+
+  return Device(std::static_pointer_cast<void>(meshDevice),
+                DeviceRuntime::TTNN);
 }
 
 void closeDevice(Device device) {
-  auto &ttnn_device = device.as<::ttnn::Device>(DeviceRuntime::TTNN);
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  ::tt::tt_metal::detail::DumpDeviceProfileResults(&ttnn_device);
+  for (const ::ttnn::Device *ttnnDevice : ttnnMeshDevice.get_devices()) {
+    ::tt::tt_metal::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+  }
 #endif
-  ::ttnn::close_device(ttnn_device);
+
+  ttnnMeshDevice.close_devices();
 }
 
 void deallocateBuffers(Device deviceHandle) {
-  deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN).deallocate_buffers();
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  for (::ttnn::Device *device : meshDevice.get_devices()) {
+    device->deallocate_buffers();
+  }
 }
 
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
@@ -92,7 +111,8 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
              std::vector<Tensor> const &outputHandles) {
-  ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN);
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
   inputs.reserve(inputHandles.size());
@@ -106,7 +126,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
     assert(output.matchesRuntime(DeviceRuntime::TTNN));
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
-  tt::runtime::ttnn::runProgram(device, fbb.programs()->Get(programIndex),
+  tt::runtime::ttnn::runProgram(meshDevice, fbb.programs()->Get(programIndex),
                                 inputs, outputs);
   return Event(nullptr, DeviceRuntime::TTNN);
 }

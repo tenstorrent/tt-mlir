@@ -9,7 +9,6 @@
 
 namespace tt::runtime::ttnn {
 
-using DeviceMap = std::unordered_map<uint32_t, ::ttnn::Device *>;
 using TensorMap = std::unordered_map<uint32_t, ::ttnn::Tensor *>;
 struct ProgramTensorPool {
   ProgramTensorPool(const TensorMap &liveTensors) : liveTensors(liveTensors) {}
@@ -56,13 +55,50 @@ private:
   std::unordered_map<std::uint32_t, ::ttnn::Tensor> intermedTensors;
 };
 
-struct ProgramContext {
-  ProgramTensorPool tensorPool;
-  DeviceMap allDevices;
-  DeviceMap devicePool;
+class ProgramContext {
+public:
+  ProgramContext(const TensorMap &liveTensors, ::ttnn::MeshDevice *meshDevice)
+      : tensorPool(ProgramTensorPool(liveTensors)), meshDevice(meshDevice) {}
 
-  ProgramContext(const TensorMap &liveTensors, const DeviceMap &allDevices)
-      : tensorPool(ProgramTensorPool(liveTensors)), allDevices(allDevices) {}
+  const ::ttnn::MeshDevice &getMeshDevice() const {
+    assert(meshDevice && "Mesh device not initialized");
+    return *meshDevice;
+  }
+
+  ::ttnn::MeshDeviceView &getMeshView(uint32_t globalId) {
+    assert(meshViews.contains(globalId) &&
+           "Mesh view with global id not initialized");
+    return *(meshViews.at(globalId));
+  }
+
+  ProgramTensorPool &getTensorPool() { return tensorPool; }
+
+  void addMeshView(uint32_t globalId,
+                   std::unique_ptr<::ttnn::MeshDeviceView> view) {
+    assert(not meshViews.contains(globalId) &&
+           "Mesh view with globalId already set");
+    meshViews.try_emplace(globalId, std::move(view));
+  }
+
+  ::ttnn::Device &getDeviceFromView(uint32_t globalId, int deviceId) {
+    assert(meshViews.contains(globalId) && "Mesh view not initialized");
+    ::tt::tt_metal::Coordinate deviceCoord =
+        meshViews.at(globalId)->find_device(deviceId);
+    return *(
+        meshViews.at(globalId)->get_device(deviceCoord.row, deviceCoord.col));
+  }
+
+private:
+  ProgramTensorPool tensorPool;
+
+  // Contains all devices borrowed from the user that are available to the
+  // program
+  ::ttnn::MeshDevice *meshDevice = nullptr;
+
+  // Contains various views of meshDevice that is used by the program
+  // Will be populated by get_device ops
+  std::unordered_map<uint32_t, std::unique_ptr<::ttnn::MeshDeviceView>>
+      meshViews;
 };
 } // namespace tt::runtime::ttnn
 

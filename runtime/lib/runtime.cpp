@@ -138,8 +138,22 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   throw std::runtime_error("runtime is not enabled");
 }
 
-Device openDevice(std::vector<int> const &deviceIds,
-                  std::vector<std::uint8_t> const &numHWCQs) {
+size_t getNumAvailableDevices() {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getNumAvailableDevices();
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getNumAvailableDevices();
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs);

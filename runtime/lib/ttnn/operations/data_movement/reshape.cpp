@@ -25,7 +25,7 @@ static ::ttnn::Tensor invoke_reshape(const ::ttnn::Tensor &tensor,
 }
 
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
