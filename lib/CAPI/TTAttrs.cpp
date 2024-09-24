@@ -132,8 +132,8 @@ MlirAttribute ttmlirTTOOBValAttrGet(MlirContext ctx, uint32_t oobVal) {
   return wrap(OOBValAttr::get(unwrap(ctx), static_cast<tt::OOBVal>(oobVal)));
 }
 
-MlirAttribute ttmlirTensorMemoryLayoutAttrGet(MlirContext ctx,
-                                              uint32_t memLayout) {
+MlirAttribute ttmlirTTTensorMemoryLayoutAttrGet(MlirContext ctx,
+                                                uint32_t memLayout) {
   return wrap(TensorMemoryLayoutAttr::get(
       unwrap(ctx), static_cast<TensorMemoryLayout>(memLayout)));
 }
