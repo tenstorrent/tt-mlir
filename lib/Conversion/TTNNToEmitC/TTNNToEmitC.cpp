@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -30,6 +31,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
+#include <cassert>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -59,28 +61,6 @@ emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
 
 // Create emitc::OpaqueAttr for ttnn::TensorMemoryLayout
 //
-emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
-                                            ttnn::TensorMemoryLayoutAttr attr) {
-  switch (attr.getValue()) {
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::BLOCK_SHARDED");
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::HEIGHT_SHARDED");
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::INTERLEAVED");
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::SINGLE_BANK");
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
-  }
-
-  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
-}
 
 // Create emitc::OpaqueAttr for ttnn::BufferType
 //
@@ -305,8 +285,7 @@ public:
     // Create ArrayAttr object holding MemoryConfig attributes
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {convertTensorMemoryLayout(
-             rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
+        {srcOp.getMemoryConfig().getTensorMemoryLayout(),
          convertBufferType(rewriter, srcOp.getMemoryConfig().getBufferType())});
 
     // Create MemoryConfig object first, then pass it to the op
@@ -456,8 +435,7 @@ public:
       // Create ArrayAttr object holding MemoryConfig attributes
       //
       ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
-          {convertTensorMemoryLayout(
-               rewriter, srcOp.getMemoryConfig()->getTensorMemoryLayout()),
+          {srcOp.getMemoryConfig()->getTensorMemoryLayout(),
            convertBufferType(rewriter,
                              srcOp.getMemoryConfig()->getBufferType())});
 

@@ -11,6 +11,7 @@ include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN attr definitions
@@ -48,7 +49,7 @@ def TTNN_LayoutAttr : EnumAttr<TTNN_Dialect, TTNN_Layout, "layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTNN_TensorMemoryLayoutAttr : EnumAttr<TTNN_Dialect, TTNN_TensorMemoryLayout, "tensor_memory_layout"> {
+def TTNN_TensorMemoryLayoutAttr : EnumAttr<TTNN_Dialect, TT_TensorMemoryLayout, "tensor_memory_layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

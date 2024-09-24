@@ -549,9 +549,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   if (getMemoryConfig().has_value()) {
     ttnn::BufferType bufferType =
         mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
-            ttLayoutAttr.getMemLayout());
+    TensorMemoryLayout tensorMemoryLayout = ttLayoutAttr.getMemLayout();
     assert(bufferType == getMemoryConfig()->getBufferType().getValue());
     assert(tensorMemoryLayout ==
            getMemoryConfig()->getTensorMemoryLayout().getValue());

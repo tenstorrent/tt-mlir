@@ -98,15 +98,14 @@ public:
 
     ttnn::BufferType bufferType =
         ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
 
     // Create MemoryConfigAttr
     //
     auto device = getOrInsertDevice(rewriter, op);
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        ttnn::TensorMemoryLayoutAttr::get(op.getContext(),
+                                          ttTensorMemoryLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
@@ -199,8 +198,7 @@ public:
 
     // Set the tensor memory layout
     //
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+    TensorMemoryLayout tensorMemoryLayout = ttLayoutAttr.getMemLayout();
 
     // TODO(bug #621):
     // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated

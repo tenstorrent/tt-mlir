@@ -20,27 +20,3 @@ mlir::tt::ttnn::BufferType mlir::tt::ttnn::utils::toTTNNBufferType(
 
   llvm_unreachable("Unknown MemorySpace");
 }
-
-// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
-//
-mlir::tt::ttnn::TensorMemoryLayout
-mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
-    const ::mlir::tt::TensorMemoryLayout ttTensorMemoryLayout) {
-
-  switch (ttTensorMemoryLayout) {
-  case ::mlir::tt::TensorMemoryLayout::HeightSharded:
-    return ttnn::TensorMemoryLayout::HeightSharded;
-  case ::mlir::tt::TensorMemoryLayout::Interleaved:
-    return ttnn::TensorMemoryLayout::Interleaved;
-  case ::mlir::tt::TensorMemoryLayout::WidthSharded:
-    return ttnn::TensorMemoryLayout::WidthSharded;
-  case ::mlir::tt::TensorMemoryLayout::BlockSharded:
-    return ttnn::TensorMemoryLayout::BlockSharded;
-  case ::mlir::tt::TensorMemoryLayout::SingleBank:
-    return ttnn::TensorMemoryLayout::SingleBank;
-  case ::mlir::tt::TensorMemoryLayout::None:
-    assert(false && "TensorMemoryLayout::None not supported");
-  }
-
-  llvm_unreachable("Unknown TensorMemoryLayout");
-}
