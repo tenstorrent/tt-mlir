@@ -4,6 +4,8 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
+#include <vector>
+
 #include "mlir/Dialect/Traits.h"
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -34,7 +36,7 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
@@ -96,6 +98,23 @@ private:
           "Expecting StableHLO Reduce OP to have a body operation defined.");
     }
 
+    if (srcOp.getDimensions().size() > 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Reduce on more than two dimensions is not currently supported.");
+    }
+
+    RankedTensorType inputTensorType =
+        mlir::cast<RankedTensorType>(srcOp.getInputs().getTypes().front());
+    int64_t inputTensorRank =
+        static_cast<int64_t>(inputTensorType.getShape().size());
+    for (int64_t dim : srcOp.getDimensions()) {
+      if (dim < -inputTensorRank || dim >= inputTensorRank) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Reduce dimensions are out of range.");
+      }
+    }
+
     return success();
   }
 
@@ -104,13 +123,101 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::ReduceOp &srcOp,
                           mlir::stablehlo::ReduceOp::Adaptor &adaptor,
                           ConversionPatternRewriter &rewriter) const {
-    auto outputType = mlir::cast<RankedTensorType>(
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getInputs().getTypes().front()));
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
+
+    // If someone changes definition of TTIR_ReductionOp or TTIR_ReshapeOp this
+    // constant will become outdated, but I currently see no way to get this
+    // info (without manually constructing the adaptor for dest OP).
+    const std::size_t operandsCount = 2;
+    mlir::ArrayAttr operandConstraints =
+        rewriter.getArrayAttr(SmallVector<Attribute>(
+            operandsCount, rewriter.getAttr<OperandConstraintAttr>(
+                               OperandConstraint::AnyDeviceTile)));
+
+    // StableHLO.ReduceOp always removes reduce dimensions from the result shape
+    // so ideally we would just convert it to TTIR.ReduceOp with keepDim=False.
+    // Unfortunately we cannot do this because Metal TTNN implementation of
+    // Reduce doesn't yet support keepDim=False. As a workaround, we convert it
+    // to combination of TTIR.ReduceOp with keepDim=True + TTIR.ReshapeOp to
+    // remove the reduce dims so that the rest of the graph is not affected.
+    DestOp reduceOp = createReduceOp<DestOp>(
+        srcOp, adaptor, rewriter, inputType, outputType, operandConstraints);
+    createReshapeOp<DestOp>(srcOp, reduceOp, rewriter, outputType,
+                            operandConstraints);
+
+    return success();
+  }
+
+  template <typename DestOp>
+  DestOp createReduceOp(mlir::stablehlo::ReduceOp &srcOp,
+                        mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                        ConversionPatternRewriter &rewriter,
+                        RankedTensorType &inputType,
+                        RankedTensorType &outputType,
+                        mlir::ArrayAttr &operandConstraints) const {
+    std::vector<int64_t> reduceOpShapeVec = inputType.getShape().vec();
+    for (int64_t dim : srcOp.getDimensions()) {
+      reduceOpShapeVec[dim < 0 ? srcOp.getDimensions().size() -
+                                     static_cast<size_t>(-dim)
+                               : static_cast<size_t>(dim)] = 1;
+    }
+    llvm::ArrayRef<int64_t> reduceOpShape(reduceOpShapeVec);
+
+    RankedTensorType reduceOpOutputType = RankedTensorType::get(
+        reduceOpShape, outputType.getElementType(), outputType.getEncoding());
+
+    tensor::EmptyOp reduceOpOutputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), reduceOpOutputType.getShape(),
+        reduceOpOutputType.getElementType(), reduceOpOutputType.getEncoding());
+
+    mlir::ArrayAttr reduceOpDimArg =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>(std::vector<int32_t>(
+            srcOp.getDimensions().begin(), srcOp.getDimensions().end())));
+
+    DestOp reduceOp = rewriter.create<DestOp>(
+        srcOp.getLoc(), reduceOpOutputType, adaptor.getInputs().front(),
+        reduceOpOutputTensor, true /* keep_dim */, reduceOpDimArg,
+        operandConstraints);
+
+    return reduceOp;
+  }
+
+  template <typename DestOp>
+  void createReshapeOp(mlir::stablehlo::ReduceOp &srcOp, DestOp &reduceOp,
+                       ConversionPatternRewriter &rewriter,
+                       RankedTensorType &outputType,
+                       mlir::ArrayAttr &operandConstraints) const {
+    tensor::EmptyOp reshapeOpOutputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
+        outputType.getEncoding());
+
+    mlir::ArrayAttr reshapeOpShape =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>(std::vector<int32_t>(
+            outputType.getShape().begin(), outputType.getShape().end())));
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
+        srcOp, outputType, reduceOp, reshapeOpOutputTensor, reshapeOpShape,
+        operandConstraints);
+  }
+
+  // TODO: When Metal adds support for keep_dim=False we should switch to this
+  // version of matchAndRewrite (issue #).
+  template <typename DestOp>
+  LogicalResult matchAndRewriteInternalWithKeepDimFalse(
+      mlir::stablehlo::ReduceOp &srcOp,
+      mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+      ConversionPatternRewriter &rewriter) const {
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResultTypes().front()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr()[0])));
+    mlir::ArrayAttr dimArg =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>(std::vector<int32_t>(
+            srcOp.getDimensions().begin(), srcOp.getDimensions().end())));
 
     // If someone changes definition of TTIR_ReductionOp this constant will
     // become outdated, but I currently see no way to get this info (without
@@ -138,7 +245,7 @@ public:
   matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
@@ -182,7 +289,7 @@ public:
   matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
@@ -245,6 +352,27 @@ private:
   }
 };
 
+// class StableHLOToTTIRConstantOpConversionPattern
+//     : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
+
+//   using
+//   OpConversionPattern<mlir::stablehlo::ConstantOp>::OpConversionPattern;
+
+// public:
+//   LogicalResult
+//   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
+//                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
+//                   ConversionPatternRewriter &rewriter) const override {
+//     RankedTensorType outputType = mlir::cast<RankedTensorType>(
+//         getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+//     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp,
+//     outputType,
+//                                                             srcOp.getValue());
+//     return success();
+//   }
+// };
+
 class StableHLOToTTIRConstantOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
 
@@ -255,11 +383,45 @@ public:
   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    mlir::ElementsAttr valueAttr = srcOp.getValue();
+    if (valueAttr.getShapedType().getShape().empty()) {
+      // Scalar tensors are not supported by TTIR so we have to convert them to
+      // 1-D tensors.
+      mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
+          getTypeConverter()->convertType(valueAttr.getShapedType()));
+      // It is important to separate these two get calls and invoke them with
+      // explicit type because template type inference fails in this case,
+      // integer values are being detected as float element type.
+      if (valueAttr.getElementType().isInteger()) {
+        valueAttr = mlir::DenseElementsAttr::get<int>(
+            valueType, valueAttr.getSplatValue<int>());
+      } else {
+        valueAttr = mlir::DenseElementsAttr::get<float>(
+            valueType, valueAttr.getSplatValue<float>());
+      }
+    }
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
-                                                            srcOp.getValue());
+                                                            valueAttr);
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
+                                   ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getValue().getShapedType().getShape().empty() &&
+        !srcOp.getValue().getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
+    }
+
     return success();
   }
 };
@@ -280,7 +442,7 @@ public:
       return err;
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
@@ -306,10 +468,12 @@ private:
                      ConversionPatternRewriter &rewriter) const {
 
     llvm::SmallVector<int64_t, 4> broadcastedShape;
-    auto srcType =
+    mlir::Type srcType =
         getTypeConverter()->convertType(srcOp.getOperand().getType());
-    auto inputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
-    auto outputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
+    llvm::ArrayRef<int64_t> inputShape =
+        mlir::cast<mlir::RankedTensorType>(srcType).getShape();
+    llvm::ArrayRef<int64_t> outputShape =
+        mlir::cast<mlir::RankedTensorType>(srcType).getShape();
 
     if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
                                             broadcastedShape)) {
