@@ -64,6 +64,7 @@ enum EltwiseOpType: uint32 {
   Abs = 11,
   Neg = 12,
   Rsqrt = 13,
+  Typecast = 14,
 }
 
 table EltwiseOp {

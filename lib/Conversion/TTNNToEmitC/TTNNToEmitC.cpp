@@ -531,6 +531,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::SqrtOp>,
                DefaultOpConversionPattern<ttnn::RsqrtOp>,
                DefaultOpConversionPattern<ttnn::SigmoidOp>,
+               DefaultOpConversionPattern<ttnn::TypecastOp>,
                DefaultOpConversionPattern<ttnn::ReciprocalOp>,
                DefaultOpConversionPattern<ttnn::ExpOp>>(typeConverter, ctx);
 
