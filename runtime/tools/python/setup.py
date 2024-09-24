@@ -109,11 +109,68 @@ if enable_runtime:
             f"{ttmetalhome}/{dylib}",
         )
 
+    tt_metal_folders_to_ignore = [
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-addr2line",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ar",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-as",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-c++",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-c++filt",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-cpp",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-elfedit",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-10.2.0",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-12.2.0",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-ar",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-nm",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-ranlib",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcov",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcov-dump",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcov-tool",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gdb",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gdb-add-index",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gprof",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ld",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ld.bfd",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-lto-dump",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-nm",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-objdump",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ranlib",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-readelf",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-run",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-size",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-strings",
+        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-strip",
+        "third_party/sfpi/compiler/share",
+        "third_party/sfpi/compiler/compiler",
+        "third_party/fmt",
+        "third_party/lfs",
+        "third_party/pybind11",
+        "third_party/taskflow",
+        "third_party/json",
+        "third_party/magic_enum",
+        "third_party/tracy",
+    ]
+
+    def tt_metal_ignore_folders(folder, contents):
+        relative_folder = os.path.relpath(folder, start=f"{ttmetalhome}/tt_metal")
+
+        ignored_items = [
+            item
+            for item in contents
+            if any(
+                os.path.join(relative_folder, item).startswith(ignore)
+                for ignore in tt_metal_folders_to_ignore
+            )
+        ]
+
+        return ignored_items
+
     # copy metal dir folder
     shutil.copytree(
         f"{ttmetalhome}/tt_metal",
         f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
+        ignore=tt_metal_ignore_folders,
     )
 
     # copy runtime dir folder
@@ -127,13 +184,6 @@ if enable_runtime:
     shutil.copytree(
         f"{ttmetalhome}/ttnn",
         f"{src_dir}/build/runtime/tools/python/ttrt/runtime/ttnn",
-        dirs_exist_ok=True,
-    )
-
-    # copy test folder
-    shutil.copytree(
-        f"{ttmetalhome}/tests",
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tests",
         dirs_exist_ok=True,
     )
 
