@@ -46,7 +46,10 @@ TEST(TTNNSubtract, Equal) {
     outputTensors.emplace_back(::tt::runtime::createTensor(data, desc));
   }
 
-  auto device = ::tt::runtime::openDevice();
+  size_t numDevices = ::tt::runtime::getNumAvailableDevices();
+  std::vector<int> deviceIds(numDevices);
+  std::iota(deviceIds.begin(), deviceIds.end(), 0);
+  auto device = ::tt::runtime::openDevice(deviceIds);
   auto ev = ::tt::runtime::submit(device, fbb, 0, inputTensors, outputTensors);
   ::tt::runtime::closeDevice(device);
 

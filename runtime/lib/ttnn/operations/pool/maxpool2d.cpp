@@ -37,12 +37,13 @@ preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
 }
 
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  // TODO (jnie): Update this once we support multi device tensors
+  // Investigate how to handle multi device in maxpool2d
+  ::ttnn::Device &device =
+      context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::operations::pool::MaxPool2DOp operation =
       ::ttnn::operations::pool::MaxPool2DOp();
-
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
 
   const ::ttnn::Tensor preShardedInput =
       preshardForMaxPool2d(op, device, tensorPool);

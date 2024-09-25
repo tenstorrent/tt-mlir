@@ -54,7 +54,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOP(
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   assert(isUnaryOp(op) && "Expected binary operation");
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Abs: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::abs);

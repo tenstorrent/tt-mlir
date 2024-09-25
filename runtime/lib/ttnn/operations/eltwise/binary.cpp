@@ -60,7 +60,7 @@ static void runEltwiseBinaryCompositeOP(
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   assert(isBinaryOp(op) && "Expected binary operation");
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {

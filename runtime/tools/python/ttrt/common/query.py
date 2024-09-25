@@ -90,9 +90,11 @@ class Query:
         )
         self.system_desc = None
         self.device_ids = None
+        self.results = Results(self.logger, self.file_manager)
+        self.test_result = "pass"
 
     def preprocess(self):
-        self.logging.debug(f"preprocessing query API")
+        self.logging.debug(f"------preprocessing query API")
 
         if self["--clean-artifacts"]:
             self.artifacts.clean_artifacts()
@@ -100,14 +102,14 @@ class Query:
         if self["--save-artifacts"]:
             self.artifacts.create_artifacts()
 
-        self.logging.debug(f"finished preprocessing query API")
+        self.logging.debug(f"------finished preprocessing query API")
 
     def check_constraints(self):
-        self.logging.debug(f"checking constraints for query API")
-        self.logging.debug(f"finished constraints for query API")
+        self.logging.debug(f"------checking constraints for query API")
+        self.logging.debug(f"------finished constraints for query API")
 
     def execute(self):
-        self.logging.debug(f"executing query API")
+        self.logging.debug(f"------executing query API")
 
         import ttrt.runtime
 
@@ -121,17 +123,35 @@ class Query:
             if not self["--quiet"]:
                 self.logging.info(self.system_desc.as_json())
         except Exception as e:
-            raise Exception(f"an unexpected error occurred: {e}")
+            test_result = {
+                "result": "error",
+                "exception": str(e),
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+            }
+            self.results.add_result(test_result)
+            self.test_result = "error"
 
-        self.logging.debug(f"finished executing query API")
+        self.logging.debug(f"------finished executing query API")
 
     def postprocess(self):
-        self.logging.debug(f"postprocessing query API")
+        self.logging.debug(f"------postprocessing query API")
 
         if self["--save-artifacts"]:
             self.artifacts.save_system_desc(self.system_desc)
 
-        self.logging.debug(f"finished postprocessing query API")
+        if self.test_result == "pass":
+            test_result = {
+                "result": "pass",
+                "exception": "",
+                "log_file": self.logger.file_name,
+                "artifacts": self.artifacts.artifacts_folder_path,
+            }
+            self.results.add_result(test_result)
+
+        self.results.save_results("query_results.json")
+
+        self.logging.debug(f"------finished postprocessing query API")
 
     def __getitem__(self, key):
         return getattr(self, key)

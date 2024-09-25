@@ -35,3 +35,14 @@ def sub_process_command(test_command):
     assert (
         result.returncode == 0
     ), f"subprocess command failed, test return result={result.returncode}"
+
+
+def check_results(file_name="results.json"):
+    with open(file_name, "r") as f:
+        data = json.load(f)
+
+    for entry in data:
+        if entry.get("result") != "pass":
+            return 1
+
+    return 0

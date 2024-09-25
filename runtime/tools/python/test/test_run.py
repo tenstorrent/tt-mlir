@@ -31,12 +31,20 @@ def test_flatbuffer():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_flatbuffer.__name__}"
+
 
 def test_flatbuffer_cmd():
     command = (
         f"ttrt run {BINARY_FILE_PATH} --log-file {test_flatbuffer_cmd.__name__}_run.log"
     )
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_flatbuffer_cmd.__name__}"
 
 
 def test_dir_flatbuffer():
@@ -46,10 +54,18 @@ def test_dir_flatbuffer():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_dir_flatbuffer.__name__}"
+
 
 def test_dir_flatbuffer_cmd():
     command = f"ttrt run {DIRECTORY_PATH} --log-file {test_dir_flatbuffer_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_dir_flatbuffer_cmd.__name__}"
 
 
 def test_logger():
@@ -60,6 +76,10 @@ def test_logger():
     custom_logger = Logger(log_file_name)
     run_instance = API.Run(args=custom_args, logger=custom_logger)
     run_instance()
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_logger.__name__}"
 
 
 def test_artifacts():
@@ -75,6 +95,10 @@ def test_artifacts():
     run_instance = API.Run(args=custom_args, artifacts=custom_artifacts)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_artifacts.__name__}"
+
 
 def test_clean_artifacts():
     API.initialize_apis()
@@ -84,10 +108,18 @@ def test_clean_artifacts():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_clean_artifacts.__name__}"
+
 
 def test_clean_artifacts_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_clean_artifacts_cmd.__name__}"
 
 
 def test_save_artifacts():
@@ -99,10 +131,18 @@ def test_save_artifacts():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_save_artifacts.__name__}"
+
 
 def test_save_artifacts_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_save_artifacts_cmd.__name__}"
 
 
 def test_log_file():
@@ -113,12 +153,20 @@ def test_log_file():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_log_file.__name__}"
+
 
 def test_log_file_cmd():
     command = (
         f"ttrt run {BINARY_FILE_PATH} --log-file {test_log_file_cmd.__name__}_run.log"
     )
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_log_file_cmd.__name__}"
 
 
 def test_artifact_dir():
@@ -131,10 +179,18 @@ def test_artifact_dir():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_artifact_dir.__name__}"
+
 
 def test_artifact_dir_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/test-artifacts --log-file {test_artifact_dir_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_artifact_dir_cmd.__name__}"
 
 
 def test_program_index():
@@ -145,10 +201,18 @@ def test_program_index():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_program_index.__name__}"
+
 
 def test_program_index_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --program-index 0 --log-file {test_program_index_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_program_index_cmd.__name__}"
 
 
 def test_loops():
@@ -159,10 +223,18 @@ def test_loops():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_loops.__name__}"
+
 
 def test_loops_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --loops 1 --log-file {test_loops_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_loops_cmd.__name__}"
 
 
 def test_init():
@@ -173,10 +245,18 @@ def test_init():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_init.__name__}"
+
 
 def test_init_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --init randn --log-file {test_init_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_init_cmd.__name__}"
 
 
 @pytest.mark.skip
@@ -188,11 +268,19 @@ def test_identity():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_identity.__name__}"
+
 
 @pytest.mark.skip
 def test_identity_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --identity --log-file {test_identity_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_identity_cmd.__name__}"
 
 
 def test_non_zero():
@@ -203,10 +291,18 @@ def test_non_zero():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_non_zero.__name__}"
+
 
 def test_non_zero_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --non-zero --log-file {test_non_zero_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_non_zero_cmd.__name__}"
 
 
 def test_rtol():
@@ -217,10 +313,18 @@ def test_rtol():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_rtol.__name__}"
+
 
 def test_rtol_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --rtol 1e-05 --log-file {test_rtol_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_rtol_cmd.__name__}"
 
 
 def test_atol():
@@ -231,10 +335,18 @@ def test_atol():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_atol.__name__}"
+
 
 def test_atol_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --atol 1e-08 --log-file {test_atol_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_atol_cmd.__name__}"
 
 
 def test_seed():
@@ -245,10 +357,18 @@ def test_seed():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_seed.__name__}"
+
 
 def test_seed_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --seed 1 --log-file {test_seed_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_seed_cmd.__name__}"
 
 
 def test_load_kernels_from_disk():
@@ -259,10 +379,18 @@ def test_load_kernels_from_disk():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_load_kernels_from_disk.__name__}"
+
 
 def test_load_kernels_from_disk_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --load-kernels-from-disk --log-file {test_load_kernels_from_disk_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_load_kernels_from_disk_cmd.__name__}"
 
 
 def test_enable_async_ttnn():
@@ -273,7 +401,15 @@ def test_enable_async_ttnn():
     run_instance = API.Run(args=custom_args)
     run_instance()
 
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_enable_async_ttnn.__name__}"
+
 
 def test_enable_async_ttnn_cmd():
     command = f"ttrt run {BINARY_FILE_PATH} --enable-async-ttnn --log-file {test_enable_async_ttnn_cmd.__name__}_run.log"
     sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_enable_async_ttnn_cmd.__name__}"

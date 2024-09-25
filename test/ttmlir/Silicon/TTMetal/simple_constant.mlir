@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-to-ttmetal-backend-pipeline %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer %t.mlir > %t.ttm
-// UNSUPPORTED: true
 
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 

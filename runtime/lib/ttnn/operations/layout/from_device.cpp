@@ -9,7 +9,7 @@
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::FromDeviceOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
   assert(utils::isOnDevice(inputTensor) &&
          "Calling ttnn::from_device on a host tensor");

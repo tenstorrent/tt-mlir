@@ -197,8 +197,7 @@ handleToL1MemoryConfigOp(::ttnn::Device &device,
 void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
          ProgramContext &context) {
 
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in0()->global_id());
   assert(utils::isOnHost(inputTensor) or
          utils::isOnDevice(inputTensor) && "Unsupported storage type");
@@ -220,12 +219,16 @@ void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
     break;
   }
   case ::tt::target::MemorySpace::DeviceDRAM: {
-    ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
+    // TODO (jnie): Update this once we support multi device tensors
+    ::ttnn::Device &device =
+        context.getDeviceFromView(op->device()->global_id(), 0);
     handleToDramMemoryConfigOp(device, op->in0(), op->out(), tensorPool);
     break;
   }
   case ::tt::target::MemorySpace::DeviceL1: {
-    ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
+    // TODO (jnie): Update this once we support multi device tensors
+    ::ttnn::Device &device =
+        context.getDeviceFromView(op->device()->global_id(), 0);
     handleToL1MemoryConfigOp(device, op->in0(), op->out(), tensorPool);
     break;
   }

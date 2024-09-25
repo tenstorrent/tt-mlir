@@ -26,9 +26,8 @@
 namespace tt::runtime::ttnn {
 
 struct ProgramExecutor {
-  ProgramContext context;
-  ProgramExecutor(const TensorMap &liveTensors, const DeviceMap &allDevices)
-      : context(ProgramContext(liveTensors, allDevices)) {}
+  ProgramExecutor(const TensorMap &liveTensors, ::ttnn::MeshDevice *meshDevice)
+      : context(ProgramContext(liveTensors, meshDevice)) {}
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
@@ -36,7 +35,10 @@ struct ProgramExecutor {
     }
   }
 
+  ProgramContext &getContext() { return context; }
+
 private:
+  ProgramContext context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
 };
 
@@ -127,7 +129,7 @@ static bool handleNopProgram(::tt::target::ttnn::Program const *program,
   return isNop;
 }
 
-void runProgram(::ttnn::Device &device,
+void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs) {
@@ -135,11 +137,8 @@ void runProgram(::ttnn::Device &device,
     return;
   }
   TensorMap liveTensors;
-  DeviceMap allDevices;
   int inputIndex = 0;
   assert(program->inputs()->size() == inputs.size());
-  // Assuming single device for now until we support multichip
-  allDevices.try_emplace(device.id(), &device);
   for (::tt::target::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
@@ -153,7 +152,7 @@ void runProgram(::ttnn::Device &device,
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
     assert(inserted && "Duplicate output tensor");
   }
-  ProgramExecutor executor(liveTensors, allDevices);
+  ProgramExecutor executor(liveTensors, &meshDevice);
   executor.execute(program);
 }
 

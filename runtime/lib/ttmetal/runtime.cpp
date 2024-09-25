@@ -15,7 +15,7 @@ namespace tt::runtime::ttmetal {
 using ::tt::runtime::DeviceRuntime;
 constexpr inline std::size_t kHostBufferCommandQueueId = 0;
 using Events = std::vector<std::shared_ptr<::tt::tt_metal::Event>>;
-using DeviceMesh = std::vector<::tt::tt_metal::Device *>;
+using DeviceList = std::vector<::tt::tt_metal::Device *>;
 using MetalTensor =
     std::variant<TensorDesc, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
@@ -58,29 +58,33 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   return ::tt::target::DataType::Float32;
 }
 
-Device openDevice(std::vector<int> const &deviceIds,
-                  std::vector<std::uint8_t> const &numHWCQs) {
-  assert(numHWCQs.empty() || numHWCQs.size() == deviceIds.size());
-  std::shared_ptr<DeviceMesh> deviceMesh = std::make_shared<DeviceMesh>();
-  int i = 0;
-  for (int deviceId : deviceIds) {
-    uint8_t num_hw_cqs = numHWCQs.empty() ? 1 : numHWCQs[i];
-    deviceMesh->push_back(CreateDevice(deviceId, num_hw_cqs));
-    ++i;
-  }
-  return Device(static_pointer_cast<void>(deviceMesh), DeviceRuntime::TTMetal);
+size_t getNumAvailableDevices() {
+  return ::tt::tt_metal::GetNumAvailableDevices();
+}
+
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+  assert(deviceIds.size() && "No devices specified");
+  ::tt::tt_metal::MeshShape grid = std::make_pair(1, deviceIds.size());
+  std::shared_ptr<::tt::tt_metal::MeshDevice> meshDevice =
+      ::tt::tt_metal::MeshDevice::create(
+          grid, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
+          ::tt::tt_metal::DispatchCoreType::WORKER);
+
+  return Device(std::static_pointer_cast<void>(meshDevice),
+                DeviceRuntime::TTMetal);
 }
 
 void closeDevice(Device device) {
-  DeviceMesh &deviceMesh = device.as<DeviceMesh>(DeviceRuntime::TTMetal);
-  for (::tt::tt_metal::Device *device : deviceMesh) {
-    ::tt::tt_metal::CloseDevice(device);
-  }
+  ::tt::tt_metal::MeshDevice &ttmetalMeshDevice =
+      device.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+  ttmetalMeshDevice.close_devices();
 }
 
 void deallocateBuffers(Device deviceHandle) {
-  DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>(DeviceRuntime::TTMetal);
-  for (::tt::tt_metal::Device *device : deviceMesh) {
+  ::tt::tt_metal::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+
+  for (::tt::tt_metal::Device *device : meshDevice.get_devices()) {
     device->deallocate_buffers();
   }
 }
@@ -166,13 +170,17 @@ Event submit(Device deviceHandle, Binary executableHandle,
   ::tt::target::metal::TTMetalBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::metal::Program const *program =
       fbb.programs()->Get(programIndex);
-  DeviceMesh &deviceMesh = deviceHandle.as<DeviceMesh>(DeviceRuntime::TTMetal);
-  assert(deviceMesh.size() == 1 && "Only one device is supported for now");
+  ::tt::tt_metal::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+  DeviceList allDevices = meshDevice.get_devices();
+  assert(allDevices.size() > 0 && "Unexpected empty device mesh");
+  DeviceList deviceList = {allDevices[0]};
+  assert(deviceList.size() == 1 && "Only one device is supported for now");
   std::shared_ptr<Events> events = std::make_shared<Events>();
-  assert(program->device_programs()->size() == deviceMesh.size() &&
+  assert(program->device_programs()->size() == deviceList.size() &&
          "Device programs size mismatch");
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
-    ::tt::tt_metal::Device *device = deviceMesh[i];
+    ::tt::tt_metal::Device *device = deviceList[i];
 
     ZoneScoped;
     std::string zoneName = "submit_" + std::string(program->name()->c_str()) +

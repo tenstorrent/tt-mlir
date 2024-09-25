@@ -14,8 +14,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(_C, m) {
   m.doc() = "ttrt.runtime python extension for interacting with the "
-            "Tenstorrent devies";
-
+            "Tenstorrent devices";
   py::class_<tt::runtime::Device>(m, "Device")
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
@@ -58,11 +57,12 @@ PYBIND11_MODULE(_C, m) {
             shape, stride, itemsize, dataType);
       },
       "Create a tensor with borrowed memory");
-  m.def("open_device", &tt::runtime::openDevice,
-        py::arg("device_ids") = std::vector<int>{0},
-        py::arg("num_hw_cqs") = std::vector<std::uint8_t>{},
-        "Open a device for execution");
-  m.def("close_device", &tt::runtime::closeDevice, "Close a device");
+  m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
+        "Get the number of available devices");
+  m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
+        py::arg("num_hw_cqs") = size_t{1},
+        "Open a mesh of devices for execution");
+  m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
         py::arg("outputs"), "Submit a binary for execution");

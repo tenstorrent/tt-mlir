@@ -9,9 +9,10 @@
 
 namespace tt::runtime::ttnn::operations::creation {
 void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap devicePool = context.devicePool;
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  // TODO (jnie): Update this once we support multi device tensors
+  ::ttnn::Device &device =
+      context.getDeviceFromView(op->device()->global_id(), 0);
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   auto shape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
       ::tt::runtime::ttnn::utils::toShapeFromFBShape(

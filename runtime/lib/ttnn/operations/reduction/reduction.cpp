@@ -33,7 +33,7 @@ static void runReductionOp(
 }
 
 void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
     runReductionOp(op, tensorPool, ::ttnn::sum);

@@ -7,7 +7,7 @@
 namespace tt::runtime::ttnn::operations::deletion {
 void run(const ::tt::target::ttnn::DeallocOp *op, ProgramContext &context) {
   bool force = true;
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::Tensor &tensor = tensorPool.at(op->in()->global_id());
   tensor.deallocate(force);
   tensorPool.erase(op->in()->global_id());

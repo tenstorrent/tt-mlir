@@ -8,8 +8,10 @@
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  // TODO (jnie): Update this once we support multi device tensors
+  ::ttnn::Device &device =
+      context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
   assert((utils::isOnHost(inputTensor) or utils::isOnDevice(inputTensor)) &&
          "Unsupported storage type");
@@ -27,7 +29,6 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
     break;
   }
 
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
   ::ttnn::Tensor out = ::ttnn::to_layout(inputTensor, layout, std::nullopt,
                                          std::nullopt, &device);
 
