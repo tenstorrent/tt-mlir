@@ -16,6 +16,7 @@ from pkg_resources import get_distribution
 import shutil
 import atexit
 import pytest
+import inspect
 
 import ttrt
 from ttrt.common.util import *
@@ -27,70 +28,100 @@ from util import *
 def test_clean_artifacts():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     custom_args["--clean-artifacts"] = True
     query_instance = API.Query(args=custom_args)
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_clean_artifacts.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_clean_artifacts_cmd():
-    command = f"ttrt query --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_query.log"
+    command = f"ttrt query --clean-artifacts --log-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     sub_process_command(command)
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_clean_artifacts_cmd.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_save_artifacts():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
     query_instance = API.Query(args=custom_args)
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_save_artifacts.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_save_artifacts_cmd():
-    command = f"ttrt query --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_query.log"
+    command = f"ttrt query --clean-artifacts --save-artifacts --log-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     sub_process_command(command)
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_save_artifacts_cmd.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_log_file():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     custom_args["--log-file"] = "test.log"
     query_instance = API.Query(args=custom_args)
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_log_file.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_log_file_cmd():
-    command = f"ttrt query --log-file {test_log_file_cmd.__name__}_query.log"
+    command = f"ttrt query --log-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     sub_process_command(command)
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_log_file_cmd.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_artifact_dir():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
     custom_args["--artifact-dir"] = f"{os.getcwd()}/test-artifacts"
@@ -98,35 +129,50 @@ def test_artifact_dir():
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_artifact_dir.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_artifact_dir_cmd():
-    command = f"ttrt query --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/test-artifacts --log-file {test_artifact_dir_cmd.__name__}_query.log"
+    command = f"ttrt query --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/test-artifacts --log-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     sub_process_command(command)
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_artifact_dir_cmd.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_logger():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
     query_instance = API.Query(args=custom_args, logger=custom_logger)
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_logger.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_artifacts():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
     artifacts_folder_path = f"{os.getcwd()}/test-artifacts"
@@ -137,26 +183,38 @@ def test_artifacts():
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_artifacts.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_quiet():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     custom_args["--quiet"] = True
     query_instance = API.Query(args=custom_args)
     query_instance()
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_quiet.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"
 
 
 def test_quiet_cmd():
-    command = f"ttrt query --quiet --log-file {test_quiet_cmd.__name__}_query.log"
+    command = f"ttrt query --quiet --log-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
     sub_process_command(command)
 
     assert (
-        check_results("query_results.json") == 0
-    ), f"one of more tests failed in={test_quiet_cmd.__name__}"
+        check_results(
+            f"ttrt-results/{inspect.currentframe().f_code.co_name}_query.json"
+        )
+        == 0
+    ), f"one of more tests failed in={inspect.currentframe().f_code.co_name}"

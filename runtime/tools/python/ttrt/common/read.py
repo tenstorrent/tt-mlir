@@ -69,6 +69,13 @@ class Read:
             help="provides a directory path to save artifacts to",
         )
         Read.register_arg(
+            name="--result-file",
+            type=str,
+            default="read_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
+        Read.register_arg(
             name="binary",
             type=str,
             default="",
@@ -287,7 +294,7 @@ class Read:
 
                 self.results.add_result(test_result)
 
-        self.results.save_results("read_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing read API")
 
