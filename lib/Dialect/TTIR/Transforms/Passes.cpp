@@ -43,6 +43,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIROPTIMIZER
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
 #define GEN_PASS_DEF_TTIRLOADSYSTEMDESC
+#define GEN_PASS_DEF_TTIRFLATTENZYREDUCTION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 class TTIRImplicitDevice
@@ -818,8 +819,11 @@ public:
                             Value input, ::llvm::ArrayRef<int64_t> shapei64,
                             ::mlir::ArrayAttr operandConstraints) const {
     auto ty = mlir::cast<RankedTensorType>(input.getType());
-    auto output =
-        rewriter.create<tensor::EmptyOp>(loc, shapei64, ty.getElementType());
+    Type element_type =
+        shapei64[shapei64.size() - 2] % 32 == 0
+            ? TileType::get(rewriter.getContext(), ty.getElementType())
+            : ty.getElementType();
+    auto output = rewriter.create<tensor::EmptyOp>(loc, shapei64, element_type);
 
     auto shape_attr = rewriter.getI32ArrayAttr(
         {static_cast<int32_t>(shapei64[0]), static_cast<int32_t>(shapei64[1]),
@@ -851,6 +855,24 @@ public:
     return new_maxpool;
   }
 
+  Conv2dOp createConv2dOp(PatternRewriter &rewriter, Conv2dOp op, Value input,
+                          int32_t input_height, int32_t input_width,
+                          RankedTensorType new_result_type) const {
+    auto output = rewriter.create<tensor::EmptyOp>(
+        op->getLoc(), new_result_type.getShape(),
+        new_result_type.getElementType());
+
+    Conv2dOp new_conv = rewriter.create<Conv2dOp>(
+        op.getLoc(), new_result_type, input, op.getWeight(), op.getBias(),
+        output, op.getStrideHeightAttr(), op.getStrideWidthAttr(),
+        op.getDilationHeightAttr(), op.getDilationWidthAttr(),
+        op.getGroupsAttr(), op.getPaddingLeftAttr(), op.getPaddingRightAttr(),
+        op.getPaddingTopAttr(), op.getPaddingBottomAttr(),
+        op.getOperandConstraints());
+
+    return new_conv;
+  }
+
   LogicalResult matchAndRewrite(T op, PatternRewriter &rewriter) const final {
     ::llvm::ArrayRef<int64_t> input_shape =
         mlir::cast<mlir::RankedTensorType>(op.getInput().getType()).getShape();
@@ -863,7 +885,7 @@ public:
       return failure();
     }
 
-    if (!llvm::isa<MaxPool2dOp>(op)) {
+    if (!llvm::isa<MaxPool2dOp>(op) && !llvm::isa<Conv2dOp>(op)) {
       return failure();
     }
 
@@ -885,10 +907,19 @@ public:
         new_result_shape_array, op.getResult().getType().getElementType(),
         op.getResult().getType().getEncoding());
 
-    Operation *new_op = createMaxPool2dOp(
-        rewriter, mlir::cast<MaxPool2dOp>(op), input_reshape,
-        static_cast<int32_t>(input_shape[1]),
-        static_cast<int32_t>(input_shape[2]), new_result_type);
+    Operation *new_op = nullptr;
+
+    if (isa<MaxPool2dOp>(op)) {
+      new_op = createMaxPool2dOp(
+          rewriter, mlir::cast<MaxPool2dOp>(op), input_reshape,
+          static_cast<int32_t>(input_shape[1]),
+          static_cast<int32_t>(input_shape[2]), new_result_type);
+    } else if (isa<Conv2dOp>(op)) {
+      new_op =
+          createConv2dOp(rewriter, mlir::cast<Conv2dOp>(op), input_reshape,
+                         static_cast<int32_t>(input_shape[1]),
+                         static_cast<int32_t>(input_shape[2]), new_result_type);
+    }
 
     ReshapeOp output_reshape = createReshapeOp(
         rewriter, op.getLoc(), new_op->getResult(0),
@@ -911,6 +942,41 @@ public:
       RewritePatternSet patterns(&getContext());
       patterns.add<UncollapsedSlidingWindow2dPatternRewriter<MaxPool2dOp>>(
           &getContext());
+      // THE BELOW PASS IS REQUIRED TO KEEP THE MODELING OF TENSOR SHAPES
+      // ACCURATE RESNET WILL WORK WITHOUT IT BECAUSE OF A FLUKE THAT CONV2D CAN
+      // ACCEPT SHAPES IN THE FORM (1, 1, N*H*W, C) AND STILL DO THE SAME MATH.
+      // HOWEVER, NO FRAMEWORK THAT THIS COMPILER WILL CONSUME ACTUALLY OUTPUTS
+      // CONV2D THAT WAY, TTNN DOES.
+      //
+      // The issue is that the reshape we are explicitly placing on the input of
+      // the first convolution is (1, 224, 224, 3) --> (1, 1, 50176, 3). This
+      // reshape needs to be done on a ROW_MAJOR layout tensor since dim -1 is
+      // not tile aligned (3 % 32 != 0). However, if you try to perform this
+      // reshape the following error is thrown:
+      //
+      // RuntimeError: TT_FATAL @
+      // /localdev/lpanos/tt-metal/tt_metal/impl/buffers/buffer.cpp:41:
+      // page_size % sizeof(uint32_t) == 0
+      //
+      // If you conver the tensor to TILE_LAYOUT first then this error is
+      // (expectedly) thrown:
+      //
+      // Unable to reshape a tensor in TILE_LAYOUT to non-tile height and width!
+      // Please convert the tensor to ROW_MAJOR_LAYOUT first.
+      //
+      // The same goes for the EmptyOp used to create the DPS operand. The first
+      // error is thrown if you try to create an empty tensor of shape (1, 1,
+      // 50176, 3) in ROW_MAJOR_LAYOUT. And the second error is (expectedly)
+      // thrown when you try to create this tensor in TILE_LAYOUT
+
+      // This is the pass that maintains accurately modelled shapes. It inserts
+      // reshapes above and below the conv op. The reson this pass causes no
+      // issue with the MaxPool2d op (which is called above) is because dim -1
+      // is tile aligned before and after the op anyway.
+      //
+      // patterns.add<UncollapsedSlidingWindow2dPatternRewriter<Conv2dOp>>(
+      //     &getContext());
+
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
         signalPassFailure();
@@ -1449,6 +1515,119 @@ public:
     } else if (not module->hasAttr(tt::SystemDescAttr::name)) {
       module->setAttr(tt::SystemDescAttr::name,
                       tt::SystemDescAttr::getDefault(&getContext()));
+    }
+  }
+};
+
+class TTIRFlattenZYReductionRewriter : public OpRewritePattern<MeanOp> {
+public:
+  using OpRewritePattern<MeanOp>::OpRewritePattern;
+
+  ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                            Value input, ::llvm::ArrayRef<int64_t> shapei64,
+                            ::mlir::ArrayAttr operandConstraints) const {
+    auto ty = mlir::cast<RankedTensorType>(input.getType());
+    auto output =
+        rewriter.create<tensor::EmptyOp>(loc, shapei64, ty.getElementType());
+
+    auto shape_attr = rewriter.getI32ArrayAttr(
+        {static_cast<int32_t>(shapei64[0]), static_cast<int32_t>(shapei64[1]),
+         static_cast<int32_t>(shapei64[2]), static_cast<int32_t>(shapei64[3])});
+    return rewriter.create<ttir::ReshapeOp>(
+        loc, output.getType(), input, output, shape_attr, operandConstraints);
+  }
+
+  LogicalResult matchAndRewrite(MeanOp reduce1,
+                                PatternRewriter &rewriter) const final {
+
+    if (!reduce1.getDimArg().has_value()) {
+      return failure();
+    }
+
+    if (reduce1.getDimArg().value().size() != 1) {
+      return failure();
+    }
+
+    int64_t reduce1_dim =
+        mlir::cast<IntegerAttr>(reduce1.getDimArg().value().getValue()[0])
+            .getInt();
+    if (reduce1_dim != -3) {
+      return failure();
+    }
+
+    MeanOp reduce2;
+    bool found = false;
+    for (auto user : reduce1->getUsers()) {
+      user->getName().dump();
+      if (isa<MeanOp>(user)) {
+        reduce2 = mlir::cast<MeanOp>(user);
+        found = true;
+      }
+    }
+    if (!found) {
+      return failure();
+    }
+
+    if (!reduce2.getDimArg().has_value()) {
+      return failure();
+    }
+
+    if (reduce2.getDimArg().value().size() != 1) {
+      return failure();
+    }
+
+    int64_t reduce2_dim =
+        mlir::cast<IntegerAttr>(reduce2.getDimArg().value().getValue()[0])
+            .getInt();
+    if (reduce2_dim != -2) {
+      return failure();
+    }
+
+    auto input = reduce1->getOperand(0);
+    auto input_type = mlir::cast<RankedTensorType>(input.getType());
+    std::vector<int64_t> input_shape = input_type.getShape();
+    input_shape[input_shape.size() - 2] = input_shape[input_shape.size() - 2] *
+                                          input_shape[input_shape.size() - 3];
+    input_shape[input_shape.size() - 3] = 1;
+
+    llvm::ArrayRef<int64_t> shape_attr = {
+        (int32_t)input_shape[0], (int32_t)input_shape[1],
+        (int32_t)input_shape[2], (int32_t)input_shape[3]};
+
+    // auto to_layout_dps =
+    //     rewriter.create<tensor::EmptyOp>(reduce1->getLoc(),
+    //     input_type.getShape(), input_type.getElementType(), );
+
+    // auto layout_attr = mlir::cast<LayoutAttr>(input_type.getEncoding());
+    // layout_attr = layout_attr,
+    // auto to_layout = rewriter.create<ttir::ToLayoutOp>(reduce1.getLoc(),
+    // to_layout_dps.getType(), input, LayoutAttr::get(rewriter.getContext(),
+    // ));
+
+    auto reshape = createReshapeOp(rewriter, reduce1->getLoc(), input,
+                                   shape_attr, reduce1.getOperandConstraints());
+
+    rewriter.replaceOp(reduce1, reshape);
+    rewriter.modifyOpInPlace(reduce2,
+                             [&]() { reduce2.setOperand(0, reshape); });
+    return success();
+  }
+};
+
+class TTIRFlattenZYReduction
+    : public impl::TTIRFlattenZYReductionBase<TTIRFlattenZYReduction> {
+public:
+  using impl::TTIRFlattenZYReductionBase<
+      TTIRFlattenZYReduction>::TTIRFlattenZYReductionBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    // populateGeneratedPDLLPatterns(patterns)
+    patterns.add<TTIRFlattenZYReductionRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+      return;
     }
   }
 };

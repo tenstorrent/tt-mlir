@@ -20,6 +20,14 @@ def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRFlattenZYReduction: Pass<"ttir-flatten-zy-reduction", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Transforms the pattern reduce(-3) --> reduce(-2) to reshape(W, 1, Z*Y, X) --> reduce(-2)
+  }];
+
+}
+
 def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{

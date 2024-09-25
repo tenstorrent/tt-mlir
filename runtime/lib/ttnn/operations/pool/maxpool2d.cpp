@@ -56,6 +56,10 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
                        {op->padding_height(), op->padding_width()},
                        {op->dilation_height(), op->dilation_width()}, &device);
 
+  auto new_memconfig = out.memory_config();
+  new_memconfig.memory_layout = TensorMemoryLayout::INTERLEAVED;
+  new_memconfig.buffer_type = BufferType::DRAM;
+  out = ::ttnn::to_memory_config(out, new_memconfig, std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
   return;
 }

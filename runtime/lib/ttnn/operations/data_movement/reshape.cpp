@@ -4,6 +4,7 @@
 
 #include "reshape.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 
@@ -26,7 +27,7 @@ static ::ttnn::Tensor invoke_reshape(const ::ttnn::Tensor &tensor,
 
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
+  ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
   constexpr int32_t Rank1 = 1;
@@ -34,6 +35,19 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   constexpr int32_t Rank3 = 3;
   constexpr int32_t Rank4 = 4;
   constexpr int32_t Rank5 = 5;
+
+  // HACK:
+  // 1. checking runtime tensor for layout
+  // 2. conditionally converting to row major if desiered height and width
+  //    are not BOTH tile aligned
+
+  if (in.get_layout() == ::ttnn::TILE_LAYOUT &&
+      (shape[shape.size() - 2] % 32 != 0 ||
+       shape[shape.size() - 1] % 32 != 0)) {
+
+    in = ::ttnn::to_layout(in, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
+                           std::nullopt, in.device());
+  }
 
   ::ttnn::Tensor out;
   switch (fbShape->size()) {
