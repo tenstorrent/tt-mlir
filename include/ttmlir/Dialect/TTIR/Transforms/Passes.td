@@ -63,6 +63,13 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRReshapePass: Pass<"ttir-reshape", "::mlir::ModuleOp"> {
+  let summary = "Change reshape op tensors to row layout";
+  let description = [{
+    "Change reshape op tensors to row layout"
+  }];
+}
+
 def TTIRSlidingWindow2dFixShapes: Pass<"ttir-sliding-window-2d-fix-shapes", "::mlir::ModuleOp"> {
   let summary = "Insert reshapes on the input and output of 2-dimensional sliding window ops that collapse N,H,W on the input: i.e (N, H, W, C) --> (1, 1, N*H*W, C), and unflatten the output: i.e (1, 1, N*H*W, C) --> (N, H, W, C)";
   let description = [{

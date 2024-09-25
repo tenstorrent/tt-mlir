@@ -37,6 +37,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICREGION
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
+#define GEN_PASS_DEF_TTIRRESHAPEPASS
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
 #define GEN_PASS_DEF_TTIRCONSTANTASFILL
 #define GEN_PASS_DEF_TTIRALLOCATE
@@ -431,6 +432,27 @@ inline MemorySpace getMemorySpace(RankedTensorType ty) {
   return getMemorySpace(layout);
 }
 
+inline Type getMemrefType(RankedTensorType ty) {
+  assert(ty.getEncoding());
+  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
+  return layout.getMemref().getElementType();
+}
+
+inline Type getDataType(RankedTensorType ty) {
+  Type memrefType = getMemrefType(ty);
+  if (auto tileType = dyn_cast<TileType>(memrefType)) {
+    return tileType.getElementType();
+  }
+
+  return memrefType;
+}
+
+inline TensorMemoryLayout getMemoryLayout(RankedTensorType ty) {
+  assert(ty.getEncoding());
+  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
+  return layout.getMemLayout();
+}
+
 inline OperandConstraint
 memorySpaceAsOperandConstraint(MemorySpace memorySpace) {
   switch (memorySpace) {
@@ -794,6 +816,75 @@ public:
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::TTDialect>();
     registry.insert<mlir::func::FuncDialect>();
+  }
+};
+
+class TTIRReshapeRewriter : public OpRewritePattern<ttir::ReshapeOp> {
+public:
+  using OpRewritePattern<ttir::ReshapeOp>::OpRewritePattern;
+
+  RankedTensorType createTensorType(PatternRewriter &rewriter,
+                                    RankedTensorType inTy,
+                                    int64_t deviceGridRank) const {
+    auto tensorGrid = GridAttr::get(rewriter.getContext(), deviceGridRank);
+    auto newLayout =
+        LayoutAttr::get(rewriter.getContext(), inTy, getMemorySpace(inTy),
+                        tensorGrid, getDataType(inTy), getMemoryLayout(inTy));
+    return RankedTensorType::get(inTy.getShape(), inTy.getElementType(),
+                                 newLayout);
+  }
+
+  LogicalResult matchAndRewrite(ReshapeOp op,
+                                PatternRewriter &rewriter) const final {
+    RankedTensorType inTy = op.getInput().getType();
+    LayoutAttr inputLayout = mlir::cast<LayoutAttr>(inTy.getEncoding());
+    if (!isa<tt::TileType>(inputLayout.getMemref().getElementType())) {
+      return failure();
+    }
+
+    int64_t deviceGridRank =
+        getCurrentScopeDevice(op).getWorkerGrid().getShape().size();
+    RankedTensorType newTy = createTensorType(rewriter, inTy, deviceGridRank);
+    tensor::EmptyOp newEmptyOp = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), newTy.getShape(), newTy.getElementType(),
+        newTy.getEncoding());
+    ttir::ToLayoutOp toLayoutOp = rewriter.create<ttir::ToLayoutOp>(
+        op.getLoc(), newTy, op.getInput(), newEmptyOp);
+
+    RankedTensorType outTy = op.getResult().getType();
+    newTy = createTensorType(rewriter, outTy, deviceGridRank);
+    newEmptyOp = rewriter.create<tensor::EmptyOp>(op.getLoc(), newTy.getShape(),
+                                                  newTy.getElementType(),
+                                                  newTy.getEncoding());
+    ttir::ReshapeOp newReshapeOp = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(), newTy, toLayoutOp, newEmptyOp, op.getShape(),
+        op.getOperandConstraints());
+
+    rewriter.replaceOpWithNewOp<ttir::ToLayoutOp>(op, op.getResult().getType(),
+                                                  newReshapeOp.getResult(),
+                                                  op.getOperands().back());
+
+    return success();
+  }
+
+  const TypeConverter *converter;
+};
+
+class TTIRReshapePass : public impl::TTIRReshapePassBase<TTIRReshapePass> {
+  using impl::TTIRReshapePassBase<TTIRReshapePass>::TTIRReshapePassBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRReshapeRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
   }
 };
 

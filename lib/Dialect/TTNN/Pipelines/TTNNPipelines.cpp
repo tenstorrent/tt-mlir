@@ -31,6 +31,7 @@ void createTTNNPipelineTTIRPasses(
   layoutOptions.defaultDeviceMemoryLayout =
       mlir::tt::TensorMemoryLayout::Interleaved;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
+  pm.addPass(mlir::tt::ttir::createTTIRReshapePass());
 }
 
 void createTTNNPipelineAnalysisPasses(

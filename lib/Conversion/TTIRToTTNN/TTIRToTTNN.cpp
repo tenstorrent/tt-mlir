@@ -134,6 +134,16 @@ class ToLayoutOpConversionPattern
 public:
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
+  bool shouldForceTile(ttir::ToLayoutOp op) const {
+    for (mlir::Operation *use : op.getResult().getUsers()) {
+      if (isa<ttir::ReshapeOp>(use)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -179,7 +189,8 @@ public:
     // Binary ops fail with row major layout in ttnn, defaulting to tile
     // layout for all ops...
     //
-    ttnnLayoutEnum = ttnn::Layout::Tile;
+    ttnnLayoutEnum =
+        shouldForceTile(op) ? ttnn::Layout::Tile : ttnn::Layout::RowMajor;
 
     // Map TT::MemorySpace to TTNN::BufferType
     //
@@ -194,6 +205,19 @@ public:
       rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
           op.getInput(), device);
+      return success();
+    }
+
+    // Check if we are already on device. If yes we don't need ToDeviceOp
+    tt::LayoutAttr inLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
+    ttnn::BufferType inputBufferType =
+        ttnn::utils::toTTNNBufferType(inLayoutAttr.getMemorySpace());
+    if (!(inputBufferType == ttnn::BufferType::SystemMemory)) {
+      rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          op.getInput(), device,
+          ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum));
       return success();
     }
 
