@@ -16,6 +16,13 @@ enum Arch: uint {
   Blackhole = 2,
 }
 
+enum BoardType: uint {
+  N150 = 0,
+  N300 = 1,
+  GALAXY = 2,
+  DEFAULT = 3,
+}
+
 enum DataType: uint16 {
   Float32 = 0,
   Float16 = 1,
@@ -123,6 +130,7 @@ table CBRef {
 
 table ChipDesc {
   arch: Arch;
+  board_type: BoardType;
   grid_size: Dim2d;
   l1_size: uint64;
   num_dram_channels: uint32;

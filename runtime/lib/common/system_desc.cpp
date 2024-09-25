@@ -53,6 +53,21 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
   throw std::runtime_error("Unsupported arch");
 }
 
+static ::tt::target::BoardType toFlatbuffer(BoardType board_type) {
+  switch (board_type) {
+  case BoardType::N150:
+    return ::tt::target::BoardType::N150;
+  case BoardType::N300:
+    return ::tt::target::BoardType::N300;
+  case BoardType::GALAXY:
+    return ::tt::target::BoardType::GALAXY;
+  case BoardType::DEFAULT:
+    return ::tt::target::BoardType::DEFAULT;
+  }
+
+  throw std::runtime_error("Unsupported board_type");
+}
+
 static std::vector<::tt::target::ChipChannel>
 getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
@@ -220,7 +235,8 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
     chipDescs.push_back(::tt::target::CreateChipDesc(
-        fbb, toFlatbuffer(device->arch()), &deviceGrid,
+        // taps
+        fbb, toFlatbuffer(device->arch()), toFlatbuffer(device->boardType()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
         DRAM_ALIGNMENT, L1_UNRESERVED_BASE, ERISC_L1_UNRESERVED_BASE,

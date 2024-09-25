@@ -120,7 +120,7 @@ void populateTTModule(py::module &m) {
   py::class_<tt::ChipDescAttr>(m, "ChipDescAttr")
       .def_static(
           "get",
-          [](MlirContext ctx, MlirAttribute arch, std::vector<int64_t> grid,
+          [](MlirContext ctx, MlirAttribute arch, MlirAttribute boardType, std::vector<int64_t> grid,
              unsigned l1Size, unsigned numDramChannels,
              unsigned dramChannelSize, unsigned nocL1AddressAlignBytes,
              unsigned pcieAddressAlignBytes, unsigned nocDRAMAddressAlignBytes,
@@ -129,7 +129,7 @@ void populateTTModule(py::module &m) {
              MlirAttribute chipPhysicalCores, MlirAttribute supportedDataTypes,
              MlirAttribute supportedTileSizes) {
             return wrap(tt::ChipDescAttr::get(
-                unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
+                unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), mlir::cast<tt::BoardTypeAttr>(unwrap(boardType)), grid,
                 l1Size, numDramChannels, dramChannelSize,
                 nocL1AddressAlignBytes, pcieAddressAlignBytes,
                 nocDRAMAddressAlignBytes, l1UnreservedBase,

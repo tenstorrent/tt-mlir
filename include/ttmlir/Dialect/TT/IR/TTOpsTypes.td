@@ -55,6 +55,10 @@ def TT_ArchAttr : EnumAttr<TT_Dialect, TT_Arch, "arch"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TT_BoardTypeAttr : EnumAttr<TT_Dialect, TT_BoardType, "board_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TT_DataTypeAttr : EnumAttr<TT_Dialect, TT_DataType, "supportedDataTypes"> {
   let assemblyFormat = "`<` $value `>`";
 }
@@ -97,6 +101,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
   }];
 
   let parameters = (ins "ArchAttr":$arch,
+                    "BoardTypeAttr":$boardType,
                     ArrayRefParameter<"int64_t">:$grid,
                     "unsigned":$l1Size,
                     "unsigned":$numDramChannels,
@@ -112,6 +117,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
                     ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
+                             `board_type` `=` $boardType `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `l1_size` `=` $l1Size `,`
                              `num_dram_channels` `=` $numDramChannels `,`

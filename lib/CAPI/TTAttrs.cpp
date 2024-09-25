@@ -33,7 +33,7 @@ MlirAttribute ttmlirTTDataTypeAttrGet(MlirContext ctx,
 }
 
 MlirAttribute ttmlirTTChipDescAttrGet(
-    MlirContext ctx, MlirAttribute arch, int64_t *grid, size_t gridSize,
+    MlirContext ctx, MlirAttribute arch, MlirAttribute boardType, int64_t *grid, size_t gridSize,
     unsigned l1Size, unsigned numDramChannels, unsigned dramChannelSize,
     unsigned nocL1AddressAlignBytes, unsigned pcieAddressAlignBytes,
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
@@ -42,7 +42,7 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     MlirAttribute *supportedDataTypes, MlirAttribute *supportedTileSizes) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   return wrap(ChipDescAttr::get(
-      unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec, l1Size,
+      unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), mlir::dyn_cast<BoardTypeAttr>(unwrap(boardType)), gridVec, l1Size,
       numDramChannels, dramChannelSize, nocL1AddressAlignBytes,
       pcieAddressAlignBytes, nocDRAMAddressAlignBytes, l1UnreservedBase,
       eriscL1UnreservedBase, dramUnreservedBase, dramUnreservedEnd,

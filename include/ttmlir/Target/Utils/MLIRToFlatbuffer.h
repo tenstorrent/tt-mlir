@@ -126,6 +126,19 @@ inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &, ArchAttr arch) {
   }
 }
 
+inline ::tt::target::BoardType toFlatbuffer(FlatbufferObjectCache &, BoardTypeAttr board_type) {
+  switch (board_type.getValue()) {
+  case BoardType::N150:
+    return ::tt::target::BoardType::N150;
+  case BoardType::N300:
+    return ::tt::target::BoardType::N300;
+  case BoardType::GALAXY:
+    return ::tt::target::BoardType::GALAXY;
+  case BoardType::DEFAULT:
+    return ::tt::target::BoardType::DEFAULT;
+  }
+}
+
 // Overloaded function for DataTypeAttr
 inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &cache,
                                            const DataTypeAttr &dtypeAttr) {
@@ -256,7 +269,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
   assert(chipDesc.getGrid().size() == 2 && "expected a 2D grid");
   auto grid = ::tt::target::Dim2d(chipDesc.getGrid()[0], chipDesc.getGrid()[1]);
   return ::tt::target::CreateChipDesc(
-      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
+      *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), 
+      toFlatbuffer(cache, chipDesc.getBoardType()), 
+      &grid,
       chipDesc.getL1Size(), chipDesc.getNumDramChannels(),
       chipDesc.getDramChannelSize(), chipDesc.getNocL1AddressAlignBytes(),
       chipDesc.getPcieAddressAlignBytes(),

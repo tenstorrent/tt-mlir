@@ -84,6 +84,7 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       {
           tt::ChipDescAttr::get(
               context, tt::ArchAttr::get(context, tt::Arch::WormholeB0),
+              tt::BoardTypeAttr::get(context, tt::BoardType::N300),
               gridShape, 1499136, 12, (1 << 30), 16, 32, 32, 1024, 1024, 1024,
               (1 << 30),
               tt::ChipPhysicalCoresAttr::get(context, workerCores, dramCores,
@@ -172,6 +173,22 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
       break;
     }
 
+    tt::BoardType board_type;
+    switch (element->board_type()) {
+    case ::tt::target::BoardType::N150:
+      board_type = tt::BoardType::N150;
+      break;
+    case ::tt::target::BoardType::N300:
+      board_type = tt::BoardType::N300;
+      break;
+    case ::tt::target::BoardType::GALAXY:
+      board_type = tt::BoardType::GALAXY;
+      break;
+    case ::tt::target::BoardType::DEFAULT:
+      board_type = tt::BoardType::DEFAULT;
+      break;
+    }
+
     std::vector<tt::DataTypeAttr> supported_data_types_attr;
 
     for (auto it : *(element->supported_data_types())) {
@@ -235,7 +252,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
     }
 
     auto current_chip_desc_attr = tt::ChipDescAttr::get(
-        context, tt::ArchAttr::get(context, arch),
+        context, tt::ArchAttr::get(context, arch), tt::BoardTypeAttr::get(context, board_type),
         {element->grid_size()->y(), element->grid_size()->x()},
         element->l1_size(), element->num_dram_channels(),
         element->dram_channel_size(), element->noc_l1_address_align_bytes(),

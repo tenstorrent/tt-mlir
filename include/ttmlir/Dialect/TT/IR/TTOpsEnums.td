@@ -55,6 +55,21 @@ def TT_Arch : I32EnumAttr<"Arch", "TT Arch",
   let cppNamespace = "::mlir::tt";
 }
 
+def TT_N150 : I32EnumAttrCase<"N150", 0, "n150">;
+def TT_N300 : I32EnumAttrCase<"N300", 1, "n300">;
+def TT_GALAXY : I32EnumAttrCase<"GALAXY", 2, "galaxy">;
+def TT_DEFAULT : I32EnumAttrCase<"DEFAULT", 3, "default">;
+
+def TT_BoardType : I32EnumAttr<"BoardType", "TT BoardType",
+                           [
+                            TT_N150,
+                            TT_N300,
+                            TT_GALAXY,
+                            TT_DEFAULT,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
 
 def TT_System : I32EnumAttrCase<"System", 0, "system">;
 def TT_SystemMMIO : I32EnumAttrCase<"SystemMMIO", 1, "mmio">;
