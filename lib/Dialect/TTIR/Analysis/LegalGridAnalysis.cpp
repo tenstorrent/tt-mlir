@@ -37,6 +37,13 @@ layout_get_shard_shape(const mlir::tt::LayoutAttr &layout) {
   return shard_shape;
 }
 
+std::string layout_get_tensor_layout(const mlir::tt::LayoutAttr &layout) {
+  return layout.isTiled() ? mlir::tt::stringifyOperandConstraint(
+                                mlir::tt::OperandConstraint::Tile)
+                          : mlir::tt::stringifyOperandConstraint(
+                                mlir::tt::OperandConstraint::Scalar);
+}
+
 std::vector<std::array<uint32_t, 4>>
 layout_get_grid_shape(const mlir::tt::LayoutAttr &layout) {
   // todo: handle more complex grid shapes
@@ -115,6 +122,8 @@ bool mock_is_output_tensor_legal_for_op(Operation *op, LayoutAttr layout) {
   std::string data_type = ttnn_wrapper::memref_get_element_type(memref);
   ttnn::mlir_interface::memory_config_tuple memory_config =
       ttnn_wrapper::layout_get_memory_config(layout);
+  std::string tensor_layout =
+      ttnn_wrapper::layout_attr_get_tensor_memory_layout_str(layout);
 
   // call mlir_interface library per op name
   auto op_name_str = op->getName().getStringRef().str();
@@ -124,17 +133,19 @@ bool mock_is_output_tensor_legal_for_op(Operation *op, LayoutAttr layout) {
       llvm::isa<SubtractOp>(op)) {
     is_valid =
         ttnn::mlir_interface::does_binary_op_support_input_output_constraints(
-            shape, memory_config, data_type, shape, memory_config, data_type,
-            memory_config, data_type);
+            shape, memory_config, data_type, tensor_layout, shape,
+            memory_config, data_type, tensor_layout, memory_config, data_type);
   } else if (llvm::isa<SoftmaxOp>(op)) {
     is_valid =
         ttnn::mlir_interface::does_softmax_op_support_input_output_constraints(
-            shape, memory_config, data_type, shape, memory_config, data_type);
+            shape, memory_config, data_type, tensor_layout, shape,
+            memory_config, data_type);
   } else if (llvm::isa<ReluOp>(op)) {
     is_valid =
         ttnn::mlir_interface::does_unary_op_support_input_output_constraints(
             "RELU", // todo agree upon mapping to ttnn::mlir_interface
-            shape, memory_config, data_type, shape, memory_config, data_type);
+            shape, memory_config, data_type, tensor_layout, shape,
+            memory_config, data_type);
   } else {
     llvm::outs() << op->getName() << " missing ttnn interface\n";
     return false;
