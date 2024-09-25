@@ -30,8 +30,15 @@ struct ProgramExecutor {
       : context(ProgramContext(liveTensors, meshDevice)) {}
 
   void execute(const ::tt::target::ttnn::Program *program) {
+    int i = 0;
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-      runOperation(op);
+      if (i != 2) {
+        std::cout << "Running operation: " << i++ << ", " << op->debug_info()->c_str() << std::endl;
+        runOperation(op);
+      }
+      else {
+        std::cout << "Skipping operation: " << i++ << ", " << op->debug_info()->c_str() << std::endl;
+      }
     }
   }
 
