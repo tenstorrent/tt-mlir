@@ -40,7 +40,7 @@ public:
     addConversion([&](RankedTensorType type) -> RankedTensorType {
       if (type.getShape().size() == 0) {
         auto ElementType = type.getElementType();
-        return RankedTensorType::get({1}, ElementType);
+        return RankedTensorType::get({1, 1}, ElementType);
       }
       return type;
     });
