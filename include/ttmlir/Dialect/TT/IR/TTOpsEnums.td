@@ -163,6 +163,7 @@ def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Const
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
+  let stringToSymbolFnName = "OperandConstraintStringToEnum";
 }
 
 def TT_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;

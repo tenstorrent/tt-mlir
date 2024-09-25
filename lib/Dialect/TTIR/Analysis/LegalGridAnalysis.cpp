@@ -38,7 +38,10 @@ layout_get_shard_shape(const mlir::tt::LayoutAttr &layout) {
 }
 
 std::string layout_get_tensor_layout(const mlir::tt::LayoutAttr &layout) {
-  return layout.isTiled() ? "tile" : "scalar";
+  return layout.isTiled() ? mlir::tt::stringifyOperandConstraint(
+                                mlir::tt::OperandConstraint::Tile)
+                          : mlir::tt::stringifyOperandConstraint(
+                                mlir::tt::OperandConstraint::Scalar);
 }
 
 std::vector<std::array<uint32_t, 4>>
