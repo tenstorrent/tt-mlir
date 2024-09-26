@@ -213,7 +213,7 @@ public:
         mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
     ttnn::BufferType inputBufferType =
         ttnn::utils::toTTNNBufferType(inLayoutAttr.getMemorySpace());
-    if (!(inputBufferType == ttnn::BufferType::SystemMemory)) {
+    if (inputBufferType != ttnn::BufferType::SystemMemory) {
       rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
           op.getInput(), device,

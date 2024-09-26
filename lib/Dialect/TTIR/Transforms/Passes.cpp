@@ -838,7 +838,7 @@ public:
                                 PatternRewriter &rewriter) const final {
     RankedTensorType inTy = op.getInput().getType();
     LayoutAttr inputLayout = mlir::cast<LayoutAttr>(inTy.getEncoding());
-    if (!isa<tt::TileType>(inputLayout.getMemref().getElementType())) {
+    if (!inputLayout.isTiled()) {
       return failure();
     }
 
@@ -866,8 +866,6 @@ public:
 
     return success();
   }
-
-  const TypeConverter *converter;
 };
 
 class TTIRReshapePass : public impl::TTIRReshapePassBase<TTIRReshapePass> {

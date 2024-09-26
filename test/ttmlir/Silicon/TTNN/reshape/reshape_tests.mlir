@@ -51,3 +51,17 @@ func.func @reshape7(%arg0: tensor<33x24x62xbf16>) -> tensor<24x33x62xbf16> {
   %1 = "ttir.reshape"(%arg0, %0) <{shape = [24: i32, 33: i32, 62: i32], operand_constraints = [#any_device_tile, #any_device_tile]}> : (tensor<33x24x62xbf16>, tensor<24x33x62xbf16>) -> tensor<24x33x62xbf16>
   return %1 : tensor<24x33x62xbf16>
 }
+
+func.func @reshape_tile_aligned1(%arg0: tensor<8x4x32x32xbf16>) -> tensor<32x32x32xbf16> {
+  %0 = tensor.empty() : tensor<32x32x32xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+  %1 = "ttir.reshape"(%arg0, %0) <{shape = [32: i32, 32: i32, 32: i32], operand_constraints = [#any_device_tile, #any_device_tile]}> : (tensor<8x4x32x32xbf16>, tensor<32x32x32xbf16>) -> tensor<32x32x32xbf16>
+  return %1 : tensor<32x32x32xbf16>
+}
+
+func.func @reshape_tile_aligned2(%arg0: tensor<16x2x32x64xbf16>) -> tensor<32x32x64xbf16> {
+  %0 = tensor.empty() : tensor<32x32x64xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+  %1 = "ttir.reshape"(%arg0, %0) <{shape = [32: i32, 32: i32, 64: i32], operand_constraints = [#any_device_tile, #any_device_tile]}> : (tensor<16x2x32x64xbf16>, tensor<32x32x64xbf16>) -> tensor<32x32x64xbf16>
+  return %1 : tensor<32x32x64xbf16>
+}
