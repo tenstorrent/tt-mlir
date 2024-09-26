@@ -91,7 +91,7 @@ void populateTTModule(py::module &m) {
       .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
       .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
       .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
-      .def_property_readonly("memory_sapce_as_int",
+      .def_property_readonly("memory_space_as_int",
                              [](tt::LayoutAttr la) {
                                return static_cast<uint32_t>(
                                    la.getMemorySpace());
