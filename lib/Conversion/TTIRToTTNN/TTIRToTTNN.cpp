@@ -640,7 +640,8 @@ public:
       srcOpUsers.push_back(nextOp);
     }
     for (Operation *nextOp : srcOpUsers) {
-      nextOp->replaceUsesOfWith(result, input);
+      rewriter.modifyOpInPlace(
+          srcOp, [&]() { nextOp->replaceUsesOfWith(result, input); });
     }
 
     rewriter.eraseOp(srcOp);
