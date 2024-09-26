@@ -11,6 +11,11 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+namespace mlir::tt::ttnn {
+bool memoryConfigAttrEqual(const MemoryConfigAttr &lhs,
+                           const MemoryConfigAttr &rhs);
+} // namespace mlir::tt::ttnn
+
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h.inc"
 

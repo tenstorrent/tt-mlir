@@ -134,6 +134,29 @@ class ToLayoutOpConversionPattern
 public:
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
+  ttnn::Layout getLayoutFromMemRef(mlir::MemRefType memref) {
+    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    Type elementType = memref.getElementType();
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    }
+    return ttnnLayoutEnum;
+  }
+
+  DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
+    Type elementType = memref.getElementType();
+    DataType dtype = DataType::Float32;
+    if (llvm::isa<TileType>(elementType)) {
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      dtype = elementTypeToDataType(elementType);
+    }
+    return dtype;
+  }
+
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -150,88 +173,67 @@ public:
     //
     auto device = getOrInsertDevice(rewriter, op);
 
-    // Get tt::LayoutAttr of the result type
+    // Get tt::LayoutAttr of the input and result
     //
-    tt::LayoutAttr ttLayoutAttr =
+    tt::LayoutAttr inputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
+
+    tt::LayoutAttr outputLayoutAttr =
         mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
 
     // Figure out if output tensor is in RowMajor layout or Tile layout
     // Figure out the data type of the output tensor
     //
-    mlir::MemRefType memref = ttLayoutAttr.getMemref();
-    Type elementType = memref.getElementType();
-    DataType dtype = DataType::Float32;
-    // TODO(bug #665):
-    // Remove attribute once 665 is fixed
-    //
-    ttnn::Layout ttnnLayoutEnum __attribute__((unused)) =
-        ttnn::Layout::RowMajor;
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-      dtype = elementTypeToDataType(elementType);
-    }
+    mlir::MemRefType inputMemref = inputLayoutAttr.getMemref();
+    mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
 
-    // TODO(bug #665):
-    // Binary ops fail with row major layout in ttnn, defaulting to tile
-    // layout for all ops...
-    //
-    ttnnLayoutEnum = ttnn::Layout::Tile;
+    // Check if we should create ToLayoutOp
+    ttnn::Layout inputLayoutEnum = getLayoutFromMemRef(inputMemref);
+    ttnn::Layout outputLayoutEnum = getLayoutFromMemRef(outputMemref);
+    bool shouldCreateToLayoutOp = inputLayoutEnum != outputLayoutEnum;
 
-    // Map TT::MemorySpace to TTNN::BufferType
-    //
-    ttnn::BufferType bufferType =
-        ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+    // Check if we should create TypecastOp
+    DataType inputDataType = getDataTypeFromMemRef(inputMemref);
+    DataType outputDataType = getDataTypeFromMemRef(outputMemref);
+    bool shouldCreateTypecastOp = inputDataType != outputDataType;
 
-    // If the ToLayoutOp is applied to empty tensor, we need to check whether
-    // the empty tensor is going back to system memory; if so, we should not
-    // call the ToDeviceOp
-    //
-    if (bufferType == ttnn::BufferType::SystemMemory) {
-      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          op.getInput(), device);
-      return success();
-    }
+    // check if we should create ToDeviceOp
+    ttnn::BufferType inputBufferType =
+        ttnn::utils::toTTNNBufferType(inputLayoutAttr.getMemorySpace());
+    ttnn::BufferType outputBufferType =
+        ttnn::utils::toTTNNBufferType(outputLayoutAttr.getMemorySpace());
+    bool shouldCreateToDeviceOp =
+        (inputBufferType != outputBufferType) and
+        (inputBufferType == ttnn::BufferType::SystemMemory);
 
-    // Set the tensor memory layout
-    //
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+    // check if we should create FromDeviceOp
+    bool shouldCreateFromDeviceOp =
+        (inputBufferType != outputBufferType) and
+        (outputBufferType == ttnn::BufferType::SystemMemory);
 
-    // TODO(bug #621):
-    // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
-    //
-    // Also update the function header comment to reflect this added op
-    //
-    (void)dtype;
+    // check if we should create ToMemoryConfigOp
+    // TODO (jnie): we should also check core range set and shard shape for
+    // potential resharding with the same sharding method
+    ttnn::TensorMemoryLayout inputTensorMemoryLayout =
+        ttnn::utils::toTTNNTensorMemoryLayout(inputLayoutAttr.getMemLayout());
+    ttnn::TensorMemoryLayout outputTensorMemoryLayout =
+        ttnn::utils::toTTNNTensorMemoryLayout(outputLayoutAttr.getMemLayout());
 
-    // Create ToLayoutOp
-    //
-    ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-        op.getInput(), device,
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum));
+    bool shouldCreateToMemoryConfigOp = false;
+    shouldCreateToMemoryConfigOp |=
+        (inputTensorMemoryLayout != outputTensorMemoryLayout);
+    shouldCreateToMemoryConfigOp |=
+        (inputBufferType == ttnn::BufferType::DRAM and
+         outputBufferType == ttnn::BufferType::L1) or
+        (inputBufferType == ttnn::BufferType::L1 and
+         outputBufferType == ttnn::BufferType::DRAM);
 
-    // Create MemoryConfigAttr
-    //
-    // TODO(bug #620):
-    // Add support for ShardSpec
-    //
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
-
-    // Create ToDeviceOp
-    //
-    rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
-        device, memoryConfigAttr);
-    return success();
+    // All ops that we may potentially create
+    std::optional<ttnn::ToLayoutOp> toLayoutOp;
+    std::optional<ttnn::TypecastOp> typecastOp;
+    std::optional<ttnn::ToDeviceOp> toDeviceOp;
+    std::optional<ttnn::FromDeviceOp> fromDeviceOp;
+    std::optional<ttnn::ToMemoryConfigOp> toMemoryConfigOp;
   }
 };
 

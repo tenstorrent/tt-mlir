@@ -15,6 +15,15 @@ using namespace mlir::tt::ttnn;
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.cpp.inc"
 
+bool memoryConfigAttrEqual(const MemoryConfigAttr &lhs,
+                           const MemoryConfigAttr &rhs) {
+  bool isEqual = true;
+  isEqual &= lhs.getTensorMemoryLayout().getValue() ==
+             rhs.getTensorMemoryLayout().getValue();
+  isEqual &= lhs.getBufferType().getValue() == rhs.getBufferType().getValue();
+  return isEqual;
+}
+
 void TTNNDialect::registerTypes() {
   // NOLINTNEXTLINE
   addTypes<

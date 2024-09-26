@@ -22,9 +22,18 @@ bool isOnDevice(const ::ttnn::Tensor &tensor) {
   return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
 }
 
+::tt::target::MemorySpace
+getMemorySpace(const ::tt::target::TensorRef *tensorRef) {
+  return tensorRef->desc()->layout()->memory_desc()->memory_space();
+}
+
+::tt::target::TensorLayout
+getTensorLayout(const ::tt::target::TensorRef *tensorRef) {
+  return tensorRef->desc()->layout()->memory_desc()->memory_layout();
+}
+
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
-  const ::tt::target::MemorySpace targetMemorySpace =
-      tensorRef->desc()->layout()->memory_desc()->memory_space();
+  const ::tt::target::MemorySpace targetMemorySpace = getMemorySpace(tensorRef);
   return targetMemorySpace == ::tt::target::MemorySpace::System or
          targetMemorySpace == ::tt::target::MemorySpace::SystemMMIO;
 }
