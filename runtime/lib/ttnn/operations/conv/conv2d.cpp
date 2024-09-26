@@ -29,6 +29,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   // to just use the default HEIGHT_SHARDED. Truly modelling what sharding
   // config to use seems to be an open question.
   // Metal issue: https://github.com/tenstorrent/tt-metal/issues/13107
+  // MLIR issue: https://github.com/tenstorrent/tt-mlir/issues/830
   if (op->in_channels() / device.grid_size().y >= 32) {
     config.shard_layout = TensorMemoryLayout::BLOCK_SHARDED;
   }
