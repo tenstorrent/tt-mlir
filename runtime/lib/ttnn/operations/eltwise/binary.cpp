@@ -75,8 +75,28 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::subtract);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Equal: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::eq);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::NotEqual: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::ne);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::ge);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::GreaterThan: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::gt);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::LessEqual: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::le);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::LessThan: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::lt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {

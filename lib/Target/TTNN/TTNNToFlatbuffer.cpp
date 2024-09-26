@@ -254,8 +254,18 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Neg;
   } else if constexpr (std::is_same_v<EltwiseOp, SubtractOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Subtract;
+  } else if constexpr (std::is_same_v<EltwiseOp, EqualOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Equal;
+  } else if constexpr (std::is_same_v<EltwiseOp, NotEqualOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::NotEqual;
   } else if constexpr (std::is_same_v<EltwiseOp, GreaterEqualOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::GreaterEqual;
+  } else if constexpr (std::is_same_v<EltwiseOp, GreaterThanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::GreaterThan;
+  } else if constexpr (std::is_same_v<EltwiseOp, LessEqualOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LessEqual;
+  } else if constexpr (std::is_same_v<EltwiseOp, LessThanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LessThan;
   } else if constexpr (std::is_same_v<EltwiseOp, MaximumOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Maximum;
   } else if constexpr (std::is_same_v<EltwiseOp, ReluOp>) {
@@ -448,8 +458,23 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, subtractOp),
                            debugString);
   }
+  if (auto eqOp = dyn_cast<EqualOp>(op); eqOp) {
+    return createOperation(cache, createEltwiseOp(cache, eqOp), debugString);
+  }
+  if (auto neOp = dyn_cast<NotEqualOp>(op); neOp) {
+    return createOperation(cache, createEltwiseOp(cache, neOp), debugString);
+  }
   if (auto geOp = dyn_cast<GreaterEqualOp>(op); geOp) {
     return createOperation(cache, createEltwiseOp(cache, geOp), debugString);
+  }
+  if (auto gtOp = dyn_cast<GreaterThanOp>(op); gtOp) {
+    return createOperation(cache, createEltwiseOp(cache, gtOp), debugString);
+  }
+  if (auto leOp = dyn_cast<LessEqualOp>(op); leOp) {
+    return createOperation(cache, createEltwiseOp(cache, leOp), debugString);
+  }
+  if (auto ltOp = dyn_cast<LessThanOp>(op); ltOp) {
+    return createOperation(cache, createEltwiseOp(cache, ltOp), debugString);
   }
   if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
     return createOperation(cache, createEltwiseOp(cache, maximumOp),
