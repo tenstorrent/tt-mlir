@@ -11,21 +11,25 @@ table GetDeviceOp {
 
 table ToMemoryConfigOp {
   in0: tt.target.TensorRef;
-  device: tt.target.DeviceRef;
+  memcfg: MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
 table ToLayoutOp {
   in: tt.target.TensorRef;
   layout: tt.target.TensorLayout;
-  device: tt.target.DeviceRef;
+  out: tt.target.TensorRef;
+}
+
+table TypecastOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
   out: tt.target.TensorRef;
 }
 
 table ToDeviceOp {
   in: tt.target.TensorRef;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -64,12 +68,11 @@ enum EltwiseOpType: uint32 {
   Abs = 11,
   Neg = 12,
   Rsqrt = 13,
-  Typecast = 14,
-  Equal = 15,
-  NotEqual = 16,
-  GreaterThan = 19,
-  LessEqual = 17,
-  LessThan = 18,
+  Equal = 14,
+  NotEqual = 15,
+  GreaterThan = 18,
+  LessEqual = 16,
+  LessThan = 17,
 }
 
 table EltwiseOp {
@@ -180,6 +183,7 @@ union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  TypecastOp,
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
