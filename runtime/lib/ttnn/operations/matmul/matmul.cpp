@@ -18,12 +18,21 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
 
-  // Matmul requires tile layout
-  lhs = ::ttnn::to_layout(lhs, ::ttnn::TILE_LAYOUT, std::nullopt, std::nullopt,
-                          lhs.device());
+  // Workaround: call to_layout here if the input is not in TILE_LAYOUT
+  // This workaround is necesarry because the compiler does not yet model
+  // memory config/layout accurately.
+  //
+  // Issue: https://github.com/tenstorrent/tt-mlir/issues/829
 
-  rhs = ::ttnn::to_layout(rhs, ::ttnn::TILE_LAYOUT, std::nullopt, std::nullopt,
-                          rhs.device());
+  if (lhs.get_layout() != ::ttnn::TILE_LAYOUT) {
+    lhs = ::ttnn::to_layout(lhs, ::ttnn::TILE_LAYOUT, std::nullopt,
+                            std::nullopt, lhs.device());
+  }
+
+  if (rhs.get_layout() != ::ttnn::TILE_LAYOUT) {
+    rhs = ::ttnn::to_layout(rhs, ::ttnn::TILE_LAYOUT, std::nullopt,
+                            std::nullopt, rhs.device());
+  }
 
   ::ttnn::Tensor out = ::ttnn::operations::matmul::matmul(
       lhs, rhs, /*bias=*/std::nullopt,
