@@ -4,6 +4,7 @@
 
 #include "reshape.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/operations/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 
@@ -16,6 +17,45 @@ vectorToArray(const std::vector<int32_t> &vec) {
   std::array<int32_t, Rank> arr;
   std::copy(vec.begin(), vec.end(), arr.begin());
   return arr;
+}
+
+static ::ttnn::Tensor tilize(::ttnn::Tensor const &input) {
+  return ::ttnn::to_layout(input, ::ttnn::TILE_LAYOUT, std::nullopt,
+                           std::nullopt,
+                           static_cast<::ttnn::Device *>(nullptr));
+}
+
+static ::ttnn::Tensor untilize(::ttnn::Tensor const &input) {
+  return ::ttnn::to_layout(input, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
+                           std::nullopt,
+                           static_cast<::ttnn::Device *>(nullptr));
+}
+
+static ::ttnn::Tensor prepareRank1ReshapeInput(const ::ttnn::Tensor &input) {
+  ::ttnn::Tensor hostTensor = input.cpu();
+  if (input.get_layout() != ::ttnn::ROW_MAJOR_LAYOUT) {
+    hostTensor = untilize(hostTensor);
+  }
+  return hostTensor;
+}
+
+static ::ttnn::Tensor toOutputLayout(const ::ttnn::Tensor &input,
+                                     ::ttnn::Device &device,
+                                     const ::tt::target::TensorRef *outputRef) {
+  ::ttnn::Tensor out = input;
+  if (not utils::inSystemMemory(outputRef)) {
+    out = ::ttnn::to_device(out, &device, std::nullopt);
+    if (input.get_layout() == ::ttnn::Layout::TILE) {
+      out = tilize(out);
+    }
+    out = ::ttnn::to_memory_config(out, utils::createMemoryConfig(outputRef),
+                                   std::nullopt);
+    return out;
+  }
+  if (input.get_layout() == ::ttnn::Layout::TILE) {
+    out = tilize(out);
+  }
+  return out;
 }
 
 template <int32_t Rank>
@@ -37,8 +77,10 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor out;
   switch (fbShape->size()) {
+  // Hack for handling special case where desired shape is 1
   case Rank1:
-    out = invoke_reshape<Rank1>(in, shape);
+    out = invoke_reshape<Rank1>(prepareRank1ReshapeInput(in), shape);
+    out = toOutputLayout(out, context.getFirstDevice(), op->out());
     break;
   case Rank2:
     out = invoke_reshape<Rank2>(in, shape);

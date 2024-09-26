@@ -88,6 +88,11 @@ public:
         meshViews.at(globalId)->get_device(deviceCoord.row, deviceCoord.col));
   }
 
+  ::ttnn::Device &getFirstDevice() {
+    assert(meshViews.size() && "Mesh device not initialized");
+    return *(meshViews.begin()->second->get_device(0, 0));
+  }
+
 private:
   ProgramTensorPool tensorPool;
 
