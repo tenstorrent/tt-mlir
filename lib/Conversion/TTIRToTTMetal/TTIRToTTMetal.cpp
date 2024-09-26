@@ -35,6 +35,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
+#include <utility>
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -1233,12 +1234,14 @@ public:
           numTiles(numTiles), coordMappping(coordMappping) {}
   };
 
-  SmallVector<Type> getBlockArgumentTypesAsCBs(
-      ttir::GenericOp op, mlir::Block::BlockArgListType blockArguments,
-      PatternRewriter &rewriter,
-      SmallVector<StreamedOperand> &streamedOperands) const {
+  std::pair<SmallVector<Type>, SmallVector<StreamedOperand>>
+  getBlockArgumentTypesAsCBs(ttir::GenericOp op,
+                             mlir::Block::BlockArgListType blockArguments,
+                             PatternRewriter &rewriter) const {
 
     SmallVector<Type> rewrittenBlockArgumentTypes;
+    SmallVector<StreamedOperand> streamedOperands;
+
     for (auto arg : blockArguments) {
       auto port = getPort(arg.getArgNumber(), op.getInputs().size());
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
@@ -1283,7 +1286,7 @@ public:
               MemorySpace::DeviceL1)));
     }
 
-    return rewrittenBlockArgumentTypes;
+    return {rewrittenBlockArgumentTypes, streamedOperands};
   }
 
   llvm::MapVector<PhysicalCoreCoord,
@@ -1356,9 +1359,11 @@ public:
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
     };
 
+    SmallVector<Type> rewrittenBlockArgumentTypes;
     SmallVector<StreamedOperand> streamedOperands;
-    auto rewrittenBlockArgumentTypes = getBlockArgumentTypesAsCBs(
-        op, op->getRegion(0).getArguments(), rewriter, streamedOperands);
+    std::tie(rewrittenBlockArgumentTypes, streamedOperands) =
+        getBlockArgumentTypesAsCBs(op, op->getRegion(0).getArguments(),
+                                   rewriter);
 
     assert(streamedOperands.size() <= 1 &&
            "Expecting at most one streamed operand for now");
