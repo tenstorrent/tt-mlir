@@ -35,21 +35,35 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   constexpr int32_t Rank4 = 4;
   constexpr int32_t Rank5 = 5;
 
-  if (shape.size() == 1) {
-    // if (in.get_layout() == ::ttnn::Layout::TILE) {
-    //   throw std::runtime_error("Input tensor has TILE layout!!!");
-    // }
+  // if (shape.size() == 1) {
+  //   // if (in.get_layout() == ::ttnn::Layout::TILE) {
+  //   //   throw std::runtime_error("Input tensor has TILE layout!!!");
+  //   // }
 
-    std::array<int32_t, Rank1> shape_arr = vectorToArray<Rank1>(shape);
-    std::array<std::uint32_t, Rank1> new_shape{};
-    std::copy(shape_arr.begin(), shape_arr.end(), new_shape.begin());
-    ::ttnn::Shape target_shape(new_shape);
+  //   std::array<int32_t, Rank1> shape_arr = vectorToArray<Rank1>(shape);
+  //   std::array<std::uint32_t, Rank1> new_shape{};
+  //   std::copy(shape_arr.begin(), shape_arr.end(), new_shape.begin());
+  //   ::ttnn::Shape target_shape(new_shape);
 
-    in.set_layout(::ttnn::Layout::ROW_MAJOR);
-    ::ttnn::Tensor out_tensor = in.reshape(target_shape.value);
-    tensorPool.insert_or_assign(op->out()->global_id(), out_tensor);
-    return;
-  }
+  //   const auto original_layout = in.get_layout();
+  //   in.set_layout(::ttnn::Layout::ROW_MAJOR);
+  //   ::ttnn::Tensor out_tensor = in.reshape(target_shape.value);
+  //   out_tensor.set_layout(original_layout);
+  //   tensorPool.insert_or_assign(op->out()->global_id(), out_tensor);
+  //   return;
+  // } else if (shape.size() == 2 && shape[1] == 1) {
+  //   std::array<int32_t, Rank2> shape_arr = vectorToArray<Rank2>(shape);
+  //   std::array<std::uint32_t, Rank2> new_shape{};
+  //   std::copy(shape_arr.begin(), shape_arr.end(), new_shape.begin());
+  //   ::ttnn::Shape target_shape(new_shape);
+
+  //   const auto original_layout = in.get_layout();
+  //   in.set_layout(::ttnn::Layout::ROW_MAJOR);
+  //   ::ttnn::Tensor out_tensor = in.reshape(target_shape.value);
+  //   out_tensor.set_layout(original_layout);
+  //   tensorPool.insert_or_assign(op->out()->global_id(), out_tensor);
+  //   return;
+  // }
 
   ::ttnn::Tensor out;
   switch (fbShape->size()) {
