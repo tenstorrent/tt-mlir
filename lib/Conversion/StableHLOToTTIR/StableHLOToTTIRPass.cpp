@@ -38,9 +38,17 @@ public:
       return type;
     });
     addConversion([&](RankedTensorType type) -> RankedTensorType {
+      // Promoting scalar and 1-d tensors to 2-d because TTNN doesn't support
+      // such tensors in tile layout. Cases where this might cause issues (like
+      // reduce to lower dimensions) will be handled specially during
+      // conversion.
       if (type.getShape().size() == 0) {
         auto ElementType = type.getElementType();
         return RankedTensorType::get({1, 1}, ElementType);
+      }
+      if (type.getShape().size() == 1) {
+        auto ElementType = type.getElementType();
+        return RankedTensorType::get({type.getShape().front(), 1}, ElementType);
       }
       return type;
     });

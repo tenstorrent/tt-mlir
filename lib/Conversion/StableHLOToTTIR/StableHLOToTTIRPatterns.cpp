@@ -143,10 +143,16 @@ private:
     // Reduce doesn't yet support keepDim=False. As a workaround, we convert it
     // to combination of TTIR.ReduceOp with keepDim=True + TTIR.ReshapeOp to
     // remove the reduce dims so that the rest of the graph is not affected.
+    // In case when this is not needed (because type converter already promoted
+    // rank of the op result) then we avoid adding unnecessary Reshape op.
     DestOp reduceOp = createReduceOp<DestOp>(
         srcOp, adaptor, rewriter, inputType, outputType, operandConstraints);
-    createReshapeOp<DestOp>(srcOp, reduceOp, rewriter, outputType,
-                            operandConstraints);
+    if (outputType.getShape().size() < inputType.getShape().size()) {
+      createReshapeOp<DestOp>(srcOp, reduceOp, rewriter, outputType,
+                              operandConstraints);
+    } else {
+      rewriter.replaceOp(srcOp, reduceOp);
+    }
 
     return success();
   }
