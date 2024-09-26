@@ -39,7 +39,7 @@ mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
   case ::mlir::tt::TensorMemoryLayout::SingleBank:
     return ttnn::TensorMemoryLayout::SingleBank;
   case ::mlir::tt::TensorMemoryLayout::None:
-    assert(false && "TensorMemoryLayout::None not supported");
+    return ttnn::TensorMemoryLayout::None;
   }
 
   llvm_unreachable("Unknown TensorMemoryLayout");
