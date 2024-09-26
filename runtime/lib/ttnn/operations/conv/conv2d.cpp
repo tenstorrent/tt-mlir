@@ -25,6 +25,10 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
 
+  // This metric is used to determine whether to use BLOCK_SHARDED or
+  // to just use the default HEIGHT_SHARDED. Truly modelling what sharding
+  // config to use seems to be an open question.
+  // Metal issue: https://github.com/tenstorrent/tt-metal/issues/13107
   if (op->in_channels() / device.grid_size().y >= 32) {
     config.shard_layout = TensorMemoryLayout::BLOCK_SHARDED;
   }
@@ -39,6 +43,15 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
           {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
           config));
 
+  // Workaround. The compiler models all ops as outputting to
+  // DRAM - interleaved. The compiler is not yet setup to model
+  // memory configs. TTNN::conv2d outputs to L1, in some sharded
+  // config. In order to ensure the compiler models the memory config
+  // "correctly", I put to_memory_config here. In addition to the
+  // compiler being "correct", subsequent eltwise ops require that both
+  // inputs be on DRAM - interleaved.
+  //
+  // Issue: https://github.com/tenstorrent/tt-mlir/issues/826
   auto new_memconfig = out.memory_config();
   new_memconfig.memory_layout = TensorMemoryLayout::INTERLEAVED;
   new_memconfig.buffer_type = BufferType::DRAM;

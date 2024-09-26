@@ -56,6 +56,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
                        {op->padding_height(), op->padding_width()},
                        {op->dilation_height(), op->dilation_width()}, &device);
 
+  // Workaround. Details at the bottom of conv2d.cpp or in this issue:
+  // https://github.com/tenstorrent/tt-mlir/issues/826
   auto new_memconfig = out.memory_config();
   new_memconfig.memory_layout = TensorMemoryLayout::INTERLEAVED;
   new_memconfig.buffer_type = BufferType::DRAM;
