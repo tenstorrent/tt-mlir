@@ -22,9 +22,13 @@ bool isOnDevice(const ::ttnn::Tensor &tensor) {
   return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
 }
 
+::tt::target::MemorySpace
+getMemorySpace(const ::tt::target::TensorRef *tensorRef) {
+  return tensorRef->desc()->layout()->memory_desc()->memory_space();
+}
+
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
-  const ::tt::target::MemorySpace targetMemorySpace =
-      tensorRef->desc()->layout()->memory_desc()->memory_space();
+  const ::tt::target::MemorySpace targetMemorySpace = getMemorySpace(tensorRef);
   return targetMemorySpace == ::tt::target::MemorySpace::System or
          targetMemorySpace == ::tt::target::MemorySpace::SystemMMIO;
 }
@@ -110,18 +114,12 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   ::ttnn::BufferType bufferType =
       ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());
 
-  // TODO(bug #620):
-  // Until ShardSpec support is added in TTNN, read it from the output tensor.
-  // If ShardSpec is not supplied, an error will be thrown in ttnn lib.
-  //
-  // TODO(bug #620):
-  // Update the method signature above: remove tensorRef
-  //
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  const ::flatbuffers::Vector<int64_t> *shardShape = memcfg->shard_shape();
+  const ::flatbuffers::Vector<int64_t> *shardShape =
+      memcfg->shard_spec()->shard_shape();
   std::array<uint32_t, 2> ttnnShardShape = {
       static_cast<uint32_t>(shardShape->Get(0)),
       static_cast<uint32_t>(shardShape->Get(1))};

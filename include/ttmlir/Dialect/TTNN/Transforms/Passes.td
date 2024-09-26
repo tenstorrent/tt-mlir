@@ -14,6 +14,13 @@ def TTNNDeallocate: Pass<"ttnn-deallocate", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNDecomposeCompositeLayouts: Pass<"ttnn-decompose-composite-layouts", "::mlir::ModuleOp"> {
+  let summary = "Decompose composite layout ops to according memory ops.";
+  let description = [{
+    This pass decomposes composite layouts to memory ops (e.g. toDevice, toMemoryConfig etc.).
+  }];
+}
+
 def TTNNOptimizer: Pass<"ttnn-optimizer", "::mlir::ModuleOp"> {
   let summary = "Determine op configurations for maximum performance.";
   let description = [{
