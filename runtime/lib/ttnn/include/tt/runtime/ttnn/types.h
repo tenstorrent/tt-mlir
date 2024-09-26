@@ -11,41 +11,80 @@ namespace tt::runtime::ttnn {
 
 using TensorMap = std::unordered_map<uint32_t, ::ttnn::Tensor *>;
 struct ProgramTensorPool {
-  ProgramTensorPool(const TensorMap &liveTensors) : liveTensors(liveTensors) {}
+  ProgramTensorPool(const TensorMap &liveTensors,
+                    const std::unordered_set<uint32_t> &programInputs,
+                    const std::unordered_set<uint32_t> &programOutputs)
+      : programInputs(programInputs), programOutputs(programOutputs),
+        liveTensors(liveTensors) {}
 
-  auto try_emplace(std::uint32_t global_id, const ::ttnn::Tensor &tensor) {
-    auto it = liveTensors.find(global_id);
+  auto try_emplace(std::uint32_t globalId, const ::ttnn::Tensor &tensor) {
+    auto it = liveTensors.find(globalId);
     if (it != liveTensors.end()) {
       return std::make_pair(it, false);
     }
-    assert(!intermedTensors.contains(global_id));
-    intermedTensors.try_emplace(global_id, tensor);
-    return liveTensors.try_emplace(global_id, &intermedTensors.at(global_id));
+    assert(!intermedTensors.contains(globalId));
+    intermedTensors.try_emplace(globalId, tensor);
+    return liveTensors.try_emplace(globalId, &intermedTensors.at(globalId));
   }
 
-  auto insert_or_assign(std::uint32_t global_id, const ::ttnn::Tensor &tensor) {
-    intermedTensors.insert_or_assign(global_id, tensor);
-    return liveTensors.insert_or_assign(global_id,
-                                        &intermedTensors.at(global_id));
+  auto insert_or_assign(std::uint32_t globalId, const ::ttnn::Tensor &tensor) {
+    intermedTensors.insert_or_assign(globalId, tensor);
+    return liveTensors.insert_or_assign(globalId,
+                                        &intermedTensors.at(globalId));
   }
 
-  ::ttnn::Tensor &at(std::uint32_t global_id) {
-    assert(liveTensors.contains(global_id));
-    return *liveTensors.at(global_id);
+  ::ttnn::Tensor &at(std::uint32_t globalId) {
+    assert(liveTensors.contains(globalId));
+    return *liveTensors.at(globalId);
   }
 
-  size_t erase(std::uint32_t global_id) {
-    assert(liveTensors.contains(global_id) &&
-           intermedTensors.contains(global_id));
-    intermedTensors.erase(global_id);
-    return liveTensors.erase(global_id);
+  size_t erase(std::uint32_t globalId) {
+    assert(liveTensors.contains(globalId) &&
+           intermedTensors.contains(globalId));
+    intermedTensors.erase(globalId);
+    return liveTensors.erase(globalId);
   }
 
-  bool contains(std::uint32_t global_id) const {
-    return liveTensors.contains(global_id);
+  void copyTensorDataToUserOutput(std::uint32_t dstGlobalId,
+                                  ::ttnn::Tensor &src) {
+    assert(liveTensors.contains(dstGlobalId));
+    assert(isUserDefinedOutput(dstGlobalId));
+    ::ttnn::Tensor &dst = *liveTensors.at(dstGlobalId);
+    void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(src);
+    void *dstPtr = ::tt::tt_metal::get_raw_host_data_ptr(dst);
+    std::uint32_t size = dst.volume() * dst.element_size();
+    std::memcpy(dstPtr, srcPtr, size);
+  }
+
+  bool contains(std::uint32_t globalId) const {
+    return liveTensors.contains(globalId);
+  }
+
+  bool isUserDefinedInput(std::uint32_t globalId) const {
+    return programInputs.contains(globalId);
+  }
+
+  bool isUserDefinedOutput(std::uint32_t globalId) const {
+    return programOutputs.contains(globalId);
+  }
+
+  bool isUserDefinedTensor(std::uint32_t globalId) const {
+    return isUserDefinedInput(globalId) || isUserDefinedOutput(globalId);
+  }
+
+  const std::unordered_set<std::uint32_t> &getProgramInputs() const {
+    return programInputs;
+  }
+
+  const std::unordered_set<std::uint32_t> &getProgramOutputs() const {
+    return programOutputs;
   }
 
 private:
+  // global ids of input/output tensors passed in by the user
+  std::unordered_set<std::uint32_t> programInputs;
+  std::unordered_set<std::uint32_t> programOutputs;
+
   // A superset of intermedTensors, containing pointers to all tensors created
   // by the program and the input/output tensors passed in by the user
   TensorMap liveTensors;
@@ -57,8 +96,13 @@ private:
 
 class ProgramContext {
 public:
-  ProgramContext(const TensorMap &liveTensors, ::ttnn::MeshDevice *meshDevice)
-      : tensorPool(ProgramTensorPool(liveTensors)), meshDevice(meshDevice) {}
+  ProgramContext(const TensorMap &liveTensors,
+                 const std::unordered_set<uint32_t> &programInputs,
+                 const std::unordered_set<uint32_t> &programOutputs,
+                 ::ttnn::MeshDevice *meshDevice)
+      : tensorPool(
+            ProgramTensorPool(liveTensors, programInputs, programOutputs)),
+        meshDevice(meshDevice) {}
 
   const ::ttnn::MeshDevice &getMeshDevice() const {
     assert(meshDevice && "Mesh device not initialized");
