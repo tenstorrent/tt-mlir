@@ -914,7 +914,8 @@ public:
           rewriter, mlir::cast<MaxPool2dOp>(op), input_reshape,
           static_cast<int32_t>(input_shape[1]),
           static_cast<int32_t>(input_shape[2]), new_result_type);
-    } else if (isa<Conv2dOp>(op)) {
+    } else {
+      assert(isa<Conv2dOp>(op));
       new_op =
           createConv2dOp(rewriter, mlir::cast<Conv2dOp>(op), input_reshape,
                          static_cast<int32_t>(input_shape[1]),
@@ -975,6 +976,9 @@ public:
       // issue with the MaxPool2d op (which is called above) is because dim -1
       // is tile aligned before and after the op anyway.
       //
+
+      // As explained above, one of the reshapes added by this commented-out
+      // pass is not supported by ttnn.
       // patterns.add<UncollapsedSlidingWindow2dPatternRewriter<Conv2dOp>>(
       //     &getContext());
 
@@ -1538,6 +1542,25 @@ public:
         loc, output.getType(), input, output, shape_attr, operandConstraints);
   }
 
+  LogicalResult checkReduceDim(MeanOp op, int64_t desired) const {
+    if (!op.getDimArg().has_value()) {
+      return failure();
+    }
+
+    if (op.getDimArg().value().size() != 1) {
+      return failure();
+    }
+
+    int64_t dim =
+        mlir::cast<IntegerAttr>(op.getDimArg().value().getValue()[0]).getInt();
+
+    if (dim != desired) {
+      return failure();
+    }
+
+    return success();
+  }
+
   LogicalResult matchAndRewrite(MeanOp reduce1,
                                 PatternRewriter &rewriter) const final {
 
@@ -1549,38 +1572,24 @@ public:
       return failure();
     }
 
-    int64_t reduce1_dim =
-        mlir::cast<IntegerAttr>(reduce1.getDimArg().value().getValue()[0])
-            .getInt();
-    if (reduce1_dim != -3) {
+    if (failed(checkReduceDim(reduce1, -3))) {
       return failure();
     }
 
-    MeanOp reduce2;
-    bool found = false;
-    for (auto user : reduce1->getUsers()) {
-      user->getName().dump();
-      if (isa<MeanOp>(user)) {
-        reduce2 = mlir::cast<MeanOp>(user);
-        found = true;
-      }
-    }
-    if (!found) {
+    std::vector<Operation *> reduce1_users(reduce1->getUsers().begin(),
+                                           reduce1->getUsers().end());
+
+    if (reduce1_users.size() != 1) {
       return failure();
     }
 
-    if (!reduce2.getDimArg().has_value()) {
+    if (!isa<MeanOp>(reduce1_users[0])) {
       return failure();
     }
 
-    if (reduce2.getDimArg().value().size() != 1) {
-      return failure();
-    }
+    MeanOp reduce2 = mlir::cast<MeanOp>(reduce1_users[0]);
 
-    int64_t reduce2_dim =
-        mlir::cast<IntegerAttr>(reduce2.getDimArg().value().getValue()[0])
-            .getInt();
-    if (reduce2_dim != -2) {
+    if (failed(checkReduceDim(reduce2, -2))) {
       return failure();
     }
 
@@ -1590,27 +1599,12 @@ public:
     input_shape[input_shape.size() - 2] = input_shape[input_shape.size() - 2] *
                                           input_shape[input_shape.size() - 3];
     input_shape[input_shape.size() - 3] = 1;
-
-    llvm::ArrayRef<int64_t> shape_attr = {
-        (int32_t)input_shape[0], (int32_t)input_shape[1],
-        (int32_t)input_shape[2], (int32_t)input_shape[3]};
-
-    // auto to_layout_dps =
-    //     rewriter.create<tensor::EmptyOp>(reduce1->getLoc(),
-    //     input_type.getShape(), input_type.getElementType(), );
-
-    // auto layout_attr = mlir::cast<LayoutAttr>(input_type.getEncoding());
-    // layout_attr = layout_attr,
-    // auto to_layout = rewriter.create<ttir::ToLayoutOp>(reduce1.getLoc(),
-    // to_layout_dps.getType(), input, LayoutAttr::get(rewriter.getContext(),
-    // ));
+    llvm::ArrayRef<int64_t> shape_attr(input_shape);
 
     auto reshape = createReshapeOp(rewriter, reduce1->getLoc(), input,
                                    shape_attr, reduce1.getOperandConstraints());
 
     rewriter.replaceOp(reduce1, reshape);
-    rewriter.modifyOpInPlace(reduce2,
-                             [&]() { reduce2.setOperand(0, reshape); });
     return success();
   }
 };

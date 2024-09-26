@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20.0)
 project(tt-mlir LANGUAGES CXX C)
-set(CMAKE_BUILD_TYPE Debug)
+
 if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
   message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
 endif()
