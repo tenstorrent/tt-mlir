@@ -14,7 +14,7 @@ namespace tt::runtime::ttnn::operations::matmul {
 
 // This is a workaround for the lack of program config selection in ttnn.matmul.
 // The logic here is temporary and totaly incompleate.
-::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig
+static ::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig
 createProgramConfig(const ::tt::target::ttnn::MatmulOp *op,
                     ProgramContext &context,
                     ::tt::tt_metal::MemoryConfig outputMemoryConfig) {
@@ -101,11 +101,16 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
     programConfig = createProgramConfig(op, context, outputMemoryConfig);
   }
 
-  ::ttnn::Tensor out = ::ttnn::operations::matmul::matmul(
-      lhs, rhs, /*bias=*/std::nullopt,
-      ::ttnn::operations::matmul::Matmul{/*program_config=*/programConfig,
-                                         /*bcast_batch=*/std::nullopt,
-                                         outputMemoryConfig, outputDataType});
+  const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
+      std::make_optional(outputMemoryConfig);
+      
+  const std::optional<const ::ttnn::DataType> dtype =
+      std::make_optional(outputDataType);
+
+  ::ttnn::Tensor out =
+      ::ttnn::matmul(lhs, rhs, /*transposeA*/ false, /*transposeB*/ false, memoryConfig, dtype,
+                     programConfig, /*activation*/ std::nullopt, /*computeKernelConfig*/ std::nullopt, /*coreGrid*/ std::nullopt);
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::matmul

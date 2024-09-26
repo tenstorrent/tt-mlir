@@ -4,10 +4,11 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType
 //
-mlir::tt::ttnn::BufferType mlir::tt::ttnn::utils::toTTNNBufferType(
-    const mlir::tt::MemorySpace memorySpace) {
+mlir::tt::ttnn::BufferType
+toTTNNBufferType(const mlir::tt::MemorySpace memorySpace) {
   switch (memorySpace) {
   case MemorySpace::System:
   case MemorySpace::SystemMMIO:
@@ -23,8 +24,7 @@ mlir::tt::ttnn::BufferType mlir::tt::ttnn::utils::toTTNNBufferType(
 
 // Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
 //
-mlir::tt::ttnn::TensorMemoryLayout
-mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
+mlir::tt::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     const ::mlir::tt::TensorMemoryLayout ttTensorMemoryLayout) {
 
   switch (ttTensorMemoryLayout) {
@@ -39,8 +39,21 @@ mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
   case ::mlir::tt::TensorMemoryLayout::SingleBank:
     return ttnn::TensorMemoryLayout::SingleBank;
   case ::mlir::tt::TensorMemoryLayout::None:
-    assert(false && "TensorMemoryLayout::None not supported");
+    return ttnn::TensorMemoryLayout::None;
   }
 
   llvm_unreachable("Unknown TensorMemoryLayout");
 }
+
+DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
+  Type elementType = memref.getElementType();
+  DataType dtype = DataType::Float32;
+  if (llvm::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+  }
+  return dtype;
+}
+} // namespace mlir::tt::ttnn::utils
