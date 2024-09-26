@@ -1564,14 +1564,6 @@ public:
   LogicalResult matchAndRewrite(MeanOp reduce1,
                                 PatternRewriter &rewriter) const final {
 
-    if (!reduce1.getDimArg().has_value()) {
-      return failure();
-    }
-
-    if (reduce1.getDimArg().value().size() != 1) {
-      return failure();
-    }
-
     if (failed(checkReduceDim(reduce1, -3))) {
       return failure();
     }
