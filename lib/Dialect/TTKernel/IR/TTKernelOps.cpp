@@ -19,11 +19,11 @@ namespace mlir::tt::ttkernel {
 static bool insideDispatchOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
 
-  if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp)) {
-    return true;
+  if (!parentOp) {
+    return false;
   }
 
-  if (dyn_cast_or_null<scf::ForOp>(parentOp)) {
+  if (dyn_cast_or_null<ttmetal::DispatchOp>(parentOp)) {
     return true;
   }
 
@@ -31,7 +31,7 @@ static bool insideDispatchOpRegion(mlir::Operation *op) {
       dyn_cast_or_null<mlir::ModuleOp>(parentOp->getParentOp())) {
     return true;
   }
-  return false;
+  return insideDispatchOpRegion(parentOp);
 }
 
 ::mlir::LogicalResult BuiltinOp::verify() {
