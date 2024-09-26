@@ -123,7 +123,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> optimizerPassEnabled{
       *this, "enable-optimizer",
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   // Option to override output layout for specific ops.
   // The format is a comma separated list of op names equal to the output layout

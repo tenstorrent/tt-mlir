@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="override-output-layout=add_1_0=4x4:dram:interleaved,add_2_0=4x4:l1:interleaved" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true override-output-layout=add_1_0=4x4:dram:interleaved,add_2_0=4x4:l1:interleaved" %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #loc = loc("test_ops.py:17_0_0":0:0)
 module attributes {} {
