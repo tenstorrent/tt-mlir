@@ -176,6 +176,9 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
     for (auto it : *(element->supported_data_types())) {
       switch (it) {
+      case ::tt::target::DataType::None:
+        assert(false && "Unexpected None DataType");
+        break;
       case ::tt::target::DataType::Float32:
         supported_data_types_attr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Float32));

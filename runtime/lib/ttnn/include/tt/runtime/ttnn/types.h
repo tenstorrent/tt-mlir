@@ -11,7 +11,11 @@ namespace tt::runtime::ttnn {
 
 using TensorMap = std::unordered_map<uint32_t, ::ttnn::Tensor *>;
 struct ProgramTensorPool {
-  ProgramTensorPool(const TensorMap &liveTensors) : liveTensors(liveTensors) {}
+  ProgramTensorPool(const TensorMap &liveTensors,
+                    const std::unordered_set<uint32_t> &programInputs,
+                    const std::unordered_set<uint32_t> &programOutputs)
+      : programInputs(programInputs), programOutputs(programOutputs),
+        liveTensors(liveTensors) {}
 
   auto try_emplace(std::uint32_t global_id, const ::ttnn::Tensor &tensor) {
     auto it = liveTensors.find(global_id);
@@ -45,7 +49,17 @@ struct ProgramTensorPool {
     return liveTensors.contains(global_id);
   }
 
+  const std::unordered_set<std::uint32_t> &getProgramInputs() const {
+    return programInputs;
+  }
+
+  const std::unordered_set<std::uint32_t> &getProgramOutputs() const {
+    return programOutputs;
+  }
+
 private:
+  const std::unordered_set<std::uint32_t> programInputs;
+  const std::unordered_set<std::uint32_t> programOutputs;
   // A superset of intermedTensors, containing pointers to all tensors created
   // by the program and the input/output tensors passed in by the user
   TensorMap liveTensors;
@@ -57,8 +71,13 @@ private:
 
 class ProgramContext {
 public:
-  ProgramContext(const TensorMap &liveTensors, ::ttnn::MeshDevice *meshDevice)
-      : tensorPool(ProgramTensorPool(liveTensors)), meshDevice(meshDevice) {}
+  ProgramContext(const TensorMap &liveTensors,
+                 const std::unordered_set<uint32_t> &programInputs,
+                 const std::unordered_set<uint32_t> &programOutputs,
+                 ::ttnn::MeshDevice *meshDevice)
+      : tensorPool(
+            ProgramTensorPool(liveTensors, programInputs, programOutputs)),
+        meshDevice(meshDevice) {}
 
   const ::ttnn::MeshDevice &getMeshDevice() const {
     assert(meshDevice && "Mesh device not initialized");
