@@ -819,11 +819,8 @@ public:
                             Value input, ::llvm::ArrayRef<int64_t> shapei64,
                             ::mlir::ArrayAttr operandConstraints) const {
     auto ty = mlir::cast<RankedTensorType>(input.getType());
-    Type element_type =
-        shapei64[shapei64.size() - 2] % 32 == 0
-            ? TileType::get(rewriter.getContext(), ty.getElementType())
-            : ty.getElementType();
-    auto output = rewriter.create<tensor::EmptyOp>(loc, shapei64, element_type);
+    auto output =
+        rewriter.create<tensor::EmptyOp>(loc, shapei64, ty.getElementType());
 
     auto shape_attr = rewriter.getI32ArrayAttr(
         {static_cast<int32_t>(shapei64[0]), static_cast<int32_t>(shapei64[1]),
