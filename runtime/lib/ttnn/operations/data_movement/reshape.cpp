@@ -36,10 +36,12 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   constexpr int32_t Rank4 = 4;
   constexpr int32_t Rank5 = 5;
 
-  // HACK:
+  // Workaround:
   // 1. checking runtime tensor for layout
-  // 2. conditionally converting to row major if desiered height and width
+  // 2. conditionally converting to row major if desired height and width
   //    are not BOTH tile aligned
+  //
+  // Issue: https://github.com/tenstorrent/tt-mlir/issues/827
 
   if (in.get_layout() == ::ttnn::TILE_LAYOUT &&
       (shape[shape.size() - 2] % 32 != 0 ||
