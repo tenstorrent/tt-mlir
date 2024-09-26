@@ -87,11 +87,20 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
   constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+          op.getMemoryConfig().getTensorMemoryLayout().getValue());
+  ::tt::target::BufferType bufferType =
+      ::tt::mlir::ttnn::utils::toTargetBufferType(
+          op.getMemoryConfig().getBufferType().getValue());
+  auto memoryConfigDesc =
+      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateToMemoryConfigOp(
-      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
+  return ::tt::target::ttnn::CreateToMemoryConfigOp(*cache.fbb, input,
+                                                    memoryConfigDesc, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToLayoutOp>
@@ -102,13 +111,25 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
-  auto device = getOperandThroughDPSOps(op.getDevice());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
-  return ::tt::target::ttnn::CreateToLayoutOp(
-      *cache.fbb, input, layout, cache.at<::tt::target::DeviceRef>(device),
-      output);
+  return ::tt::target::ttnn::CreateToLayoutOp(*cache.fbb, input, layout,
+                                              output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
+createOp(FlatbufferObjectCache &cache, TypecastOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateTypecastOp(*cache.fbb, input, dtype, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToDeviceOp>
@@ -280,8 +301,6 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Div;
   } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
-  } else if constexpr (std::is_same_v<EltwiseOp, TypecastOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Typecast;
   } else if constexpr (std::is_same_v<EltwiseOp, ExpOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Exp;
   } else {
@@ -429,6 +448,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString);
   }
+  if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
+    return createOperation(cache, createOp(cache, typecastOp), debugString);
+  }
   if (auto toDeviceOp = dyn_cast<ToDeviceOp>(op); toDeviceOp) {
     return createOperation(cache, createOp(cache, toDeviceOp), debugString);
   }
@@ -526,10 +548,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
-                           debugString);
-  }
-  if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
-    return createOperation(cache, createEltwiseOp(cache, typecastOp),
                            debugString);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

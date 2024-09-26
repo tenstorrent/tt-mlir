@@ -16,6 +16,7 @@
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
+#include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
@@ -26,8 +27,12 @@
 namespace tt::runtime::ttnn {
 
 struct ProgramExecutor {
-  ProgramExecutor(const TensorMap &liveTensors, ::ttnn::MeshDevice *meshDevice)
-      : context(ProgramContext(liveTensors, meshDevice)) {}
+  ProgramExecutor(const TensorMap &liveTensors,
+                  const std::unordered_set<uint32_t> &programInputs,
+                  const std::unordered_set<uint32_t> &programOutputs,
+                  ::ttnn::MeshDevice *meshDevice)
+      : context(ProgramContext(liveTensors, programInputs, programOutputs,
+                               meshDevice)) {}
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
@@ -52,6 +57,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    return operations::layout::run(op->type_as_TypecastOp(), context);
   }
   case ::tt::target::ttnn::OpType::ToDeviceOp: {
     return operations::layout::run(op->type_as_ToDeviceOp(), context);
@@ -137,22 +145,27 @@ void runProgram(::ttnn::MeshDevice &meshDevice,
     return;
   }
   TensorMap liveTensors;
+  std::unordered_set<uint32_t> programInputs;
   int inputIndex = 0;
   assert(program->inputs()->size() == inputs.size());
   for (::tt::target::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
     assert(inserted && "Duplicate input tensor");
+    programInputs.emplace(input->global_id());
   }
 
   int outputIndex = 0;
+  std::unordered_set<uint32_t> programOutputs;
   assert(program->outputs()->size() == outputs.size());
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
     assert(inserted && "Duplicate output tensor");
+    programOutputs.emplace(output->global_id());
   }
-  ProgramExecutor executor(liveTensors, &meshDevice);
+  ProgramExecutor executor(liveTensors, programInputs, programOutputs,
+                           &meshDevice);
   executor.execute(program);
 }
 

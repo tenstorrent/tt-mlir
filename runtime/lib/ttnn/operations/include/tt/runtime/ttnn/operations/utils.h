@@ -19,6 +19,9 @@ bool isOnDevice(const ::ttnn::Tensor &tensor);
 
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef);
 
+::tt::target::MemorySpace
+getMemorySpace(const ::tt::target::TensorRef *tensorRef);
+
 ::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef);
 
 CoreRangeSet toCoreRangeSet(
