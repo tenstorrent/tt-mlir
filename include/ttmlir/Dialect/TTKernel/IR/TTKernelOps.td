@@ -142,7 +142,7 @@ def TTKernel_CopyTileOp : TTKernel_Op<"copy_tile"> {
       previously called to ensure that at least some number n>0 of tiles are available
       in the input CB. The CB index 0 then references the first tile in the received section of the CB,
       up to index n-1 (in a FIFO order). The DST register buffer must be in acquired state via
-      acquire_dst call. This call is blocking and is only available on the compute
+      tile_regs_acquire call. This call is blocking and is only available on the compute
       engine.
     }];
 
@@ -288,7 +288,7 @@ def TTKernel_RecipTileOp : TTKernel_Op<"recip_tile"> {
     let description = [{
       Performs element-wise computation of the reciprocal on each element of a tile
       in DST register at index tile_index. The DST register buffer must be in
-      acquired state via *acquire_dst* call. This call is blocking and is only
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
       available on the compute engine.
       Only works for Float32, Float16_b, Bfp8_b data formats for full accuracy.
     }];

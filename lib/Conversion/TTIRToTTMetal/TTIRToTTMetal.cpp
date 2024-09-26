@@ -730,39 +730,44 @@ public:
 
     auto inCBTileIndex = iterators[blockArgIteratorMapping[0]];
     auto inCB = cbOperands[0];
-
-    // For all unary ops first copy tile from input CB at inCBTileIndex to DST
-    // register at dstTileIndex.
-    // We always operate on the first and only tile in DST register.
-    Value dstTileIndex = i32(0, builder);
     auto outCBTileIndex = iterators[blockArgIteratorMapping.back()];
     auto outCB = cbOperands.back();
 
-    builder.create<ttkernel::TileRegsAcquireOp>(arithOrMathOp.getLoc());
+    auto location = arithOrMathOp.getLoc();
 
-    builder.create<ttkernel::CopyTileOp>(arithOrMathOp.getLoc(), inCB,
-                                         inCBTileIndex, dstTileIndex);
+    // We always operate on the first and only tile in DST register.
+    Value dstTileIndex = i32(0, builder);
+
+    // MATH acquires lock on DST register.
+    builder.create<ttkernel::TileRegsAcquireOp>(location);
+
+    // For all unary ops first copy tile from input CB at inCBTileIndex to DST
+    // register at dstTileIndex.
+    builder.create<ttkernel::CopyTileOp>(location, inCB, inCBTileIndex,
+                                         dstTileIndex);
 
     // Perform computation on tile in DST register on dstTileIndex (the only
     // tile in DST).
     if (mlir::isa<math::ExpOp>(arithOrMathOp)) {
-      builder.create<ttkernel::ExpTileOp>(arithOrMathOp.getLoc(), dstTileIndex);
+      builder.create<ttkernel::ExpTileOp>(location, dstTileIndex);
     } else {
       llvm_unreachable("Unhandled unary op compute conversion.");
     }
 
-    builder.create<ttkernel::TileRegsCommitOp>(arithOrMathOp.getLoc());
+    // MATH releases lock on DST.
+    builder.create<ttkernel::TileRegsCommitOp>(location);
 
-    builder.create<ttkernel::TileRegsWaitOp>(arithOrMathOp.getLoc());
+    // PACK acquires lock on DST register. Blocked until MATH releases it.
+    builder.create<ttkernel::TileRegsWaitOp>(location);
 
     // Copy tile from DST at dstTileIndex to outCB at outCBTileIndex.
     // outCBTileIndex increments as loops iterate, thus placing one result tile
     // after another in outCB.
-    builder.create<ttkernel::PackTileOp>(arithOrMathOp.getLoc(), dstTileIndex,
-                                         outCB, outCBTileIndex);
+    builder.create<ttkernel::PackTileOp>(location, dstTileIndex, outCB,
+                                         outCBTileIndex);
 
     // PACK releases lock on DST.
-    builder.create<ttkernel::TileRegsReleaseOp>(arithOrMathOp.getLoc());
+    builder.create<ttkernel::TileRegsReleaseOp>(location);
   }
 
   void convertComputeBinaryOp(Operation &arithOrMathOp,
@@ -778,22 +783,22 @@ public:
     auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
     auto inCB1 = cbOperands[1];
     auto outCB = cbOperands[2];
+    auto outCBTileIndex = iterators[blockArgIteratorMapping[2]];
+
+    auto location = arithOrMathOp.getLoc();
 
     // Perform computation C = A (*) B on tile A from inCB0 and tile B from
     // inCB1 and store the result C in DST register on dstTileIndex.
-
     if (mlir::isa<arith::AddFOp>(arithOrMathOp)) {
       Value dstIndex = i32(0, builder);
-      builder.create<ttkernel::TileRegsAcquireOp>(arithOrMathOp.getLoc());
-      builder.create<ttkernel::AddTilesOp>(arithOrMathOp.getLoc(), inCB0, inCB1,
-                                           inCB0TileIndex, inCB1TileIndex,
-                                           dstIndex);
-      builder.create<ttkernel::TileRegsCommitOp>(arithOrMathOp.getLoc());
-      builder.create<ttkernel::TileRegsWaitOp>(arithOrMathOp.getLoc());
-      builder.create<ttkernel::PackTileOp>(
-          arithOrMathOp.getLoc(), dstIndex, outCB,
-          iterators[blockArgIteratorMapping[2]]);
-      builder.create<ttkernel::TileRegsReleaseOp>(arithOrMathOp.getLoc());
+      builder.create<ttkernel::TileRegsAcquireOp>(location);
+      builder.create<ttkernel::AddTilesOp>(
+          location, inCB0, inCB1, inCB0TileIndex, inCB1TileIndex, dstIndex);
+      builder.create<ttkernel::TileRegsCommitOp>(location);
+      builder.create<ttkernel::TileRegsWaitOp>(location);
+      builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB,
+                                           outCBTileIndex);
+      builder.create<ttkernel::TileRegsReleaseOp>(location);
     } else if (mlir::isa<arith::MulFOp>(arithOrMathOp)) {
       commonComputeMulOp(arithOrMathOp, cbOperands, iterators,
                          blockArgIteratorMapping, builder);
@@ -806,15 +811,15 @@ public:
                            blockArgIteratorMapping, builder,
                            operandIndicesRecip);
 
-      builder.create<ttkernel::MulTilesInitOp>(arithOrMathOp.getLoc(), inCB0,
-                                               inCB1);
+      Value one = i32(1, builder);
+      builder.create<ttkernel::CBWaitFrontOp>(location, inCB1, one);
+
+      builder.create<ttkernel::MulTilesInitOp>(location, inCB0, inCB1);
 
       commonComputeMulOp(arithOrMathOp, cbOperands, iterators,
                          blockArgIteratorMapping, builder);
 
-      Value one = i32(1, builder);
-      builder.create<ttkernel::CBPopFrontOp>(arithOrMathOp.getLoc(), inCB1,
-                                             one);
+      builder.create<ttkernel::CBPopFrontOp>(location, inCB1, one);
     } else {
       llvm_unreachable("Unhandled conversion for operation which is neither "
                        "unary nor binary.");
@@ -829,18 +834,20 @@ public:
     auto inCB0 = cbOperands[0];
     auto inCB1 = cbOperands[1];
     auto outCB = cbOperands[2];
+    auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
+    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
 
     Value dstIndex = i32(0, builder);
 
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     if (mlir::isa<arith::MulFOp>(op)) {
       builder.create<ttkernel::MulTilesOp>(
-          op.getLoc(), inCB0, inCB1, iterators[blockArgIteratorMapping[0]],
-          iterators[blockArgIteratorMapping[0]], dstIndex);
+          op.getLoc(), inCB0, inCB1, inCB0TileIndex, inCB1TileIndex, dstIndex);
     } else if (mlir::isa<arith::DivFOp>(op)) {
-      builder.create<ttkernel::MulTilesOp>(
-          op.getLoc(), inCB0, inCB1, iterators[blockArgIteratorMapping[0]],
-          dstIndex, dstIndex);
+      // Source index for CB input 1 is 0(dstIndex), because of sync needed with
+      // recip.
+      builder.create<ttkernel::MulTilesOp>(op.getLoc(), inCB0, inCB1,
+                                           inCB0TileIndex, dstIndex, dstIndex);
     } else {
       llvm_unreachable("Common compute for multiplying tiles should be called "
                        "only on MulFOp and DivFOp");
@@ -861,24 +868,23 @@ public:
     Value dstIndex = i32(0, builder);
     Value one = i32(1, builder);
 
+    auto inputCB = cbOperands[operandIndices[0]];
+    auto outputCB = inputCB;
+
     builder.create<ttkernel::CopyTileInitOp>(op.getLoc());
-    builder.create<ttkernel::CBReserveBackOp>(
-        op.getLoc(), cbOperands[operandIndices[0]], one);
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inputCB, one);
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     builder.create<ttkernel::RecipTileInitOp>(op.getLoc());
-    builder.create<ttkernel::CopyTileOp>(
-        op.getLoc(), cbOperands[operandIndices[0]], dstIndex, dstIndex);
+    builder.create<ttkernel::CopyTileOp>(op.getLoc(), inputCB, dstIndex,
+                                         dstIndex);
     builder.create<ttkernel::RecipTileOp>(op.getLoc(), dstIndex);
     builder.create<ttkernel::TileRegsCommitOp>(op.getLoc());
 
     builder.create<ttkernel::TileRegsWaitOp>(op.getLoc());
-    builder.create<ttkernel::PackTileOp>(
-        op.getLoc(), dstIndex, cbOperands[operandIndices[0]], dstIndex);
+    builder.create<ttkernel::PackTileOp>(op.getLoc(), dstIndex, outputCB,
+                                         dstIndex);
     builder.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
-    builder.create<ttkernel::CBPushBackOp>(op.getLoc(),
-                                           cbOperands[operandIndices[0]], one);
-    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(),
-                                            cbOperands[operandIndices[0]], one);
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outputCB, one);
   }
 
   // Convert arith and math dialect operations into ttkernel tile operations.
@@ -952,7 +958,7 @@ public:
   // expanded loop nest and inner loop that implements the underlying arith or
   // math operation as a tile operation.
   void lowerBlock(Block *origGenericOpBlock, Block *dispatchOpBlock,
-                  std::int64_t numDPSInputs, PatternRewriter &rewriter) const {
+                  std::int64_t numDPSInputs) const {
     Block::OpListType &operations = origGenericOpBlock->getOperations();
     assert(operations.size() == 2);
     Operation::user_range users = operations.front().getUsers();
@@ -1021,8 +1027,7 @@ public:
       tensixBlock->addArgument(ty, op.getLoc());
     }
 
-    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs(),
-               rewriter);
+    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs());
 
     rewriter.replaceOp(op, metalDispatch);
 
