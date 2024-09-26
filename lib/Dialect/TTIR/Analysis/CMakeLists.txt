@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRTTIRAnalysis
         ShardChainConfig.cpp
         DFShardingPolicy.cpp
         ShardSolver.cpp
+        TTNNOpInterface.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
