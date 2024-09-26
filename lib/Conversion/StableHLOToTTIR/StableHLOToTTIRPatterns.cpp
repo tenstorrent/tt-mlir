@@ -7,6 +7,7 @@
 #include "mlir/Dialect/Traits.h"
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Support/LogicalResult.h>
@@ -321,6 +322,89 @@ private:
   }
 };
 
+class StableHLOToTTIRCompareOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompareOp> {
+  using OpConversionPattern<mlir::stablehlo::CompareOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompareOp srcOp,
+                  mlir::stablehlo::CompareOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // StableHLO has one 'compare' op to do all type of comparison (EQ, NE, GE,
+    // GT, LE, and LT) and use direction to determine the type of comparison.
+    mlir::stablehlo::ComparisonDirection direction =
+        srcOp.getComparisonDirection();
+
+    switch (direction) {
+    case mlir::stablehlo::ComparisonDirection::EQ: {
+      return matchAndRewriteInternal<mlir::tt::ttir::EqualOp>(srcOp, adaptor,
+                                                              rewriter);
+      break;
+    }
+    case mlir::stablehlo::ComparisonDirection::NE: {
+      return matchAndRewriteInternal<mlir::tt::ttir::NotEqualOp>(srcOp, adaptor,
+                                                                 rewriter);
+      break;
+    }
+    case mlir::stablehlo::ComparisonDirection::GE: {
+      return matchAndRewriteInternal<mlir::tt::ttir::GreaterEqualOp>(
+          srcOp, adaptor, rewriter);
+      break;
+    }
+    case mlir::stablehlo::ComparisonDirection::GT: {
+      return matchAndRewriteInternal<mlir::tt::ttir::GreaterThanOp>(
+          srcOp, adaptor, rewriter);
+      break;
+    }
+    case mlir::stablehlo::ComparisonDirection::LE: {
+      return matchAndRewriteInternal<mlir::tt::ttir::LessEqualOp>(
+          srcOp, adaptor, rewriter);
+      break;
+    }
+    case mlir::stablehlo::ComparisonDirection::LT: {
+      return matchAndRewriteInternal<mlir::tt::ttir::LessThanOp>(srcOp, adaptor,
+                                                                 rewriter);
+      break;
+    }
+    }
+    return success();
+  }
+
+private:
+  template <typename DestOp>
+  LogicalResult
+  matchAndRewriteInternal(mlir::stablehlo::CompareOp srcOp,
+                          mlir::stablehlo::CompareOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    // TTNN doesn't support boolean data type. TTNN compare operations have same
+    // output data type as of input data type (e.g. comparing float32 will
+    // produce float32 result). So input operand is used to create output type
+    // and output tensor and the generated output tensor will be different type
+    // (instead of boolean) depending on input operands.
+    mlir::RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp->getOperand(0).getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    DestOp TTIROp = rewriter.replaceOpWithNewOp<DestOp>(
+        srcOp,
+        TypeRange(
+            this->getTypeConverter()->convertType(outputTensor.getType())),
+        adaptor.getOperands(), ValueRange(outputTensor),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+
+    // rewriter may miss replacing all uses due to different output tensor type.
+    // Replacing all uses of srcOp explicitly.
+    rewriter.replaceAllOpUsesWith(srcOp, TTIROp);
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -391,6 +475,12 @@ void addBroadcastOpConversionPattern(MLIRContext *ctx,
                                                                  ctx);
 }
 
+void addCompareOpsConversionPatterns(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRCompareOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -405,6 +495,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
+  addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
