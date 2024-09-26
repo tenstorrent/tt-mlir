@@ -4,10 +4,10 @@
 
 #include <variant>
 
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
-
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
 
@@ -54,7 +54,7 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
           metalTensor)) {
     throw std::runtime_error("Datatype mapping from buffer not supported yet.");
   }
-  assert(false && "Unsupported tensor type");
+  LOG_ASSERT(false, "Unsupported tensor type");
   return ::tt::target::DataType::Float32;
 }
 
@@ -63,7 +63,7 @@ size_t getNumAvailableDevices() {
 }
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
-  assert(deviceIds.size() && "No devices specified");
+  LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid =
       std::make_pair(1, deviceIds.size());
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
@@ -115,14 +115,14 @@ prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
         std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
     throw std::runtime_error("Input from buffer not supported yet");
   }
-  assert(false && "Unsupported tensor type");
+  LOG_ASSERT(false, "Unsupported tensor type");
   return std::make_pair(nullptr, nullptr);
 }
 
 static std::shared_ptr<::tt::tt_metal::Buffer>
 prepareOutput(::tt::tt_metal::Device *device, MetalTensor const *metalTensor,
               ::tt::target::TensorRef const *tensorRef) {
-  assert(metalTensor != nullptr);
+  LOG_ASSERT(metalTensor != nullptr);
   if (TensorDesc const *hostTensorDesc = std::get_if<TensorDesc>(metalTensor);
       hostTensorDesc) {
     return createBufferFromTensorRef(device, tensorRef);
@@ -133,7 +133,7 @@ prepareOutput(::tt::tt_metal::Device *device, MetalTensor const *metalTensor,
       buffer) {
     return *buffer;
   }
-  assert(false && "Unsupported tensor type");
+  LOG_ASSERT(false, "Unsupported tensor type");
   return nullptr;
 }
 
@@ -177,12 +177,12 @@ Event submit(Device deviceHandle, Binary executableHandle,
       deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
   DeviceList allDevices = meshDevice.get_devices();
-  assert(allDevices.size() > 0 && "Unexpected empty device mesh");
+  LOG_ASSERT(allDevices.size() > 0, "Unexpected empty device mesh");
   DeviceList deviceList = {allDevices[0]};
-  assert(deviceList.size() == 1 && "Only one device is supported for now");
+  LOG_ASSERT(deviceList.size() == 1, "Only one device is supported for now");
   std::shared_ptr<Events> events = std::make_shared<Events>();
-  assert(program->device_programs()->size() == deviceList.size() &&
-         "Device programs size mismatch");
+  LOG_ASSERT(program->device_programs()->size() == deviceList.size(),
+             "Device programs size mismatch");
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
     ::tt::tt_metal::Device *device = deviceList[i];
 
@@ -197,8 +197,8 @@ Event submit(Device deviceHandle, Binary executableHandle,
 
     std::vector<InputBuffer> inputs;
     inputs.reserve(inputHandles.size());
-    assert(inputHandles.size() == deviceProgram->inputs()->size() &&
-           "Input size mismatch");
+    LOG_ASSERT(inputHandles.size() == deviceProgram->inputs()->size(),
+               "Input size mismatch");
     for (unsigned i = 0; i < inputHandles.size(); ++i) {
       ::tt::target::TensorRef const *tensorRef =
           deviceProgram->inputs()->Get(i);
@@ -211,8 +211,8 @@ Event submit(Device deviceHandle, Binary executableHandle,
 
     std::vector<OutputBuffer> outputs;
     outputs.reserve(outputHandles.size());
-    assert(outputHandles.size() == deviceProgram->outputs()->size() &&
-           "Output size mismatch");
+    LOG_ASSERT(outputHandles.size() == deviceProgram->outputs()->size(),
+               "Output size mismatch");
     for (unsigned i = 0; i < outputHandles.size(); ++i) {
       ::tt::target::TensorRef const *tensorRef =
           deviceProgram->outputs()->Get(i);

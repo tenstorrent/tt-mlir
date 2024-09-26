@@ -43,14 +43,20 @@ MlirAttribute ttmlirTTNNBufferTypeAttrGet(MlirContext ctx,
       BufferTypeAttr::get(unwrap(ctx), static_cast<BufferType>(bufferType)));
 }
 
-MlirAttribute
-ttmlirTTNNMemoryConfigAttrGet(MlirContext ctx,
-                              MlirAttribute tensorMemoryLayoutAttr,
-                              MlirAttribute bufferTypeAttr) {
+MlirAttribute ttmlirTTNNShardSpecAttrGet(MlirContext ctx,
+                                         MlirAttribute shardShapeAttr) {
+  return wrap(ShardSpecAttr::get(
+      unwrap(ctx), mlir::cast<ShapeAttr>(unwrap(shardShapeAttr))));
+}
+
+MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
+    MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
+    MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
   return wrap(MemoryConfigAttr::get(
       unwrap(ctx),
       mlir::cast<TensorMemoryLayoutAttr>(unwrap(tensorMemoryLayoutAttr)),
-      mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr))));
+      mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr)),
+      mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr))));
 }
 
 MlirAttribute ttmlirTTNNShapeAttrGet(MlirContext ctx, int64_t *shape,

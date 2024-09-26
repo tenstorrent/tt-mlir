@@ -17,18 +17,19 @@ enum Arch: uint {
 }
 
 enum DataType: uint16 {
-  Float32 = 0,
-  Float16 = 1,
-  BFloat16 = 2,
-  BFP_Float8 = 3,
-  BFP_BFloat8 = 4,
-  BFP_Float4 = 5,
-  BFP_BFloat4 = 6,
-  BFP_Float2 = 7,
-  BFP_BFloat2 = 8,
-  UInt32 = 9,
-  UInt16 = 10,
-  UInt8 = 11,
+  None = 0,
+  Float32 = 1,
+  Float16 = 2,
+  BFloat16 = 3,
+  BFP_Float8 = 4,
+  BFP_BFloat8 = 5,
+  BFP_Float4 = 6,
+  BFP_BFloat4 = 7,
+  BFP_Float2 = 8,
+  BFP_BFloat2 = 9,
+  UInt32 = 10,
+  UInt16 = 11,
+  UInt8 = 12,
 }
 
 enum OOBVal: ushort {
@@ -74,13 +75,15 @@ enum BufferType: ushort {
   Trace = 4,
 }
 
+// TODO (#620): Add other fields like core_ranges, shard orientation etc.
+table ShardSpec {
+  shard_shape: [int64];
+}
+
 table MemoryConfigDesc {
   tensor_memory_layout: TensorMemoryLayout;
   buffer_type: BufferType;
-  // TODO(bug #620):
-  // Add support for ShardSpec and remove shard_shape
-  //
-  shard_shape: [int64];
+  shard_spec: ShardSpec;
 }
 
 table MemoryDesc {

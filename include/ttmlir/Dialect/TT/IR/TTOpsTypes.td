@@ -279,6 +279,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
       LayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
       LayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
+      LayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
 
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;

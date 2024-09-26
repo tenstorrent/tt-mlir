@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <cxxabi.h>
 #include <execinfo.h>
 #include <fstream>

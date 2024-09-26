@@ -60,6 +60,35 @@ void populatePassesModule(py::module &m) {
       py::arg("module"), py::arg("options") = "");
 
   m.def(
+      "ttnn_pipeline_layout_decomposition_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineLayoutDecompositionPassFromString(pm,
+                                                                      options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_pipeline_dealloc_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineDeallocPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
