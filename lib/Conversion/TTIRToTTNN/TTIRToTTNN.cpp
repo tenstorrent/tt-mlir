@@ -653,8 +653,8 @@ public:
     }
 
     rewriter.replaceAllOpUsesWith(nextOp, input);
-
     rewriter.eraseOp(srcOp);
+
     return success();
   }
 };

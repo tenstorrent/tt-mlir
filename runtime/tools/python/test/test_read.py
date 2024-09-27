@@ -63,7 +63,7 @@ def test_dir_flatbuffer_cmd():
 
     assert (
         check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_dir_flatbuffer_cmdd.__name__}"
+    ), f"one of more tests failed in={test_dir_flatbuffer_cmd.__name__}"
 
 
 def test_logger():
