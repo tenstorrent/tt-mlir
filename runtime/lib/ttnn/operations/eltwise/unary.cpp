@@ -4,6 +4,7 @@
 #include "unary.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "ttnn/operations/copy.hpp"
 
 namespace tt::runtime::ttnn::operations::unary {
 
@@ -52,6 +53,19 @@ static void runEltwiseUnaryWithFastAndApproximateModeOP(
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
+static void runTypecastOp(const ::tt::target::ttnn::EltwiseOp *op,
+                          ProgramTensorPool &tensorPool) {
+  ::ttnn::Tensor *in = nullptr;
+  getEltwiseUnaryOPInputTensor(op, tensorPool, &in);
+  const DataType outputType = tensorPool.at(op->out()->global_id()).get_dtype();
+  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+      utils::createMemoryConfig(op->out());
+
+  ::ttnn::Tensor out = ::ttnn::operations::copy::Typecast().invoke(
+      *in, outputType, outputMemoryConfig);
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   assert(isUnaryOp(op) && "Expected binary operation");
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -78,6 +92,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Typecast: {
+    runTypecastOp(op, tensorPool);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
