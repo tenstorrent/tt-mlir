@@ -31,6 +31,9 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
     out = ::ttnn::zeros(shape, dtype, layout);
   }
 
+  // TODO(mrakita): Revert !!!
+  out.set_layout(::ttnn::Layout::TILE);
+
   tensorPool.try_emplace(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation
