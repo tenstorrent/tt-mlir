@@ -191,13 +191,6 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTNN_TypecastOp : TTNN_ElementwiseUnaryOp<"typecast"> {
-    let summary = "Eltwise typecast.";
-    let description = [{
-      Eltwise typecast operation.
-    }];
-}
-
 def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential.";
     let description = [{

@@ -62,6 +62,18 @@ static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
   return deviceOp.getResult();
 }
 
+static DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
+  Type elementType = memref.getElementType();
+  DataType dtype = DataType::Float32;
+  if (llvm::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+  }
+  return dtype;
+}
+
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
@@ -153,18 +165,6 @@ public:
       ttnnLayoutEnum = ttnn::Layout::RowMajor;
     }
     return ttnnLayoutEnum;
-  }
-
-  DataType getDataTypeFromMemRef(mlir::MemRefType memref) const {
-    Type elementType = memref.getElementType();
-    DataType dtype = DataType::Float32;
-    if (llvm::isa<TileType>(elementType)) {
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
-    } else {
-      dtype = elementTypeToDataType(elementType);
-    }
-    return dtype;
   }
 
   LogicalResult
@@ -1008,6 +1008,38 @@ public:
   }
 };
 
+class TypecastOpConversionPattern
+    : public OpConversionPattern<ttir::TypecastOp> {
+  using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::TypecastOp op, ttir::TypecastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto input = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
+        *op.getInputs().begin());
+    auto result = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
+        *op.getResults().begin());
+
+    tt::LayoutAttr outputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(result.getType().getEncoding());
+
+    mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
+
+    DataType outputDataType = getDataTypeFromMemRef(outputMemref);
+
+    if (op->getUsers().empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "ttir.typecast op should have at least one use.");
+    }
+    rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
+        op, this->getTypeConverter()->convertType(op.getType(0)), input,
+        outputDataType);
+    return success();
+  }
+};
+
 class BroadcastOpConversionPattern
     : public OpConversionPattern<ttir::BroadcastOp> {
   using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
@@ -1061,7 +1093,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
            ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
            ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
-           ElementwiseOpConversionPattern<ttir::TypecastOp, ttnn::TypecastOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
            ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
@@ -1072,6 +1103,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
+           TypecastOpConversionPattern,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
            SqueezeOpConversionPattern,
