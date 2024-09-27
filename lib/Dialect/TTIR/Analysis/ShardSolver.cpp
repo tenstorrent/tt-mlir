@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardChainConfig.h"
+#include "ttmlir/Dialect/TTIR/Analysis/TTNNOPInterface.h"
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 
 namespace mlir::tt::ttir {
@@ -496,6 +497,10 @@ bool ShardSolver::checkShardCompatible(Operation *producerOp,
 
   // May need to fetch other inputs for consumerOp(weights/join node).
   //
+
+  // TODO(odjuricic): Update once the other operands of the consumer op and the
+  // corresponding layouts are fetched bool is_op_config_valid =
+  // is_op_configuration_valid(consumerOp, consumerLayout);
 
   // Need to plug shard checking API.
   //
