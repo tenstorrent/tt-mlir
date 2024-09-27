@@ -28,6 +28,28 @@ using namespace mlir::tt;
 
 namespace {
 
+struct CompoundLayoutOpCreationFlags {
+  bool createToDeviceOp = false;
+  bool createFromDeviceOp = false;
+  bool createToLayoutOp = false;
+  bool createTypecastOp = false;
+  bool createToMemoryConfigOp = false;
+
+  bool createSomeOp() {
+    return createToLayoutOp or createTypecastOp or createToDeviceOp or
+           createFromDeviceOp or createToMemoryConfigOp;
+  }
+
+  bool validate() {
+    bool valid = true;
+    // shouldn't create a to device op and a from device op
+    valid &= not(createToDeviceOp and createFromDeviceOp);
+    // shouldn't set memory config for a host tensor
+    valid &= not(createFromDeviceOp and createToMemoryConfigOp);
+    return valid;
+  }
+};
+
 // Gets or inserts a GetDeviceOp at the top of the current block of the given
 // operation.
 static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
@@ -157,6 +179,403 @@ public:
     return dtype;
   }
 
+  LogicalResult createLayoutConversionOps(ttir::ToLayoutOp op,
+                                          ConversionPatternRewriter &rewriter) {
+
+    CompoundLayoutOpCreationFlags creationFlags;
+    tt::LayoutAttr inputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
+
+    tt::LayoutAttr outputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+
+    mlir::MemRefType inputMemref = inputLayoutAttr.getMemref();
+    mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
+
+    // Check if we should create ToLayoutOp
+    ttnn::Layout inputLayoutEnum = getLayoutFromMemRef(inputMemref);
+    ttnn::Layout outputLayoutEnum = getLayoutFromMemRef(outputMemref);
+    // TODO(bug #665):
+    // Binary ops fail with row major layout in ttnn, defaulting to tile
+    // layout for all ops...
+    //
+    outputLayoutEnum = ttnn::Layout::Tile;
+    creationFlags.createToLayoutOp = inputLayoutEnum != outputLayoutEnum;
+
+    // Check if we should create TypecastOp
+    DataType inputDataType = getDataTypeFromMemRef(inputMemref);
+    DataType outputDataType = getDataTypeFromMemRef(outputMemref);
+    creationFlags.createTypecastOp = inputDataType != outputDataType;
+
+    // check if we should create ToDeviceOp
+    ttnn::BufferType inputBufferType =
+        ttnn::utils::toTTNNBufferType(inputLayoutAttr.getMemorySpace());
+    ttnn::BufferType outputBufferType =
+        ttnn::utils::toTTNNBufferType(outputLayoutAttr.getMemorySpace());
+    creationFlags.createToDeviceOp =
+        (inputBufferType != outputBufferType) and
+        (inputBufferType == ttnn::BufferType::SystemMemory);
+
+    // check if we should create FromDeviceOp
+    creationFlags.createFromDeviceOp =
+        (inputBufferType != outputBufferType) and
+        (outputBufferType == ttnn::BufferType::SystemMemory);
+
+    // check if we should create ToMemoryConfigOp
+    // TODO (jnie): we should also check core range set and shard shape for
+    // potential resharding with the same sharding method
+    ttnn::TensorMemoryLayout inputTensorMemoryLayout =
+        ttnn::utils::toTTNNTensorMemoryLayout(inputLayoutAttr.getMemLayout());
+    ttnn::TensorMemoryLayout outputTensorMemoryLayout =
+        ttnn::utils::toTTNNTensorMemoryLayout(outputLayoutAttr.getMemLayout());
+    creationFlags.createToMemoryConfigOp |=
+        (inputTensorMemoryLayout != outputTensorMemoryLayout);
+    creationFlags.createToMemoryConfigOp |=
+        (inputBufferType == ttnn::BufferType::DRAM and
+         outputBufferType == ttnn::BufferType::L1) or
+        (inputBufferType == ttnn::BufferType::L1 and
+         outputBufferType == ttnn::BufferType::DRAM);
+
+    if (not creationFlags.validate()) {
+      return failure() << "Invalid combination of ops to create";
+    }
+
+    if (not creationFlags.createSomeOp()) {
+      return failure() << "Potential redundant ttir::ToLayoutOp - no ttnn "
+                          "layout ops needed";
+    }
+
+    if (creationFlags.createToMemoryConfigOp and
+        outputBufferType == ttnn::BufferType::SystemMemory) {
+      return failure()
+             << "ToMemoryConfigOp only supported for device output tensors";
+    }
+
+    auto device = getOrInsertDevice(rewriter, op);
+
+    // These values will get updated by the lambdas
+    Value currentInput = op.getInput();
+    bool currentIsOnDevice =
+        (inputBufferType != ttnn::BufferType::SystemMemory);
+    bool currentIsTilized = (inputLayoutEnum == ttnn::Layout::Tile);
+    bool currentDataType = inputDataType;
+
+    // Lambdas for creating layout conversion ops
+    auto maybeCreateToDeviceOp = [&currentInput, &currentIsOnDevice,
+                                  creationFlags,
+                                  device](bool forceCreate = false) {
+      if (not creationFlags.createToDeviceOp and not forceCreate) {
+        return;
+      }
+      currentInput = rewriter.create<ttnn::ToLayoutOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          currentInput, device);
+      currentIsOnDevice = true;
+    };
+
+    auto maybeCreateToLayoutOp : [&currentInput, &currentIsTilized,
+                                  creationFlags](ttnn::Layout outputLayoutEnum,
+                                                 bool forceCreate = false) {
+      if (not creationFlags.createToLayoutOp and not forceCreate) {
+        return;
+      }
+      currentInput = rewriter.create<ttnn::ToLayoutOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          currentInput,
+          ttnn::LayoutAttr::get(op.getContext(), outputLayoutEnum));
+      currentIsTilized = outputLayoutEnum == ttnn::Layout::Tile;
+    };
+
+    auto maybeCreateTypecastOp = [&currentInput, &currentDataType,
+                                  creationFlags](DataType outputDataType,
+                                                 bool forceCreate = false) {
+      if (not creationFlags.createTypecastOp and not forceCreate) {
+        return;
+      }
+      currentInput = rewriter.create<ttnn::TypecastOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          currentInput, DataTypeAttr::get(op.getContext(), outputDataType));
+    };
+
+    auto maybeCreateFromDeviceOp = [&currentInput, &currentIsOnDevice,
+                                    creationFlags](bool forceCreate = false) {
+      if (not creationFlags.createFromDeviceOp and not forceCreate) {
+        return;
+      }
+      currentInput = rewriter.create<ttnn::FromDeviceOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          currentInput);
+      currentIsOnDevice = false;
+    };
+
+    auto maybeCreateToMemoryConfigOp = [&currentInput, creationFlags,
+                                        outputTensorMemoryLayout,
+                                        outputBufferType]() {
+      if (not creationFlags.createToMemoryConfigOp) {
+        return;
+      }
+      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+          op.getContext(),
+          ttnn::TensorMemoryLayoutAttr::get(op.getContext(),
+                                            outputTensorMemoryLayout),
+          ttnn::BufferTypeAttr::get(op.getContext(), outputBufferType));
+      currentInput = rewriter.create<ttnn::ToMemoryConfigOp>(
+          op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+          currentInput, memoryConfigAttr);
+    };
+
+    /*
+     * Logic for creating ops. Currently there are a few conditions/constraints:
+     * - When possible, we want to execute operations on device.
+     * - Tilize on device requires dataformat of bfloat16.
+     * - Typecast on device requires TILIZED tensor.
+     */
+    bool shouldTilize = (creationFlags.createToLayoutOp and
+                         outputLayoutAttr == ttnn::Layout::Tile);
+
+    // Handle host input tensor
+    if (not currentIsOnDevice) {
+      if (creationFlags.createFromDeviceOp) {
+        return failure() << "Unexpected from device op on host tensor";
+      }
+      // Case 1.1
+      // If we don't need to create a ToLayoutOp nor TypecastOp
+      // Create to device op and to memory config op if needed and return
+      if (not creationFlags.createToLayoutOp and
+          not creationFlags.createTypecastOp) {
+        maybeCreateToDeviceOp();
+        maybeCreateToMemoryConfigOp();
+        return success();
+      }
+
+      // Case 1.2
+      // If we need to create a ToLayoutOp not a TypecastOp, check the data
+      // format on tilization
+      else if (creationFlags.createToLayoutOp and
+               not creationFlags.createTypecastOp) {
+        if (not shouldTilize) {
+          maybeCreateToDeviceOp();
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+        // We can tilize on device if data type is bfloat16
+        else if (shouldTilize and currentDataType == DataType::BFloat16) {
+          maybeCreateToDeviceOp();
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+        // Currently, tilizing on host
+        // TODO (jnie): Investigate if it's better to
+        // typecast on host -> move to device -> tilize on device -> typecast
+        // back on device
+        else if (shouldTilize and currentDataType != DataType::BFloat16) {
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToDeviceOp();
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+      }
+
+      // Case 1.3
+      // If we need need to create a TypecastOp but not a ToLayoutOp
+      else if (not creationFlags.createToLayoutOp and
+               creationFlags.createTypecastOp) {
+        if (currentIsTilized) {
+          maybeCreateToDeviceOp();
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+        // Currently typecasting on host
+        // TODO (jnie): Investigate if it's better to
+        // tilize on device -> typecast -> untilize on device
+        else if (not currentIsTilized) {
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToDeviceOp();
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+      }
+
+      // Case 1.4
+      // If we need to create both TypecastOp and ToLayoutOp
+      else if (creationFlags.createToLayoutOp and
+               creationFlags.createTypecastOp) {
+        // If we're untilizing
+        // try move to device -> typecast -> untilize -> to memory config
+        if (not shouldTilize) {
+          maybeCreateToDeviceOp();
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+        // If we're tilizing and the input datatype is bfloat16
+        // try move to device -> tilize -> typecast -> to memory config
+        else if (shouldTilize and currentDataType == DataType::BFloat16) {
+          maybeCreateToDeviceOp();
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToMemoryConfigOp();
+          return success();
+        }
+        // If we're tilizing and the input data type is not bfloat16
+        else if (shouldTilize and currentDataType != DataType::BFloat16) {
+          // If we want to typecast to bfloat16:
+          // typecast on host -> try move to device -> tilize on device
+          // potentially
+          if (outputDataType == DataType::BFloat16) {
+            maybeCreateTypecastOp(outputDataType);
+            maybeCreateToDeviceOp();
+            maybeCreateToLayoutOp(outputLayoutEnum);
+            maybeCreateToMemoryConfigOp();
+            return success();
+          }
+          // tilize and typcast on host
+          else if (not creationFlags.createToDeviceOp) {
+            maybeCreateToLayoutOp(outputLayoutEnum);
+            maybeCreateTypecastOp(outputDataType);
+            maybeCreateToMemoryConfigOp();
+            return success();
+          }
+          // move to device -> typecast bfloat16 -> tilize -> typecast to output
+          // df
+          else if (creationFlags.createToDeviceOp) {
+            maybeCreateToDeviceOp();
+            maybeCreateTypecastOp(DataType::BFloat16, true);
+            maybeCreateToLayoutOp(outputLayoutEnum);
+            maybeCreateTypecastOp(outputDataType);
+            maybeCreateToMemoryConfigOp();
+            return success();
+          }
+        }
+      }
+    }
+
+    else if (currentIsOnDevice) {
+      if (creationFlags.createToDeviceOp) {
+        return failure() << "Unexpected to device op on device tensor";
+      }
+
+      // Case 2.1
+      // If we don't need to create a ToLayoutOp nor TypecastOp
+      // Create to device op and to memory config op if needed and return
+      if (not creationFlags.createToLayoutOp and
+          not creationFlags.createTypecastOp) {
+        maybeCreateToMemoryConfigOp();
+        maybeCreateFromDeviceOp();
+        return success();
+      }
+      // Case 2.2
+      // If we need to create a ToLayoutOp not a TypecastOp, check the data
+      // format on tilization
+      else if (creationFlags.createToLayoutOp and
+               not creationFlags.createTypecastOp) {
+        if (not shouldTilize) {
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp();
+          return success();
+        }
+        // We can tilize on device if data type is bfloat16
+        else if (shouldTilize and currentDataType == DataType::BFloat16) {
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp();
+          return success();
+        }
+        // typecast bfloat16 -> tilize -> typecast output data type
+        else if (shouldTilize and currentDataType != DataType::BFloat16) {
+          maybeCreateTypecastOp(DataType::BFloat16, true);
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateTypecastOp(outputDataType, true);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp();
+          return success();
+        }
+      }
+
+      // Case 2.3
+      // If we need to create a TypeCastOp but not a toLayoutOp
+      else if (not creationFlags.createToLayoutOp and
+               creationFlags.createTypecastOp) {
+        if (currentIsTilized) {
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp();
+          return success();
+        }
+        // if ROW_MAJOR and data format is bfloat16
+        // tilize -> typecast on device -> untilize
+        else if (not currentIsTilized and
+                 currentDataType == DataType::BFloat16) {
+          maybeCreateToLayoutOp(ttnn::Layout::Tile, true);
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToLayoutOp(outputLayoutEnum, true);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp()
+        }
+        // if ROW_MAJOR and data format is not bfloat16
+        // typecast on host, because typecast requires TILE layout, tilize on
+        // device requires bfloat16
+        else if (not currentIsTilized and
+                 currentDataType != DataType::BFloat16) {
+          maybeCreateFromDeviceOp(true);
+          maybeCreateTypecastOp(outputDataType);
+          // move back to device if necessary
+          if (not creationFlags.createFromDeviceOp) {
+            maybeCreateToDeviceOp(true);
+            maybeCreateToMemoryConfigOp();
+          }
+          return success();
+        }
+      }
+
+      // Case 2.4
+      // If we need to create both toLayoutOp and TypeCastOp
+      else if (creationFlags.createToLayoutOp and
+               creationFlags.createTypecastOp) {
+        if (not shouldTilize) {
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp();
+          return success();
+        } else if (shouldTilize and currentDataType == DataType::BFloat16) {
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToMemoryConfigOp();
+          maybeCreateFromDeviceOp();
+          return success();
+        } else if (shouldTilize and currentDataType != DataType::BFloat16) {
+          // move to host -> typecast on host -> move to device -> tilize
+          if (outputDataType == DataType::BFloat16 and
+              not creationFlags.createFromDeviceOp) {
+            maybeCreateFromDeviceOp(true);
+            maybeCreateTypecastOp(outputDataType);
+            maybeCreateToDeviceOp(true);
+            maybeCreateToLayoutOp(outputLayoutEnum);
+            maybeCreateToMemoryConfigOp();
+            return success();
+          }
+          maybeCreateFromDeviceOp(true);
+          maybeCreateTypecastOp(outputDataType);
+          maybeCreateToLayoutOp(outputLayoutEnum);
+          if (not creationFlags.createFromDeviceOp) {
+            maybeCreateToDeviceOp(true);
+            maybeCreateToMemoryConfigOp();
+          }
+          return success();
+        }
+      }
+    }
+
+    llvm_unreachable(
+        "Invalid combination of ops created, reaching unreachable code path");
+  }
+
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -169,71 +588,7 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
-    // Find device to be used for the tensor
-    //
-    auto device = getOrInsertDevice(rewriter, op);
-
-    // Get tt::LayoutAttr of the input and result
-    //
-    tt::LayoutAttr inputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
-
-    tt::LayoutAttr outputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
-
-    // Figure out if output tensor is in RowMajor layout or Tile layout
-    // Figure out the data type of the output tensor
-    //
-    mlir::MemRefType inputMemref = inputLayoutAttr.getMemref();
-    mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
-
-    // Check if we should create ToLayoutOp
-    ttnn::Layout inputLayoutEnum = getLayoutFromMemRef(inputMemref);
-    ttnn::Layout outputLayoutEnum = getLayoutFromMemRef(outputMemref);
-    bool shouldCreateToLayoutOp = inputLayoutEnum != outputLayoutEnum;
-
-    // Check if we should create TypecastOp
-    DataType inputDataType = getDataTypeFromMemRef(inputMemref);
-    DataType outputDataType = getDataTypeFromMemRef(outputMemref);
-    bool shouldCreateTypecastOp = inputDataType != outputDataType;
-
-    // check if we should create ToDeviceOp
-    ttnn::BufferType inputBufferType =
-        ttnn::utils::toTTNNBufferType(inputLayoutAttr.getMemorySpace());
-    ttnn::BufferType outputBufferType =
-        ttnn::utils::toTTNNBufferType(outputLayoutAttr.getMemorySpace());
-    bool shouldCreateToDeviceOp =
-        (inputBufferType != outputBufferType) and
-        (inputBufferType == ttnn::BufferType::SystemMemory);
-
-    // check if we should create FromDeviceOp
-    bool shouldCreateFromDeviceOp =
-        (inputBufferType != outputBufferType) and
-        (outputBufferType == ttnn::BufferType::SystemMemory);
-
-    // check if we should create ToMemoryConfigOp
-    // TODO (jnie): we should also check core range set and shard shape for
-    // potential resharding with the same sharding method
-    ttnn::TensorMemoryLayout inputTensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(inputLayoutAttr.getMemLayout());
-    ttnn::TensorMemoryLayout outputTensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(outputLayoutAttr.getMemLayout());
-
-    bool shouldCreateToMemoryConfigOp = false;
-    shouldCreateToMemoryConfigOp |=
-        (inputTensorMemoryLayout != outputTensorMemoryLayout);
-    shouldCreateToMemoryConfigOp |=
-        (inputBufferType == ttnn::BufferType::DRAM and
-         outputBufferType == ttnn::BufferType::L1) or
-        (inputBufferType == ttnn::BufferType::L1 and
-         outputBufferType == ttnn::BufferType::DRAM);
-
-    // All ops that we may potentially create
-    std::optional<ttnn::ToLayoutOp> toLayoutOp;
-    std::optional<ttnn::TypecastOp> typecastOp;
-    std::optional<ttnn::ToDeviceOp> toDeviceOp;
-    std::optional<ttnn::FromDeviceOp> fromDeviceOp;
-    std::optional<ttnn::ToMemoryConfigOp> toMemoryConfigOp;
+    return createLayoutConversionOps(op, rewriter);
   }
 };
 
