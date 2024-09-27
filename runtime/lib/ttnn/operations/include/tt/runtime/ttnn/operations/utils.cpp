@@ -27,11 +27,6 @@ getMemorySpace(const ::tt::target::TensorRef *tensorRef) {
   return tensorRef->desc()->layout()->memory_desc()->memory_space();
 }
 
-::tt::target::TensorLayout
-getTensorLayout(const ::tt::target::TensorRef *tensorRef) {
-  return tensorRef->desc()->layout()->memory_desc()->memory_layout();
-}
-
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::MemorySpace targetMemorySpace = getMemorySpace(tensorRef);
   return targetMemorySpace == ::tt::target::MemorySpace::System or

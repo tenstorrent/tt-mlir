@@ -11,21 +11,25 @@ table GetDeviceOp {
 
 table ToMemoryConfigOp {
   in0: tt.target.TensorRef;
-  device: tt.target.DeviceRef;
+  memcfg: MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
 table ToLayoutOp {
   in: tt.target.TensorRef;
   layout: tt.target.TensorLayout;
-  device: tt.target.DeviceRef;
+  out: tt.target.TensorRef;
+}
+
+table TypecastOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
   out: tt.target.TensorRef;
 }
 
 table ToDeviceOp {
   in: tt.target.TensorRef;
   device: tt.target.DeviceRef;
-  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -180,6 +184,7 @@ union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  TypecastOp,
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,

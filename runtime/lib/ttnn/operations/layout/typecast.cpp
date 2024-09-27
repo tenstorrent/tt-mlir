@@ -2,40 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "to_layout.h"
+#include "typecast.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
 
-void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
+void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
   assert((utils::isOnHost(inputTensor) or utils::isOnDevice(inputTensor)) &&
          "Unsupported storage type");
-  const ::tt::target::Dim2d *targetTileShape =
-      op->out()->desc()->layout()->memory_desc()->tile_shape();
-  assert(::tt::runtime::ttnn::utils::isValidTileShape(targetTileShape) &&
-         "Invalid tile shape");
-  ::ttnn::Layout layout;
-  switch (op->layout()) {
-  case ::tt::target::TensorLayout::RowMajor:
-    layout = ::ttnn::Layout::ROW_MAJOR;
-    break;
-  case ::tt::target::TensorLayout::Tile:
-    layout = ::ttnn::Layout::TILE;
-    break;
-  case ::tt::target::TensorLayout::Invalid:
-    layout = ::ttnn::Layout::INVALID;
-    break;
-  }
 
-  // If device is specified, to_layout will send the host tensor to device
-  // implicitly which is not desired
-  ::ttnn::Tensor out =
-      ::ttnn::to_layout(inputTensor, layout, std::nullopt, std::nullopt,
-                        static_cast<::ttnn::Device *>(nullptr));
+  ::ttnn::DataType targetDataType =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+
+  ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
 
   const std::unordered_set<uint32_t> &programOutputs =
       tensorPool.getProgramOutputs();

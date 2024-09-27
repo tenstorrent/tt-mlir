@@ -77,9 +77,9 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
   case ttnn::TensorMemoryLayout::WidthSharded:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
+  case ttnn::TensorMemoryLayout::None:
+    llvm_unreachable("Unsupported ttnn::TensorMemoryLayout");
   }
-
-  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
 }
 
 // Create emitc::OpaqueAttr for ttnn::BufferType
@@ -302,24 +302,9 @@ public:
   matchAndRewrite(ttnn::ToDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Create ArrayAttr object holding MemoryConfig attributes
-    //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {convertTensorMemoryLayout(
-             rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
-         convertBufferType(rewriter, srcOp.getMemoryConfig().getBufferType())});
-
-    // Create MemoryConfig object first, then pass it to the op
-    //
-    emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp->getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
-        "ttnn::MemoryConfig", arrayAttrs, nullptr, ValueRange());
-
     // Concat operands and MemoryConfig object
     //
     llvm::SmallVector<Value, 3> operands(adaptor.getOperands());
-    operands.append(1, memCfgOp.getResult(0));
 
     // Convert ToDeviceOp
     //
