@@ -246,10 +246,45 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     }];
 }
 
-def TTIR_GreaterEqualOp :  TTIR_ElementwiseBinaryOp<"ge"> {
+def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
+    let summary = "Eltwise equal to.";
+    let description = [{
+      Eltwise equal to operation.
+    }];
+}
+
+def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
+    let summary = "Eltwise not equal to.";
+    let description = [{
+      Eltwise not equal to operation.
+    }];
+}
+
+def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
       Eltwise greater than or equal to operation.
+    }];
+}
+
+def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
+    let summary = "Eltwise greater than.";
+    let description = [{
+      Eltwise greater than operation.
+    }];
+}
+
+def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
+    let summary = "Eltwise less than or equal to.";
+    let description = [{
+      Eltwise less than or equal to operation.
+    }];
+}
+
+def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
+    let summary = "Eltwise less than.";
+    let description = [{
+      Eltwise less than operation.
     }];
 }
 

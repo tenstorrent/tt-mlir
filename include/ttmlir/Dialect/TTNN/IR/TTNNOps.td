@@ -209,10 +209,45 @@ def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
     }];
 }
 
+def TTNN_EqualOp : TTNN_ElementwiseBinaryOp<"eq"> {
+    let summary = "Eltwise equal to.";
+    let description = [{
+      Eltwise equal to operation.
+    }];
+}
+
+def TTNN_NotEqualOp : TTNN_ElementwiseBinaryOp<"ne"> {
+    let summary = "Eltwise not equal to.";
+    let description = [{
+      Eltwise not equal to operation.
+    }];
+}
+
 def TTNN_GreaterEqualOp : TTNN_ElementwiseBinaryOp<"ge"> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
       Eltwise greater than or equal to operation.
+    }];
+}
+
+def TTNN_GreaterThanOp : TTNN_ElementwiseBinaryOp<"gt"> {
+    let summary = "Eltwise greater than.";
+    let description = [{
+      Eltwise greater than operation.
+    }];
+}
+
+def TTNN_LessEqualOp : TTNN_ElementwiseBinaryOp<"le"> {
+    let summary = "Eltwise less than or equal to.";
+    let description = [{
+      Eltwise less than or equal to operation.
+    }];
+}
+
+def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
+    let summary = "Eltwise less than.";
+    let description = [{
+      Eltwise less than operation.
     }];
 }
 

@@ -540,7 +540,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::AddOp>,
                DefaultOpConversionPattern<ttnn::SubtractOp>,
                MultiplyOpConversionPattern,
+               DefaultOpConversionPattern<ttnn::EqualOp>,
+               DefaultOpConversionPattern<ttnn::NotEqualOp>,
                DefaultOpConversionPattern<ttnn::GreaterEqualOp>,
+               DefaultOpConversionPattern<ttnn::GreaterThanOp>,
+               DefaultOpConversionPattern<ttnn::LessEqualOp>,
+               DefaultOpConversionPattern<ttnn::LessThanOp>,
                DefaultOpConversionPattern<ttnn::MaximumOp>,
                DefaultOpConversionPattern<ttnn::DivOp>>(typeConverter, ctx);
 
