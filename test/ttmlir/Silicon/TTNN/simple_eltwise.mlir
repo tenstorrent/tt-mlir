@@ -52,6 +52,13 @@ func.func @concat(%arg0: tensor<32x32xf32>, %arg1: tensor<32x64xf32>) -> tensor<
   return %1 : tensor<32x96xf32>
 }
 
+func.func @negate(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %0 = tensor.empty() : tensor<32x32xf32>
+  // CHECK: %[[C:.*]] = "ttnn.neg"[[C:.*]]
+  %1 = "ttir.neg"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %1 : tensor<32x32xf32>
+}
+
 func.func @reshape(%arg0: tensor<4x2x32x32xbf16>) -> tensor<2x4x32x32xbf16> {
   %0 = tensor.empty() : tensor<2x4x32x32xbf16>
   // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
