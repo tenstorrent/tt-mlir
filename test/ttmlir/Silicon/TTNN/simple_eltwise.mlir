@@ -52,6 +52,13 @@ func.func @concat(%arg0: tensor<32x32xf32>, %arg1: tensor<32x64xf32>) -> tensor<
   return %1 : tensor<32x96xf32>
 }
 
+func.func @negate(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %0 = tensor.empty() : tensor<32x32xf32>
+  // CHECK: %[[C:.*]] = "ttnn.neg"[[C:.*]]
+  %1 = "ttir.neg"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %1 : tensor<32x32xf32>
+}
+
 func.func @reshape(%arg0: tensor<4x2x32x32xbf16>) -> tensor<2x4x32x32xbf16> {
   %0 = tensor.empty() : tensor<2x4x32x32xbf16>
   // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
@@ -90,6 +97,14 @@ func.func @sqrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
 }
 
+func.func @rsqrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: %[[C:.*]] = "ttnn.rsqrt"[[C:.*]]
+  %1 = "ttir.rsqrt"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
 func.func @softmax(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
   // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
   %0 = tensor.empty() : tensor<512x1024xbf16>
@@ -102,4 +117,22 @@ func.func @softmax(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
   // Check for negative dimension attribute
   %3 = "ttir.softmax"(%1, %2) <{dimension = -1 : si32, operand_constraints = [#any_device, #any_device]}> : (tensor<512x1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
   return %3 : tensor<512x1024xbf16>
+}
+
+func.func @typecast(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.typecast"
+  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: tensor<64x128xbf16,
+  %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  return %1 : tensor<64x128xbf16>
+}
+
+func.func @maximum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: %[[C:.*]] = "ttnn.maximum"[[C:.*]]
+  %1 = "ttir.maximum"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
 }

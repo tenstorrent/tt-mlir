@@ -9,17 +9,19 @@
 
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  // TODO (jnie): Update this once we support multi device tensors
+  // Investigate how to handle multi device in conv2d
+  ::ttnn::Device &device =
+      context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
-  config.dtype = input.dtype();
-  config.weights_dtype = weight.dtype();
-  ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
+  config.dtype = utils::getDataType(op->input());
+  config.weights_dtype = utils::getDataType(op->weight());
   ::ttnn::Tensor out =
       std::get<0>(::ttnn::operations::conv::conv2d::conv2d<::ttnn::Device>(
           input, weight, &device, op->in_channels(), op->out_channels(),
@@ -29,7 +31,6 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
           {op->padding_height(), op->padding_width()},
           {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
           config));
-
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::conv

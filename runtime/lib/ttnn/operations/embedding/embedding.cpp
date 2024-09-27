@@ -9,7 +9,7 @@
 namespace tt::runtime::ttnn::operations::embedding {
 void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
 
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   // default params for embedding op

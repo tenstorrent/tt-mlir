@@ -3,6 +3,9 @@ set(TTNN_RUNTIME_LIBS TTRuntime TTRuntimeTTNN TTBinary)
 
 # Dependency libs from tt-metal/ttnn project for ttnn runtime
 set(TTNN_LIBS TTMETAL_LIBRARY TTNN_LIBRARY TTNN_MLIR_INTERFACE_LIBRARY)
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  list(APPEND TTNN_LIBS TRACY_LIBRARY)
+endif()
 
 # Libs from tt-mlir project
 set(TTMLIR_LIBS
@@ -13,11 +16,13 @@ set(TTMLIR_LIBS
     MLIRTTNNDialect
     MLIRTTKernelDialect
     TTMLIRTTIRToTTNN
+    TTMLIRTTIRToTTMetal
     MLIRTTMetalDialect
     MLIRTTIRTransforms
     MLIRTTNNTransforms
     MLIRTTIRAnalysis
     MLIRTTNNPipelines
+    MLIRTTMetalPipelines
     TTMLIRTTNNToEmitC
 )
 
@@ -47,3 +52,7 @@ target_link_libraries(TTMLIR PRIVATE
 )
 
 target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
+
+set_target_properties(TTMLIR PROPERTIES INSTALL_RPATH "$ORIGIN")
+
+install(TARGETS TTMLIR DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)

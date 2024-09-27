@@ -33,8 +33,12 @@ set(TTMETAL_INCLUDE_DIRS
 set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal-build/lib)
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
-set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
 set(TTNN_MLIR_INTERFACE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/ttnn_mlir_interface.a)
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
+else()
+  set(TRACY_LIBRARY_PATH "")
+endif()
 
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
 set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
@@ -77,3 +81,5 @@ set_target_properties(TTNN_MLIR_INTERFACE_LIBRARY PROPERTIES
   IMPORTED_LOCATION ${TTMETAL_LIBRARY_DIR}/ttnn_mlir_interface.a
   PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp/ttnn/mlir_interface_api.hpp
 )
+
+install(FILES ${library_paths} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT SharedLib)

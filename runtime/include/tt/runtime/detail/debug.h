@@ -15,24 +15,29 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool loadKernelsFromDisk = false)
+  get(bool loadKernelsFromDisk = false, bool enableAsyncTTNN = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
       ;
 #else
   {
-    return Env(false);
+    return Env(false, false);
   }
 #endif
 
   bool loadKernelsFromDisk;
+  bool enableAsyncTTNN;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk)
-      : loadKernelsFromDisk(loadKernelsFromDisk) {}
+  constexpr Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
+      : loadKernelsFromDisk(loadKernelsFromDisk),
+        enableAsyncTTNN(enableAsyncTTNN) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, Env const &env) {
-  os << "Env{loadKernelsFromDisk=" << env.loadKernelsFromDisk << "}";
+  os << "Env{\n"
+     << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << ",\n"
+     << "\t" << "enableAsyncTTNN: " << env.enableAsyncTTNN << "\n"
+     << "}";
   return os;
 }
 

@@ -42,6 +42,9 @@
 #pragma clang diagnostic ignored "-Wc99-extensions"
 
 #define FMT_HEADER_ONLY
+#include "host_api.hpp"
+#include "hostdevcommon/common_values.hpp"
+#include "impl/device/mesh_device.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"
@@ -59,7 +62,6 @@
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
-
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
@@ -84,8 +86,9 @@ inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
 
 tt::target::DataType getTensorDataType(Tensor tensor);
 
-Device openDevice(std::vector<int> const &deviceIds = {0},
-                  std::vector<std::uint8_t> const &numHWCQs = {});
+size_t getNumAvailableDevices();
+
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
 
 void closeDevice(Device device);
 
@@ -97,7 +100,7 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
-void runProgram(::ttnn::Device &device,
+void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);

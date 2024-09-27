@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
@@ -49,11 +50,8 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
 
-  mlir::PassPipelineRegistration<>(
-      "ttir-to-ttmetal-backend-pipeline",
-      "Pipeline lowering ttir to ttmetal backend.",
-      mlir::tt::ttmetal::createTTIRToTTMetalBackendPipeline);
-
+  // Pipeline registration
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
+  mlir::tt::ttmetal::registerTTMetalPipelines();
 }

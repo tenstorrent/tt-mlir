@@ -22,6 +22,8 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let description = [{
       This op returns the current runtime device.
     }];
+
+    let arguments = (ins OptionalAttr<TTNN_MeshShapeAttr>:$mesh_shape);
     let results = (outs TT_Device:$device);
 }
 
@@ -58,6 +60,16 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
                          TTNN_MemoryConfigAttr:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 }
+
+def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+    let summary = "FromDevice op.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
+}
+
 
 class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
@@ -120,6 +132,13 @@ def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise rsqrt.";
+    let description = [{
+      Eltwise rsqrt operation.
+    }];
+}
+
 def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate.";
     let description = [{
@@ -145,6 +164,13 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTNN_TypecastOp : TTNN_ElementwiseUnaryOp<"typecast"> {
+    let summary = "Eltwise typecast.";
+    let description = [{
+      Eltwise typecast operation.
     }];
 }
 
@@ -426,8 +452,14 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
       Tensor empty operation
     }];
 
-    let arguments = (ins TT_Device:$device);
+    let arguments = (ins Optional<TT_Device>:$device,
+                         TTNN_ShapeAttr:$shape,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_LayoutAttr>:$layout,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_FullOp : TTNN_Op<"full"> {

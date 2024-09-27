@@ -38,6 +38,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
+#define GEN_PASS_DEF_TTIRCONSTANTASFILL
 #define GEN_PASS_DEF_TTIRALLOCATE
 #define GEN_PASS_DEF_TTIROPTIMIZER
 #define GEN_PASS_DEF_TTIRIMPLICITDEVICE
@@ -1043,6 +1044,47 @@ public:
   }
 };
 
+class TTIRConstantAsFillRewriter : public OpRewritePattern<ConstantOp> {
+public:
+  using OpRewritePattern<ConstantOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ConstantOp op,
+                                PatternRewriter &rewriter) const final {
+    auto resultTy = op.getResult().getType();
+    auto empty = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultTy.getShape(), resultTy.getElementType(),
+        resultTy.getEncoding());
+    auto operandConstraints = rewriter.getArrayAttr(SmallVector<Attribute>(
+        1,
+        rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::AnyDevice)));
+    rewriter.replaceOpWithNewOp<ttir::FillOp>(
+        op, resultTy, empty, op.getValue(), operandConstraints);
+    return success();
+  }
+};
+
+class TTIRConstantAsFill
+    : public impl::TTIRConstantAsFillBase<TTIRConstantAsFill> {
+public:
+  using impl::TTIRConstantAsFillBase<
+      TTIRConstantAsFill>::TTIRConstantAsFillBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRConstantAsFillRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+      return;
+    }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<mlir::tt::ttir::TTIRDialect>();
+    registry.insert<mlir::tt::TTDialect>();
+  }
+};
+
 class TTIRAllocate : public impl::TTIRAllocateBase<TTIRAllocate> {
   struct SimpleAllocator {
     struct MemorySpaceInfo {
@@ -1216,7 +1258,7 @@ public:
       LegalGridAnalysis legalGridAnalysis =
           getChildAnalysis<LegalGridAnalysis>(op);
       legalGridAnalysis.init(LegalGridAnalysisInput(
-          chipDesc, max_grid, tensorType, &overrideGridSizes));
+          chipDesc, max_grid, tensorType, &overrideOutputLayout));
       legalLayouts[op] = legalGridAnalysis.getResult();
     });
 
@@ -1336,6 +1378,8 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
             toLayoutOpLayout
+                .withElementType(toLayoutOp->getContext(),
+                                 consumerOpOutputLayout.getElementType())
                 .withMemorySpace(toLayoutOp.getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(toLayoutOp.getContext(),
@@ -1347,7 +1391,7 @@ public:
         toLayoutOp.getOperands().back().setType(newTensorType);
       } else {
         LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
-            mlir::cast<RankedTensorType>(producerOp->getResult(0).getType())
+            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
                 .getEncoding());
 
         RankedTensorType producerOpTensorType =
@@ -1364,6 +1408,8 @@ public:
         RankedTensorType newTensorType = RankedTensorType::get(
             producerOpTensorShape, producerOpTensorType.getElementType(),
             producerOpLayout
+                .withElementType(consumerOp->getContext(),
+                                 consumerOpOutputLayout.getElementType())
                 .withMemorySpace(consumerOp->getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
                 .withMemoryLayout(consumerOp->getContext(),

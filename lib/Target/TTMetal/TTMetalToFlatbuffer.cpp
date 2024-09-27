@@ -98,11 +98,8 @@ struct CQBuilder {
 // Take KernelConfig and return pair of its type and variantized config itself
 std::pair<::tt::target::metal::KernelConfig, ::flatbuffers::Offset<void>>
 toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
-             ::mlir::Attribute kernelConfig) {
-
-  auto kernelConfigIntf =
-      mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig);
-  ttkernel::ThreadType threadType = kernelConfigIntf.getThreadType();
+             ttkernel::KernelConfigInterface kernelConfig) {
+  ttkernel::ThreadType threadType = kernelConfig.getThreadType();
 
   switch (threadType) {
   case ttkernel::ThreadType::Noc: {
@@ -150,6 +147,20 @@ cbTypeToFlatbuffer(FlatbufferObjectCache &cache, ttkernel::CBType cbType) {
       *cache.fbb,
       static_cast<std::underlying_type_t<ttkernel::CBPort>>(cbType.getPort()),
       memref, cbType.getPageSize(), cbType.getNumBuffers());
+}
+
+std::pair<::tt::target::metal::HostBuffer, ::flatbuffers::Offset<void>>
+hostBufferToFlatbuffer(FlatbufferObjectCache &cache,
+                       ElementsAttr elementsAttr) {
+  assert(elementsAttr.getElementType().isIntOrIndexOrFloat() &&
+         "unsupported elements attr type");
+  assert(elementsAttr.isSplat() && "expected a splat elements attr");
+  assert(elementsAttr.getElementType().getIntOrFloatBitWidth() == 32 &&
+         "unsupported elements attr bit width");
+  auto vector = toFlatbuffer(cache, elementsAttr);
+  return std::make_pair(
+      ::tt::target::metal::HostBuffer::ConstantBuffer32,
+      ::tt::target::metal::CreateConstantBuffer32(*cache.fbb, vector).Union());
 }
 
 Value getOperandThroughDPSOps(Value value) {
@@ -244,8 +255,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
           // Get pair of kernel's config type and config itself.
           auto kernelConfig =
               dispatchOp.getKernelConfigs()[region.getRegionNumber()];
-          auto [kernelConfigType, kernelConfigUnion] =
-              toFlatbuffer(fbb, kernelConfig);
+          auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
+              fbb, mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
 
           kernels.push_back(::tt::target::metal::CreateKernelDescDirect(
               fbb, ::tt::target::metal::Kernel::KernelSource,
@@ -291,11 +302,11 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
       } else if (auto hostWriteOp =
                      dyn_cast_or_null<tt::ttmetal::HostWriteOp>(op);
                  hostWriteOp) {
+        auto [hostBufferType, hostBuffer] =
+            hostBufferToFlatbuffer(cache, hostWriteOp.getValue());
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueWriteBufferCommand(
-                fbb,
-                cache.at<::tt::target::TensorRef>(
-                    getOperandThroughDPSOps(hostWriteOp.getInput())),
+                fbb, hostBufferType, hostBuffer,
                 cache.at<::tt::target::TensorRef>(
                     getOperandThroughDPSOps(hostWriteOp.getOutput()))),
             op);

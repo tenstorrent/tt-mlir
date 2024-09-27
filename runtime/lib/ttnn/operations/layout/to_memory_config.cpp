@@ -29,6 +29,9 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
   }
 
   if (utils::isOnDevice(input)) {
+    // TODO (bug #272): right now hardcoding tilize/untilize
+    // should determine layout with tile shape instead of calling a getter
+    // function
     if (input.get_layout() != ::ttnn::TILE_LAYOUT) {
       // typecast op requires tilized tensor
       ::ttnn::Tensor converted =
@@ -46,19 +49,17 @@ static ::ttnn::Tensor convertDataType(const ::ttnn::Tensor &input,
  * tile_shape */
 static ::ttnn::Tensor
 updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
-                        const ::ttnn::DataType targetDataType,
+                        const ::ttnn::DataType &inputDataType,
+                        const ::ttnn::DataType &targetDataType,
                         const bool shouldTilize, const bool shouldUntilize) {
 
   ::ttnn::Tensor outputTensor = inputTensor;
-  const bool shouldConvertDataType = inputTensor.get_dtype() != targetDataType;
+  const bool shouldConvertDataType = (inputDataType != targetDataType);
   // const int targetTileX = targetTileShape->x();
   // const int targetTileY = targetTileShape->y();
   // const bool shouldTilize =
-  //     targetTileX == 32 and targetTileY == 32 and
-  //     inputTensor.get_layout() == ::ttnn::ROW_MAJOR_LAYOUT;
-  // const bool shouldUntilize = (targetTileX != 32 or targetTileY != 32) and
-  //                             inputTensor.get_layout() ==
-  //                             ::ttnn::TILE_LAYOUT;
+  //     targetTileX == 32 and targetTileY == 32;
+  // const bool shouldUntilize = (targetTileX != 32 or targetTileY != 32);
   assert(not(shouldTilize and shouldUntilize) &&
          "Cannot tilize and untilize tensor at the same time");
   if (shouldTilize) {
@@ -73,22 +74,27 @@ updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
 }
 
 static void
-handleToHostMemoryConfigOp(const ::ttnn::Tensor &inputTensor,
+handleToHostMemoryConfigOp(const ::tt::target::TensorRef *inputTensorRef,
                            const ::tt::target::TensorRef *outputTensorRef,
                            ProgramTensorPool &tensorPool) {
   ::ttnn::Tensor result;
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.at(inputTensorRef->global_id());
+  ::ttnn::DataType inputDataTypeTTNN = utils::getDataType(inputTensorRef);
   ::ttnn::DataType targetDataTypeTTNN = utils::getDataType(outputTensorRef);
   bool shouldTilize, shouldUntilize;
   if (utils::isOnHost(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = true;
-    result = updateLayoutAndDataType(inputTensor, targetDataTypeTTNN,
-                                     shouldTilize, shouldUntilize);
+    result = updateLayoutAndDataType(inputTensor, inputDataTypeTTNN,
+                                     targetDataTypeTTNN, shouldTilize,
+                                     shouldUntilize);
   } else if (utils::isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = true;
-    result = updateLayoutAndDataType(inputTensor.cpu(), targetDataTypeTTNN,
-                                     shouldTilize, shouldUntilize);
+    result = updateLayoutAndDataType(inputTensor.cpu(), inputDataTypeTTNN,
+                                     targetDataTypeTTNN, shouldTilize,
+                                     shouldUntilize);
   }
   // copy the output to the output tensor if it exists
   if (tensorPool.contains(outputTensorRef->global_id())) {
@@ -104,9 +110,12 @@ handleToHostMemoryConfigOp(const ::ttnn::Tensor &inputTensor,
 
 static void
 handleToDramMemoryConfigOp(::ttnn::Device &device,
-                           const ::ttnn::Tensor &inputTensor,
+                           const ::tt::target::TensorRef *inputTensorRef,
                            const ::tt::target::TensorRef *outputTensorRef,
                            ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.at(inputTensorRef->global_id());
+  ::ttnn::DataType inputDataTypeTTNN = utils::getDataType(inputTensorRef);
   ::ttnn::DataType targetDataTypeTTNN = utils::getDataType(outputTensorRef);
   ::tt::tt_metal::MemoryConfig targetMemoryConfig =
       utils::createMemoryConfig(outputTensorRef);
@@ -116,19 +125,21 @@ handleToDramMemoryConfigOp(::ttnn::Device &device,
     shouldTilize = true;
     shouldUntilize = false;
     // device tilize requires BFLOAT16, if not then tilize on host
-    if (result.get_dtype() != ::ttnn::DataType::BFLOAT16) {
+    if (inputDataTypeTTNN != ::ttnn::DataType::BFLOAT16) {
       result = tilize(result);
       shouldTilize = false;
     }
     result = ::ttnn::to_device(result, &device, targetMemoryConfig);
-    result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
-                                     shouldUntilize);
+    result =
+        updateLayoutAndDataType(result, inputDataTypeTTNN, targetDataTypeTTNN,
+                                shouldTilize, shouldUntilize);
     tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   } else if (utils::isOnDevice(inputTensor)) {
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
-        inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
+        inputTensor, inputDataTypeTTNN, targetDataTypeTTNN, shouldTilize,
+        shouldUntilize);
     result = ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
     tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   }
@@ -136,9 +147,12 @@ handleToDramMemoryConfigOp(::ttnn::Device &device,
 
 static void
 handleToL1MemoryConfigOp(::ttnn::Device &device,
-                         const ::ttnn::Tensor &inputTensor,
+                         const ::tt::target::TensorRef *inputTensorRef,
                          const ::tt::target::TensorRef *outputTensorRef,
                          ProgramTensorPool &tensorPool) {
+  const ::ttnn::Tensor &inputTensor =
+      tensorPool.at(inputTensorRef->global_id());
+  ::ttnn::DataType inputDataTypeTTNN = utils::getDataType(inputTensorRef);
   ::ttnn::DataType targetDataTypeTTNN = utils::getDataType(outputTensorRef);
   ::tt::tt_metal::MemoryConfig targetMemoryConfig =
       utils::createMemoryConfig(outputTensorRef);
@@ -146,21 +160,23 @@ handleToL1MemoryConfigOp(::ttnn::Device &device,
   if (utils::isOnHost(inputTensor)) {
     ::ttnn::Tensor result = inputTensor;
     // device tilize requires BFLOAT16, if not then tilize on host
-    if (result.get_dtype() != ::ttnn::DataType::BFLOAT16) {
+    if (inputDataTypeTTNN != ::ttnn::DataType::BFLOAT16) {
       result = tilize(result);
       result = ::ttnn::to_device(result, &device, targetMemoryConfig);
       shouldTilize = false;
       shouldUntilize = false;
-      result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
-                                       shouldUntilize);
+      result =
+          updateLayoutAndDataType(result, inputDataTypeTTNN, targetDataTypeTTNN,
+                                  shouldTilize, shouldUntilize);
     } else {
       shouldTilize = true;
       shouldUntilize = false;
       // device tilize op requires height sharded or interleaved tensors
       // thus tilize first with default mem config, then convert memory config
       result = ::ttnn::to_device(result, &device, std::nullopt);
-      result = updateLayoutAndDataType(result, targetDataTypeTTNN, shouldTilize,
-                                       shouldUntilize);
+      result =
+          updateLayoutAndDataType(result, inputDataTypeTTNN, targetDataTypeTTNN,
+                                  shouldTilize, shouldUntilize);
       result =
           ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
     }
@@ -169,7 +185,8 @@ handleToL1MemoryConfigOp(::ttnn::Device &device,
     shouldTilize = false;
     shouldUntilize = false;
     ::ttnn::Tensor result = updateLayoutAndDataType(
-        inputTensor, targetDataTypeTTNN, shouldTilize, shouldUntilize);
+        inputTensor, inputDataTypeTTNN, targetDataTypeTTNN, shouldTilize,
+        shouldUntilize);
     result = ::ttnn::to_memory_config(result, targetMemoryConfig, std::nullopt);
     tensorPool.insert_or_assign(outputTensorRef->global_id(), result);
   }
@@ -180,8 +197,7 @@ handleToL1MemoryConfigOp(::ttnn::Device &device,
 void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
          ProgramContext &context) {
 
-  ProgramTensorPool &tensorPool = context.tensorPool;
-  DeviceMap &devicePool = context.devicePool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in0()->global_id());
   assert(utils::isOnHost(inputTensor) or
          utils::isOnDevice(inputTensor) && "Unsupported storage type");
@@ -199,17 +215,21 @@ void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
   // program
   case ::tt::target::MemorySpace::System:
   case ::tt::target::MemorySpace::SystemMMIO: {
-    handleToHostMemoryConfigOp(inputTensor, op->out(), tensorPool);
+    handleToHostMemoryConfigOp(op->in0(), op->out(), tensorPool);
     break;
   }
   case ::tt::target::MemorySpace::DeviceDRAM: {
-    ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
-    handleToDramMemoryConfigOp(device, inputTensor, op->out(), tensorPool);
+    // TODO (jnie): Update this once we support multi device tensors
+    ::ttnn::Device &device =
+        context.getDeviceFromView(op->device()->global_id(), 0);
+    handleToDramMemoryConfigOp(device, op->in0(), op->out(), tensorPool);
     break;
   }
   case ::tt::target::MemorySpace::DeviceL1: {
-    ::ttnn::Device &device = utils::getDevice(op->device(), devicePool);
-    handleToL1MemoryConfigOp(device, inputTensor, op->out(), tensorPool);
+    // TODO (jnie): Update this once we support multi device tensors
+    ::ttnn::Device &device =
+        context.getDeviceFromView(op->device()->global_id(), 0);
+    handleToL1MemoryConfigOp(device, op->in0(), op->out(), tensorPool);
     break;
   }
   }

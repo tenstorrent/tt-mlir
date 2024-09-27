@@ -17,16 +17,19 @@ bool isOnHost(const ::ttnn::Tensor &tensor);
 
 bool isOnDevice(const ::ttnn::Tensor &tensor);
 
-::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef);
+bool inSystemMemory(const ::tt::target::TensorRef *tensorRef);
 
-::ttnn::Device &getDevice(const ::tt::target::DeviceRef *deviceRef,
-                          DeviceMap &devicePool);
+::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef);
 
 CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet);
 
 ::tt::tt_metal::MemoryConfig
 createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
+
+::tt::tt_metal::MemoryConfig
+createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
+                   const ::tt::target::TensorRef *tensorRef);
 
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

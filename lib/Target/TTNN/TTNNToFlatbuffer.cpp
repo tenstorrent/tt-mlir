@@ -2,14 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <fstream>
-
-#include <llvm/Support/Casting.h>
-
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
+#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -21,15 +14,25 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
-#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/Target/TTNN/utils.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
+
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <cassert>
+#include <fstream>
 
 namespace mlir::tt::ttnn {
 
@@ -97,21 +100,9 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::TensorLayout layout =
+      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
   auto device = getOperandThroughDPSOps(op.getDevice());
-
-  ::tt::target::TensorLayout layout;
-  switch (op.getLayout()) {
-  case Layout::RowMajor:
-    layout = ::tt::target::TensorLayout::RowMajor;
-    break;
-  case Layout::Tile:
-    layout = ::tt::target::TensorLayout::Tile;
-    break;
-  case Layout::Invalid:
-    layout = ::tt::target::TensorLayout::Invalid;
-    break;
-  }
-
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
@@ -128,46 +119,12 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto device = getOperandThroughDPSOps(op.getDevice());
 
-  op.getMemoryConfig();
-
-  ::tt::target::TensorMemoryLayout tensorMemoryLayout;
-  ::tt::target::BufferType bufferType;
-
-  switch (op.getMemoryConfig().getTensorMemoryLayout().getValue()) {
-  case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
-    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::Interleaved;
-    break;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
-    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::SingleBank;
-    break;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
-    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::HeightSharded;
-    break;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
-    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::WidthSharded;
-    break;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
-    tensorMemoryLayout = ::tt::target::TensorMemoryLayout::BlockSharded;
-    break;
-  }
-
-  switch (op.getMemoryConfig().getBufferType().getValue()) {
-  case ::mlir::tt::ttnn::BufferType::DRAM:
-    bufferType = ::tt::target::BufferType::DRAM;
-    break;
-  case ::mlir::tt::ttnn::BufferType::L1:
-    bufferType = ::tt::target::BufferType::L1;
-    break;
-  case ::mlir::tt::ttnn::BufferType::SystemMemory:
-    bufferType = ::tt::target::BufferType::SystemMemory;
-    break;
-  case ::mlir::tt::ttnn::BufferType::L1Small:
-    bufferType = ::tt::target::BufferType::L1Small;
-    break;
-  case ::mlir::tt::ttnn::BufferType::Trace:
-    bufferType = ::tt::target::BufferType::Trace;
-    break;
-  }
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+          op.getMemoryConfig().getTensorMemoryLayout().getValue());
+  ::tt::target::BufferType bufferType =
+      ::tt::mlir::ttnn::utils::toTargetBufferType(
+          op.getMemoryConfig().getBufferType().getValue());
 
   auto memoryConfigDesc =
       CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
@@ -180,14 +137,55 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       memoryConfigDesc, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::FromDeviceOp>
+createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateFromDeviceOp(*cache.fbb, input, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   constexpr uint64_t kHostAllocatedAddress = 0;
   constexpr uint64_t kHostAllocatedSize = 0;
-  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype().value());
+  ::tt::target::TensorLayout layout =
+      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
+
   auto output = getOperandThroughDPSOps(op.getResult());
+
+  // If the device is not set, we create on host
+  //
+  if (!op.getDevice()) {
+    return ::tt::target::ttnn::CreateEmptyOp(
+        *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
+        /* device */ 0, /* memcfg */ 0,
+        cache.getOrCreate(output, tensorValueToFlatbuffer,
+                          kHostAllocatedAddress, kHostAllocatedSize));
+  }
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+          op.getMemoryConfig()->getTensorMemoryLayout().getValue());
+  ::tt::target::BufferType bufferType =
+      ::tt::mlir::ttnn::utils::toTargetBufferType(
+          op.getMemoryConfig()->getBufferType().getValue());
+
+  auto memoryConfigDesc =
+      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
   return ::tt::target::ttnn::CreateEmptyOp(
-      *cache.fbb, cache.at<::tt::target::DeviceRef>(device),
+      *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
+      cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }
@@ -264,12 +262,16 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Relu;
   } else if constexpr (std::is_same_v<EltwiseOp, SqrtOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sqrt;
+  } else if constexpr (std::is_same_v<EltwiseOp, RsqrtOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Rsqrt;
   } else if constexpr (std::is_same_v<EltwiseOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Reciprocal;
   } else if constexpr (std::is_same_v<EltwiseOp, DivOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Div;
   } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseOp, TypecastOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Typecast;
   } else if constexpr (std::is_same_v<EltwiseOp, ExpOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Exp;
   } else {
@@ -420,6 +422,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto toDeviceOp = dyn_cast<ToDeviceOp>(op); toDeviceOp) {
     return createOperation(cache, createOp(cache, toDeviceOp), debugString);
   }
+  if (auto fromDeviceOp = dyn_cast<FromDeviceOp>(op); fromDeviceOp) {
+    return createOperation(cache, createOp(cache, fromDeviceOp), debugString);
+  }
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
     return createOperation(cache, createOp(cache, emptyOp), debugString);
   }
@@ -455,6 +460,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
     return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString);
+  }
+  if (auto rsqrtOp = dyn_cast<RsqrtOp>(op); rsqrtOp) {
+    return createOperation(cache, createEltwiseOp(cache, rsqrtOp), debugString);
   }
   if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
     return createOperation(cache, createEltwiseOp(cache, expOp), debugString);
@@ -493,6 +501,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
+                           debugString);
+  }
+  if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
+    return createOperation(cache, createEltwiseOp(cache, typecastOp),
                            debugString);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

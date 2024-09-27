@@ -18,6 +18,48 @@ void populatePassesModule(py::module &m) {
   mlir::registerAllTranslations();
 
   m.def(
+      "ttnn_pipeline_ttir_passes",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineTTIRPassesFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_pipeline_analysis_passes",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineAnalysisPassesFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_pipeline_lowering_passes",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineLoweringPassesFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));

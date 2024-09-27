@@ -47,8 +47,7 @@ def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]
       Host write operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output);
+    let arguments = (ins AnyRankedTensor:$output, ElementsAttr:$value);
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{

@@ -8,11 +8,11 @@
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.tensorPool;
+  ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();
-  auto inputRank = in.get_shape().rank();
+  auto inputRank = op->in()->desc()->layout()->stride()->size();
   // for the current version of permute, we need to work in 4D, so we add
   // leading dimensions of size 1
   std::vector<std::int64_t> dimensionOrder(4);
@@ -35,6 +35,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
       utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::permute(unsqueezedInput, dimensionOrder, outputMemoryConfig);
+  out = ::ttnn::squeeze_from_4D(out, inputRank);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

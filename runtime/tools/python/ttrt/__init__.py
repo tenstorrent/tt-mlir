@@ -36,7 +36,7 @@ def main():
         args = parser.parse_args()
     except:
         parser.print_help()
-        return
+        return 1
 
     request_api = args.api(args)
     request_api()

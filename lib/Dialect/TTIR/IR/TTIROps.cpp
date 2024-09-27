@@ -2,14 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
+#include <string>
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
+
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/LogicalResult.h>
 
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Utils.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -66,6 +73,9 @@ template <typename OpTy>
 static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
                                             ::mlir::OpBuilder &opBuilder,
                                             ::mlir::Block *block) {
+  assert(block->getNumArguments() == 3 &&
+         "Binary op block expects two input and one output argument.");
+
   auto lhs = block->getArgument(0);
   auto rhs = block->getArgument(1);
   auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
@@ -74,14 +84,29 @@ static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
 
 void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder,
-                                                        block);
+  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
 }
 
 void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
     ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder,
-                                                        block);
+  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
+}
+
+template <typename OpTy>
+static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
+                                           ::mlir::OpBuilder &opBuilder,
+                                           ::mlir::Block *block) {
+  assert(block->getNumArguments() == 2 &&
+         "Unary op block expects one input and one output argument.");
+
+  auto arg = block->getArgument(0);
+  auto result = opBuilder.create<OpTy>(loc, arg);
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+}
+
+void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
@@ -409,34 +434,124 @@ void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
-  auto inputAShape = inputAType.getShape();
-  auto inputBShape = inputBType.getShape();
-  auto outputShape = outputType.getShape();
-  if (inputAShape.size() < 2) {
-    return emitOpError("Input A must be at least a 2D tensor");
+
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+
+  // Verify that the input A is at least 1D tensor
+  if (inputAType.getRank() < 1) {
+    return emitOpError("Input A must be at least a 1D tensor");
   }
-  if (inputBShape.size() < 2) {
-    return emitOpError("Input B must be at least a 2D tensor");
+
+  // Verify that the input B is at least 1D tensor
+  if (inputBType.getRank() < 1) {
+    return emitOpError("Input B must be at least a 1D tensor");
   }
-  if (inputAShape.size() != inputBShape.size()) {
-    return emitOpError("Input A and B must have the same rank");
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
+  // purpose of the matrix multiply. After the matrix multiply, the prepended
+  // dimension is removed.
+  if (inputAType.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
   }
-  if (inputAShape.size() != outputShape.size()) {
-    return emitOpError("Input A and B must have the same rank as the output");
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
+  // the purpose of the matrix-vector product and removed after.
+  if (inputBType.getRank() == 1) {
+    inputBShape.push_back(1);
   }
+
+  // Verify that the input A and input B has matching inner dimensions
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError("Input A and B must have matching inner dimensions");
-  }
-  if (outputShape[outputShape.size() - 2] !=
-      inputAShape[inputAShape.size() - 2]) {
-    return emitOpError("Output must have the same number of rows as input A");
-  }
-  if (outputShape[outputShape.size() - 1] !=
-      inputBShape[inputBShape.size() - 1]) {
     return emitOpError(
-        "Output must have the same number of columns as input B");
+        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
+        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
+        ") must have matching inner dimensions");
   }
+
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  // Verify that the batch dimensions are broadcast compatible and construct the
+  // expected output shape
+  if (inputAShape.size() > 2 || inputBShape.size() > 2) {
+    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
+
+    if (inputAShape.size() > 2) {
+      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
+                             inputAShape.end() - 2);
+    }
+
+    if (inputBShape.size() > 2) {
+      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
+                             inputBShape.end() - 2);
+    }
+
+    // Verify that the batch dimensions of input A and B are broadcast
+    // compatible
+    llvm::SmallVector<int64_t, 4> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
+                                            broadcastedShape)) {
+
+      return emitOpError("Batch dimensions of input A(" +
+                         ttmlir::utils::join(inputABatchDims, ",") +
+                         ") and B(" +
+                         ttmlir::utils::join(inputBBatchDims, ",") +
+                         ") are not broadcast compatible");
+    }
+
+    // Insert the broadcasted batch dimensions in the expected output shape
+    expectedOutputShape.insert(expectedOutputShape.begin(),
+                               broadcastedShape.begin(),
+                               broadcastedShape.end());
+  }
+
+  // Insert the input A and B inner dimensions in expected output shape
+  // Consider the case where input A and B are vectors. In that case,
+  // the dimension 1 is ommited from the output shape.
+  if (inputAType.getRank() > 1) {
+    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
+  }
+
+  if (inputBType.getRank() > 1) {
+    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
+  }
+
+  // Check the case of a vector-vector product. At this moment we don't support
+  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
+  if (expectedOutputShape.size() == 0) {
+    if (outputType.getRank() < 1) {
+      return emitOpError("Scalar output is not supported, output must be at "
+                         "least a 1D tensor");
+    }
+
+    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
+      return emitOpError("Scalar output must be a 1D tensor of size 1");
+    }
+
+    return llvm::success();
+  }
+
+  // Verify that the output shape is correct
+  if (outputShape.size() != expectedOutputShape.size()) {
+    return emitOpError("Output shape rank(" +
+                       std::to_string(outputShape.size()) +
+                       ") must match the expected output shape rank(" +
+                       std::to_string(expectedOutputShape.size()) + ")");
+  }
+
+  // Verify each dim of the output shape
+  for (size_t i = 0; i < outputShape.size(); i++) {
+    if (outputShape[i] != expectedOutputShape[i]) {
+      return emitOpError(
+          "Output shape dimension[" + std::to_string(i) + "](" +
+          std::to_string(outputShape[i]) +
+          ") doesn't match the expected output shape dimension[" +
+          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
+          ")");
+    }
+  }
+
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
