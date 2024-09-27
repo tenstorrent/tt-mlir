@@ -181,6 +181,13 @@ def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
     }];
 }
 
+def TTIR_RealOp : TTIR_ElementwiseUnaryOp<"real"> {
+    let summary = "Eltwise real.";
+    let description = [{
+      Eltwise real operation.
+    }];
+}
+
 def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate op.";
     let description = [{
