@@ -42,6 +42,11 @@ CoreRangeSet toCoreRangeSet(
     // End is inclusive
     CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
                   coreRange->loc().y() + coreRange->size().y() - 1);
+    // CoreCoord start(coreRange->loc().y(), coreRange->loc().x());
+    // // End is inclusive
+    // CoreCoord end(coreRange->loc().y() + coreRange->size().y() - 1,
+    //               coreRange->loc().x() + coreRange->size().x() - 1);
+
 
     coreRanges.emplace(start, end);
   }
@@ -72,6 +77,10 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   std::array<uint32_t, 2> ttnnShardShape;
   std::copy(targetShardShape->begin(), targetShardShape->end(),
             ttnnShardShape.begin());
+
+//   // TMP round up to 32
+//   ttnnShardShape[0] = (ttnnShardShape[0] + 31) & ~31;
+//   ttnnShardShape[1] = (ttnnShardShape[1] + 31) & ~31;
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
@@ -113,6 +122,12 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
+  
+  // Print target core range set
+  std::cout << "CORE RANGE SET: " << targetCoreRangeSet->size() << std::endl;
+  std::cout << "CORE RANGE SET: " << targetCoreRangeSet->begin()->size().x() << " x " << targetCoreRangeSet->begin()->size().y() << std::endl;
+  // std::cout << "CORE RANGE SET: " << targetCoreRangeSet->begin() << std::endl;
+
   const ::flatbuffers::Vector<int32_t> *targetShardShape =
       layout->memory_desc()->shape();
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);

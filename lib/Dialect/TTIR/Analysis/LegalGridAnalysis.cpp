@@ -64,6 +64,10 @@ bool LegalGridAnalysis::applyOverrides() {
     return false;
   }
 
+  if (isa<ToLayoutOp>(op)) {
+    return false;
+  }
+
   StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
   auto gridOverride = analysisInput.outputLayoutOverrides->find(opLocName);
 
@@ -71,10 +75,16 @@ bool LegalGridAnalysis::applyOverrides() {
     return false;
   }
 
+  // TODO add check that grid is legal for shardin type
+
   LayoutOverrideParams override = gridOverride->getValue();
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+
+  // if (override.memorySpace == MemorySpace::DeviceL1) {
+  //   layout = layout.withElementType(op->getContext(), TileType::get(op->getContext(), tensorType.getElementType()));
+  // }
 
   analysisResult.push_back(
       layout.withMemorySpace(op->getContext(), override.memorySpace)
@@ -138,8 +148,8 @@ void LegalGridAnalysis::analysisImplementation() {
   // all elemet types
 
   LayoutAttr shardedBase =
-      layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1)
-      .withElementType(op->getContext(), TileType::get(op->getContext(), tensorType.getElementType()));
+      layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1);
+      // .withElementType(op->getContext(), TileType::get(op->getContext(), tensorType.getElementType()));
   std::vector<LayoutAttr> shardedResults;
 
   // Block Sharded

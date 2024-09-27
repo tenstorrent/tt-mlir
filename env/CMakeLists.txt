@@ -23,7 +23,7 @@ ExternalProject_Add(
     flatbuffers
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=Debug
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
     -DFLATBUFFERS_BUILD_TESTS=OFF
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)

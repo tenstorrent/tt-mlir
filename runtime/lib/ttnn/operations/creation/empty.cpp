@@ -27,6 +27,11 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   if (device) {
     ::ttnn::MemoryConfig memoryConfig =
         utils::createMemoryConfig(op->memcfg(), op->out());
+
+    // print memoryConfig.shard_spec->grid.bounding_box()
+    std::cout << "Memory config shard spec grid bounding box: "
+              << memoryConfig.shard_spec->grid.bounding_box().str() << std::endl;
+    
     out = ::ttnn::empty(shape, dtype, layout,
                         &utils::getDevice(device, devicePool), memoryConfig);
   } else {
