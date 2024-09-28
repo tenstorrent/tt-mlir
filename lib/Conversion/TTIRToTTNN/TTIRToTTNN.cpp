@@ -323,16 +323,23 @@ public:
     };
 
     /*
-     * Logic for creating ops. Currently there are a few conditions/constraints:
+     * Logic for creating ops. Conditions/constraints include:
      * - When possible, we want to execute operations on device.
      * - Tilize on device requires dataformat of bfloat16.
      * - Typecast on device requires TILIZED tensor.
+     * - Untilize on device requires even width, and page size >
+     * sizeof(uint32_t)
+     *    - Currently not sure how page size is calculated. Typecasting and
+     * padding don't seem like good solutions here either. Since pad -> untilize
+     * -> unpad is tricky, and typecasting requires tilized tensors.
+     *    - Thus for now, we will always untilize on host. We rarely need device
+     * to device untilize, so the perf hit should be acceptable.
      */
     bool shouldTilize = (creationFlags.createToLayoutOp and
                          outputLayoutEnum == ttnn::Layout::Tile);
-
+    bool shouldUntilize = (creationFlags.createToLayoutOp and
+                           outputLayoutEnum == ttnn::Layout::RowMajor);
     bool inputIsOnDevice = (inputBufferType != ttnn::BufferType::SystemMemory);
-
     bool inputIsTilized = (inputLayoutEnum == ttnn::Layout::Tile);
 
     // Handle host input tensor
@@ -357,9 +364,9 @@ public:
       // format on tilization
       else if (creationFlags.createToLayoutOp and
                not creationFlags.createTypecastOp) {
-        if (not shouldTilize) {
-          maybeCreateToDeviceOp();
+        if (shouldUntilize) {
           maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToDeviceOp();
           maybeCreateToMemoryConfigOp();
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
@@ -396,9 +403,7 @@ public:
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
         }
-        // Currently typecasting on host
-        // TODO (jnie): Investigate if it's better to
-        // tilize on device -> typecast -> untilize on device
+        // Typecast on host
         else if (not inputIsTilized) {
           maybeCreateTypecastOp(outputDataType);
           maybeCreateToDeviceOp();
@@ -412,12 +417,11 @@ public:
       // If we need to create both TypecastOp and ToLayoutOp
       else if (creationFlags.createToLayoutOp and
                creationFlags.createTypecastOp) {
-        // If we're untilizing
-        // try move to device -> typecast -> untilize -> to memory config
-        if (not shouldTilize) {
-          maybeCreateToDeviceOp();
+        // Untilize and typecast on host
+        if (shouldUntilize) {
           maybeCreateTypecastOp(outputDataType);
           maybeCreateToLayoutOp(outputLayoutEnum);
+          maybeCreateToDeviceOp();
           maybeCreateToMemoryConfigOp();
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
@@ -489,10 +493,17 @@ public:
       // format on tilization
       else if (creationFlags.createToLayoutOp and
                not creationFlags.createTypecastOp) {
-        if (not shouldTilize) {
+        // This is the main untilize case
+        // Where we move data from device to host at the end of the program
+        if (shouldUntilize) {
+          maybeCreateFromDeviceOp(true);
           maybeCreateToLayoutOp(outputLayoutEnum);
-          maybeCreateToMemoryConfigOp();
-          maybeCreateFromDeviceOp();
+          // Move back to device. This is a device to device untilize
+          // Try to avoid
+          if (not creationFlags.createFromDeviceOp) {
+            maybeCreateToDeviceOp(true);
+            maybeCreateToMemoryConfigOp();
+          }
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
         }
@@ -558,11 +569,16 @@ public:
       // If we need to create both toLayoutOp and TypeCastOp
       else if (creationFlags.createToLayoutOp and
                creationFlags.createTypecastOp) {
-        if (not shouldTilize) {
+        // typecast on device and untilize on host
+        if (shouldUntilize) {
           maybeCreateTypecastOp(outputDataType);
+          maybeCreateFromDeviceOp(true);
           maybeCreateToLayoutOp(outputLayoutEnum);
-          maybeCreateToMemoryConfigOp();
-          maybeCreateFromDeviceOp();
+          // Device to device untilize. Try to avoid
+          if (not creationFlags.createFromDeviceOp) {
+            maybeCreateToDeviceOp(true);
+            maybeCreateToMemoryConfigOp();
+          }
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
         } else if (shouldTilize and inputDataType == DataType::BFloat16) {
