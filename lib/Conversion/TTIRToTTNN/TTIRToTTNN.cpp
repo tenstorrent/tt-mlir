@@ -490,24 +490,6 @@ private:
   }
 };
 
-} // namespace
-
-// ANCHOR: adding_an_op_matmul_op_rewriter
-class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
-public:
-  using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getOutput());
-    return success();
-  }
-};
-// ANCHOR_END: adding_an_op_matmul_op_rewriter
-
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -647,6 +629,61 @@ public:
   }
 };
 
+// TODO(issue #841): ttnn.div doesn't currently support implicit broadcast of
+// inputs (tt-metal/issues/12798) so we are using custom DivOpConversionPattern
+// to replace DivOp with combination of ReciprocalOp + MultiplyOp. Revert this
+// once the issue on Metal side is fixed.
+class DivOpConversionPattern : public OpConversionPattern<ttir::DivOp> {
+  using OpConversionPattern<ttir::DivOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::DivOp srcOp, ttir::DivOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType lhsType =
+        mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
+    RankedTensorType rhsType =
+        mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
+
+    if (lhsType.getShape() == rhsType.getShape()) {
+      rewriter.replaceOpWithNewOp<ttnn::DivOp>(
+          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
+          adaptor.getOutputs().front());
+    } else {
+      Value device = getOrInsertDevice(rewriter, srcOp);
+      tensor::EmptyOp recipEmptyOp = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
+          device);
+      ttnn::ReciprocalOp recipOp = rewriter.create<ttnn::ReciprocalOp>(
+          srcOp.getLoc(), adaptor.getInputs().back(), recipEmptyOp);
+
+      rewriter.replaceOpWithNewOp<ttnn::MultiplyOp>(
+          srcOp, adaptor.getInputs().front(), recipOp.getResults().front(),
+          adaptor.getOutputs().front());
+    }
+
+    return success();
+  }
+};
+
+} // namespace
+
+// ANCHOR: adding_an_op_matmul_op_rewriter
+class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
+public:
+  using OpConversionPattern<ttir::MatmulOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
+        adaptor.getB(), adaptor.getOutput());
+    return success();
+  }
+};
+// ANCHOR_END: adding_an_op_matmul_op_rewriter
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -675,7 +712,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::TypecastOp, ttnn::TypecastOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
-           ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
@@ -690,7 +726,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConstantOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
-           MaxPool2dOpConversionPattern
+           MaxPool2dOpConversionPattern,
+           DivOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
