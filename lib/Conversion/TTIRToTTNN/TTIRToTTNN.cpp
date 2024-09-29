@@ -180,6 +180,15 @@ public:
     return ttnnLayoutEnum;
   }
 
+  ttnn::MemoryConfigAttr
+  createMemoryConfigAttr(MLIRContext *context,
+                         ttnn::TensorMemoryLayout tensorMemoryLayout,
+                         ttnn::BufferType bufferType) const {
+    return ttnn::MemoryConfigAttr::get(
+        context, ttnn::TensorMemoryLayoutAttr::get(context, tensorMemoryLayout),
+        ttnn::BufferTypeAttr::get(context, bufferType));
+  }
+
   std::pair<LayoutInfo, LayoutInfo>
   getInputOutputLayouts(ttir::ToLayoutOp op) const {
     LayoutInfo input, output;
@@ -223,12 +232,12 @@ public:
                                      const LayoutInfo &output) const {
     CreationFlags flags;
 
-    flags.createTypecastOp = input.dataType != output.dataType;
     flags.createToDeviceOp =
         (input.bufferType != output.bufferType) and input.isOnHost();
     flags.createFromDeviceOp =
         (input.bufferType != output.bufferType) and output.isOnHost();
 
+    flags.createTypecastOp = input.dataType != output.dataType;
     flags.createToLayoutOp = input.layoutEnum != output.layoutEnum;
     // Insert a ToLayoutOp manually if we're moving from device to host to
     // untilize. Since we're hardcoding tile layout, the tensor may still be row
@@ -239,16 +248,18 @@ public:
 
     // TODO(bug #620):
     // Add support for ShardSpec
-    //
-    flags.createToMemoryConfigOp =
-        (input.tensorMemoryLayout != output.tensorMemoryLayout) and
-        (output.tensorMemoryLayout != ttnn::TensorMemoryLayout::None);
-    flags.createToMemoryConfigOp |=
-        (input.bufferType == ttnn::BufferType::DRAM and
-         output.bufferType == ttnn::BufferType::L1) or
-        (input.bufferType == ttnn::BufferType::L1 and
-         output.bufferType == ttnn::BufferType::DRAM);
-
+    // ToDeviceOp can handle the creation of the memory config of the initial
+    // device tensor
+    if (not flags.createToDeviceOp) {
+      flags.createToMemoryConfigOp =
+          (input.tensorMemoryLayout != output.tensorMemoryLayout) and
+          (output.tensorMemoryLayout != ttnn::TensorMemoryLayout::None);
+      flags.createToMemoryConfigOp |=
+          (input.bufferType == ttnn::BufferType::DRAM and
+           output.bufferType == ttnn::BufferType::L1) or
+          (input.bufferType == ttnn::BufferType::L1 and
+           output.bufferType == ttnn::BufferType::DRAM);
+    }
     return flags;
   }
 
@@ -313,32 +324,33 @@ public:
     Value currentInput = op.getInput();
 
     // Lambdas for creating layout conversion ops
-    auto maybeCreateToDeviceOp = [this, &op, &rewriter, &currentInput,
-                                  creationFlags,
-                                  device](bool forceCreate = false) {
-      this->maybeCreateOp<ttnn::ToDeviceOp>(op, rewriter, currentInput,
-                                            creationFlags.createToDeviceOp,
-                                            forceCreate, device);
-    };
+    auto maybeCreateToDeviceOp =
+        [this, &op, &rewriter, &currentInput, creationFlags,
+         device](ttnn::TensorMemoryLayout memLayout,
+                 ttnn::BufferType bufferType, bool forceCreate = false) {
+          ttnn::MemoryConfigAttr memoryConfigAttr =
+              createMemoryConfigAttr(op.getContext(), memLayout, bufferType);
+          this->maybeCreateOp<ttnn::ToDeviceOp>(
+              op, rewriter, currentInput, creationFlags.createToDeviceOp,
+              forceCreate, device, memoryConfigAttr);
+        };
 
     auto maybeCreateToLayoutOp = [this, &op, &rewriter, &currentInput,
-                                  creationFlags](ttnn::Layout outputLayoutEnum,
+                                  creationFlags](ttnn::Layout layoutEnum,
                                                  bool forceCreate = false) {
-      auto outputLayoutAttr =
-          ttnn::LayoutAttr::get(op.getContext(), outputLayoutEnum);
+      auto layoutAttr = ttnn::LayoutAttr::get(op.getContext(), layoutEnum);
       this->maybeCreateOp<ttnn::ToLayoutOp>(op, rewriter, currentInput,
                                             creationFlags.createToLayoutOp,
-                                            forceCreate, outputLayoutAttr);
+                                            forceCreate, layoutAttr);
     };
 
     auto maybeCreateTypecastOp = [this, &op, &rewriter, &currentInput,
-                                  creationFlags](DataType outputDataType,
+                                  creationFlags](DataType dtype,
                                                  bool forceCreate = false) {
-      auto outputDataTypeAttr =
-          DataTypeAttr::get(op.getContext(), outputDataType);
+      auto dtypeAttr = DataTypeAttr::get(op.getContext(), dtype);
       this->maybeCreateOp<ttnn::TypecastOp>(op, rewriter, currentInput,
                                             creationFlags.createTypecastOp,
-                                            forceCreate, outputDataTypeAttr);
+                                            forceCreate, dtypeAttr);
     };
 
     auto maybeCreateFromDeviceOp = [this, &op, &rewriter, &currentInput,
@@ -349,15 +361,11 @@ public:
     };
 
     auto maybeCreateToMemoryConfigOp =
-        [this, &op, &rewriter, &currentInput, creationFlags](
-            ttnn::TensorMemoryLayout outputTensorMemoryLayout,
-            ttnn::BufferType outputBufferType, bool forceCreate = false) {
-          ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-              op.getContext(),
-              ttnn::TensorMemoryLayoutAttr::get(op.getContext(),
-                                                outputTensorMemoryLayout),
-              ttnn::BufferTypeAttr::get(op.getContext(), outputBufferType));
-
+        [this, &op, &rewriter, &currentInput,
+         creationFlags](ttnn::TensorMemoryLayout memLayout,
+                        ttnn::BufferType bufferType, bool forceCreate = false) {
+          ttnn::MemoryConfigAttr memoryConfigAttr =
+              createMemoryConfigAttr(op.getContext(), memLayout, bufferType);
           this->maybeCreateOp<ttnn::ToMemoryConfigOp>(
               op, rewriter, currentInput, creationFlags.createToMemoryConfigOp,
               forceCreate, memoryConfigAttr);
@@ -388,7 +396,7 @@ public:
       // Create to device op and to memory config op if needed and return
       if (not creationFlags.createToLayoutOp and
           not creationFlags.createTypecastOp) {
-        maybeCreateToDeviceOp();
+        maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
         maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                     output.bufferType);
         op.getResult().replaceAllUsesWith(currentInput);
@@ -402,7 +410,7 @@ public:
           not creationFlags.createTypecastOp) {
         if (shouldUntilize) {
           maybeCreateToLayoutOp(output.layoutEnum);
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                       output.bufferType);
           op.getResult().replaceAllUsesWith(currentInput);
@@ -410,7 +418,7 @@ public:
         }
         // We can tilize on device if data type is bfloat16
         if (shouldTilize and input.dataType == DataType::BFloat16) {
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateToLayoutOp(output.layoutEnum);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                       output.bufferType);
@@ -423,7 +431,7 @@ public:
         // back on device
         if (shouldTilize and input.dataType != DataType::BFloat16) {
           maybeCreateToLayoutOp(output.layoutEnum);
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                       output.bufferType);
           op.getResult().replaceAllUsesWith(currentInput);
@@ -436,7 +444,7 @@ public:
       if (not creationFlags.createToLayoutOp and
           creationFlags.createTypecastOp) {
         if (input.isTilized()) {
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateTypecastOp(output.dataType);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                       output.bufferType);
@@ -446,7 +454,7 @@ public:
         // Typecast on host
         if (not input.isTilized()) {
           maybeCreateTypecastOp(output.dataType);
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                       output.bufferType);
           op.getResult().replaceAllUsesWith(currentInput);
@@ -461,7 +469,7 @@ public:
         if (shouldUntilize) {
           maybeCreateTypecastOp(output.dataType);
           maybeCreateToLayoutOp(output.layoutEnum);
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                       output.bufferType);
           op.getResult().replaceAllUsesWith(currentInput);
@@ -470,7 +478,7 @@ public:
         // If we're tilizing and the input datatype is bfloat16
         // try move to device -> tilize -> typecast -> to memory config
         if (shouldTilize and input.dataType == DataType::BFloat16) {
-          maybeCreateToDeviceOp();
+          maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
           maybeCreateToLayoutOp(output.layoutEnum);
           maybeCreateTypecastOp(output.dataType);
           maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
@@ -485,7 +493,7 @@ public:
           // potentially
           if (output.dataType == DataType::BFloat16) {
             maybeCreateTypecastOp(output.dataType);
-            maybeCreateToDeviceOp();
+            maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
             maybeCreateToLayoutOp(output.layoutEnum);
             maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
                                         output.bufferType);
@@ -504,7 +512,7 @@ public:
           // move to device -> typecast bfloat16 -> tilize -> typecast to output
           // df
           if (creationFlags.createToDeviceOp) {
-            maybeCreateToDeviceOp();
+            maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType);
             maybeCreateTypecastOp(DataType::BFloat16, true);
             maybeCreateToLayoutOp(output.layoutEnum);
             maybeCreateTypecastOp(output.dataType);
@@ -542,9 +550,8 @@ public:
           // Move back to device. This is a device to device untilize
           // Try to avoid
           if (not creationFlags.createFromDeviceOp) {
-            maybeCreateToDeviceOp(true);
-            maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
-                                        output.bufferType);
+            maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType,
+                                  true);
           }
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
@@ -603,9 +610,8 @@ public:
           maybeCreateTypecastOp(output.dataType);
           // move back to device if necessary
           if (not creationFlags.createFromDeviceOp) {
-            maybeCreateToDeviceOp(true);
-            maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
-                                        output.bufferType);
+            maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType,
+                                  true);
           }
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
@@ -622,9 +628,8 @@ public:
           maybeCreateToLayoutOp(output.layoutEnum);
           // Device to device untilize. Try to avoid
           if (not creationFlags.createFromDeviceOp) {
-            maybeCreateToDeviceOp(true);
-            maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
-                                        output.bufferType);
+            maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType,
+                                  true);
           }
           op.getResult().replaceAllUsesWith(currentInput);
           return success();
@@ -644,10 +649,9 @@ public:
               not creationFlags.createFromDeviceOp) {
             maybeCreateFromDeviceOp(true);
             maybeCreateTypecastOp(output.dataType);
-            maybeCreateToDeviceOp(true);
+            maybeCreateToDeviceOp(output.tensorMemoryLayout, output.bufferType,
+                                  true);
             maybeCreateToLayoutOp(output.layoutEnum);
-            maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
-                                        output.bufferType);
             op.getResult().replaceAllUsesWith(currentInput);
             return success();
           }
@@ -657,9 +661,8 @@ public:
             maybeCreateTypecastOp(output.dataType);
             maybeCreateToLayoutOp(output.layoutEnum);
             if (not creationFlags.createFromDeviceOp) {
-              maybeCreateToDeviceOp(true);
-              maybeCreateToMemoryConfigOp(output.tensorMemoryLayout,
-                                          output.bufferType);
+              maybeCreateToDeviceOp(output.tensorMemoryLayout,
+                                    output.bufferType, true);
             }
             op.getResult().replaceAllUsesWith(currentInput);
             return success();

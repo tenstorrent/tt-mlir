@@ -30,6 +30,7 @@ table TypecastOp {
 table ToDeviceOp {
   in: tt.target.TensorRef;
   device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 

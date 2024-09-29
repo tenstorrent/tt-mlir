@@ -17,7 +17,10 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   assert(utils::isOnHost(inputTensor) &&
          "Calling ttnn::to_device on a device tensor");
 
-  ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, std::nullopt);
+  ::ttnn::MemoryConfig memoryConfig =
+      utils::createMemoryConfig(op->memcfg(), op->out());
+
+  ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

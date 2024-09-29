@@ -307,20 +307,30 @@ public:
   matchAndRewrite(ttnn::ToDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Concat operands and MemoryConfig object (set to std::nullopt)
+    // Create ArrayAttr object holding MemoryConfig attributes
     //
-    llvm::SmallVector<Attribute, 3> attrs;
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-    attrs.push_back(createStdNullopt(rewriter));
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
+        {convertTensorMemoryLayout(
+             rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
+         convertBufferType(rewriter, srcOp.getMemoryConfig().getBufferType())});
 
-    ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
+    // Create MemoryConfig object first, then pass it to the op
+    //
+    emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp->getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
+        "ttnn::MemoryConfig", arrayAttrs, nullptr, ValueRange());
+
+    // Concat operands and MemoryConfig object
+    //
+    llvm::SmallVector<Value, 3> operands(adaptor.getOperands());
+    operands.append(1, memCfgOp.getResult(0));
 
     // Convert ToDeviceOp
     //
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
+        this->convertOpName(srcOp), nullptr, nullptr, operands);
 
     return success();
   }

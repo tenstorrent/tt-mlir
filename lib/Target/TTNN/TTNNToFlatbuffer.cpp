@@ -140,11 +140,22 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto device = getOperandThroughDPSOps(op.getDevice());
 
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+          op.getMemoryConfig().getTensorMemoryLayout().getValue());
+  ::tt::target::BufferType bufferType =
+      ::tt::mlir::ttnn::utils::toTargetBufferType(
+          op.getMemoryConfig().getBufferType().getValue());
+
+  auto memoryConfigDesc =
+      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateToDeviceOp(
-      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
+      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device),
+      memoryConfigDesc, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::FromDeviceOp>

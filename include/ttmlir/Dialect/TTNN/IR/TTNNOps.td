@@ -76,11 +76,12 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
     let description = [{
-      This op sends the input tensor to the given device.
+      This op sends the input tensor to the given device with the given memory config.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device);
+                         TT_Device:$device,
+                         TTNN_MemoryConfigAttr:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 }
 

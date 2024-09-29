@@ -15,11 +15,25 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
-  ::ttnn::Tensor out = ::ttnn::operations::matmul::matmul(
-      lhs, rhs, /*bias=*/std::nullopt,
-      ::ttnn::operations::matmul::Matmul{/*program_config=*/std::nullopt,
-                                         /*bcast_batch=*/std::nullopt,
-                                         outputMemoryConfig, outputDataType});
+
+  // Matmul args
+  const bool transposeA = false;
+  const bool transposeB = false;
+  const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
+      std::make_optional(outputMemoryConfig);
+  const std::optional<const ::ttnn::DataType> dtype =
+      std::make_optional(outputDataType);
+  const std::optional<const ::ttnn::operations::matmul::MatmulProgramConfig>
+      programConfig = std::nullopt;
+  const std::optional<const std::string> activation = std::nullopt;
+  const std::optional<const ::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfig = std::nullopt;
+  const std::optional<const ::ttnn::CoreGrid> coreGrid = std::nullopt;
+
+  ::ttnn::Tensor out =
+      ::ttnn::matmul(lhs, rhs, transposeA, transposeB, memoryConfig, dtype,
+                     programConfig, activation, computeKernelConfig, coreGrid);
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 // ANCHOR_END: adding_an_op_matmul_runtime
