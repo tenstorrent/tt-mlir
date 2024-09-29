@@ -237,6 +237,9 @@ public:
     flags.createToLayoutOp |= (flags.createFromDeviceOp and
                                output.layoutEnum == ttnn::Layout::RowMajor);
 
+    // TODO(bug #620):
+    // Add support for ShardSpec
+    //
     flags.createToMemoryConfigOp =
         (input.tensorMemoryLayout != output.tensorMemoryLayout) and
         (output.tensorMemoryLayout != ttnn::TensorMemoryLayout::None);

@@ -43,6 +43,8 @@ def check_results(file_name="results.json"):
 
     for entry in data:
         if entry.get("result") != "pass":
+            print(f"all data: {data}")
+            print(f"test failed: {entry}")
             return 1
 
     return 0
