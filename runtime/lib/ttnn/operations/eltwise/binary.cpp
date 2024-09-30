@@ -32,8 +32,7 @@ static void runEltwiseBinaryOP(
   getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
 
   // Switch the order of operands if the second operand requires broadcast
-  if (op->ins()->Get(0)->desc()->shape()->Get(1) == 1 ||
-      op->ins()->Get(1)->desc()->shape()->Get(1) == 1) {
+  if (rhs->volume() < lhs->volume()) {
     ::ttnn::Tensor *tmp = rhs;
     rhs = lhs;
     lhs = tmp;
@@ -60,8 +59,7 @@ static void runEltwiseBinaryCompositeOP(
   getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
 
   // Switch the order of operands if the second operand requires broadcast
-  if (op->ins()->Get(0)->desc()->shape()->Get(1) == 1 ||
-      op->ins()->Get(1)->desc()->shape()->Get(1) == 1) {
+  if (rhs->volume() < lhs->volume()) {
     ::ttnn::Tensor *tmp = rhs;
     rhs = lhs;
     lhs = tmp;
