@@ -6,9 +6,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict
+import torch
+
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, func, tensor
-import torch
+from ttmlir.passes import (
+    ttir_to_ttmetal_backend_pipeline,
+    ttmetal_to_flatbuffer_file,
+)
+
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -391,6 +397,57 @@ def compile_as_mlir_module(
                     builder.print_goldens()
 
                 return module
+
+        return wrapper
+
+    return decorator
+
+
+def ttir_to_ttmetal(dump_to_file: bool = True, file_name: str = "test.mlir"):
+    """Converts TTIR module to TTMetal module and optionally dumps to file."""
+
+    def decorator(test_fn: Callable):
+        def wrapper(*args, **kwargs):
+            # First, call the decorated function to get the MLIR module.
+            module = test_fn(*args, **kwargs)
+
+            # Now, pass it through the TTIR to TTMetal pipeline. Module gets
+            # modified in place.
+            ttir_to_ttmetal_backend_pipeline(module)
+
+            # Optionally dump to file.
+            if dump_to_file:
+                with open(file_name, "w") as f:
+                    f.write(str(module))
+
+            return module
+
+        return wrapper
+
+    return decorator
+
+
+def ttmetal_to_flatbuffer(
+    file_name: str = "ttrt.ttm", golden_info: List[Golden] = None
+):
+    """
+    Converts TTMetal module to flatbuffer and saves to file.
+
+    TODO Optional golden info is passed to be embedded in flatbuffer as well.
+
+    TODO Decorating a test function with this, i.e. calling
+    `ttmetal_to_flatbuffer_file` will result in 'LLVM ERROR: Building op
+    `emitc.constant` but it isn't known in this MLIRContext: the dialect may not
+    be loaded or this operation hasn't been added by the dialect.'
+    """
+
+    def decorator(test_fn: Callable):
+        def wrapper(*args, **kwargs):
+            # Get the TTMetal module by calling the wrapped function.
+            module = test_fn(*args, **kwargs)
+
+            # Convert to flatbuffer file.
+            ttmetal_to_flatbuffer_file(module, file_name)
 
         return wrapper
 
