@@ -6,8 +6,8 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 
+// ANCHOR: adding_an_op_matmul_runtime_operations
 namespace tt::runtime::ttnn::operations::matmul {
-// ANCHOR: adding_an_op_matmul_runtime
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &lhs = tensorPool.at(op->in0()->global_id());
@@ -22,6 +22,5 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
                                          outputMemoryConfig, outputDataType});
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
-// ANCHOR_END: adding_an_op_matmul_runtime
-
 } // namespace tt::runtime::ttnn::operations::matmul
+// ANCHOR_END: adding_an_op_matmul_runtime_operations

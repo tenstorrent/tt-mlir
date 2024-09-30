@@ -13,13 +13,17 @@ This guide will cover the following steps:
       - [`TTNNOps.td`](#ttnnopstd)
       - [`TTNNOps.cpp`](#ttnnopscpp)
   - [3. Convert / Implement the Op in the TTNN passes](#3-convert--implement-the-op-in-the-ttnn-passes)
-  - [4. Add a unit test for the Op](#4-add-a-unit-test-for-the-op)
-      - [`test/ttmlir/Dialect/TTNN/simple_matmul.mlir`](#testttmlirdialectttnnsimple_matmulmlir)
+  - [4. Add a compiler unit test for the Op](#4-add-a-compiler-unit-test-for-the-op)
+      - [`test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`](#testttmlirdialectttnnmatmulsimple_matmulmlir)
   - [5. Define flatbuffer schema for the Op](#5-define-flatbuffer-schema-for-the-op)
       - [`include/ttmlir/Target/TTNN/program.fbs`](#includettmlirtargetttnnprogramfbs)
   - [6. Serialize the Op in the flatbuffer format](#6-serialize-the-op-in-the-flatbuffer-format)
   - [7. Add runtime support for the Op](#7-add-runtime-support-for-the-op)
-      - [`runtime/lib/ttnn/program.cpp`](#runtimelibttnnprogramcpp)
+    - [`runtime/lib/ttnn/operations/matmul/matmul.cpp`](#runtimelibttnnoperationsmatmulmatmulcpp)
+    - [`runtime/lib/ttnn/operations/CMakeLists.txt`](#runtimelibttnnoperationscmakeliststxt)
+    - [`runtime/lib/ttnn/program.cpp`](#runtimelibttnnprogramcpp)
+  - [8. Add a silicon unit test for the Op](#8-add-a-silicon-unit-test-for-the-op)
+    - [`test/ttmlir/Silicon/TTNN/simple_matmul.mlir`](#testttmlirsiliconttnnsimple_matmulmlir)
 
 ## 1. Define the Op in the TTIR frontend dialect
 
@@ -52,7 +56,7 @@ There are many things to break down here, starting from the top:
   `Type`s (i.e. `AnyRankedTensor`) and `Attribute`s (i.e. `TT_OperandConstraintArrayAttr`).
   [Read more about Types & Attributes
   here](https://mlir.llvm.org/docs/DefiningDialects/AttributesAndTypes/#attributes).
-    - `AnyRankedTensor` is part of a tablegen standand library which type
+    - `AnyRankedTensor` is part of a tablegen standard library which type
       aliases to MLIR's builtin Tensor type, with the added constraint that the
       tensor has a static rank.  As much as possible we want to use the builtin
       types and infrastructure provided by MLIR.
@@ -69,7 +73,7 @@ There are many things to break down here, starting from the top:
 - Next we have `extraClassDeclaration`, which enables us to inject member
   functions, written directly in C++, into the generated class.  We are doing
   this for this particular case in order to satisfy the DPS interface which
-  requires an implementation for getting the mutatated output tensor.
+  requires an implementation for getting the mutated output tensor.
 - Finally, we have `hasVerifier = 1`, this tells MLIR that we have a verifier
   function that will be called to validate the operation.  This is a good
   practice to ensure that the IR is well formed.
@@ -152,18 +156,18 @@ We also need to add this op to the C++ emitter,
 `lib/Conversion/TTNNToEmitC/TTNNToEmitC.cpp` see
 `populateTTNNToEmitCPatterns(...)`.
 
-## 4. Add a unit test for the Op
+## 4. Add a compiler unit test for the Op
 
 So far we have defined the Op in the TTIR and TTNN dialects,
 implemented verifiers, and have conversion passes.  Now we need to add a unit
-test to ensure that the pass is working correctly.  The unit tests are located
+test to ensure that the pass is working correctly.  The compiler unit tests are located
 in `test/ttmlir/Dialect` area.  In this case we'll add a test under the `TTNN`
 subdirectory since we are testing the `ConvertTTIRToTTNNPass`.
 
-#### `test/ttmlir/Dialect/TTNN/simple_matmul.mlir`
+#### `test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`
 
 ```mlir
-{{#include ../../../test/ttmlir/Dialect/TTNN/simple_matmul.mlir}}
+{{#include ../../../test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir}}
 ```
 
 > Unit tests in MLIR are typically written using a tool called `FileCheck`, please refer to
@@ -190,7 +194,7 @@ You can also manually run `ttmlir-opt` on the test file to see the
 resulting output:
 
 ```bash
-./build/bin/ttmlir-opt --ttir-layout --convert-ttir-to-ttnn test/ttmlir/Dialect/TTNN/simple_matmul.mlir
+./build/bin/ttmlir-opt --ttir-load-system-desc="path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir
 ```
 
 ## 5. Define flatbuffer schema for the Op
@@ -248,7 +252,7 @@ Lots of things are happening here, let's break it down:
 
 We can finally generate a binary with our new Op!  We can use the following command:
 ```bash
-./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
+./build/bin/ttmlir-opt --ttir-load-system-desc="path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
 ```
 
 And we can inspect the with [`ttrt`](./ttrt.md):
@@ -258,22 +262,62 @@ ttrt read out.ttnn
 
 ## 7. Add runtime support for the Op
 
-The final step is to add runtime support for the Op by parsing the flatbuffer and
+Next, we want to add runtime support for the Op by parsing the flatbuffer and
 invoking the TTNN API.
 
-#### `runtime/lib/ttnn/program.cpp`
+#### `runtime/lib/ttnn/operations/matmul/matmul.cpp`
 ```cpp
-{{#include ../../../runtime/lib/ttnn/program.cpp:adding_an_op_matmul_runtime}}
+{{#include ../../../runtime/lib/ttnn/operations/matmul/matmul.cpp:adding_an_op_matmul_runtime_operations}}
 ```
 
 A couple things to note from above:
 - Most runtime op functions will follow a similar pattern, they will take in
-  some additional datastructures for managing live tensors.
-- `liveTensors.at(op->in0()->global_id())`: `global_id` is a unique identifier
+  some additional datastructures for managing the program context.
+  - Program context tracks the state of the current program. It stores intermediate tensors and devices.
+- `tensorPool.at(op->in0()->global_id())`: `global_id` is a unique identifier
   for the tensor that was generated and managed by the `FlatbufferObjectCache`.
   This is how it's intended to be used by the runtime.
+- Some operations may belong to a larger set of operations. For example, any eltwise unary operations can
+  be added in `runtime/lib/ttnn/operations/eltwise/unary.cpp` directly without needing to create a new file.
+
+If a new file is created for the op, we need to add a new source to `runtime/lib/ttnn/operations/CMakeLists.txt` and a new case to `runtime/lib/ttnn/program.cpp`.
+
+To update `runtime/lib/ttnn/operations/CMakeLists.txt`, include the path to the source file in `TTNN_OPS_SRCS`:
+
+#### `runtime/lib/ttnn/operations/CMakeLists.txt`
+```cmake
+{{#include ../../../runtime/lib/ttnn/operations/CMakeLists.txt:adding_an_op_matmul_runtime_cmake}}
+```
+
+To update `runtime/lib/ttnn/program.cpp`, add a new case to the `runOperation` method of `ProgramExecutor`:
+
+#### `runtime/lib/ttnn/program.cpp`
+```cpp
+{{#include ../../../runtime/lib/ttnn/program.cpp:adding_an_op_matmul_runtime_program}}
+```
 
 We can test our changes with `ttrt` (don't forget to rebuild `ttrt`):
 ```bash
 ttrt run out.ttnn
 ```
+
+## 8. Add a silicon unit test for the Op
+After adding runtime support, we're ready to test our Op on silicon. All silicon tests are located
+under `test/ttmlir/Silicon`. The process is similar to [adding a compiler unit test](#4-add-a-compiler-unit-test-for-the-op).
+
+In our specific case, we create a unit test here: `test/ttmlir/Silicon/TTNN/simple_matmul.mlir`:
+
+#### `test/ttmlir/Silicon/TTNN/simple_matmul.mlir`
+```mlir
+{{#include ../../../test/ttmlir/Silicon/TTNN/simple_matmul.mlir}}
+```
+
+Couple things to point out about this process:
+- Tests placed under `test/ttmlir/Dialect` will only test the compiler's capability of compiling the module.
+If you want the module to run on silicon in CI, the test must be placed under `test/ttmlir/Silicon`.
+- Notice the differences between the compilation headers of `test/ttmlir/Silicon/TTNN/simple_matmul.mlir` and `test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`
+  - `--ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"`: The `system-desc-path` option specifies the location of the system descriptor
+  required for compiling the module. This is crucial for silicon tests, as modules compiled with different system descriptors may vary in silicon compatibility.
+  Ensuring the system descriptor accurately reflects the target hardware is essential for running the module correctly.
+  - `// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn`: This runs `ttmlir-translate` that serializes the output mlir module to a flatbuffer binary.
+  We added the logic for this serialization in the [Serialize the Op in the flatbuffer format](#6-serialize-the-op-in-the-flatbuffer-format) section.
