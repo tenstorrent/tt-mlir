@@ -31,6 +31,14 @@ static void runEltwiseBinaryOP(
   ::ttnn::Tensor *rhs = nullptr;
   getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
 
+  // Switch the order of operands if the second operand requires broadcast
+  if (op->ins()->Get(0)->desc()->shape()->Get(1) == 1 ||
+      op->ins()->Get(1)->desc()->shape()->Get(1) == 1) {
+    ::ttnn::Tensor *tmp = rhs;
+    rhs = lhs;
+    lhs = tmp;
+  }
+
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
@@ -50,6 +58,14 @@ static void runEltwiseBinaryCompositeOP(
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
   getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
+
+  // Switch the order of operands if the second operand requires broadcast
+  if (op->ins()->Get(0)->desc()->shape()->Get(1) == 1 ||
+      op->ins()->Get(1)->desc()->shape()->Get(1) == 1) {
+    ::ttnn::Tensor *tmp = rhs;
+    rhs = lhs;
+    lhs = tmp;
+  }
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
