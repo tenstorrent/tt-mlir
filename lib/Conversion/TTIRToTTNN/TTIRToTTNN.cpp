@@ -647,6 +647,46 @@ public:
   }
 };
 
+class SubtractOpConversionPattern
+    : public OpConversionPattern<ttir::SubtractOp> {
+  using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::SubtractOp srcOp, ttir::SubtractOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType lhsType =
+        mlir::cast<RankedTensorType>(adaptor.getInputs().front().getType());
+    RankedTensorType rhsType =
+        mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
+
+    if (lhsType.getShape() == rhsType.getShape()) {
+      rewriter.replaceOpWithNewOp<ttnn::SubtractOp>(
+          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
+          adaptor.getOutputs().front());
+
+      // Broadcast for rhs operand require the operation to be commutative to
+      // allow switching the order of operands. To allow this conversion, the
+      // following conversion is applied to SubtractOp: subtractOp(lhs,rhs) ->
+      // addOp(lhs, negOp(rhs))
+
+    } else {
+      Value device = getOrInsertDevice(rewriter, srcOp);
+      tensor::EmptyOp negEmptyOp = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
+          device);
+      ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
+          srcOp.getLoc(), adaptor.getInputs().back(), negEmptyOp);
+
+      rewriter.replaceOpWithNewOp<ttnn::AddOp>(
+          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
+          adaptor.getOutputs().front());
+    }
+
+    return success();
+  }
+};
+
 namespace mlir::tt {
 
 void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -658,7 +698,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ToLayoutOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
-           ElementwiseOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
            ElementwiseOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
            ElementwiseOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
            ElementwiseOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
@@ -690,7 +729,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConstantOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
-           MaxPool2dOpConversionPattern
+           MaxPool2dOpConversionPattern,
+           SubtractOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

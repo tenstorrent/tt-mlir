@@ -14,6 +14,11 @@ getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
   assert(op->ins()->size() == 2 && "Expected 2 inputs");
   *lhs = &(tensorPool.at(op->ins()->Get(0)->global_id()));
   *rhs = &(tensorPool.at(op->ins()->Get(1)->global_id()));
+
+  // Switch the order of operands if the second operand requires broadcast
+  if ((*rhs)->volume() < (*lhs)->volume()) {
+    std::swap(*lhs, *rhs);
+  }
 }
 
 static void runEltwiseBinaryOP(
@@ -30,13 +35,6 @@ static void runEltwiseBinaryOP(
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
   getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
-
-  // Switch the order of operands if the second operand requires broadcast
-  if (rhs->volume() < lhs->volume()) {
-    ::ttnn::Tensor *tmp = rhs;
-    rhs = lhs;
-    lhs = tmp;
-  }
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
@@ -57,13 +55,6 @@ static void runEltwiseBinaryCompositeOP(
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
   getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
-
-  // Switch the order of operands if the second operand requires broadcast
-  if (rhs->volume() < lhs->volume()) {
-    ::ttnn::Tensor *tmp = rhs;
-    rhs = lhs;
-    lhs = tmp;
-  }
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
