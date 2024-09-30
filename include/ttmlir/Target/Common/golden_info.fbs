@@ -1,0 +1,15 @@
+namespace tt.target.golden;
+
+table GoldenTensor {
+  operand_name: string;
+  data: [float];
+  shape: [uint8];
+}
+
+table GoldenInfo {
+   golden_tensors: [GoldenTensor];
+}
+
+root_type GoldenInfo;
+file_identifier "GLDN";
+file_extension "ttmg";

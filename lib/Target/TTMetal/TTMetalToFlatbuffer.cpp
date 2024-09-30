@@ -362,4 +362,67 @@ LogicalResult translateTTMetalToFlatbuffer(Operation *op,
   return success();
 }
 
+static std::shared_ptr<void>
+dumpGoldenInfoToFlatbuffer(std::vector<std::string> &operand_names,
+                           std::vector<std::vector<float>> &tensor_data,
+                           std::vector<std::vector<uint8_t>> &tensor_shapes) {
+  flatbuffers::FlatBufferBuilder fbb;
+
+  std::vector<::flatbuffers::Offset<::tt::target::golden::GoldenTensor>>
+      golden_tensor_offsets;
+
+  // Iterate through each tensor data and shape
+  for (size_t i = 0; i < tensor_data.size(); ++i) {
+    // Create a FlatBuffer vector for tensor data
+    auto data_vector =
+        fbb.CreateVector(tensor_data[i].data(), tensor_data[i].size());
+
+    // Create a FlatBuffer vector for tensor shape
+    auto shape_vector =
+        fbb.CreateVector(tensor_shapes[i].data(), tensor_shapes[i].size());
+
+    // Create a FlatBuffer string for the operand name
+    auto operand_name = fbb.CreateString(operand_names[i]);
+
+    // Create the GoldenTensor table with operand name
+    auto golden_tensor = ::tt::target::golden::CreateGoldenTensor(
+        fbb, operand_name, data_vector, shape_vector);
+
+    golden_tensor_offsets.push_back(golden_tensor);
+  }
+
+  // Create a FlatBuffer vector for all golden tensors
+  auto golden_tensors_vector = fbb.CreateVector(golden_tensor_offsets);
+
+  // Create the GoldenInfo table
+  auto golden_info =
+      ::tt::target::golden::CreateGoldenInfo(fbb, golden_tensors_vector);
+
+  ::tt::target::golden::FinishSizePrefixedGoldenInfoBuffer(fbb, golden_info);
+  ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
+  ::tt::target::golden::VerifySizePrefixedGoldenInfoBuffer(verifier);
+
+  uint8_t *buf = fbb.GetBufferPointer();
+  auto size = fbb.GetSize();
+
+  std::shared_ptr<void> serializedBinary =
+      std::shared_ptr<void>(std::malloc(size), std::free);
+  std::memcpy(serializedBinary.get(), buf, size);
+
+  return serializedBinary;
+}
+
+LogicalResult
+dumpGoldenInfoToFlatbufferFile(std::vector<std::string> &operand_names,
+                               std::vector<std::vector<float>> &tensor_data,
+                               std::vector<std::vector<uint8_t>> &tensor_shapes,
+                               llvm::raw_ostream &os) {
+  std::shared_ptr<void> data =
+      dumpGoldenInfoToFlatbuffer(operand_names, tensor_data, tensor_shapes);
+  std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
+      static_cast<const uint8_t *>(data.get()));
+  os.write(reinterpret_cast<char const *>(data.get()), size);
+  return success();
+}
+
 } // namespace mlir::tt::ttmetal

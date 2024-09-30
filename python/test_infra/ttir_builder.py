@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict
-from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, func, tensor
+from typing import Dict, List, Optional, Tuple, Union
+
 import torch
+from ttmlir.dialects import tensor, tt, ttir
+from ttmlir.ir import *
+
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
 # ops wrapped in OpView or Operation.
@@ -58,6 +60,10 @@ class TTIRBuilder:
         self._goldens: Dict[Operand, Golden] = {}
 
     # ----- Public helpers -----
+
+    @property
+    def goldens(self) -> Dict:
+        return self._goldens
 
     def print_goldens(self) -> None:
         """
@@ -299,99 +305,3 @@ class TTIRBuilder:
             self._override_golden(output, golden)
 
             return op
-
-
-def compile_as_mlir_module(
-    *inputs_shapes: Tuple[Shape],
-    module_dump: bool = True,
-    golden_dump: bool = False,
-):
-    """
-    Decorator to define a MLIR module specified as a python function.
-
-    It will wrap decorated test function in a MLIR FuncOp wrapped in a MLIR
-    module, and tie arguments of that FuncOp to test function inputs. It will
-    also pass a `TTIRBuilder` object as the last argument of test function.
-
-    Arguments
-    ---------
-    inputs_shapes: Tuple[Shape]
-        Shapes of the respective ranked tensor inputs of the test function.
-
-    module_dump: bool
-        Set to True if printout of generated MLIR module is wished.
-
-    golden_dump: bool
-        Set to True if printout of generated goldens is wished.
-
-    Example
-    -------
-
-    ```python
-        @compile_as_mlir_module((32, 32), (32, 32))
-        def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            return builder.add(in0, in1)
-
-
-        test_add() # NOTE Called without arguments.
-    ```
-
-    which returns
-
-    ```
-        #any = #tt.operand_constraint<...>
-        module {
-            func.func @test_add(
-                %arg0: tensor<32x32xf32>,
-                %arg1: tensor<32x32xf32>
-            ) -> tensor<32x32xf32> {
-                %0 = tensor.empty() : tensor<32x32xf32>
-                %1 = "ttir.add"(%arg0, %arg1, %0) ...
-                return %1 : tensor<32x32xf32>
-            }
-        }
-    ```
-
-    Check out:
-    https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
-    """
-
-    def decorator(test_fn: Callable):
-        # test_fn should be called with no args.
-        def wrapper():
-            ctx = Context()
-            loc = Location.unknown(ctx)
-            # Instantiate builder which is passed as the last argument to
-            # `test_fn` so the user can use it to build ops.
-            builder = TTIRBuilder(ctx, loc)
-
-            with ctx, loc:
-                test_fn_input_types = [
-                    builder.ranked_tensor_type(input_shape)
-                    for input_shape in inputs_shapes
-                ]
-
-                # Wrap everything in a mlir module.
-                module = Module.create()
-
-                with InsertionPoint(module.body):
-                    # Wrap everything in a mlir function.
-                    @func.func(*test_fn_input_types, name=test_fn.__name__)
-                    def decorated_func(*inputs):
-                        # Randomly generate golden tensors for function inputs.
-                        for i in inputs:
-                            builder.generate_and_store_random_golden(i)
-
-                        return test_fn(*inputs, builder=builder)
-
-                if module_dump:
-                    print(module)
-
-                if golden_dump:
-                    builder.print_goldens()
-
-                return module
-
-        return wrapper
-
-    return decorator

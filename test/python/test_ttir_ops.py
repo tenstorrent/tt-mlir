@@ -4,9 +4,16 @@
 
 # RUN: %python %s | FileCheck %s
 
-from ttmlir.ttir_builder import TTIRBuilder, compile_as_mlir_module, Operand
+from ttmlir.test_utils import (
+    compile_as_mlir_module,
+    translate_ttmetal_to_flatbuffer,
+    ttir_to_ttmetal,
+)
+from ttmlir.ttir_builder import Operand, TTIRBuilder
 
 
+@translate_ttmetal_to_flatbuffer(output_file_name="test_add.ttm")
+@ttir_to_ttmetal(output_file_name="test_add.mlir")
 @compile_as_mlir_module((32, 32), (32, 32))
 def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     # CHECK: %0 = tensor.empty() : tensor<32x32xf32>
@@ -16,6 +23,8 @@ def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.add(in0, in1)
 
 
+@translate_ttmetal_to_flatbuffer(output_file_name="test_multiply.ttm")
+@ttir_to_ttmetal(output_file_name="test_multiply.mlir")
 @compile_as_mlir_module((64, 64), (64, 64))
 def test_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
     # CHECK: %0 = tensor.empty() : tensor<64x64xf32>
@@ -25,6 +34,8 @@ def test_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.multiply(in0, in1)
 
 
+@translate_ttmetal_to_flatbuffer(output_file_name="test_exp.ttm")
+@ttir_to_ttmetal(output_file_name="test_exp.mlir")
 @compile_as_mlir_module((128, 128))
 def test_exp(in0: Operand, builder: TTIRBuilder):
     # CHECK: %0 = tensor.empty() : tensor<128x128xf32>
@@ -34,6 +45,8 @@ def test_exp(in0: Operand, builder: TTIRBuilder):
     return builder.exp(in0)
 
 
+@translate_ttmetal_to_flatbuffer(output_file_name="test_arbitrary_op_chain.ttm")
+@ttir_to_ttmetal(output_file_name="test_arbitrary_op_chain.mlir")
 @compile_as_mlir_module((32, 32), (32, 32), (32, 32))
 def test_arbitrary_op_chain(
     in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
