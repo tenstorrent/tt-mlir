@@ -74,9 +74,11 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
            "Eltwise op should be either unary or binary");
     return operations::binary::run(eltwiseOp, context);
   }
+  // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
+  // ANCHOR_END: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }
