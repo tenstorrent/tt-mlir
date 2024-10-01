@@ -405,6 +405,75 @@ private:
   }
 };
 
+class StableHLOToTTIRConcatOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::ConcatenateOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConcatenateOp srcOp,
+                  mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Check legality of the operation
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    // Replace the original ConcatOp with the destination operation
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
+        srcOp,
+        outputType,          // result type
+        adaptor.getInputs(), // input values
+        Value(outputTensor), // output value
+        rewriter.getSI32IntegerAttr(
+            static_cast<int32_t>(adaptor.getDimension())), // dimension
+        rewriter.getArrayAttr( // operand constraints
+            SmallVector<Attribute>(adaptor.getInputs().size(),
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::ConcatenateOp &srcOp,
+                     mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getInputs().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ConcatOp must have at least one input.");
+    }
+    if (adaptor.getDimension() >=
+        INT32_MAX) { // stablehlo.concatenate dimension is i64,
+                     // ttir.concat dimension is si32
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "ConcatOp dimension is too large.");
+    }
+
+    auto rankedTensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getOperand(0).getType());
+    if (static_cast<int64_t>(adaptor.getDimension()) >=
+        rankedTensorType.getRank()) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid concatenation dimension.");
+    }
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -481,6 +550,12 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRCompareOpConversionPattern>(typeConverter, ctx);
 }
 
+void addConcatOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRConcatOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -496,6 +571,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
