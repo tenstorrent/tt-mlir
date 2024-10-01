@@ -632,15 +632,27 @@ public:
     // ops that support implicit broadcasting. We expect each Op's verify
     // function to assert their arguments to verify that they can broadcast.
 
-    mlir::Value input = srcOp.getOperand(0);
-    mlir::Value result = srcOp.getResult();
-
     if (srcOp->getUsers().empty()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "ttir.broadcast op should have at least one use.");
+      // This broadcast chain has already been replaced.
+      rewriter.eraseOp(srcOp);
+      return success();
     }
 
-    rewriter.replaceAllUsesWith(result, input);
+    mlir::Value input = srcOp.getOperand(0);
+
+    mlir::Operation *nextOp = srcOp;
+    while (isa<ttir::BroadcastOp>(*nextOp->getUsers().begin())) {
+      assert(nextOp->hasOneUse() &&
+             "Broadcast with multiple uses are not supported");
+      nextOp = *nextOp->getUsers().begin();
+      if (nextOp->getUsers().empty()) {
+        // This broadcast chain has already been replaced.
+        rewriter.eraseOp(srcOp);
+        return success();
+      }
+    }
+
+    rewriter.replaceAllOpUsesWith(nextOp, input);
     rewriter.eraseOp(srcOp);
 
     return success();
