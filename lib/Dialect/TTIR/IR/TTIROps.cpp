@@ -109,6 +109,12 @@ void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
 }
 
+void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
+                                                        block);
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();

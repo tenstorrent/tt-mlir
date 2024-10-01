@@ -261,6 +261,9 @@ public:
       patterns
           .add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
                TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
@@ -277,6 +280,7 @@ public:
                TTMetalToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
@@ -342,6 +346,9 @@ public:
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/sfpu_split_includes.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/recip.h",
           /*isStandard=*/false);
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
     }
