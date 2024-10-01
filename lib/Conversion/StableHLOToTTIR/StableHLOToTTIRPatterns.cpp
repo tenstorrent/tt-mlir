@@ -368,213 +368,210 @@ public:
       break;
     }
     }
-    class StableHLOToTTIRConcatOpConversionPattern
-        : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
+    return success();
+  }
 
-      using OpConversionPattern<
-          mlir::stablehlo::ConcatenateOp>::OpConversionPattern;
+private:
+  template <typename DestOp>
+  LogicalResult
+  matchAndRewriteInternal(mlir::stablehlo::CompareOp srcOp,
+                          mlir::stablehlo::CompareOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    // TTNN doesn't support boolean data type. TTNN compare operations have same
+    // output data type as of input data type (e.g. comparing float32 will
+    // produce float32 result). So input operand is used to create output type
+    // and output tensor and the generated output tensor will be different type
+    // (instead of boolean) depending on input operands.
+    mlir::RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp->getOperand(0).getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    public:
-      LogicalResult
-      matchAndRewrite(mlir::stablehlo::ConcatenateOp srcOp,
-                      mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
-                      ConversionPatternRewriter &rewriter) const override {
+    DestOp TTIROp = rewriter.replaceOpWithNewOp<DestOp>(
+        srcOp,
+        TypeRange(
+            this->getTypeConverter()->convertType(outputTensor.getType())),
+        adaptor.getOperands(), ValueRange(outputTensor),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
 
-        // Check legality of the operation
-        LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
-        if (failed(err)) {
-          return err;
-        }
+    // rewriter may miss replacing all uses due to different output tensor type.
+    // Replacing all uses of srcOp explicitly.
+    rewriter.replaceAllOpUsesWith(srcOp, TTIROp);
 
-        // Create the output tensor type based on inputs
-        auto outputType = mlir::cast<RankedTensorType>(
-            getTypeConverter()->convertType(srcOp.getResult().getType()));
+    return success();
+  }
+};
 
-        // Create an empty output tensor with the computed shape
-        tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-            srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+class StableHLOToTTIRConcatOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
 
-        // Replace the original ConcatOp with the destination operation
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
-            srcOp,
-            outputType,          // result type
-            adaptor.getInputs(), // input values
-            Value(outputTensor), // output value
-            rewriter.getSI32IntegerAttr(
-                static_cast<int32_t>(adaptor.getDimension())), // dimension
-            rewriter.getArrayAttr( // operand constraints
-                SmallVector<Attribute>(adaptor.getInputs().size(),
-                                       rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile))));
-        return success();
-      }
+  using OpConversionPattern<
+      mlir::stablehlo::ConcatenateOp>::OpConversionPattern;
 
-    private:
-      template <typename DestOp>
-      LogicalResult
-      matchAndRewriteInternal(mlir::stablehlo::CompareOp srcOp,
-                              mlir::stablehlo::CompareOp::Adaptor adaptor,
-                              ConversionPatternRewriter &rewriter) const {
-        // TTNN doesn't support boolean data type. TTNN compare operations have
-        // same output data type as of input data type (e.g. comparing float32
-        // will produce float32 result). So input operand is used to create
-        // output type and output tensor and the generated output tensor will be
-        // different type (instead of boolean) depending on input operands.
-        mlir::RankedTensorType outputType =
-            mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
-                srcOp->getOperand(0).getType()));
-        tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-            srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ConcatenateOp srcOp,
+                  mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
-        DestOp TTIROp = rewriter.replaceOpWithNewOp<DestOp>(
-            srcOp,
-            TypeRange(
-                this->getTypeConverter()->convertType(outputTensor.getType())),
-            adaptor.getOperands(), ValueRange(outputTensor),
-            rewriter.getArrayAttr(
-                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                       rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile))));
+    // Check legality of the operation
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (failed(err)) {
+      return err;
+    }
 
-        // rewriter may miss replacing all uses due to different output tensor
-        // type. Replacing all uses of srcOp explicitly.
-        rewriter.replaceAllOpUsesWith(srcOp, TTIROp);
-        LogicalResult checkBasicLegality(
-            mlir::stablehlo::ConcatenateOp & srcOp,
-            mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
-            ConversionPatternRewriter & rewriter) const {
-          if (srcOp.getInputs().empty()) {
-            return rewriter.notifyMatchFailure(
-                srcOp, "ConcatOp must have at least one input.");
-          }
-          if (adaptor.getDimension() >=
-              INT32_MAX) { // stablehlo.concatenate dimension is i64,
-                           // ttir.concat dimension is si32
-            return rewriter.notifyMatchFailure(
-                srcOp, "ConcatOp dimension is too large.");
-          }
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-          auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(
-              srcOp.getOperand(0).getType());
-          if (static_cast<int64_t>(adaptor.getDimension()) >=
-              rankedTensorType.getRank()) {
-            return rewriter.notifyMatchFailure(
-                srcOp, "Invalid concatenation dimension.");
-          }
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-          return success();
-        }
-      };
+    // Replace the original ConcatOp with the destination operation
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
+        srcOp,
+        outputType,          // result type
+        adaptor.getInputs(), // input values
+        Value(outputTensor), // output value
+        rewriter.getSI32IntegerAttr(
+            static_cast<int32_t>(adaptor.getDimension())), // dimension
+        rewriter.getArrayAttr( // operand constraints
+            SmallVector<Attribute>(adaptor.getInputs().size(),
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
 
-      void
-      addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::ConcatenateOp &srcOp,
+                     mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getInputs().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ConcatOp must have at least one input.");
+    }
+    if (adaptor.getDimension() >=
+        INT32_MAX) { // stablehlo.concatenate dimension is i64,
+                     // ttir.concat dimension is si32
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "ConcatOp dimension is too large.");
+    }
+
+    auto rankedTensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getOperand(0).getType());
+    if (static_cast<int64_t>(adaptor.getDimension()) >=
+        rankedTensorType.getRank()) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid concatenation dimension.");
+    }
+
+    return success();
+  }
+};
+
+void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ConvertOp, mlir::tt::ttir::TypecastOp>>(typeConverter,
+                                                               ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::NegOp, mlir::tt::ttir::NegOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::RsqrtOp, mlir::tt::ttir::RsqrtOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::SqrtOp, mlir::tt::ttir::SqrtOp>>(typeConverter, ctx);
+}
+
+void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
                                                TypeConverter &typeConverter) {
 
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::ConvertOp, mlir::tt::ttir::TypecastOp>>(
-            typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::NegOp, mlir::tt::ttir::NegOp>>(typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::RsqrtOp, mlir::tt::ttir::RsqrtOp>>(typeConverter,
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::SubtractOp, mlir::tt::ttir::SubtractOp>>(typeConverter,
                                                                 ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::SqrtOp, mlir::tt::ttir::SqrtOp>>(typeConverter,
-                                                              ctx);
-      }
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::MulOp, mlir::tt::ttir::MultiplyOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::DivOp, mlir::tt::ttir::DivOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::MaxOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
+}
 
-      void
-      addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
-                                                RewritePatternSet &patterns,
-                                                TypeConverter &typeConverter) {
+void addReduceOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
+}
 
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::AddOp, mlir::tt::ttir::AddOp>>(typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::SubtractOp, mlir::tt::ttir::SubtractOp>>(
-            typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::MulOp, mlir::tt::ttir::MultiplyOp>>(typeConverter,
+void addTransposeOpsConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
+}
+
+void addMatmulOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
+                                                             ctx);
+}
+
+void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
+                                            RewritePatternSet &patterns,
+                                            TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter, ctx);
+}
+
+void addBroadcastOpConversionPattern(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+
+  patterns.add<StableHLOToTTIRBroadcastInDimOpConversionPattern>(typeConverter,
                                                                  ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::DivOp, mlir::tt::ttir::DivOp>>(typeConverter, ctx);
-        patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-            mlir::stablehlo::MaxOp, mlir::tt::ttir::MaximumOp>>(typeConverter,
-                                                                ctx);
-      }
+}
 
-      void addReduceOpsConversionPatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter &typeConverter) {
-        patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter,
-                                                               ctx);
-      }
+void addCompareOpsConversionPatterns(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRCompareOpConversionPattern>(typeConverter, ctx);
+}
 
-      void addTransposeOpsConversionPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             TypeConverter &typeConverter) {
+void addConcatOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRConcatOpConversionPattern>(typeConverter, ctx);
+}
 
-        patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter,
-                                                                  ctx);
-      }
+} // namespace
 
-      void addMatmulOpsConversionPatterns(MLIRContext *ctx,
-                                          RewritePatternSet &patterns,
-                                          TypeConverter &typeConverter) {
-        patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(
-            typeConverter, ctx);
-      }
+namespace mlir::tt {
 
-      void
-      addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
-                                             RewritePatternSet &patterns,
-                                             TypeConverter &typeConverter) {
-        patterns.add<StableHLOToTTIRConstantOpConversionPattern>(typeConverter,
-                                                                 ctx);
-      }
+void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
+  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
+  addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
+  addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
+}
 
-      void addBroadcastOpConversionPattern(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           TypeConverter &typeConverter) {
-
-        patterns.add<StableHLOToTTIRBroadcastInDimOpConversionPattern>(
-            typeConverter, ctx);
-      }
-
-      void addCompareOpsConversionPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           TypeConverter &typeConverter) {
-        patterns.add<StableHLOToTTIRCompareOpConversionPattern>(typeConverter,
-                                                                ctx);
-        void addConcatOpConversionPattern(MLIRContext * ctx,
-                                          RewritePatternSet & patterns,
-                                          TypeConverter & typeConverter) {
-
-          patterns.add<StableHLOToTTIRConcatOpConversionPattern>(typeConverter,
-                                                                 ctx);
-        }
-
-      } // namespace
-
-      namespace mlir::tt {
-
-      void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
-                                           RewritePatternSet &patterns,
-                                           TypeConverter &typeConverter) {
-        addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
-        addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
-        addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
-        addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
-        addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
-        addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
-        addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
-        addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-        addConcatOpConversionPattern(ctx, patterns, typeConverter);
-      }
-
-      } // namespace mlir::tt
+} // namespace mlir::tt
