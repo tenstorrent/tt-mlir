@@ -14,6 +14,11 @@ getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
   assert(op->ins()->size() == 2 && "Expected 2 inputs");
   *lhs = &(tensorPool.at(op->ins()->Get(0)->global_id()));
   *rhs = &(tensorPool.at(op->ins()->Get(1)->global_id()));
+
+  // Switch the order of operands if the second operand requires broadcast
+  if ((*rhs)->volume() < (*lhs)->volume()) {
+    std::swap(*lhs, *rhs);
+  }
 }
 
 static void runEltwiseBinaryOP(
