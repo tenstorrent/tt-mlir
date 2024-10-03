@@ -263,22 +263,17 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_NamedDPSOp<mnemonic, traits> {
+class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
       Reduction op.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          BoolAttr:$keep_dim,
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 }
 
 def TTNN_SumOp : TTNN_ReductionOp<"sum"> {

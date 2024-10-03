@@ -269,9 +269,10 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getKeepDim(),
+        adaptor.getInput(), adaptor.getKeepDim(),
         adaptor.getDimArg().value_or(nullptr));
     return success();
   }

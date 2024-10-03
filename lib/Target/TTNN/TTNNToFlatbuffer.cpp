@@ -305,8 +305,8 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
 
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto output = cache.at<::tt::target::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
   auto dim_arg =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
