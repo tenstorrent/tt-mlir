@@ -365,6 +365,21 @@ public:
   }
 };
 
+class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
+public:
+  using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::SliceOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getOutput(), adaptor.getBegins(),
+        adaptor.getEnds(), adaptor.getStep());
+    return success();
+  }
+};
+
 class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
 public:
   using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
@@ -749,6 +764,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            TransposeOpConversionPattern,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
+           SliceOpConversionPattern,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,

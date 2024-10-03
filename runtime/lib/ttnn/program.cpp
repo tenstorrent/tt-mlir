@@ -7,6 +7,7 @@
 #include "operations/creation/full.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/reshape.h"
+#include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
 #include "operations/deletion/dealloc.h"
 #include "operations/eltwise/binary.h"
@@ -96,6 +97,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    return operations::data_movement::run(op->type_as_SliceOp(), context);
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);
