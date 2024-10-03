@@ -302,21 +302,16 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
-def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$weight,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
@@ -340,26 +335,20 @@ def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {
     let hasVerifier = 1;
 }
 
-def TTNN_TransposeOp : TTNN_NamedDPSOp<"transpose"> {
+def TTNN_TransposeOp : TTNN_Op<"transpose"> {
     let summary = "Transpose op.";
     let description = [{
       Transpose tensor along two given dimensions.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim0,
                          SI32Attr:$dim1);
 
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
     let hasVerifier = 1;
 }
-
 
 def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let summary = "Concat op.";
@@ -380,21 +369,16 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ReshapeOp : TTNN_NamedDPSOp<"reshape"> {
+def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
     let summary = "Reshape op.";
     let description = [{
       Reshape tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }

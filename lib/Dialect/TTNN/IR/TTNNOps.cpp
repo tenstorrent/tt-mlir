@@ -85,7 +85,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 ::mlir::LogicalResult mlir::tt::ttnn::EmbeddingOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // inputType can have any rank
 
@@ -127,7 +127,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 
 ::mlir::LogicalResult mlir::tt::ttnn::TransposeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
   int32_t dim0 = getDim0();
@@ -202,7 +202,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 
 ::mlir::LogicalResult mlir::tt::ttnn::ReshapeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
   auto shape = getShape();
   int64_t shape_size = static_cast<int64_t>(shape.size());
 
@@ -210,7 +210,6 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   if (shape_size != static_cast<int64_t>(outputType.getRank())) {
     return emitOpError("Shape attribute size must match output tensor rank");
   }
-
   // Check that the shape attribute is non-empty
   if (shape_size == 0) {
     return emitOpError("Shape attribute must be non-empty");
