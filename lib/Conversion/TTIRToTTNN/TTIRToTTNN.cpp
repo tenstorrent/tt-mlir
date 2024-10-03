@@ -301,9 +301,10 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SoftmaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension());
+        adaptor.getInput(), adaptor.getDimension());
     return success();
   }
 };

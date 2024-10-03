@@ -390,8 +390,8 @@ template <typename SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.at<::tt::target::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
   int32_t dimension = op.getDimension();
 
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);

@@ -316,21 +316,16 @@ def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
     let hasVerifier = 1;
 }
 
-def TTNN_SoftmaxOp : TTNN_NamedDPSOp<"softmax"> {
+def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
     let summary = "Softmax op.";
     let description = [{
       Softmax operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr: $dimension);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }

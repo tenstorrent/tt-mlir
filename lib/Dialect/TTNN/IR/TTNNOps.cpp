@@ -107,7 +107,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 
 ::mlir::LogicalResult mlir::tt::ttnn::SoftmaxOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
   // Shapes of input and output of a softmax operation must be the same
   if (inputType.getShape() != outputType.getShape()) {
