@@ -18,6 +18,7 @@ try:
         submit,
         create_tensor,
         wait,
+        WorkaroundEnv,
     )
 except ModuleNotFoundError:
     raise ImportError(

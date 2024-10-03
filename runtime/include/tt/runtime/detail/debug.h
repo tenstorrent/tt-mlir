@@ -34,7 +34,7 @@ private:
 };
 
 inline std::ostream &operator<<(std::ostream &os, Env const &env) {
-  os << "Env{\n"
+  os << "debug::Env{\n"
      << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << ",\n"
      << "\t" << "enableAsyncTTNN: " << env.enableAsyncTTNN << "\n"
      << "}";

@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "tt/runtime/detail/debug.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/runtime.h"
 
 #include <pybind11/pybind11.h>
@@ -71,6 +72,14 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
+        std::stringstream os;
+        os << env;
+        return os.str();
+      });
+
+  py::class_<tt::runtime::workaround::Env>(m, "WorkaroundEnv")
+      .def_static("get", &tt::runtime::workaround::Env::get)
+      .def("__str__", [](const tt::runtime::workaround::Env &env) {
         std::stringstream os;
         os << env;
         return os.str();

@@ -34,6 +34,17 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
+::ttnn::Layout
+inferLayoutFromTileShape(const ::tt::target::TensorRef *tensorRef) {
+  const ::tt::target::Dim2d *tileShape =
+      tensorRef->desc()->layout()->memory_desc()->tile_shape();
+  assert(::tt::runtime::ttnn::utils::isValidTileShape(tileShape));
+  if (tileShape->x() == 1 and tileShape->y() == 1) {
+    return ::ttnn::Layout::ROW_MAJOR;
+  }
+  return ::ttnn::Layout::TILE;
+}
+
 CoreRangeSet toCoreRangeSet(
     const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
   std::set<CoreRange> coreRanges;

@@ -4,6 +4,7 @@
 
 #include "full.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
@@ -16,10 +17,21 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
           *op->out()->desc()->shape())));
   float fillValue = op->fill_value();
 
+  ::ttnn::Layout outputLayout [[maybe_unused]] =
+      utils::inferLayoutFromTileShape(op->out());
+
   // TODO(bug #272), determine correct layout by tile shape in the future
+  // currently tile shape is not set correctly, so as a workaround, hardcode
+  // layout
+  if (workaround::Env::get().ignoreTileShape) {
+    outputLayout = ::ttnn::Layout::TILE;
+  }
+
   // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
   // using ROW_MAJOR until we fix it
-  ::ttnn::Layout outputLayout = ::ttnn::Layout::ROW_MAJOR;
+  if (workaround::Env::get().fullOpForceRowMajor) {
+    outputLayout = ::ttnn::Layout::ROW_MAJOR;
+  }
 
   std::optional<std::reference_wrapper<::ttnn::Device>> outputDevice =
       std::nullopt;
