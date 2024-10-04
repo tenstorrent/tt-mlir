@@ -18,7 +18,7 @@ void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  implicitDeviceOptions.meshShape = options.meshShape;
+  std::copy(options.meshShape.begin(), options.meshShape.end(), std::back_inserter(implicitDeviceOptions.meshShape));
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
   pm.addPass(mlir::tt::ttir::createTTIRConstantAsFill());
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegion());
