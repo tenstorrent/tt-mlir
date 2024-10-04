@@ -181,6 +181,10 @@ public:
     rewriter.startOpModification(op);
     rewriter.setInsertionPointToStart(&op.getCallableRegion()->front());
     for (auto arg : blockArgs) {
+      // Skip initialization if the argument is not a CBType (SemaphoreType)
+      if (!mlir::isa<ttkernel::CBType>(arg.getType())) {
+        continue;
+      }
       auto cb = cast<ttkernel::CBType>(arg.getType());
       // Get opaque type i.e emitc::LValueType<emitc::OpaqueType>
       auto cbType = getTypeConverter()->convertType(cb);
@@ -275,6 +279,12 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), reduceType));
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp>) {
+      SmallVector<Attribute, 1> template_args;
+
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -386,6 +396,7 @@ public:
                TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
                TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,
