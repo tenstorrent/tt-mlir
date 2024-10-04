@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
+#include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
 
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
@@ -749,7 +751,15 @@ public:
     // Perform computation on tile in DST register on dstTileIndex (the only
     // tile in DST).
     if (mlir::isa<math::ExpOp>(arithOrMathOp)) {
+      
+      buildEltwiseUnaryWaitInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseUnaryReserveOutput(arithOrMathOp, builder, cbOperands);
+      
       builder.create<ttkernel::ExpTileOp>(location, dstTileIndex);
+
+      buildEltwiseUnaryPopInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseUnaryPushOutput(arithOrMathOp, builder, cbOperands);
+
     } else {
       llvm_unreachable("Unhandled unary op compute conversion.");
     }
@@ -790,6 +800,10 @@ public:
     // Perform computation C = A (*) B on tile A from inCB0 and tile B from
     // inCB1 and store the result C in DST register on dstTileIndex.
     if (mlir::isa<arith::AddFOp>(arithOrMathOp)) {
+
+      buildEltwiseBinaryWaitInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryReserveOutput(arithOrMathOp, builder, cbOperands);
+
       Value dstIndex = i32(0, builder);
       builder.create<ttkernel::TileRegsAcquireOp>(location);
       builder.create<ttkernel::AddTilesOp>(
@@ -799,9 +813,21 @@ public:
       builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB,
                                            outCBTileIndex);
       builder.create<ttkernel::TileRegsReleaseOp>(location);
+
+      buildEltwiseBinaryPopInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryPushOutput(arithOrMathOp, builder, cbOperands);
+
     } else if (mlir::isa<arith::MulFOp>(arithOrMathOp)) {
+
+      buildEltwiseBinaryWaitInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryReserveOutput(arithOrMathOp, builder, cbOperands);
+
       commonComputeMulOp(arithOrMathOp, cbOperands, iterators,
                          blockArgIteratorMapping, builder);
+
+      buildEltwiseBinaryPopInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryPushOutput(arithOrMathOp, builder, cbOperands);
+
     } else if (mlir::isa<arith::DivFOp>(arithOrMathOp)) {
 
       SmallVector<std::int64_t> operandIndicesRecip;
@@ -835,14 +861,14 @@ public:
     auto inCB1 = cbOperands[1];
     auto outCB = cbOperands[2];
     auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
-    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
+    // auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
 
     Value dstIndex = i32(0, builder);
 
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     if (mlir::isa<arith::MulFOp>(op)) {
       builder.create<ttkernel::MulTilesOp>(
-          op.getLoc(), inCB0, inCB1, inCB0TileIndex, inCB1TileIndex, dstIndex);
+          op.getLoc(), inCB0, inCB1, dstIndex, dstIndex, dstIndex);
     } else if (mlir::isa<arith::DivFOp>(op)) {
       // Source index for CB input 1 is 0(dstIndex), because of sync needed with
       // recip.
@@ -856,7 +882,7 @@ public:
     builder.create<ttkernel::TileRegsCommitOp>(op.getLoc());
     builder.create<ttkernel::TileRegsWaitOp>(op.getLoc());
     builder.create<ttkernel::PackTileOp>(op.getLoc(), dstIndex, outCB,
-                                         iterators[blockArgIteratorMapping[2]]);
+                                         dstIndex);
     builder.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
   }
 
@@ -979,6 +1005,197 @@ public:
     buildEndSection(dispatchBlockBuilder, origGenericOpBlock);
   }
 
+  void buildEltwiseBinaryReserveInput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryPushInput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryWaitInput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryPopInput(Operation &op, OpBuilder &builder,
+                           ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryWaitOutput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseBinaryPopOutput(Operation &op, OpBuilder &builder,
+                           ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseBinaryReserveOutput(Operation &op, OpBuilder &builder,
+                               ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseBinaryPushOutput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryReserveInput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryPushInput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryWaitInput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryPopInput(Operation &op, OpBuilder &builder,
+                           ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryWaitOutput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryPopOutput(Operation &op, OpBuilder &builder,
+                           ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryReserveOutput(Operation &op, OpBuilder &builder,
+                               ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryPushOutput(Operation &op, OpBuilder &builder,
+                             ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void createNoc0DataMovementBlock(Block* origGenericOpBlock, 
+                                   Block* noc0Block,
+                                   std::int64_t numDPSInputs) const {
+    OpBuilder blockBuilder(noc0Block, noc0Block->begin());
+    Operation &operation = origGenericOpBlock->getOperations().front();
+
+    auto cbOperands = noc0Block->getArguments().take_front(numDPSInputs + 1);
+    LoopNest loopNest =
+        createLoopNest(cbOperands, numDPSInputs, blockBuilder);
+    Region *innerLoopRegion = loopNest.loopRegions.back();
+
+    OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                               innerLoopRegion->front().begin());
+
+    if (mlir::isa<arith::AddFOp>(operation) || mlir::isa<arith::MulFOp>(operation)) {
+      buildEltwiseBinaryReserveInput(operation, innerLoopBuilder, cbOperands);
+      buildEltwiseBinaryPushInput(operation, innerLoopBuilder, cbOperands);
+    } else if (mlir::isa<math::ExpOp>(operation)) {
+      buildEltwiseUnaryReserveInput(operation, innerLoopBuilder, cbOperands);
+      buildEltwiseUnaryPushInput(operation, innerLoopBuilder, cbOperands);
+    }
+
+    blockBuilder.create<ttkernel::ReturnOp>(
+        operation.getLoc());
+  }
+
+  void createNoc1DataMovementBlock(Block* origGenericOpBlock, 
+                                   Block* noc1Block,
+                                   std::int64_t numDPSInputs) const {
+
+    OpBuilder blockBuilder(noc1Block, noc1Block->begin());
+    Operation &operation = origGenericOpBlock->getOperations().front();
+
+    auto cbOperands = noc1Block->getArguments().take_front(3);
+    LoopNest loopNest =
+        createLoopNest(cbOperands, numDPSInputs, blockBuilder);
+    Region *innerLoopRegion = loopNest.loopRegions.back();
+    SmallVector<unsigned> blockArgIteratorMapping =
+        loopNest.blockArgIteratorMapping;
+
+    OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                               innerLoopRegion->front().begin());
+
+    if (mlir::isa<arith::AddFOp>(operation) || mlir::isa<arith::MulFOp>(operation)) {
+      buildEltwiseBinaryWaitOutput(operation, innerLoopBuilder, cbOperands);
+      buildEltwiseBinaryPopOutput(operation, innerLoopBuilder, cbOperands);
+    } else if (mlir::isa<math::ExpOp>(operation)) {
+      buildEltwiseUnaryWaitOutput(operation, innerLoopBuilder, cbOperands);
+      buildEltwiseUnaryPopOutput(operation, innerLoopBuilder, cbOperands);
+    }
+
+    blockBuilder.create<ttkernel::ReturnOp>(
+        operation.getLoc());
+  }
+
   SmallVector<Type>
   getBlockArgumentTypesAsCBs(mlir::OperandRange dispatchOperands,
                              mlir::Block::BlockArgListType blockArguments,
@@ -1000,6 +1217,17 @@ public:
     return rewrittenBlockArgumentTypes;
   }
 
+  SmallVector<Type>
+  getSemaphoreArguments(PatternRewriter& rewriter) const {
+    SmallVector<Type> semaphores;
+    // TODO(pjanevski): this is dummy addition of semaphores
+    const int num_semaphores = 1;
+    for (int i = 0; i < num_semaphores; i++) {
+      semaphores.push_back(rewriter.getType<ttkernel::SemaphoreType>(i));
+    }
+    return semaphores;
+  }
+
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     if (hasUnloweredTTIRKernel(op)) {
@@ -1009,7 +1237,15 @@ public:
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
         ttkernel::MathFidelity::HiFi4, false, false, false);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
+    kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
+            rewriter.getContext(),
+            ttkernel::NocIndex::Noc0));
+    kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
+            rewriter.getContext(),
+            ttkernel::NocIndex::Noc1));
     SmallVector<Attribute> coreRanges = {
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
     };
 
@@ -1022,10 +1258,26 @@ public:
         op->getOperands(), op->getRegion(0).getArguments(),
         op.getNumDpsInputs(), rewriter);
 
+    SmallVector<Type> semaphores = getSemaphoreArguments(rewriter);
+
     Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
+    Block *noc0Block = rewriter.createBlock(&metalDispatch.getRegion(1));
+    Block *noc1Block = rewriter.createBlock(&metalDispatch.getRegion(2));
+    
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
+      noc0Block->addArgument(ty, op.getLoc());
+      noc1Block->addArgument(ty, op.getLoc());
     }
+
+    for (auto sem : semaphores) {
+      noc0Block->addArgument(sem, op.getLoc());
+      noc1Block->addArgument(sem, op->getLoc());
+    }
+
+    createNoc0DataMovementBlock(&op->getRegion(0).front(), noc0Block, op.getNumDpsInputs());
+
+    createNoc1DataMovementBlock(&op->getRegion(0).front(), noc1Block, op.getNumDpsInputs());
 
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getNumDpsInputs());
 

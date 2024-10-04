@@ -105,6 +105,16 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
+def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
+  let summary = "TTKernel semaphore";
+  let description = "Semaphore type in TTKernel dialect";
+  let parameters = (ins "uint32_t":$initial_value);
+  let assemblyFormat = "`<` $initial_value `>`";
+
+  let extraClassDeclaration = [{
+  }];
+}
+
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
     let summary = "TTKernel noc address";
     let description = "Noc address type in TTKernel dialect";

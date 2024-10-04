@@ -137,6 +137,9 @@ public:
     rewriter.startOpModification(op);
     rewriter.setInsertionPointToStart(&op.getCallableRegion()->front());
     for (auto arg : blockArgs) {
+      if (!mlir::isa<ttkernel::CBType>(arg.getType())) {
+        continue;
+      }
       auto cb = cast<ttkernel::CBType>(arg.getType());
       auto cbType = getTypeConverter()->convertType(cb);
       auto var = rewriter.create<emitc::VariableOp>(
@@ -187,6 +190,19 @@ public:
     return name;
   }
 
+  ArrayAttr getTemplateArgs(SourceOp op) const {
+    if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp>) {
+      SmallVector<Attribute, 1> template_args;
+      ttkernel::GetArgValOp getArgValOp = mlir::cast<ttkernel::GetArgValOp>(op);
+
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), "uint32_t")); // "at_start" template argument
+
+      return ArrayAttr::get(op.getContext(), template_args);
+    }
+    return ArrayAttr();
+  }
+
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -199,7 +215,7 @@ public:
       resultTypes.push_back(ct);
     }
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, resultTypes, getOpName(op), nullptr, nullptr,
+        op, resultTypes, getOpName(op), nullptr, getTemplateArgs(op),
         adaptor.getOperands());
     return success();
   }
@@ -261,6 +277,11 @@ public:
       patterns
           .add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
                TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitMinOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileOp>,

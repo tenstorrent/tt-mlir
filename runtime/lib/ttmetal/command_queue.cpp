@@ -415,6 +415,8 @@ void CQExecutor::execute(
   ZoneScopedN("EnqueueProgramCommand");
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
 
+  std::set<std::uint32_t> cbSet;
+
   for (::tt::target::metal::KernelDesc const *kernelDesc :
        *command->program()->kernels()) {
     ::tt::target::metal::KernelSource const *kernelSource =
@@ -432,16 +434,20 @@ void CQExecutor::execute(
 
     ::tt::tt_metal::KernelHandle handle =
         ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
-
+    
     for (::tt::target::CBRef const *cbRef : *kernelDesc->cbs()) {
+      std::uint32_t cbPort = cbRef->desc()->port();
+      if (cbSet.find(cbPort) != cbSet.end()) {
+        continue;
+      }
+      cbSet.insert(cbPort);
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
       ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
-
     // Process Kernel's runtime args based on variant and call metal APIs.
     processRuntimeArgs(program, kernelDesc, handle, coreRangeSet,
-                       command->operands(), buffers);
+                      command->operands(), buffers);
   }
 
   constexpr bool blocking = false;

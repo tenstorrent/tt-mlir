@@ -438,6 +438,69 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
     }];
 }
 
+def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
+    let summary = "NocSemaphoreInc";
+    let description = [{
+      The Tensix core executing this function call initiates an atomic increment
+      (with 32-bit wrap) of a remote Tensix core L1 memory address. This L1 memory
+      address is used as a semaphore of size 4 Bytes, as a synchronization
+      mechanism.
+    }];
+
+    let arguments = (ins I32:$addr, I32:$incr, I32:$noc_id);
+}
+
+def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
+    let summary = "NocSemaphoreSet";
+    let description = [{
+      Sets the value of a local L1 memory address on the Tensix core executing
+      this function to a specific value. This L1 memory address is used as a
+      semaphore of size 4 Bytes, as a synchronization mechanism. Also, see
+      *noc_semaphore_wait*.
+    }];
+
+    let arguments = (ins I32:$sem_addr, I32:$val);
+}
+
+def TTKernel_NocSemaphoreWaitOp : TTKernel_Op<"noc_semaphore_wait"> {
+    let summary = "NocSemaphoreWait";
+    let description = [{
+      A blocking call that waits until the value of a local L1 memory address on
+      the Tensix core executing this function becomes equal to a target value.
+      This L1 memory address is used as a semaphore of size 4 Bytes, as a
+      synchronization mechanism. Also, see *noc_semaphore_set*.
+    }];
+
+    let arguments = (ins I32:$sem_addr, I32:$val);
+}
+
+def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
+    let summary = "NocSemaphoreWaitMin";
+    let description = [{
+      A blocking call that waits until the value of a local L1 memory address on
+      the Tensix core executing this function becomes equal to a target value.
+      This L1 memory address is used as a semaphore of size 4 Bytes, as a
+      synchronization mechanism. Also, see *noc_semaphore_set*.
+    }];
+
+    let arguments = (ins I32:$sem_addr, I32:$val);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Compile and runtime arguments operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
+    let summary = "Get runtime arg value.";
+    let description = [{
+      Get runtime argument value at specified index.
+    }];
+
+    let arguments = (ins I32:$arg_index);
+
+    let results = (outs I32:$arg_val);
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Misc operations
 //===----------------------------------------------------------------------===//
