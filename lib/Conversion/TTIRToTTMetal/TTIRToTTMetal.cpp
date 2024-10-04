@@ -584,6 +584,27 @@ public:
     SmallVector<unsigned> blockArgIteratorMapping;
   };
 
+  struct StreamedOperand {
+    uint64_t srcAddress;
+    uint64_t dstAddress;
+    size_t blockArgIndex;
+    llvm::MapVector<PhysicalCoreCoord,
+                    SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
+        dataMovement;
+    uint64_t numTiles;
+    PhysicalCoreCoordMapping coordMappping;
+
+    StreamedOperand(
+        uint64_t srcAddress, uint64_t dstAddress, size_t blockArgIndex,
+        llvm::MapVector<PhysicalCoreCoord,
+                        SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
+            dataMovement,
+        uint64_t numTiles, const PhysicalCoreCoordMapping &coordMappping)
+        : srcAddress(srcAddress), dstAddress(dstAddress),
+          blockArgIndex(blockArgIndex), dataMovement(dataMovement),
+          numTiles(numTiles), coordMappping(coordMappping) {}
+  };
+
   // Creates a loop nest that walks the input/output operand tiles in the shard.
   // Converts this:
   //   %0 = arith.add(%1, %2) : tensor<2x4x!tile<f32>>, tensor<2x4x!tile<f32>>
@@ -787,11 +808,23 @@ public:
     }
   }
 
-  void convertInitReduceOp(Operation &reduceOp, ttkernel::ReduceDim reduceDim,
-                           ArrayRef<BlockArgument> cbOperands,
-                           OpBuilder &builder) const {
+  void
+  convertInitReduceOp(Operation &reduceOp, ttkernel::ReduceDim reduceDim,
+                      ArrayRef<BlockArgument> cbOperands, OpBuilder &builder,
+                      SmallVector<StreamedOperand> &streamedOperands) const {
     assert(cbOperands.size() == 2 &&
            "Expected one input and one output CB for reduce op.");
+
+    if (!streamedOperands.empty()) {
+      // There is some data movement. Let's just insert waiting command at the
+      // start of compute block. We assume whole block is streamed.
+      auto numPages = builder.create<arith::ConstantOp>(
+          reduceOp.getLoc(), builder.getI32Type(),
+          builder.getI32IntegerAttr(streamedOperands[0].numTiles));
+      auto streamedCB = cbOperands[streamedOperands[0].blockArgIndex];
+      builder.create<ttkernel::CBWaitFrontOp>(reduceOp.getLoc(), streamedCB,
+                                              numPages);
+    }
 
     auto kernelOp = mlir::cast<ttir::KernelOp>(reduceOp);
     assert(kernelOp.getOp() == "reduce");
@@ -810,13 +843,15 @@ public:
   // executed.  We separate the init tile operation from the actual tile
   // operation so that we can hoist the init tile operation outside of the loop
   // nest.
-  void convertComputeInitOp(Operation &arithOrMathOp,
-                            ArrayRef<BlockArgument> cbOperands,
-                            std::int64_t numDpsInputs,
-                            ttkernel::ReduceDim reduceDim,
-                            OpBuilder &builder) const {
+  void
+  convertComputeInitOp(Operation &arithOrMathOp,
+                       ArrayRef<BlockArgument> cbOperands,
+                       std::int64_t numDpsInputs, ttkernel::ReduceDim reduceDim,
+                       OpBuilder &builder,
+                       SmallVector<StreamedOperand> &streamedOperands) const {
     if (reduceDim != ttkernel::ReduceDim::None) {
-      convertInitReduceOp(arithOrMathOp, reduceDim, cbOperands, builder);
+      convertInitReduceOp(arithOrMathOp, reduceDim, cbOperands, builder,
+                          streamedOperands);
     } else if (numDpsInputs == 1) {
       convertInitUnaryOp(arithOrMathOp, cbOperands, builder);
     } else if (numDpsInputs == 2) {
@@ -835,12 +870,13 @@ public:
     assert(cbOperands.size() == 2 &&
            "Expected one input and one output CB for unary op.");
 
-    auto inCBTileIndex = iterators[blockArgIteratorMapping[0]];
     auto inCB = cbOperands[0];
-    auto outCBTileIndex = iterators[blockArgIteratorMapping.back()];
     auto outCB = cbOperands.back();
 
     auto location = arithOrMathOp.getLoc();
+
+    buildEltwiseUnaryWaitInput(arithOrMathOp, builder, cbOperands);
+    buildEltwiseUnaryReserveOutput(arithOrMathOp, builder, cbOperands);
 
     // We always operate on the first and only tile in DST register.
     Value dstTileIndex = i32(0, builder);
@@ -850,7 +886,7 @@ public:
 
     // For all unary ops first copy tile from input CB at inCBTileIndex to DST
     // register at dstTileIndex.
-    builder.create<ttkernel::CopyTileOp>(location, inCB, inCBTileIndex,
+    builder.create<ttkernel::CopyTileOp>(location, inCB, dstTileIndex,
                                          dstTileIndex);
 
     // Perform computation on tile in DST register on dstTileIndex (the only
@@ -871,10 +907,13 @@ public:
     // outCBTileIndex increments as loops iterate, thus placing one result tile
     // after another in outCB.
     builder.create<ttkernel::PackTileOp>(location, dstTileIndex, outCB,
-                                         outCBTileIndex);
+                                         dstTileIndex);
 
     // PACK releases lock on DST.
     builder.create<ttkernel::TileRegsReleaseOp>(location);
+
+    buildEltwiseUnaryPopInput(arithOrMathOp, builder, cbOperands);
+    buildEltwiseUnaryPushOutput(arithOrMathOp, builder, cbOperands);
   }
 
   void convertComputeBinaryOp(Operation &arithOrMathOp,
@@ -885,30 +924,42 @@ public:
     assert(cbOperands.size() == 3 &&
            "Expected two input and one output CB for binary op.");
 
-    auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
     auto inCB0 = cbOperands[0];
-    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
     auto inCB1 = cbOperands[1];
     auto outCB = cbOperands[2];
-    auto outCBTileIndex = iterators[blockArgIteratorMapping[2]];
 
     auto location = arithOrMathOp.getLoc();
 
     // Perform computation C = A (*) B on tile A from inCB0 and tile B from
     // inCB1 and store the result C in DST register on dstTileIndex.
     if (mlir::isa<arith::AddFOp>(arithOrMathOp)) {
+
+      buildEltwiseBinaryWaitInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryReserveOutput(arithOrMathOp, builder, cbOperands);
+
       Value dstIndex = i32(0, builder);
       builder.create<ttkernel::TileRegsAcquireOp>(location);
-      builder.create<ttkernel::AddTilesOp>(
-          location, inCB0, inCB1, inCB0TileIndex, inCB1TileIndex, dstIndex);
+      builder.create<ttkernel::AddTilesOp>(location, inCB0, inCB1, dstIndex,
+                                           dstIndex, dstIndex);
       builder.create<ttkernel::TileRegsCommitOp>(location);
       builder.create<ttkernel::TileRegsWaitOp>(location);
-      builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB,
-                                           outCBTileIndex);
+      builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB, dstIndex);
       builder.create<ttkernel::TileRegsReleaseOp>(location);
+
+      buildEltwiseBinaryPopInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryPushOutput(arithOrMathOp, builder, cbOperands);
+
     } else if (mlir::isa<arith::MulFOp>(arithOrMathOp)) {
+
+      buildEltwiseBinaryWaitInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryReserveOutput(arithOrMathOp, builder, cbOperands);
+
       commonComputeMulOp(arithOrMathOp, cbOperands, iterators,
                          blockArgIteratorMapping, builder);
+
+      buildEltwiseBinaryPopInput(arithOrMathOp, builder, cbOperands);
+      buildEltwiseBinaryPushOutput(arithOrMathOp, builder, cbOperands);
+
     } else if (mlir::isa<arith::DivFOp>(arithOrMathOp)) {
 
       SmallVector<std::int64_t> operandIndicesRecip;
@@ -942,14 +993,13 @@ public:
     auto inCB1 = cbOperands[1];
     auto outCB = cbOperands[2];
     auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
-    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
 
     Value dstIndex = i32(0, builder);
 
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     if (mlir::isa<arith::MulFOp>(op)) {
-      builder.create<ttkernel::MulTilesOp>(
-          op.getLoc(), inCB0, inCB1, inCB0TileIndex, inCB1TileIndex, dstIndex);
+      builder.create<ttkernel::MulTilesOp>(op.getLoc(), inCB0, inCB1, dstIndex,
+                                           dstIndex, dstIndex);
     } else if (mlir::isa<arith::DivFOp>(op)) {
       // Source index for CB input 1 is 0(dstIndex), because of sync needed with
       // recip.
@@ -963,7 +1013,7 @@ public:
     builder.create<ttkernel::TileRegsCommitOp>(op.getLoc());
     builder.create<ttkernel::TileRegsWaitOp>(op.getLoc());
     builder.create<ttkernel::PackTileOp>(op.getLoc(), dstIndex, outCB,
-                                         iterators[blockArgIteratorMapping[2]]);
+                                         dstIndex);
     builder.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
   }
 
@@ -994,12 +1044,13 @@ public:
     builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outputCB, one);
   }
 
-  void convertComputeReduceOp(Block *computeBlock, Operation &op,
-                              ArrayRef<BlockArgument> cbOperands,
-                              ArrayRef<BlockArgument> iterators,
-                              SmallVector<unsigned> blockArgIteratorMapping,
-                              ttkernel::ReduceDim reduceDim,
-                              LoopNest &loopNest) const {
+  void
+  convertComputeReduceOp(Block *computeBlock, Operation &op,
+                         ArrayRef<BlockArgument> cbOperands,
+                         ArrayRef<BlockArgument> iterators,
+                         SmallVector<unsigned> blockArgIteratorMapping,
+                         ttkernel::ReduceDim reduceDim, LoopNest &loopNest,
+                         SmallVector<StreamedOperand> &streamedOperands) const {
     assert(reduceDim != ttkernel::ReduceDim::None);
 
     auto kernelOp = mlir::cast<ttir::KernelOp>(op);
@@ -1059,6 +1110,16 @@ public:
         cbOperands.back(), packingTileIndex);
     packingBuilder.create<ttkernel::TileRegsReleaseOp>(
         computeBlock->front().getLoc());
+
+    if (!streamedOperands.empty()) {
+      auto numPages = innerLoopBuilder.create<arith::ConstantOp>(
+          op.getLoc(), innerLoopBuilder.getI32Type(),
+          innerLoopBuilder.getI32IntegerAttr(streamedOperands[0].numTiles));
+      auto streamedCB = cbOperands[streamedOperands[0].blockArgIndex];
+
+      innerLoopBuilder.create<ttkernel::CBPopFrontOp>(op.getLoc(), streamedCB,
+                                                      numPages);
+    }
   }
 
   // Convert arith and math dialect operations into ttkernel tile operations.
@@ -1070,12 +1131,13 @@ public:
                         ArrayRef<BlockArgument> iterators,
                         ttkernel::ReduceDim reduceDim,
                         SmallVector<unsigned> blockArgIteratorMapping,
-                        OpBuilder &innerLoopBuilder,
-                        std::int64_t numDpsInputs) const {
+                        OpBuilder &innerLoopBuilder, std::int64_t numDpsInputs,
+                        SmallVector<StreamedOperand> &streamedOperands) const {
 
     if (reduceDim != ttkernel::ReduceDim::None) {
       convertComputeReduceOp(computeBlock, arithOrMathOp, cbOperands, iterators,
-                             blockArgIteratorMapping, reduceDim, loopNest);
+                             blockArgIteratorMapping, reduceDim, loopNest,
+                             streamedOperands);
     } else if (numDpsInputs == 1) {
       convertComputeUnaryOp(arithOrMathOp, cbOperands, iterators,
                             blockArgIteratorMapping, innerLoopBuilder);
@@ -1092,19 +1154,19 @@ public:
   void buildInitSection(Operation &arithOrMathOp, OpBuilder &builder,
                         ArrayRef<BlockArgument> cbOperands,
                         ttkernel::ReduceDim reduceDim,
-                        std::int64_t numDPSInputs) const {
+                        std::int64_t numDPSInputs,
+                        SmallVector<StreamedOperand> &streamedOperands) const {
     convertComputeInitOp(arithOrMathOp, cbOperands, numDPSInputs, reduceDim,
-                         builder);
+                         builder, streamedOperands);
   }
 
   // Builds nested loops which loop over tensor tiles after initalization is
   // done and computation to perform on each tile over which loops iterate.
-  void buildLoopsAndComputation(Block *computeBlock, Operation &arithOrMathOp,
-                                OpBuilder &builder,
-                                ArrayRef<bool> reducedMemrefDims,
-                                ttkernel::ReduceDim reduceDim,
-                                ArrayRef<BlockArgument> &cbOperands,
-                                std::int64_t numDPSInputs) const {
+  void buildLoopsAndComputation(
+      Block *computeBlock, Operation &arithOrMathOp, OpBuilder &builder,
+      ArrayRef<bool> reducedMemrefDims, ttkernel::ReduceDim reduceDim,
+      ArrayRef<BlockArgument> &cbOperands, std::int64_t numDPSInputs,
+      SmallVector<StreamedOperand> &streamedOperands) const {
     // Create loops which iterate over tiles in tensor.
     LoopNest loopNest =
         createLoopNest(cbOperands, reducedMemrefDims, numDPSInputs, builder);
@@ -1125,7 +1187,7 @@ public:
     // DST.
     convertComputeOp(computeBlock, arithOrMathOp, loopNest, cbOperands,
                      iterators, reduceDim, blockArgIteratorMapping,
-                     innerLoopBuilder, numDPSInputs);
+                     innerLoopBuilder, numDPSInputs, streamedOperands);
   }
 
   // Builds instructions to execute after loops are finished.
@@ -1161,7 +1223,10 @@ public:
   // math operation as a tile operation.
   void lowerBlock(Block *origGenericOpBlock, Block *computeBlock,
                   ArrayAttr iteratorTypes, ArrayAttr indexingMaps,
-                  std::int64_t numDPSInputs) const {
+                  std::int64_t numDPSInputs,
+                  SmallVector<StreamedOperand> &streamedOperands,
+                  ttkernel::ReduceDim kernelReduceDim,
+                  ArrayRef<bool> reducedMemrefDims) const {
     Block::OpListType &operations = origGenericOpBlock->getOperations();
     assert(operations.size() == 2);
     Operation::user_range users = operations.front().getUsers();
@@ -1171,59 +1236,243 @@ public:
     assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
            "Expected 1 output");
 
-    auto outputMemref = mlir::cast<ttkernel::CBType>(
-                            computeBlock->getArgument(numDPSInputs).getType())
-                            .getMemref()
-                            .getLayout()
-                            .getAffineMap();
-    size_t j = iteratorTypes.size() - 1;
-    uint32_t outputRank = outputMemref.getNumDims();
-    SmallVector<bool> reducedMemrefDims(outputRank, false);
-
-    // Collect the reduction dims going from innermost to outermost.
-    assert(outputRank <= iteratorTypes.size());
-    for (int i = outputRank - 1; i >= 0; --i, --j) {
-      auto itType = iteratorTypes[j];
-      if (mlir::cast<IteratorTypeAttr>(itType).getValue() ==
-          IteratorType::Reduction) {
-        reducedMemrefDims[i] = true;
-      }
-    }
-
-    auto kernelReduceDim = getReduceDim(reducedMemrefDims);
-
     OpBuilder builder(computeBlock, computeBlock->begin());
     Operation &arithOrMathOp = operations.front();
     auto cbOperands = computeBlock->getArguments();
 
     buildInitSection(arithOrMathOp, builder, cbOperands, kernelReduceDim,
-                     numDPSInputs);
+                     numDPSInputs, streamedOperands);
     buildLoopsAndComputation(computeBlock, arithOrMathOp, builder,
                              reducedMemrefDims, kernelReduceDim, cbOperands,
-                             numDPSInputs);
+                             numDPSInputs, streamedOperands);
     buildEndSection(builder, origGenericOpBlock);
   }
 
-  struct StreamedOperand {
-    uint64_t srcAddress;
-    uint64_t dstAddress;
-    size_t blockArgIndex;
-    llvm::MapVector<PhysicalCoreCoord,
-                    SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
-        dataMovement;
-    uint64_t numTiles;
-    PhysicalCoreCoordMapping coordMappping;
+  void
+  buildEltwiseBinaryReserveInput(Operation &op, OpBuilder &builder,
+                                 ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
 
-    StreamedOperand(
-        uint64_t srcAddress, uint64_t dstAddress, size_t blockArgIndex,
-        llvm::MapVector<PhysicalCoreCoord,
-                        SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
-            dataMovement,
-        uint64_t numTiles, const PhysicalCoreCoordMapping &coordMappping)
-        : srcAddress(srcAddress), dstAddress(dstAddress),
-          blockArgIndex(blockArgIndex), dataMovement(dataMovement),
-          numTiles(numTiles), coordMappping(coordMappping) {}
-  };
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryPushInput(Operation &op, OpBuilder &builder,
+                                   ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryWaitInput(Operation &op, OpBuilder &builder,
+                                   ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryPopInput(Operation &op, OpBuilder &builder,
+                                  ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB0 = cbOperands[0];
+    auto inCB1 = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), inCB0, one);
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), inCB1, one);
+  }
+
+  void buildEltwiseBinaryWaitOutput(Operation &op, OpBuilder &builder,
+                                    ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseBinaryPopOutput(Operation &op, OpBuilder &builder,
+                                   ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void
+  buildEltwiseBinaryReserveOutput(Operation &op, OpBuilder &builder,
+                                  ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseBinaryPushOutput(Operation &op, OpBuilder &builder,
+                                    ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[2];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryReserveInput(Operation &op, OpBuilder &builder,
+                                     ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryPushInput(Operation &op, OpBuilder &builder,
+                                  ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryWaitInput(Operation &op, OpBuilder &builder,
+                                  ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryPopInput(Operation &op, OpBuilder &builder,
+                                 ArrayRef<BlockArgument> cbOperands) const {
+    auto inCB = cbOperands[0];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), inCB, one);
+  }
+
+  void buildEltwiseUnaryWaitOutput(Operation &op, OpBuilder &builder,
+                                   ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryPopOutput(Operation &op, OpBuilder &builder,
+                                  ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), outCB, one);
+  }
+
+  void
+  buildEltwiseUnaryReserveOutput(Operation &op, OpBuilder &builder,
+                                 ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void buildEltwiseUnaryPushOutput(Operation &op, OpBuilder &builder,
+                                   ArrayRef<BlockArgument> cbOperands) const {
+    auto outCB = cbOperands[1];
+    auto one = i32(1, builder);
+
+    builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outCB, one);
+  }
+
+  void createNoc0DataMovementBlock(
+      ttir::GenericOp genericOp, Block *origGenericOpBlock,
+      SmallVector<Block *> &noc0Blocks, std::int64_t numDPSInputs,
+      ArrayRef<bool> reducedMemrefDims,
+      ArrayRef<StreamedOperand> streamedOperands) const {
+    if (!streamedOperands.empty()) {
+      // TODO(radenko) move
+      // TTIRToTTMetalLayoutRewriter::createDataMovementThreads
+      // (& other data movement logic) into common place
+      int dmThreadIdx = 1;
+      for (auto [dstCoord, srcs] : streamedOperands[0].dataMovement) {
+        Block *block = noc0Blocks[dmThreadIdx - 1];
+        auto streamedCB = block->getArgument(streamedOperands[0].blockArgIndex);
+
+        TTIRToTTMetalLayoutRewriter::createDataMovementThread(
+            origGenericOpBlock->getOperations().front().getLoc(), block,
+            streamedOperands[0].srcAddress, streamedOperands[0].dstAddress,
+            srcs, streamedOperands[0].coordMappping,
+            genericOp.getSystemDesc().getAddressAlignBytes(), &streamedCB);
+
+        dmThreadIdx++;
+      }
+    } else {
+      for (Block *noc0Block : noc0Blocks) {
+        OpBuilder blockBuilder(noc0Block, noc0Block->begin());
+        Operation &operation = origGenericOpBlock->getOperations().front();
+
+        auto cbOperands =
+            noc0Block->getArguments().take_front(numDPSInputs + 1);
+        LoopNest loopNest = createLoopNest(cbOperands, reducedMemrefDims,
+                                           numDPSInputs, blockBuilder);
+        Region *innerLoopRegion = loopNest.loopRegions.back();
+
+        OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                                   innerLoopRegion->front().begin());
+
+        if (mlir::isa<arith::AddFOp>(operation) ||
+            mlir::isa<arith::MulFOp>(operation)) {
+          buildEltwiseBinaryReserveInput(operation, innerLoopBuilder,
+                                         cbOperands);
+          buildEltwiseBinaryPushInput(operation, innerLoopBuilder, cbOperands);
+        } else if (mlir::isa<math::ExpOp>(operation)) {
+          buildEltwiseUnaryReserveInput(operation, innerLoopBuilder,
+                                        cbOperands);
+          buildEltwiseUnaryPushInput(operation, innerLoopBuilder, cbOperands);
+        }
+
+        blockBuilder.create<ttkernel::ReturnOp>(operation.getLoc());
+      }
+    }
+  }
+
+  void createNoc1DataMovementBlock(
+      ttir::GenericOp genericOp, Block *origGenericOpBlock,
+      SmallVector<Block *> &noc1Blocks, std::int64_t numDPSInputs,
+      ArrayRef<bool> reducedMemrefDims,
+      ArrayRef<StreamedOperand> streamedOperands) const {
+    if (streamedOperands.empty()) {
+      for (Block *noc1Block : noc1Blocks) {
+        OpBuilder blockBuilder(noc1Block, noc1Block->begin());
+        Operation &operation = origGenericOpBlock->getOperations().front();
+
+        auto cbOperands =
+            noc1Block->getArguments().take_front(numDPSInputs + 1);
+        LoopNest loopNest = createLoopNest(cbOperands, reducedMemrefDims,
+                                           numDPSInputs, blockBuilder);
+        Region *innerLoopRegion = loopNest.loopRegions.back();
+        SmallVector<unsigned> blockArgIteratorMapping =
+            loopNest.blockArgIteratorMapping;
+
+        OpBuilder innerLoopBuilder(&innerLoopRegion->front(),
+                                   innerLoopRegion->front().begin());
+
+        if (mlir::isa<arith::AddFOp>(operation) ||
+            mlir::isa<arith::MulFOp>(operation)) {
+          buildEltwiseBinaryWaitOutput(operation, innerLoopBuilder, cbOperands);
+          buildEltwiseBinaryPopOutput(operation, innerLoopBuilder, cbOperands);
+        } else if (mlir::isa<math::ExpOp>(operation)) {
+          buildEltwiseUnaryWaitOutput(operation, innerLoopBuilder, cbOperands);
+          buildEltwiseUnaryPopOutput(operation, innerLoopBuilder, cbOperands);
+        }
+
+        blockBuilder.create<ttkernel::ReturnOp>(operation.getLoc());
+      }
+    }
+  }
 
   std::pair<SmallVector<Type>, SmallVector<StreamedOperand>>
   getBlockArgumentTypesAsCBs(ttir::GenericOp op,
@@ -1347,17 +1596,17 @@ public:
         ttkernel::MathFidelity::HiFi4, false, false, false);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
-        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
-    };
-
+        rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid())};
     SmallVector<Type> rewrittenBlockArgumentTypes;
     SmallVector<StreamedOperand> streamedOperands;
     std::tie(rewrittenBlockArgumentTypes, streamedOperands) =
         getBlockArgumentTypesAsCBs(op, op->getRegion(0).getArguments(),
                                    rewriter);
-
     assert(streamedOperands.size() <= 1 &&
            "Expecting at most one streamed operand for now");
+
+    SmallVector<Block *> noc0Blocks;
+    SmallVector<Block *> noc1Blocks;
 
     if (!streamedOperands.empty()) {
       auto &dm = streamedOperands[0].dataMovement;
@@ -1369,6 +1618,15 @@ public:
         coreRanges.push_back(ttmetal::CoreRangeAttr::get(
             getContext(), {dstCoord.y, dstCoord.x}, {1, 1} /* size */));
       }
+    } else {
+      kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
+          rewriter.getContext(), ttkernel::NocIndex::Noc0));
+      kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
+          rewriter.getContext(), ttkernel::NocIndex::Noc1));
+      coreRanges.push_back(
+          rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
+      coreRanges.push_back(
+          rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()));
     }
 
     // Wire generic's operands to dispatch op's operands with respect to the CB
@@ -1386,51 +1644,64 @@ public:
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
         rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
+    if (!streamedOperands.empty()) {
+      auto &dm = streamedOperands[0].dataMovement;
+      int dmThreadIdx = 1;
+      for (auto [dstCoord, srcs] : dm) {
+        noc0Blocks.push_back(
+            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++)));
+      }
+    } else {
+      noc0Blocks.push_back(rewriter.createBlock(&metalDispatch.getRegion(1)));
+      noc1Blocks.push_back(rewriter.createBlock(&metalDispatch.getRegion(2)));
+    }
+
     Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
 
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
-    }
-
-    // TODO(radenko) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
-    // (& other data movement logic) into common place
-    int dmThreadIdx = 1;
-
-    if (!streamedOperands.empty()) {
-      for (auto [dstCoord, srcs] : streamedOperands[0].dataMovement) {
-        Block *block =
-            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
-        block->addArgument(
-            rewrittenBlockArgumentTypes[streamedOperands[0].blockArgIndex],
-            op.getLoc());
-        auto streamedCB = block->getArgument(0);
-
-        TTIRToTTMetalLayoutRewriter::createDataMovementThread(
-            op->getLoc(), block, streamedOperands[0].srcAddress,
-            streamedOperands[0].dstAddress, srcs,
-            streamedOperands[0].coordMappping,
-            op.getSystemDesc().getAddressAlignBytes(), &streamedCB);
+      for (Block *noc0Block : noc0Blocks) {
+        noc0Block->addArgument(ty, op.getLoc());
+      }
+      for (Block *noc1Block : noc1Blocks) {
+        noc1Block->addArgument(ty, op.getLoc());
       }
     }
 
-    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
-               op.getIndexingMaps(), op.getInputs().size());
+    auto outputMemref =
+        mlir::cast<ttkernel::CBType>(
+            tensixBlock->getArgument(op.getInputs().size()).getType())
+            .getMemref()
+            .getLayout()
+            .getAffineMap();
+    auto iteratorTypes = op.getIteratorTypes();
+    size_t j = iteratorTypes.size() - 1;
+    uint32_t outputRank = outputMemref.getNumDims();
+    SmallVector<bool> reducedMemrefDims(outputRank, false);
 
-    if (kernelConfigs.size() > 1) {
-      // There is some data movement. Let's just insert waiting command at the
-      // start of compute block. We assume whole block is streamed.
-      OpBuilder builder(tensixBlock, tensixBlock->begin());
-      auto numPages = builder.create<arith::ConstantOp>(
-          op.getLoc(), builder.getI32Type(),
-          builder.getI32IntegerAttr(streamedOperands[0].numTiles));
-      auto streamedCB =
-          tensixBlock->getArgument(streamedOperands[0].blockArgIndex);
-      builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), streamedCB,
-                                              numPages);
-
-      builder.setInsertionPoint(tensixBlock->getTerminator());
-      builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), streamedCB, numPages);
+    // Collect the reduction dims going from innermost to outermost.
+    assert(outputRank <= iteratorTypes.size());
+    for (int i = outputRank - 1; i >= 0; --i, --j) {
+      auto itType = iteratorTypes[j];
+      if (mlir::cast<IteratorTypeAttr>(itType).getValue() ==
+          IteratorType::Reduction) {
+        reducedMemrefDims[i] = true;
+      }
     }
+
+    auto kernelReduceDim = getReduceDim(reducedMemrefDims);
+
+    createNoc0DataMovementBlock(op, &op->getRegion(0).front(), noc0Blocks,
+                                op.getNumDpsInputs(), reducedMemrefDims,
+                                streamedOperands);
+
+    createNoc1DataMovementBlock(op, &op->getRegion(0).front(), noc1Blocks,
+                                op.getNumDpsInputs(), reducedMemrefDims,
+                                streamedOperands);
+
+    lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
+               op.getIndexingMaps(), op.getInputs().size(), streamedOperands,
+               kernelReduceDim, reducedMemrefDims);
 
     rewriter.replaceOp(op, metalDispatch);
 
