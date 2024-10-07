@@ -80,10 +80,9 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
 void closeDevice(Device device) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (const ::ttnn::Device *ttnnDevice : ttnnMeshDevice.get_devices()) {
-    ::tt::tt_metal::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
+  for (::ttnn::Device *ttnnDevice : ttnnMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
 #endif
 
