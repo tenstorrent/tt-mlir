@@ -52,12 +52,14 @@ def test_add(builder: TTIRBuilder, add: Add):
     in1_shape = (32, 32)
     out_shape = (32, 32)
 
-    f = builder.emit_mlir_function(add, [in0_shape, in1_shape], [out_shape])
-    print("\n", f)
+    m = builder.emit_mlir_module(add, [in0_shape, in1_shape], [out_shape])
+    print("\n", m)
+    # CHECK: module
     # CHECK: func.func @add(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32>
     # CHECK: %0 = tensor.empty() : tensor<32x32xf32>
     # CHECK: %1 = "ttir.add"(%arg0, %arg1, %0)
     # CHECK: operand_constraints = [#any, #any, #any]
+    # CHECK: return %1 : tensor<32x32xf32>
 
     in0_seed = 0
     in1_seed = 1
@@ -75,12 +77,14 @@ def test_multiply(builder: TTIRBuilder, multiply: Multiply):
     in1_shape = (32, 32)
     out_shape = (32, 32)
 
-    f = builder.emit_mlir_function(multiply, [in0_shape, in1_shape], [out_shape])
-    print("\n", f)
+    m = builder.emit_mlir_module(multiply, [in0_shape, in1_shape], [out_shape])
+    print("\n", m)
+    # CHECK: module
     # CHECK: func.func @multiply(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32>
     # CHECK: %0 = tensor.empty() : tensor<32x32xf32>
     # CHECK: %1 = "ttir.multiply"(%arg0, %arg1, %0)
     # CHECK: operand_constraints = [#any, #any, #any]
+    # CHECK: return %1 : tensor<32x32xf32>
 
     in0_seed = 0
     in1_seed = 1
@@ -97,12 +101,14 @@ def test_exp(builder: TTIRBuilder, exp: Exp):
     in0_shape = (32, 32)
     out_shape = (32, 32)
 
-    f = builder.emit_mlir_function(exp, [in0_shape], [out_shape])
-    print("\n", f)
+    m = builder.emit_mlir_module(exp, [in0_shape], [out_shape])
+    print("\n", m)
+    # CHECK: module
     # CHECK: func.func @exp(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32>
     # CHECK: %0 = tensor.empty() : tensor<32x32xf32>
     # CHECK: %1 = "ttir.exp"(%arg0, %0)
     # CHECK: operand_constraints = [#any, #any]
+    # CHECK: return %1 : tensor<32x32xf32>
 
     in0_seed = 0
     torch.manual_seed(in0_seed)
@@ -110,3 +116,19 @@ def test_exp(builder: TTIRBuilder, exp: Exp):
 
     golden = exp.golden(t0)
     print("\n", golden)
+
+
+if __name__ == "__main__":
+    ctx = Context()
+    loc = Location.unknown(ctx)
+    a = Add(ctx, loc)
+    build = TTIRBuilder(ctx, loc)
+
+    in0_shape = (32, 32)
+    in1_shape = (32, 32)
+    out_shape = (32, 32)
+    m = build.emit_mlir_module(a, [in0_shape, in1_shape], [out_shape])
+    print(m)
+    m2 = build.ttir_to_ttmetal_backend_pipeline(m)
+    print(m2)
+    build.ttmetal_to_flatbuffer_file(m2)

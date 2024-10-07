@@ -362,4 +362,10 @@ LogicalResult translateTTMetalToFlatbuffer(Operation *op,
   return success();
 }
 
+LogicalResult
+translateTTMetalToFlatbufferWithGoldenInfo(Operation *op, llvm::raw_ostream &os,
+                                           std::string golden_info) {
+  return success();
+}
+
 } // namespace mlir::tt::ttmetal

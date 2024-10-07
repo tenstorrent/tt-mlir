@@ -14,6 +14,10 @@ namespace mlir::tt::ttmetal {
 // stream.
 LogicalResult translateTTMetalToFlatbuffer(Operation *op,
                                            llvm::raw_ostream &os);
+
+LogicalResult
+translateTTMetalToFlatbufferWithGoldenInfo(Operation *op, llvm::raw_ostream &os,
+                                           std::string golden_info);
 } // namespace mlir::tt::ttmetal
 
 #endif

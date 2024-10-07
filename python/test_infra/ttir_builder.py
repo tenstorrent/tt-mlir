@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import List, Optional, Union, Tuple
+from typing import List, Optional, Union, Tuple, Callable
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, func
+from ttmlir.dialects import ttir, tt, ttkernel, func
 from .ttir.ttir_op_test_base import TTIROpTestBase
 from .tensor_builder import TensorBuilder
 
@@ -13,8 +13,10 @@ class TTIRBuilder:
     def __init__(self, ctx: Context, location: Location):
         self.ctx = ctx
         self.loc = location
-        tt.register_dialect(self.ctx)
-        ttir.register_dialect(self.ctx)
+        self.module = Module.create(self.loc)
+        # tt.register_dialect(self.ctx)
+        # ttir.register_dialect(self.ctx)
+        # ttkernel.register_dialect(self.ctx)
 
         self.tensor_builder = TensorBuilder(self.ctx, self.loc)
 
@@ -62,6 +64,46 @@ class TTIRBuilder:
                 func.ReturnOp(return_values)
 
             return func_op
+
+    def emit_mlir_module(
+        self,
+        ttir_op: TTIROpTestBase,
+        input_tensor_shapes: Optional[List[Union[Tuple, List]]],
+        output_tensor_shapes: Optional[List[Union[Tuple, List]]],
+    ) -> Module:
+        """Wraps mlir function in a module."""
+        with InsertionPoint(self.module.body):
+            self.emit_mlir_function(ttir_op, input_tensor_shapes, output_tensor_shapes)
+
+        return self.module
+
+    @staticmethod
+    def apply(pipeline: Callable, module: Module) -> Module:
+        # Apply pipeline in-place on module and return the module for convencience.
+        pipeline(module)
+        return module
+
+    @staticmethod
+    def ttir_to_ttmetal_backend_pipeline(
+        module: Module, dump_to_file: bool = True, file_name: str = "test.mlir"
+    ) -> Module:
+        from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
+
+        ttir_to_ttmetal_backend_pipeline(module)
+
+        if dump_to_file:
+            with open(file_name, "w") as f:
+                f.write(str(module))
+
+        return module
+
+    @staticmethod
+    def ttmetal_to_flatbuffer_file(
+        module: Module, file_name: str = "ttrt.ttm", golden_info: str = None
+    ) -> None:
+        from ttmlir.passes import ttmetal_to_flatbuffer_file
+
+        ttmetal_to_flatbuffer_file(module, file_name)
 
     def __coerce_results(
         self,
