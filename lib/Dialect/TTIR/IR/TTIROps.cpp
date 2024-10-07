@@ -10,11 +10,10 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/LogicalResult.h>
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <string>
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 
 #include "tt/runtime/detail/debug.h"

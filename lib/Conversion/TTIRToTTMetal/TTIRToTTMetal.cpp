@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/Operation.h"
+#include "llvm/ADT/ArrayRef.h"
 #include <cstdint>
-#include <mlir/IR/Builders.h>
-#include <mlir/IR/Operation.h>
 
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
@@ -786,6 +787,24 @@ public:
     }
   }
 
+  void convertInitReduceOp(Operation &reduceOp, ttkernel::ReduceDim reduceDim,
+                           ArrayRef<BlockArgument> cbOperands,
+                           OpBuilder &builder) const {
+    assert(cbOperands.size() == 2 &&
+           "Expected one input and one output CB for reduce op.");
+
+    auto kernelOp = mlir::cast<ttir::KernelOp>(reduceOp);
+    assert(kernelOp.getOp() == "reduce");
+    auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::Sum
+                                            : ttkernel::ReduceType::Max;
+    builder.create<ttkernel::ReduceInitOp>(
+        reduceOp.getLoc(), cbOperands[0],
+        cbOperands[0], // TODO(rpavlovic) insert proper scaling cb
+        cbOperands[1],
+        ttkernel::ReduceTypeAttr::get(builder.getContext(), type),
+        ttkernel::ReduceDimAttr::get(builder.getContext(), reduceDim));
+  }
+
   // Convert arith and math dialect operations into ttkernel init tile
   // operations. HLK requires the FPU to be initialized before any tile ops get
   // executed.  We separate the init tile operation from the actual tile
@@ -797,17 +816,7 @@ public:
                             ttkernel::ReduceDim reduceDim,
                             OpBuilder &builder) const {
     if (reduceDim != ttkernel::ReduceDim::None) {
-      auto kernelOp = mlir::cast<ttir::KernelOp>(arithOrMathOp);
-      assert(kernelOp.getOp() == "reduce");
-      auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::Sum
-                                              : ttkernel::ReduceType::Max;
-      builder.create<ttkernel::ReduceInitOp>(
-          arithOrMathOp.getLoc(), cbOperands[0],
-          cbOperands[0], // TODO(rpavlovic) insert proper
-                         // scaling cb
-          cbOperands[1],
-          ttkernel::ReduceTypeAttr::get(builder.getContext(), type),
-          ttkernel::ReduceDimAttr::get(builder.getContext(), reduceDim));
+      convertInitReduceOp(arithOrMathOp, reduceDim, cbOperands, builder);
     } else if (numDpsInputs == 1) {
       convertInitUnaryOp(arithOrMathOp, cbOperands, builder);
     } else if (numDpsInputs == 2) {
@@ -985,61 +994,18 @@ public:
     builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outputCB, one);
   }
 
-  // Convert arith and math dialect operations into ttkernel tile operations.
-  // Here iterators are the block arguments from the innermost scf.for loop.
-  // The iterators are unique-ified so we need blockArgIteratorMapping to
-  // recover which top level tensor operand is associated with which iterator.
-  void convertComputeOp(Block *computeBlock, Operation &arithOrMathOp,
-                        LoopNest &loopNest, ArrayRef<BlockArgument> cbOperands,
-                        ArrayRef<BlockArgument> iterators,
-                        ttkernel::ReduceDim reduceDim,
-                        SmallVector<unsigned> blockArgIteratorMapping,
-                        OpBuilder &innerLoopBuilder,
-                        std::int64_t numDpsInputs) const {
-
-    if (reduceDim != ttkernel::ReduceDim::None) {
-
-      convertReduceOp(computeBlock, arithOrMathOp, cbOperands, iterators,
-                      blockArgIteratorMapping, reduceDim, loopNest);
-
-      // auto kernelOp = mlir::cast<ttir::KernelOp>(arithOrMathOp);
-      // assert(kernelOp.getOp() == "reduce");
-      // auto type = kernelOp.getKind() == "sum" ?
-      // ttkernel::ReduceType::ReduceSUM
-      //                                         :
-      //                                         ttkernel::ReduceType::ReduceMAX;
-      // builder.create<ttkernel::ReduceTileOp>(
-      //     arithOrMathOp.getLoc(), cbOperands[0],
-      //     cbOperands[0], // TODO(rpavlovic) insert proper
-      //                                    // scaling cb
-      //     iterators[blockArgIteratorMapping[0]],
-      //     iterators[blockArgIteratorMapping[1]], dstIndex,
-      //     ttkernel::ReduceTypeAttr::get(builder.getContext(), type),
-      //     ttkernel::ReduceDimAttr::get(builder.getContext(), reduceDim));
-    } else if (numDpsInputs == 1) {
-      convertComputeUnaryOp(arithOrMathOp, cbOperands, iterators,
-                            blockArgIteratorMapping, innerLoopBuilder);
-    } else if (numDpsInputs == 2) {
-      convertComputeBinaryOp(arithOrMathOp, cbOperands, iterators,
-                             blockArgIteratorMapping, innerLoopBuilder);
-    } else {
-      llvm_unreachable("Unhandled conversion for operation which is neither "
-                       "unary nor binary.");
-    }
-  }
-
-  void convertReduceOp(Block *computeBlock, Operation &op,
-                       ArrayRef<BlockArgument> cbOperands,
-                       ArrayRef<BlockArgument> iterators,
-                       SmallVector<unsigned> blockArgIteratorMapping,
-                       ttkernel::ReduceDim reduceDim,
-                       LoopNest &loopNest) const {
+  void convertComputeReduceOp(Block *computeBlock, Operation &op,
+                              ArrayRef<BlockArgument> cbOperands,
+                              ArrayRef<BlockArgument> iterators,
+                              SmallVector<unsigned> blockArgIteratorMapping,
+                              ttkernel::ReduceDim reduceDim,
+                              LoopNest &loopNest) const {
     assert(reduceDim != ttkernel::ReduceDim::None);
 
     auto kernelOp = mlir::cast<ttir::KernelOp>(op);
     assert(kernelOp.getOp() == "reduce");
-    auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::ReduceSUM
-                                            : ttkernel::ReduceType::ReduceMAX;
+    auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::Sum
+                                            : ttkernel::ReduceType::Max;
 
     OpBuilder innerLoopBuilder(&loopNest.loopRegions.back()->front(),
                                loopNest.loopRegions.back()->front().begin());
@@ -1088,11 +1054,38 @@ public:
         computeBlock->front().getLoc());
     packingBuilder.create<ttkernel::TileRegsWaitOp>(
         computeBlock->front().getLoc());
-    packingBuilder.create<ttkernel::PackTileOp>(computeBlock->front().getLoc(),
-                                                dstIndex, cbOperands.back(),
-                                                packingTileIndex);
+    packingBuilder.create<ttkernel::PackTileOp>(
+        computeBlock->front().getLoc(), i32(0, packingBuilder),
+        cbOperands.back(), packingTileIndex);
     packingBuilder.create<ttkernel::TileRegsReleaseOp>(
         computeBlock->front().getLoc());
+  }
+
+  // Convert arith and math dialect operations into ttkernel tile operations.
+  // Here iterators are the block arguments from the innermost scf.for loop.
+  // The iterators are unique-ified so we need blockArgIteratorMapping to
+  // recover which top level tensor operand is associated with which iterator.
+  void convertComputeOp(Block *computeBlock, Operation &arithOrMathOp,
+                        LoopNest &loopNest, ArrayRef<BlockArgument> cbOperands,
+                        ArrayRef<BlockArgument> iterators,
+                        ttkernel::ReduceDim reduceDim,
+                        SmallVector<unsigned> blockArgIteratorMapping,
+                        OpBuilder &innerLoopBuilder,
+                        std::int64_t numDpsInputs) const {
+
+    if (reduceDim != ttkernel::ReduceDim::None) {
+      convertComputeReduceOp(computeBlock, arithOrMathOp, cbOperands, iterators,
+                             blockArgIteratorMapping, reduceDim, loopNest);
+    } else if (numDpsInputs == 1) {
+      convertComputeUnaryOp(arithOrMathOp, cbOperands, iterators,
+                            blockArgIteratorMapping, innerLoopBuilder);
+    } else if (numDpsInputs == 2) {
+      convertComputeBinaryOp(arithOrMathOp, cbOperands, iterators,
+                             blockArgIteratorMapping, innerLoopBuilder);
+    } else {
+      llvm_unreachable("Unhandled conversion for operation which is neither "
+                       "unary nor binary.");
+    }
   }
 
   // Builds instructions to execute before looping over tiles has started.
@@ -1174,8 +1167,8 @@ public:
     Operation::user_range users = operations.front().getUsers();
     assert(users.begin() != users.end());
     assert(mlir::isa<ttir::YieldOp>(*users.begin()));
-    assert(dispatchOpBlock->getNumArguments() > numDPSInputs);
-    assert((dispatchOpBlock->getNumArguments() - numDPSInputs) == 1 &&
+    assert(computeBlock->getNumArguments() > numDPSInputs);
+    assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
            "Expected 1 output");
 
     auto outputMemref = mlir::cast<ttkernel::CBType>(
@@ -1186,7 +1179,6 @@ public:
     size_t j = iteratorTypes.size() - 1;
     uint32_t outputRank = outputMemref.getNumDims();
     SmallVector<bool> reducedMemrefDims(outputRank, false);
-    uint32_t numReducedDims = 0;
 
     // Collect the reduction dims going from innermost to outermost.
     assert(outputRank <= iteratorTypes.size());
@@ -1195,7 +1187,6 @@ public:
       if (mlir::cast<IteratorTypeAttr>(itType).getValue() ==
           IteratorType::Reduction) {
         reducedMemrefDims[i] = true;
-        ++numReducedDims;
       }
     }
 

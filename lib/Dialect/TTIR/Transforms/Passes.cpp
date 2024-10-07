@@ -1550,14 +1550,23 @@ public:
       cbValues.push_back(emptyOp.getResult());
       operandCBMapping.push_back(cbValues.size() - 1);
 
-      OperandConstraint inherittedConstraint =
-          mlir::cast<OperandConstraintAttr>(
-              generic.getOperandConstraints()[operandIdx])
-              .getValue();
-      cbConstraints.push_back(rewriter.getAttr<OperandConstraintAttr>(
-          inherittedConstraint &
-              ~(OperandConstraint::System | OperandConstraint::DRAM) |
-          OperandConstraint::L1));
+      // Inheriting constraints from the original operand.
+      // OperandConstraint inherittedConstraint =
+      //     mlir::cast<OperandConstraintAttr>(
+      //         generic.getOperandConstraints()[operandIdx])
+      //         .getValue();
+      // inherittedConstraint =
+      //     bitEnumSet(inherittedConstraint, OperandConstraint::L1);
+      // inherittedConstraint =
+      //     bitEnumClear(inherittedConstraint, OperandConstraint::DRAM);
+      // inherittedConstraint =
+      //     bitEnumClear(inherittedConstraint, OperandConstraint::System);
+
+      // Fixing constraint to L1 for the CB operand.
+      // TODO(rpavlovic) remove or use code above when we decide on the operand
+      // constraints model.
+      cbConstraints.push_back(
+          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::L1));
     }
 
     SmallVector<Attribute> combinedConstraints;

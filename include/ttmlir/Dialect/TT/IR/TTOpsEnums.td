@@ -126,12 +126,12 @@ def TT_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_OperandConstraintSystem : I32BitEnumAttrCaseBit<"System", 0, "system">;
-def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 1, "dram">;
-def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 2, "l1">;
-def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 3, "scalar">;
-def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 4, "tile">;
-def TT_OperandConstraintNone : I32BitEnumAttrCaseBit<"None", 5, "none">;
+def TT_OperandConstraintNone : I32BitEnumAttrCaseBit<"None", 0, "none">;
+def TT_OperandConstraintSystem : I32BitEnumAttrCaseBit<"System", 1, "system">;
+def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 2, "dram">;
+def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 3, "l1">;
+def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 4, "scalar">;
+def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 5, "tile">;
 def TT_OperandConstraintInterleaved : I32BitEnumAttrCaseBit<"Interleaved", 6, "interleaved">;
 def TT_OperandConstraintSingleBank : I32BitEnumAttrCaseBit<"SingleBank", 7, "single_bank">;
 def TT_OperandConstraintHeightSharded : I32BitEnumAttrCaseBit<"HeightSharded", 8, "height_sharded">;
@@ -144,12 +144,12 @@ def TT_OperandConstraintAnyDeviceTile : I32BitEnumAttrCaseGroup<"AnyDeviceTile",
 def TT_OperandConstraintL1BlockSharded : I32BitEnumAttrCaseGroup<"L1BlockSharded", [TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintBlockSharded], "l1_block_sharded">;
 def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Constraints",
                            [
+                            TT_OperandConstraintNone,
                             TT_OperandConstraintSystem,
                             TT_OperandConstraintDRAM,
                             TT_OperandConstraintL1,
                             TT_OperandConstraintScalar,
                             TT_OperandConstraintTile,
-                            TT_OperandConstraintNone,
                             TT_OperandConstraintInterleaved,
                             TT_OperandConstraintSingleBank,
                             TT_OperandConstraintHeightSharded,
