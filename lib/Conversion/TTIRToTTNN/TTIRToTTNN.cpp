@@ -59,9 +59,15 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     // BroadcastOp will be folded away so its EmptyOp should be erased.
+    bool allBroadcastOpConsumers = true;
     if (not op->getUsers().empty()) {
-      Operation *broadcastOp = *op->getUsers().begin();
-      if (isa<ttir::BroadcastOp>(broadcastOp)) {
+      for (Operation *consumerOp : op->getUsers()) {
+        if (not isa<ttir::BroadcastOp>(consumerOp)) {
+          allBroadcastOpConsumers = false;
+          break;
+        }
+      }
+      if (allBroadcastOpConsumers) {
         rewriter.eraseOp(op);
         return success();
       }
