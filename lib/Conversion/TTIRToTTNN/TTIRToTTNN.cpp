@@ -60,8 +60,8 @@ public:
 
     // BroadcastOp will be folded away so its EmptyOp should be erased.
     if (not op->getUsers().empty()) {
-      Operation *emptyOp = *op->getUsers().begin();
-      if (isa<ttir::BroadcastOp>(emptyOp)) {
+      Operation *broadcastOp = *op->getUsers().begin();
+      if (isa<ttir::BroadcastOp>(broadcastOp)) {
         rewriter.eraseOp(op);
         return success();
       }
