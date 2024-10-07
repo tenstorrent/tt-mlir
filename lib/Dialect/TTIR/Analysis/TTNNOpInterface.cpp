@@ -13,12 +13,26 @@
 namespace mlir::tt::ttir {
 
 namespace ttnn_wrapper {
-static std::vector<uint32_t>
-memref_get_tensor_shape(const mlir::MemRefType &memref) {
+// static std::vector<uint32_t>
+// memref_get_tensor_shape(const mlir::MemRefType &memref) {
+//   std::vector<uint32_t> shape;
+//   for (auto i = 0; i < memref.getRank(); i++) {
+//     shape.push_back(memref.getShape()[i]);
+//   }
+//   return shape;
+// }
+
+static std::vector<uint32_t> op_output_shape(Operation *op) {
   std::vector<uint32_t> shape;
-  for (auto i = 0; i < memref.getRank(); i++) {
-    shape.push_back(memref.getShape()[i]);
+
+  RankedTensorType tensorType =
+      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  for (size_t i = 0; i < tensorShape.size(); i++) {
+    shape.push_back(tensorShape[i]);
   }
+
   return shape;
 }
 
@@ -39,10 +53,12 @@ layout_get_shard_shape(const mlir::tt::LayoutAttr &layout) {
 
 static std::string
 layout_get_tensor_layout(const mlir::tt::LayoutAttr &layout) {
-  return layout.isTiled() ? mlir::tt::stringifyOperandConstraint(
-                                mlir::tt::OperandConstraint::Tile)
-                          : mlir::tt::stringifyOperandConstraint(
-                                mlir::tt::OperandConstraint::Scalar);
+  // return layout.isTiled() ? mlir::tt::stringifyOperandConstraint(
+  //                               mlir::tt::OperandConstraint::Tile)
+  //                         : mlir::tt::stringifyOperandConstraint(
+  //                               mlir::tt::OperandConstraint::Scalar);
+  return mlir::tt::stringifyOperandConstraint(
+      mlir::tt::OperandConstraint::Tile);
 }
 
 static std::vector<std::array<uint32_t, 4>>
@@ -130,17 +146,16 @@ bool is_op_configuration_valid(const std::vector<Operation *> &producer_ops,
 
   for (unsigned int input_idx = 0; input_idx < num_operands; input_idx++) {
     input_shapes[input_idx] =
-        ttnn_wrapper::memref_get_tensor_shape(consumer_layout.getMemref());
-    input_data_types[input_idx] =
-        ttnn_wrapper::memref_get_element_type(consumer_layout.getMemref());
+        ttnn_wrapper::op_output_shape(producer_ops[input_idx]);
+    input_data_types[input_idx] = ttnn_wrapper::memref_get_element_type(
+        producer_layouts[input_idx].getMemref());
     input_memory_configs[input_idx] =
-        ttnn_wrapper::layout_get_memory_config(consumer_layout);
+        ttnn_wrapper::layout_get_memory_config(producer_layouts[input_idx]);
     input_tensor_layouts[input_idx] =
-        ttnn_wrapper::layout_get_tensor_layout(consumer_layout);
+        ttnn_wrapper::layout_get_tensor_layout(producer_layouts[input_idx]);
   }
 
-  auto output_shape =
-      ttnn_wrapper::memref_get_tensor_shape(consumer_layout.getMemref());
+  auto output_shape = ttnn_wrapper::op_output_shape(consumer_op);
   std::string output_data_type =
       ttnn_wrapper::memref_get_element_type(consumer_layout.getMemref());
   ttnn::mlir_interface::memory_config_tuple output_memory_config =
@@ -170,8 +185,27 @@ bool is_op_configuration_valid(const std::vector<Operation *> &producer_ops,
             input_shapes[0], input_memory_configs[0], input_data_types[0],
             input_tensor_layouts[0], output_shape, output_memory_config,
             output_data_type);
+  } else if (llvm::isa<MatmulOp>(consumer_op)) {
+
+    auto grid_shape = std::array<uint32_t, 2>{0, 0};
+    grid_shape[0] = consumer_layout.getGrid().getShape()[0];
+    grid_shape[1] = consumer_layout.getGrid().getShape()[1];
+
+    if (consumer_layout.getMemLayout() == TensorMemoryLayout::WidthSharded) {
+      consumer_op->dump();
+      is_valid = ttnn::mlir_interface::
+          does_matmul_multicore_reuse_multicast_1d_op_support_input_output_constraints(
+              input_shapes[0], input_memory_configs[0], input_data_types[0],
+              input_tensor_layouts[0], input_shapes[1], input_memory_configs[1],
+              input_data_types[1], input_tensor_layouts[1],
+              output_memory_config, output_data_type,
+              std::make_tuple(grid_shape, 1, 1, 1, 1, 1), false, false);
+    } else {
+      is_valid = false;
+    }
   } else {
     llvm::outs() << consumer_op->getName() << " missing ttnn interface\n";
+    assert(false);
     is_valid = false;
   }
 

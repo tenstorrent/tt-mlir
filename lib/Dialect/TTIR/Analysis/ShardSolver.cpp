@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardChainConfig.h"
 #include "ttmlir/Dialect/TTIR/Analysis/TTNNOPInterface.h"
+#include <cassert>
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 
 namespace mlir::tt::ttir {
@@ -495,15 +496,40 @@ bool ShardSolver::checkShardCompatible(Operation *producerOp,
   // TEMP : Dummy mock implementation, will be replaced.
   //
 
-  // May need to fetch other inputs for consumerOp(weights/join node).
-  //
+  std::vector<Operation *> producerOps;
+  std::vector<LayoutAttr> producerLayouts;
 
-  // TODO(odjuricic): Update once the other operands of the consumer op and the
-  // corresponding layouts are fetched bool is_op_config_valid =
-  // is_op_configuration_valid(consumerOp, consumerLayout);
+  for (auto operand : consumerOp->getOperands()) {
+    Operation *operandOp = operand.getDefiningOp();
+    // operandOp->dump();
 
-  // Need to plug shard checking API.
-  //
+    // Check if has defining op, or maybe its just arg?
+    assert(operandOp);
+
+    producerOps.push_back(operandOp);
+
+    if (operandOp == producerOp) {
+      producerLayouts.push_back(producerLayout);
+    } else {
+      auto legalLayouts = getLegalLayouts(operandOp);
+
+      // We don't handle fork/joins yet so for now other ops inputs should be
+      // set to DRAM interleaved only.
+      assert(legalLayouts.size() == 0);
+
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(operandOp->getResult(0).getType());
+      LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+
+      producerLayouts.push_back(layout);
+    }
+  }
+
+  consumerOp->dump();
+  if (not is_op_configuration_valid(producerOps, producerLayouts, consumerOp,
+                                    consumerLayout)) {
+    return false;
+  }
 
   // Need to plug API for L1 usage.
   //

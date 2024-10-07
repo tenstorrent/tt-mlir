@@ -12,7 +12,8 @@
 namespace mlir::tt::ttir {
 
 bool mock_is_output_tensor_legal_for_op(Operation *op, LayoutAttr layout) {
-  return is_op_configuration_valid(op, layout);
+  return true;
+  // return is_op_configuration_valid(op, layout);
 }
 
 bool tensor_shape_compatible_with_shard(Operation *op, LayoutAttr layout) {
