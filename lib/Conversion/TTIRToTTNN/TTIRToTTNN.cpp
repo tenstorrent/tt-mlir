@@ -58,6 +58,15 @@ public:
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    // BroadcastOp will be folded away so its EmptyOp should be erased.
+    if (not op->getUsers().empty()) {
+      Operation *emptyOp = *op->getUsers().begin();
+      if (isa<ttir::BroadcastOp>(emptyOp)) {
+        rewriter.eraseOp(op);
+        return success();
+      }
+    }
+
     // Get tt::LayoutAttr of the result type
     //
     tt::LayoutAttr ttLayoutAttr =
