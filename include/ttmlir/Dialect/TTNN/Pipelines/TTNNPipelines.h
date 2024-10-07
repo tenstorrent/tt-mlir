@@ -165,8 +165,7 @@ struct TTIRToTTNNBackendPipelineOptions
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
 
-  ListOption<int64_t> meshShape{
-      *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+  ::llvm::SmallVector<int64_t> meshShape;
 };
 
 void createTTNNPipelineTTIRPasses(
