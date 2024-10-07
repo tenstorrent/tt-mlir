@@ -380,6 +380,27 @@ def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SliceOp : TTNN_NamedDPSOp<"slice"> {
+    let summary = "Slice op.";
+    let description = [{
+      Slice op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$start_indices,
+                         DenseI64ArrayAttr:$limit_indices,
+                         DenseI64ArrayAttr:$strides);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_ReshapeOp : TTNN_NamedDPSOp<"reshape"> {
     let summary = "Reshape op.";
     let description = [{

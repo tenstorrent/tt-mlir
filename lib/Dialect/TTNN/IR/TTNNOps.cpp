@@ -159,6 +159,10 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttnn::SliceOp::verify() {
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttnn::ConcatOp::verify() {
   mlir::OperandRange inputs = getInputs();
   int32_t dim = getDim();

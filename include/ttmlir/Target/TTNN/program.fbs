@@ -117,6 +117,14 @@ table ConcatOp {
  dim: int32;
 }
 
+table SliceOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  start_indices: [int32];
+  end_indices: [int32];
+  strides: [int32];
+}
+
 table ReshapeOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -194,7 +202,8 @@ union OpType {
   ConcatOp,
   ReshapeOp,
   MaxPool2dOp,
-  DeallocOp
+  DeallocOp,
+  SliceOp
 }
 
 table Operation {

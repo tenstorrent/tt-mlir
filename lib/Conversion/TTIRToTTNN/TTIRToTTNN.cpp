@@ -22,6 +22,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
+#include <valarray>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -334,6 +335,22 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ConcatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInputs(), adaptor.getOutput(), dim);
+    return success();
+  }
+};
+
+class SliceOpConversionPattern : public OpConversionPattern<ttir::SliceOp> {
+public:
+  using OpConversionPattern<ttir::SliceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<ttnn::SliceOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getOutput(), adaptor.getStartIndicesAttr(), adaptor.getLimitIndicesAttr(),
+        adaptor.getStridesAttr());
     return success();
   }
 };
@@ -742,7 +759,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
-           SubtractOpConversionPattern
+           SubtractOpConversionPattern,
+           SliceOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

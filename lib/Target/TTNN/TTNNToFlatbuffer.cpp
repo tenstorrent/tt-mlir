@@ -352,6 +352,29 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
 }
 
+template <typename SliceOp>
+::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
+createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
+  // std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  // for (auto input : op.getInputs()) {
+  //   ins.push_back(
+  //       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  // }
+  // auto out = cache.at<::tt::target::TensorRef>(
+  //     getOperandThroughDPSOps(op.getResult()));
+  // int32_t dim = op.getDim();
+
+  // return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
+
+  ::flatbuffers::Offset<::tt::target::TensorRef> in = cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::flatbuffers::Offset<::tt::target::TensorRef> out = cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getResult()));
+  std::vector<int32_t> start_indices = {op.getStartIndices().begin(), op.getStartIndices().end()};
+  std::vector<int32_t> end_indices = {op.getLimitIndices().begin(), op.getLimitIndices().end()};
+  std::vector<int32_t> strides = {op.getStrides().begin(), op.getStrides().end()};
+
+  return ::tt::target::ttnn::CreateSliceOpDirect(*cache.fbb, in, out, &start_indices, &end_indices, &strides);
+}
+
 template <typename EmbeddingOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
 createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
@@ -549,6 +572,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
     return createOperation(cache, createDeallocOp(cache, deallocOp),
                            debugString);
+  }
+  if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
+    return createOperation(cache, createSliceOp(cache, sliceOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
