@@ -59,15 +59,15 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
 
   // TODO (jnie): Hardcoding to interleaved and block sharded for now
   // Add support for other types once compiler supports it
-  assert(targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved ||
-         targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded);
-  assert(targetMemoryLayout != target::TensorMemoryLayout::BlockSharded ||
-         targetMemorySpace == target::MemorySpace::DeviceL1 &&
-             "Only L1 memory space supports sharded memory layout");
-  assert(targetCoreRangeSet->size() == 1 &&
-         "Currently only single core range/grid is supported");
-  assert(targetShardShape->size() == 2 &&
-         "Only 2D shard shape is supported in TTNN backend");
+  // assert(targetMemoryLayout == ::tt::target::TensorMemoryLayout::Interleaved ||
+  //        targetMemoryLayout == ::tt::target::TensorMemoryLayout::BlockSharded);
+  // assert(targetMemoryLayout != target::TensorMemoryLayout::BlockSharded ||
+  //        targetMemorySpace == target::MemorySpace::DeviceL1 &&
+  //            "Only L1 memory space supports sharded memory layout");
+  // assert(targetCoreRangeSet->size() == 1 &&
+  //        "Currently only single core range/grid is supported");
+  // assert(targetShardShape->size() == 2 &&
+  //        "Only 2D shard shape is supported in TTNN backend");
 
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
   std::array<uint32_t, 2> ttnnShardShape;

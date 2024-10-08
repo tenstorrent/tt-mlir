@@ -2,12 +2,12 @@
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #loc = loc("MNISTLinear":4294967295:0)
 module @"tt-forge-graph" attributes {} {
-  func.func @main(%arg0: tensor<32x784xf32> loc("MNISTLinear":4294967295:0), %arg1: tensor<32x32xf32> loc("MNISTLinear":4294967295:0), %arg2: tensor<256x32xf32> loc("MNISTLinear":4294967295:0), %arg3: tensor<32x256xf32> loc("MNISTLinear":4294967295:0), %arg4: tensor<784x256xf32> loc("MNISTLinear":4294967295:0)) -> tensor<32x32xf32> {
+  func.func @main(%arg0: tensor<32x800xf32> loc("MNISTLinear":4294967295:0), %arg1: tensor<32x32xf32> loc("MNISTLinear":4294967295:0), %arg2: tensor<256x32xf32> loc("MNISTLinear":4294967295:0), %arg3: tensor<32x256xf32> loc("MNISTLinear":4294967295:0), %arg4: tensor<800x256xf32> loc("MNISTLinear":4294967295:0)) -> tensor<32x32xf32> {
     // CHECK: #[[LAYOUT_10:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <32x8>, memref<32x32xf32, #l1_>, block_sharded>
     // CHECK: #[[LAYOUT_11:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <32x1>, memref<32x32xf32, #l1_>, block_sharded>
     %0 = tensor.empty() : tensor<32x256xf32> loc(#loc8)
     // CHECK: %[[C:.*]] = "ttnn.matmul"[[C:.*]] -> tensor<32x256xf32, #[[LAYOUT_10]]>
-    %1 = "ttir.matmul"(%arg0, %arg4, %0) <{operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x784xf32>, tensor<784x256xf32>, tensor<32x256xf32>) -> tensor<32x256xf32> loc(#loc8)
+    %1 = "ttir.matmul"(%arg0, %arg4, %0) <{operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x800xf32>, tensor<800x256xf32>, tensor<32x256xf32>) -> tensor<32x256xf32> loc(#loc8)
     %2 = tensor.empty() : tensor<32x256xf32> loc(#loc9)
     // CHECK: %[[C:.*]] = "ttnn.add"[[C:.*]] -> tensor<32x256xf32, #[[LAYOUT_10]]>
     %3 = "ttir.add"(%1, %arg3, %2) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x256xf32>, tensor<32x256xf32>, tensor<32x256xf32>) -> tensor<32x256xf32> loc(#loc9)

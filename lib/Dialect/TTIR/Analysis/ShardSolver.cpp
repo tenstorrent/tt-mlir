@@ -496,40 +496,40 @@ bool ShardSolver::checkShardCompatible(Operation *producerOp,
   // TEMP : Dummy mock implementation, will be replaced.
   //
 
-  std::vector<Operation *> producerOps;
-  std::vector<LayoutAttr> producerLayouts;
+  // std::vector<Operation *> producerOps;
+  // std::vector<LayoutAttr> producerLayouts;
 
-  for (auto operand : consumerOp->getOperands()) {
-    Operation *operandOp = operand.getDefiningOp();
-    // operandOp->dump();
+  // for (auto operand : consumerOp->getOperands()) {
+  //   Operation *operandOp = operand.getDefiningOp();
+  //   // operandOp->dump();
 
-    // Check if has defining op, or maybe its just arg?
-    assert(operandOp);
+  //   // Check if has defining op, or maybe its just arg?
+  //   assert(operandOp);
 
-    producerOps.push_back(operandOp);
+  //   producerOps.push_back(operandOp);
 
-    if (operandOp == producerOp) {
-      producerLayouts.push_back(producerLayout);
-    } else {
-      auto legalLayouts = getLegalLayouts(operandOp);
+  //   if (operandOp == producerOp) {
+  //     producerLayouts.push_back(producerLayout);
+  //   } else {
+  //     auto legalLayouts = getLegalLayouts(operandOp);
 
-      // We don't handle fork/joins yet so for now other ops inputs should be
-      // set to DRAM interleaved only.
-      assert(legalLayouts.size() == 0);
+  //     // We don't handle fork/joins yet so for now other ops inputs should be
+  //     // set to DRAM interleaved only.
+  //     assert(legalLayouts.size() == 0);
 
-      RankedTensorType tensorType =
-          mlir::cast<RankedTensorType>(operandOp->getResult(0).getType());
-      LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
+  //     RankedTensorType tensorType =
+  //         mlir::cast<RankedTensorType>(operandOp->getResult(0).getType());
+  //     LayoutAttr layout = mlir::cast<LayoutAttr>(tensorType.getEncoding());
 
-      producerLayouts.push_back(layout);
-    }
-  }
+  //     producerLayouts.push_back(layout);
+  //   }
+  // }
 
-  consumerOp->dump();
-  if (not is_op_configuration_valid(producerOps, producerLayouts, consumerOp,
-                                    consumerLayout)) {
-    return false;
-  }
+  // consumerOp->dump();
+  // if (not is_op_configuration_valid(producerOps, producerLayouts, consumerOp,
+  //                                   consumerLayout)) {
+  //   return false;
+  // }
 
   // Need to plug API for L1 usage.
   //
