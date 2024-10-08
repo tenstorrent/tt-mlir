@@ -455,7 +455,9 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTNN_EmptyOp : TTNN_Op<"empty", [Pure]> {
+// Note: NoMemoryEffect is used to indicate that operation can be removed if it is not used.
+// Removal of this operation is done by the dead code elimination pass (RemoveDeadValuesPass).
+def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
