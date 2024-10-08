@@ -455,7 +455,7 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-def TTNN_EmptyOp : TTNN_Op<"empty"> {
+def TTNN_EmptyOp : TTNN_Op<"empty", [Pure]> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation

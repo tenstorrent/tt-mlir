@@ -49,16 +49,6 @@ static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
   return deviceOp.getResult();
 }
 
-template <typename OpAdaptor>
-static void removeDpsOp(ConversionPatternRewriter &rewriter,
-                        OpAdaptor adaptor) {
-  auto dpsOp = adaptor.getOperands().back();
-  auto emptyOp = dpsOp.template getDefiningOp<ttnn::EmptyOp>();
-  if (emptyOp) {
-    rewriter.eraseOp(emptyOp);
-  }
-}
-
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
 public:
@@ -147,8 +137,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    removeDpsOp(rewriter, adaptor);
 
     // Find device to be used for the tensor
     //
@@ -269,7 +257,6 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getKeepDim(),
@@ -286,7 +273,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::EmbeddingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight());
@@ -302,7 +288,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SoftmaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getDimension());
@@ -318,7 +303,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::TransposeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getDim0(), adaptor.getDim1());
@@ -352,7 +336,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getShape());
@@ -367,8 +350,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SqueezeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
-
     // Extract input tensor type
     ::mlir::RankedTensorType inputType =
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
@@ -412,8 +393,6 @@ public:
   LogicalResult
   matchAndRewrite(ttir::UnsqueezeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    removeDpsOp(rewriter, adaptor);
-
     // Extract input tensor type
     ::mlir::RankedTensorType inputType =
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
