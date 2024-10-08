@@ -723,7 +723,7 @@ public:
         rewriter.getSI32IntegerAttr(
             static_cast<int32_t>(adaptor.getDimension())), // dimension
         rewriter.getArrayAttr( // operand constraints
-            SmallVector<Attribute>(adaptor.getInputs().size(),
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
     return success();
