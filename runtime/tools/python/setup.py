@@ -28,6 +28,7 @@ enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
+configure_workarounds_runtime = os.environ.get("TT_RUNTIME_WORKAROUNDS", "OFF") == "ON"
 
 ext_modules = [
     Pybind11Extension(
@@ -55,7 +56,7 @@ metallibs = []
 install_requires = []
 install_requires += ["pybind11"]
 
-linklibs = ["TTBinary", "TTRuntimeSysDesc"]
+linklibs = ["TTBinary"]
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
     linklibs += ["TTRuntimeTTNN", "TTRuntimeTTNNOps", ":_ttnn.so"]
@@ -66,7 +67,7 @@ if enable_ttmetal:
 
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libdevice.so", "libnng.so.1", "libuv.so.1"]
-    linklibs += ["TTRuntimeDebug"]
+    linklibs += ["TTRuntimeSysDesc", "TTRuntimeDebug", "TTRuntimeWorkarounds"]
 
 if enable_perf:
     runlibs += ["libtracy.so.0.10.0"]
@@ -238,6 +239,10 @@ if enable_runtime:
             define_macros=[
                 ("VERSION_INFO", __version__),
                 ("TT_RUNTIME_DEBUG", "1" if debug_runtime else "0"),
+                (
+                    "TT_RUNTIME_WORKAROUNDS",
+                    "1" if configure_workarounds_runtime else "0",
+                ),
             ],
         )
     )

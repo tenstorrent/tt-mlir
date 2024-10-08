@@ -4,15 +4,17 @@
 
 #include "maxpool2d.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::pool {
 
+// TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
+// instead of adding a method in runtime
 static ::ttnn::Tensor
 preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
-                     ::ttnn::Device &device, ProgramTensorPool &tensorPool) {
-  const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
+                     ::ttnn::Device &device, const ::ttnn::Tensor &input) {
   const ::ttnn::Shape inputShape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
       ::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->in()->desc()->shape())));
@@ -45,16 +47,17 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   const ::ttnn::operations::pool::MaxPool2DOp operation =
       ::ttnn::operations::pool::MaxPool2DOp();
 
-  const ::ttnn::Tensor preShardedInput =
-      preshardForMaxPool2d(op, device, tensorPool);
+  ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
+  if (workaround::Env::get().maxpool2dPreshard) {
+    input = preshardForMaxPool2d(op, device, input);
+  }
 
-  ::ttnn::Tensor out =
-      operation.invoke(0, preShardedInput, op->batch_size(), op->input_height(),
-                       op->input_width(), op->channels(),
-                       {op->kernel_height(), op->kernel_width()},
-                       {op->stride_height(), op->stride_width()},
-                       {op->padding_height(), op->padding_width()},
-                       {op->dilation_height(), op->dilation_width()}, &device);
+  ::ttnn::Tensor out = operation.invoke(
+      0, input, op->batch_size(), op->input_height(), op->input_width(),
+      op->channels(), {op->kernel_height(), op->kernel_width()},
+      {op->stride_height(), op->stride_width()},
+      {op->padding_height(), op->padding_width()},
+      {op->dilation_height(), op->dilation_width()}, &device);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
   return;

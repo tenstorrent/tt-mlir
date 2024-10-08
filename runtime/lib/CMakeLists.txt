@@ -29,6 +29,7 @@ if (TTMLIR_ENABLE_RUNTIME AND (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMET
 else()
   add_library(TTRuntimeSysDesc INTERFACE)
   add_library(TTRuntimeDebug INTERFACE)
+  add_library(TTRuntimeWorkarounds INTERFACE)
 endif()
 
 add_library(TTRuntime STATIC runtime.cpp)
@@ -53,9 +54,10 @@ target_link_libraries(TTRuntime
     TTRuntimeTTNN
     TTRuntimeTTMetal
     TTRuntimeDebug
+    TTRuntimeWorkarounds
 )
 
-add_dependencies(TTRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug FBS_GENERATION)
+add_dependencies(TTRuntime TTBinary TTRuntimeSysDesc TTRuntimeDebug TTRuntimeWorkarounds FBS_GENERATION)
 
 if (TTMLIR_ENABLE_RUNTIME)
   set_target_properties(TTRuntime PROPERTIES PUBLIC_HEADER "../include/tt/runtime/runtime.h;../include/tt/runtime/types.h;../include/tt/runtime/utils.h")

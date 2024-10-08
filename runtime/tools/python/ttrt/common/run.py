@@ -124,6 +124,34 @@ class Run:
             help="disable async mode device execution for TTNN runtime",
         )
         Run.register_arg(
+            name="--disable-ignore-tile-shape",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable ignore tile shape workaround",
+        )
+        Run.register_arg(
+            name="--disable-empty-op-row-major",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable empty op force row major workaround",
+        )
+        Run.register_arg(
+            name="--disable-full-op-row-major",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable full op force row major workaround",
+        )
+        Run.register_arg(
+            name="--disable-maxpool2d-preshard",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable maxpool2d preshard workaround",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -298,7 +326,13 @@ class Run:
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
-
+            workaround_env = ttrt.runtime.WorkaroundEnv.get(
+                not self["--disable-ignore-tile-shape"],
+                not self["--disable-empty-op-row-major"],
+                not self["--disable-full-op-row-major"],
+                not self["--disable-maxpool2d-preshard"],
+            )
+            self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
@@ -534,7 +568,6 @@ class Run:
                     choices=attributes["choices"],
                     help=attributes["help"],
                 )
-
         return run_parser
 
     class TorchInitializer:

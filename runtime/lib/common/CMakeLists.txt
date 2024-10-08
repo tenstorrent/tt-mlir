@@ -13,3 +13,10 @@ target_include_directories(TTRuntimeDebug
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
 )
+
+add_library(TTRuntimeWorkarounds STATIC workarounds.cpp)
+set_property(TARGET TTRuntimeWorkarounds PROPERTY CXX_STANDARD 20)
+target_include_directories(TTRuntimeWorkarounds
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/runtime/include
+)
