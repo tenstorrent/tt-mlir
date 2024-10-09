@@ -21,6 +21,7 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
+  pm.addPass(mlir::tt::ttir::createTTIRFlattenZYReduction());
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;

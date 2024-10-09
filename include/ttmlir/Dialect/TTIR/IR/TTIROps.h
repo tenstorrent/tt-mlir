@@ -17,6 +17,7 @@
 #include "TTIROpsInterfaces.h"
 
 #define GET_OP_CLASSES
+#include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h.inc"
 
 #endif

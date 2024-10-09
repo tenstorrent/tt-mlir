@@ -5,10 +5,19 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 
+#include "mlir/Dialect/PDL/IR/PDL.h"
+#include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
+#pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
+#pragma clang diagnostic ignored "-Wunused-local-typedef"
+#include "ttmlir/Dialect/TTIR/Transforms/FlattenZYReducePatterns.h.inc"
+
 #include <memory>
 
 namespace mlir::tt::ttir {
