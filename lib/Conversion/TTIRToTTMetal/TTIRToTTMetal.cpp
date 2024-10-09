@@ -348,7 +348,7 @@ public:
     assert(inputLayout.getGrid() == outputLayout.getGrid());
 
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false, false);
+        ttkernel::MathFidelity::HiFi4, false, false);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
@@ -1344,7 +1344,7 @@ public:
     // }
 
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false, false);
+        ttkernel::MathFidelity::HiFi4, false, false);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
