@@ -138,14 +138,6 @@ public:
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Get the DPS operand and delete it's creator op, if it's tensor::emptyOp
-    //
-    Value dpsOperand = adaptor.getOperands().back();
-    ttnn::EmptyOp emptyOp = dpsOperand.getDefiningOp<ttnn::EmptyOp>();
-    if (emptyOp) {
-      rewriter.eraseOp(emptyOp);
-    }
-
     // Find device to be used for the tensor
     //
     auto device = getOrInsertDevice(rewriter, op);
@@ -267,7 +259,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getKeepDim(),
+        adaptor.getInput(), adaptor.getKeepDim(),
         adaptor.getDimArg().value_or(nullptr));
     return success();
   }
@@ -283,7 +275,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), adaptor.getOutput());
+        adaptor.getInput(), adaptor.getWeight());
 
     return success();
   }
@@ -298,7 +290,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension());
+        adaptor.getInput(), adaptor.getDimension());
     return success();
   }
 };
@@ -313,8 +305,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getDim0(),
-        adaptor.getDim1());
+        adaptor.getInput(), adaptor.getDim0(), adaptor.getDim1());
     return success();
   }
 };
@@ -347,7 +338,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getShape());
+        adaptor.getInput(), adaptor.getShape());
     return success();
   }
 };
@@ -388,7 +379,7 @@ public:
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), shapeAttr);
+        adaptor.getInput(), shapeAttr);
 
     return success();
   }
@@ -432,7 +423,7 @@ public:
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), shapeAttr);
+        adaptor.getInput(), shapeAttr);
 
     return success();
   }
