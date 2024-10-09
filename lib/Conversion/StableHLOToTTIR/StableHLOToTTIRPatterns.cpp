@@ -757,6 +757,52 @@ private:
   }
 };
 
+class StableHLOToTTIRGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
+                  mlir::stablehlo::GatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    auto dimensionNumbers = srcOp.getDimensionNumbers();
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::GatherOp>(
+        srcOp,                            // The original operation to replace
+        outputType,                       // Result type
+        srcOp.getOperands()[0],           // Input tensor
+        srcOp.getOperands()[1],           // Start indices
+        Value(outputTensor),              // Output tensor
+        dimensionNumbers.getOffsetDims(), // offset_dims attribute
+        dimensionNumbers
+            .getCollapsedSliceDims(), // collapsed_slice_dims attribute
+        dimensionNumbers
+            .getOperandBatchingDims(), // operand_batching_dims attribute
+        dimensionNumbers
+            .getStartIndicesBatchingDims(),   // start_indices_batching_dims
+                                              // attribute
+        dimensionNumbers.getStartIndexMap(),  // start_index_map attribute
+        dimensionNumbers.getIndexVectorDim(), // index_vector_dim attribute
+        srcOp.getSliceSizesAttr(),            // slice_sizes attribute
+        false,                                // indices_are_sorted attribute
+        rewriter.getArrayAttr(                // operand constraints
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -858,6 +904,11 @@ void addReshapeOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
 }
 
+void addGatherOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                  TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRGatherOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -877,6 +928,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
+  addGatherOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
