@@ -217,6 +217,13 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
+    let summary = "Eltwise logical not op.";
+    let description = [{
+      Eltwise logical not operation.
+    }];
+}
+
 def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -300,6 +307,20 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
     let summary = "Eltwise less than.";
     let description = [{
       Eltwise less than operation.
+    }];
+}
+
+def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and"> {
+    let summary = "Eltwise logical and.";
+    let description = [{
+      Eltwise logical and operation.
+    }];
+}
+
+def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or"> {
+    let summary = "Eltwise logical or.";
+    let description = [{
+      Eltwise logical or operation.
     }];
 }
 

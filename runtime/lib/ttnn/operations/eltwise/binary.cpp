@@ -75,6 +75,14 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::add);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::LogicalAnd: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::logical_and);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::LogicalOr: {
+    runEltwiseBinaryOP(op, tensorPool, ::ttnn::logical_or);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::multiply);
     break;
