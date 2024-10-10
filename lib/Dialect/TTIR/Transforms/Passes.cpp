@@ -574,6 +574,12 @@ public:
       return false;
     }
     funcOp.setFunctionType(newType);
+
+    Block &entryBlock = funcOp.getBody().front();
+    for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
+      entryBlock.getArgument(i).setType(inputTypes[i]);
+    }
+
     return true;
   }
 
