@@ -22,7 +22,7 @@ struct Env {
       ;
 #else
   {
-    return Env(true, true, true, true);
+    return Env(true, true, true, true, true);
   }
 #endif
   // TODO(bug #272), determine correct layout by tile shape in the future
