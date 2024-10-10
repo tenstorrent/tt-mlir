@@ -161,16 +161,19 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
 
 void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
+  // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "sum");
 }
 
 void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                 ::mlir::Block *block) {
+  // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "mean");
 }
 
 void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
+  // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "max");
 }
 
