@@ -1,6 +1,9 @@
 *.cmake @nsmithtt
 *.fbs @tapspatel
 *.txt @nsmithtt
+*.md @nsmithtt
+/docs/ @nsmithtt
+/env/ @nsmithtt
 /.github/ @vmilosevic
 /include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT
 /include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
@@ -19,3 +22,4 @@
 /python/ @nsmithtt
 /runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
 /runtime/tools/ @tapspatel
+/tools/ @svuckovicTT
