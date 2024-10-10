@@ -16,7 +16,8 @@ struct Env {
   constexpr static Env
 #endif
   get(bool ignoreTileShape = true, bool emptyOpForceRowMajor = true,
-      bool fullOpForceRowMajor = true, bool maxpool2dPreshard = true)
+      bool fullOpForceRowMajor = true, bool maxpool2dPreshard = true,
+      bool setMatmul1DProgramConfig = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
@@ -41,21 +42,32 @@ struct Env {
   // instead of adding a method in runtime
   bool maxpool2dPreshard;
 
+  // TODO(bug #891): ttnn::matmul doesn't chose correct program config.
+  bool setMatmul1DProgramConfig;
+
 private:
   constexpr Env(bool ignoreTileShape, bool emptyOpForceRowMajor,
-                bool fullOpForceRowMajor, bool maxpool2dPreshard)
+                bool fullOpForceRowMajor, bool maxpool2dPreshard,
+                bool setMatmul1DProgramConfig)
       : ignoreTileShape(ignoreTileShape),
         emptyOpForceRowMajor(emptyOpForceRowMajor),
         fullOpForceRowMajor(fullOpForceRowMajor),
-        maxpool2dPreshard(maxpool2dPreshard) {}
+        maxpool2dPreshard(maxpool2dPreshard),
+        setMatmul1DProgramConfig(setMatmul1DProgramConfig) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "workaround::Env{\n";
-  os << "\t" << "ignoreTileShape: " << env.ignoreTileShape << ",\n";
-  os << "\t" << "emptyOpForceRowMajor: " << env.emptyOpForceRowMajor << ",\n";
-  os << "\t" << "fullOpForceRowMajor: " << env.fullOpForceRowMajor << ",\n";
-  os << "\t" << "maxpool2dPreshard: " << env.maxpool2dPreshard << "\n";
+  os << "\t"
+     << "ignoreTileShape: " << env.ignoreTileShape << ",\n";
+  os << "\t"
+     << "emptyOpForceRowMajor: " << env.emptyOpForceRowMajor << ",\n";
+  os << "\t"
+     << "fullOpForceRowMajor: " << env.fullOpForceRowMajor << ",\n";
+  os << "\t"
+     << "maxpool2dPreshard: " << env.maxpool2dPreshard << ",\n";
+  os << "\t"
+     << "setMatmul1DProgramConfig: " << env.setMatmul1DProgramConfig << "\n";
   os << "}";
   return os;
 }
