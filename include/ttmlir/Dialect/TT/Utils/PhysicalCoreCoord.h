@@ -40,6 +40,11 @@ struct PhysicalCoreCoord {
   bool operator==(PhysicalCoreCoord const &other) const {
     return d == other.d && y == other.y && x == other.x;
   }
+
+  std::string toString() const {
+    return std::to_string(d) + " " + std::to_string(y) + " " +
+           std::to_string(x);
+  }
 };
 
 class PhysicalCoreCoordMapping {

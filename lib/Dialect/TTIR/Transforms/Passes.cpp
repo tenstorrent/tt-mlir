@@ -18,12 +18,14 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/IR/Attributes.h"
 #include "ttmlir/Dialect/TTIR/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
-#include <llvm/ADT/ArrayRef.h>
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/LogicalResult.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -35,6 +37,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSLIDINGWINDOW2DFIXSHAPES
 #define GEN_PASS_DEF_TTIRGENERICKERNEL
 #define GEN_PASS_DEF_TTIRGENERICREGION
+#define GEN_PASS_DEF_TTIRGENERICOPCBS
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
@@ -224,8 +227,8 @@ public:
         createOperandConstraints(rewriter, op.getKind(), op.getOperands());
     auto dispatch = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        op.getOutputs(), rewriter.getAttr<GridAttr>(), indexingMaps,
-        iteratorTypes, constraints);
+        ValueRange() /* cbs */, op.getOutputs(), rewriter.getAttr<GridAttr>(),
+        indexingMaps, iteratorTypes, constraints);
 
     // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());
@@ -285,27 +288,39 @@ public:
 
     auto dps = cast<DestinationStyleOpInterface>(op.getOperation());
 
-    // Create a dispatch op
+    // Create a generic op.
     auto [indexingMaps, iteratorTypes] = op.getIndexingMaps(rewriter);
     auto constraints = rewriter.getArrayAttr(SmallVector<Attribute>(
         op->getNumOperands(), rewriter.getAttr<OperandConstraintAttr>(
                                   OperandConstraint::AnyDeviceTile)));
-    auto dispatch = rewriter.create<ttir::GenericOp>(
+
+    // For testing purposes try getting grid of the resulting tensor and put the
+    // op in the grid.
+    // TODO(radenko) add a proper debug/test flag.
+    auto gridAttr = rewriter.getAttr<GridAttr>();
+    auto resEncoding =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding();
+    if (resEncoding) {
+      auto resLayout = mlir::cast<LayoutAttr>(resEncoding);
+      gridAttr = resLayout.getGrid();
+    }
+
+    auto genericOp = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        dps.getDpsInits(), rewriter.getAttr<GridAttr>(), indexingMaps,
+        ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
         iteratorTypes, constraints);
 
-    // Create a new basic block for the dispatch op and create block arguments
-    Block *block = rewriter.createBlock(&dispatch.getRegion());
-    SmallVector<Location> blockArgumentLocs(dispatch.getOperands().size(),
-                                            dispatch.getLoc());
-    block->addArguments(TypeRange(dispatch.getOperandTypes()),
+    // Create a new basic block for the generic op and create block arguments.
+    Block *block = rewriter.createBlock(&genericOp.getRegion());
+    SmallVector<Location> blockArgumentLocs(genericOp.getOperands().size(),
+                                            genericOp.getLoc());
+    block->addArguments(TypeRange(genericOp.getOperandTypes()),
                         blockArgumentLocs);
 
-    // Convert the original op into arith/math and into the dispatch block
+    // Convert the original op into arith/math and into the generic block.
     OpBuilder blockBuilder = OpBuilder::atBlockEnd(block);
     op.buildGenericRegion(blockBuilder, block);
-    rewriter.replaceOp(op, dispatch);
+    rewriter.replaceOp(op, genericOp);
     return success();
   }
 };
@@ -349,18 +364,46 @@ struct TTIRGenericOperandsToMemrefRewriter
                   ConversionPatternRewriter &rewriter) const final {
     Block *entry = &generic.getRegion().front();
     auto firstEntryArgType = entry->getArguments()[0].getType();
-    bool isConverted = static_cast<bool>(
-        mlir::cast<RankedTensorType>(firstEntryArgType).getEncoding());
-    if (isConverted) {
-      // Already converted
+    auto encoding =
+        mlir::cast<RankedTensorType>(firstEntryArgType).getEncoding();
+    if (mlir::isa_and_nonnull<BufferAttr>(encoding)) {
+      // Already converted.
       return failure();
     }
 
     rewriter.modifyOpInPlace(generic, [&]() {
       DenseMap<Type, Type> typeMap;
-      for (auto [operand, blockArg] :
-           llvm::zip(generic->getOperands(), entry->getArguments())) {
-        auto ty = getTypeConverter()->convertType(operand.getType());
+
+      for (auto blockArg : entry->getArguments()) {
+        uint32_t blockArgNumber = blockArg.getArgNumber();
+        auto matchingOperand = generic.getMatchingOperand(blockArgNumber);
+        auto operandType = matchingOperand.getType();
+
+        auto bufferLayout = mlir::cast<LayoutAttr>(
+            mlir::cast<RankedTensorType>(operandType).getEncoding());
+        auto bufferType = operandType;
+
+        int64_t cbIndex = generic.getOperandCbMapping()[blockArgNumber];
+
+        if (cbIndex >= 0) {
+          assert(static_cast<size_t>(cbIndex) < generic.getCbs().size());
+          auto cb = generic.getCbs()[cbIndex];
+          auto cbType = cb.getType();
+          auto cbLayout = mlir::cast<LayoutAttr>(
+              mlir::cast<RankedTensorType>(cbType).getEncoding());
+          bufferLayout = cbLayout;
+          bufferType = cbType;
+        }
+
+        // TODO(rpavlovic): introduce multiplier for buffer.
+        auto buffer = BufferAttr::get(
+            getContext(), bufferLayout.getMemref(),
+            (cbIndex >= 0 ? BufferAccess::Stream : BufferAccess::Alias));
+
+        auto ty = RankedTensorType::get(
+            buffer.getShape(),
+            mlir::cast<RankedTensorType>(bufferType).getElementType(), buffer);
+
         typeMap[blockArg.getType()] = ty;
         blockArg.setType(ty);
       }
@@ -674,8 +717,13 @@ public:
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
+    if (mlir::isa<GenericOp>(op->getParentOp())) {
+      // Skip if we're inside a GenericOp.
+      return failure();
+    }
+
     if (mlir::isa<ToLayoutOp>(op.getOperation())) {
-      // Skip the ToLayoutOp itself
+      // Skip the ToLayoutOp itself.
       return failure();
     }
 
@@ -1449,6 +1497,113 @@ public:
     } else if (not module->hasAttr(tt::SystemDescAttr::name)) {
       module->setAttr(tt::SystemDescAttr::name,
                       tt::SystemDescAttr::getDefault(&getContext()));
+    }
+  }
+};
+
+class TTIRGenericOpCBsRewriter : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp generic,
+                                PatternRewriter &rewriter) const final {
+    if (!generic.getOperandCbMapping().empty()) {
+      // Already inserted CBs, therefore skip.
+      return failure();
+    }
+
+    rewriter.setInsertionPointToStart(generic->getBlock());
+
+    SmallVector<Value> cbValues;
+    SmallVector<int64_t> operandCBMapping;
+    SmallVector<Attribute> oldConstraints;
+    SmallVector<Attribute> cbConstraints;
+    size_t i = 0;
+
+    for (auto operand : generic->getOperands()) {
+      size_t operandIdx = i++;
+      oldConstraints.push_back(generic.getOperandConstraints()[operandIdx]);
+
+      auto ty = mlir::cast<RankedTensorType>(operand.getType());
+
+      // Enforcing tiled layout as in kernel we always want to work with tiles.
+      auto desiredElementType = rewriter.getType<TileType>(ty.getElementType());
+      auto desiredLayout = rewriter.getAttr<LayoutAttr>(
+          ty, MemorySpace::DeviceL1, generic.getGrid(), desiredElementType);
+
+      auto operandTy = operand.getType();
+      auto operandLayout = mlir::cast<LayoutAttr>(
+          mlir::cast<RankedTensorType>(operandTy).getEncoding());
+
+      if (desiredLayout.getGrid() == operandLayout.getGrid()) {
+        // TODO(rpavlovic): should we check other layout features such as
+        // linear?
+        operandCBMapping.push_back(-1);
+        continue;
+      }
+
+      // Creating a CB for the operand. It takes the same type as the operand,
+      // but changes its grid. This may result in overly large CBs at the
+      // moment.
+      auto emptyOp = rewriter.create<tensor::EmptyOp>(
+          generic->getLoc(), ty.getShape(), ty.getElementType(), desiredLayout);
+      cbValues.push_back(emptyOp.getResult());
+      operandCBMapping.push_back(cbValues.size() - 1);
+
+      // Inheriting constraints from the original operand.
+      // OperandConstraint inherittedConstraint =
+      //     mlir::cast<OperandConstraintAttr>(
+      //         generic.getOperandConstraints()[operandIdx])
+      //         .getValue();
+      // inherittedConstraint =
+      //     bitEnumSet(inherittedConstraint, OperandConstraint::L1);
+      // inherittedConstraint =
+      //     bitEnumClear(inherittedConstraint, OperandConstraint::DRAM);
+      // inherittedConstraint =
+      //     bitEnumClear(inherittedConstraint, OperandConstraint::System);
+
+      // Fixing constraint to L1 for the CB operand.
+      // TODO(rpavlovic) remove or use code above when we decide on the operand
+      // constraints model.
+      cbConstraints.push_back(
+          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::L1));
+    }
+
+    SmallVector<Attribute> combinedConstraints;
+    combinedConstraints.append(oldConstraints.begin(),
+                               oldConstraints.begin() +
+                                   generic.getInputs().size());
+    combinedConstraints.append(cbConstraints.begin(), cbConstraints.end());
+    combinedConstraints.append(oldConstraints.begin() +
+                                   generic.getInputs().size(),
+                               oldConstraints.end());
+    auto newConstraintsArray = rewriter.getArrayAttr(combinedConstraints);
+
+    rewriter.setInsertionPointAfter(generic);
+    auto newGenericOp = rewriter.create<ttir::GenericOp>(
+        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
+        cbValues, generic.getOutputs(), generic.getGrid(),
+        generic.getIndexingMaps(), generic.getIteratorTypes(),
+        newConstraintsArray, operandCBMapping);
+
+    auto &oldRegion = generic.getRegion();
+    newGenericOp->getRegion(0).takeBody(oldRegion);
+
+    rewriter.replaceOp(generic, newGenericOp);
+    return success();
+  }
+};
+
+class TTIRGenericOpCBs : public impl::TTIRGenericOpCBsBase<TTIRGenericOpCBs> {
+public:
+  using impl::TTIRGenericOpCBsBase<TTIRGenericOpCBs>::TTIRGenericOpCBsBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericOpCBsRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
     }
   }
 };

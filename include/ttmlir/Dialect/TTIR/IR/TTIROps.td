@@ -32,33 +32,55 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     let summary = "Generically dispatch work to a grid of cores.";
     let description = [{
       This generic op carries a region that represents the work each core does. The region is
-      expected to have the same signature as the op itself. The op is expected to be lowered
-      to a backend specific form by a consuming backend. This op is heavily inspired by the
-      linalg.generic op so it can be useful to refer to linalg.generic documentation for more
-      details.
+      expected to have the same signature as the op itself with respect to input and output
+      operands. The op is expected to be lowered to a backend specific form by a consuming backend.
+      This op is heavily inspired by the linalg.generic op so it can be useful to refer to
+      linalg.generic documentation for more details.
 
       ```llvm
-      %5 = "ttir.generic"(%1, %3, %4) <{
-        grid = #tt.grid<1x1>,                     // The grid range of cores to dispatch work to.
-        indexing_maps = [#map, #map, #map],       // Affine maps for indexing into the input/output tensors. See linalg.generic
-        iterator_types = [#parallel, #parallel],  // Iterator types for the input/output tensors. See linalg.generic
-        operandSegmentSizes = array<i32: 2, 1>,   // Sizes of the operand segments, i.e. 2 inputs and 1 output.
+      %5 = "ttir.generic"(%1, %2, %3, %4) <{
+        grid = #tt.grid<1x1>,                        // The grid range of cores to dispatch work to.
+        indexing_maps = [#map, #map, #map],          // Affine maps for indexing into the input/output tensors. See linalg.generic
+        iterator_types = [#parallel, #parallel],     // Iterator types for the input/output tensors. See linalg.generic
+        operandSegmentSizes = array<i32: 2, 1, 1>,   // Sizes of the operand segments, i.e. 2 inputs, 1 cb and 1 output.
+        operand_cb_mapping = array<i64: -1, 0, -1>,  // Mapping of input & output operands to cbs. -1 means no mapping.
+                                                     // Mapped operands correspond to buffers in streaming mode.
+                                                     // Non-mapped operands correspond to buffers in alias mode.
       ({
-      ^bb0(%arg2: memref<64x128xf32, #l1_>, %arg3: memref<64x128xf32, #l1_>, %arg4: memref<64x128xf32, #l1_>):
+      ^bb0(%arg2: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>,
+           %arg3: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, stream>>,
+           %arg4: tensor<64x128xf32, #tt.buffer<memref<64x128xf32, #l1_>, alias>>):
           // Region body, would contain some computation that represents the work each core does.
-      }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      }) : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$cbs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         TT_OperandConstraintArrayAttr:$operand_constraints,
+                         DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping); // index of input operand and index of cb go together
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region AnyRegion:$region);
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // For a given block argument index, return the corresponding operand of the surrounding generic op.
+      // This is needed because extra CB operands may be present in between the inputs and outputs.
+      Value getMatchingOperand(size_t blockArgIndex) {
+        assert(blockArgIndex < getInputs().size() + getOutputs().size() &&
+               "blockArgIndex should be within the range of inputs and outputs");
+        return blockArgIndex < getInputs().size() ?
+          getOperand(blockArgIndex) : getOperand(blockArgIndex + getCbs().size());
+      }
+
+      MutableOperandRange getDpsInitsMutable() {
+        return getOutputsMutable();
+      }
+    }];
 }
 
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
@@ -293,7 +315,9 @@ def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mnemonic, traits> {
+class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_DPSOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+
     let summary = "Reduction op.";
     let description = [{
       Reduction op.
@@ -309,6 +333,35 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> : TTIR_DPSOp<mn
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
+
+      // Returns the indexing maps and iterator types for the reduction op.
+      // Indexing maps are identity maps with dropped dimensions corresponding to the
+      // reduction dimensions. Iterator types are parallel for non-reduction dimensions
+      // and reduction for reduction dimensions.
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        auto rank = mlir::cast<RankedTensorType>(getInput().getType()).getRank();
+        SmallVector<AffineMap> indexingMaps(getNumOperands(),
+                                            builder.getMultiDimIdentityMap(rank));
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+
+        auto reduceDims = getDimArgAttr();
+        auto resultIndexingMap = indexingMaps.back();
+        for (auto reduceDim : reduceDims) {
+          int64_t reduceDimInt = mlir::cast<IntegerAttr>(reduceDim).getInt();
+          if (reduceDimInt < 0) {
+            reduceDimInt += rank;
+          }
+          assert(reduceDimInt >= 0 && reduceDimInt < rank);
+          resultIndexingMap.dropResult(reduceDimInt);
+          iteratorTypes[reduceDimInt] =
+              builder.getAttr<IteratorTypeAttr>(IteratorType::Reduction);
+        }
+
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};}
     }];
 }
 

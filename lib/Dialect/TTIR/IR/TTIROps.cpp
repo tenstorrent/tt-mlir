@@ -10,11 +10,19 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/LogicalResult.h>
+#include "mlir/IR/Location.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
@@ -62,10 +70,24 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  if (getNumOperands() != getRegion().getNumArguments()) {
-    return emitOpError(
-        "The number of op operands and region/block operands must match");
+  if (getInputs().size() + getOutputs().size() !=
+      getRegion().getNumArguments()) {
+    return emitOpError("The number of input and output operands and "
+                       "region/block arguments must match");
   }
+
+  // Validate CB mappings.
+  auto operandCBmapping = getOperandCbMapping();
+  auto numCBs = getCbs().size();
+  if (!operandCBmapping.empty()) {
+    for (int64_t mapping : operandCBmapping) {
+      if (mapping < -1 ||
+          (mapping >= 0 && static_cast<size_t>(mapping) >= numCBs)) {
+        return emitOpError("CB index out of bounds");
+      }
+    }
+  }
+
   return success();
 }
 
@@ -113,6 +135,46 @@ void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
                                                         block);
+}
+
+static mlir::tt::ttir::KernelOp
+buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
+              ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
+              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs,
+              ::mlir::ArrayAttr operandConstraints) {
+  return opBuilder.create<mlir::tt::ttir::KernelOp>(
+      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs,
+      operandConstraints);
+}
+
+static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
+                           mlir::Location loc, ::mlir::StringRef kernelKind) {
+  auto kernelOp =
+      buildKernelOp(opBuilder, loc, "reduce", kernelKind, block->getArgument(0),
+                    block->getArgument(1),
+                    opBuilder.getArrayAttr(llvm::SmallVector<mlir::Attribute>(
+                        block->getNumArguments(),
+                        opBuilder.getAttr<mlir::tt::OperandConstraintAttr>(
+                            mlir::tt::OperandConstraint::AnyDeviceTile))));
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
+}
+
+void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "sum");
+}
+
+void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "mean");
+}
+
+void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "max");
 }
 
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {

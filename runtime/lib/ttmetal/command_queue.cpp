@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 
@@ -12,6 +13,7 @@
 
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 
 namespace tt::runtime::ttmetal {
 
@@ -415,6 +417,7 @@ void CQExecutor::execute(
   ZoneScopedN("EnqueueProgramCommand");
   ::tt::tt_metal::Program program = ::tt::tt_metal::CreateProgram();
 
+  std::unordered_set<uint32_t> createdCBs;
   for (::tt::target::metal::KernelDesc const *kernelDesc :
        *command->program()->kernels()) {
     ::tt::target::metal::KernelSource const *kernelSource =
@@ -434,9 +437,14 @@ void CQExecutor::execute(
         ::tt::tt_metal::CreateKernel(program, fileName, coreRangeSet, config);
 
     for (::tt::target::CBRef const *cbRef : *kernelDesc->cbs()) {
+      if (createdCBs.count(cbRef->desc()->port())) {
+        // Since kernels may share the same CB, we only need to create it once.
+        continue;
+      }
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
       ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      createdCBs.insert(cbRef->desc()->port());
     }
 
     // Process Kernel's runtime args based on variant and call metal APIs.

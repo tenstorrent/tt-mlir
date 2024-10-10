@@ -95,12 +95,14 @@ def TT_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TT TensorMemoryLa
 def TT_Parallel : I32EnumAttrCase<"Parallel", 0, "parallel">;
 def TT_Systolic : I32EnumAttrCase<"Systolic", 1, "systolic">;
 def TT_Broadcast : I32EnumAttrCase<"Broadcast", 2, "broadcast">;
+def TT_Reduction : I32EnumAttrCase<"Reduction", 3, "reduction">;
 
 def TT_IteratorType : I32EnumAttr<"IteratorType", "TT IteratorType",
                            [
                             TT_Parallel,
                             TT_Systolic,
                             TT_Broadcast,
+                            TT_Reduction,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
