@@ -42,11 +42,9 @@ createProgramConfig(const ::tt::target::ttnn::MatmulOp *op,
 
   if (mcastIn0) {
     perCoreM = M / tt::constants::TILE_HEIGHT;
-    perCoreN =
-        tt::div_up(tt::div_up(N, numCores), tt::constants::TILE_WIDTH);
+    perCoreN = tt::div_up(tt::div_up(N, numCores), tt::constants::TILE_WIDTH);
   } else {
-    perCoreM =
-        tt::div_up(tt::div_up(M, numCores), tt::constants::TILE_HEIGHT);
+    perCoreM = tt::div_up(tt::div_up(M, numCores), tt::constants::TILE_HEIGHT);
     perCoreN = N / tt::constants::TILE_WIDTH;
   }
 
@@ -61,7 +59,8 @@ createProgramConfig(const ::tt::target::ttnn::MatmulOp *op,
   CoreCoord computeWithStorageGridSize =
       outputMemoryConfig.shard_spec->grid.ranges().begin()->grid_size();
   if (lhs.is_sharded()) {
-    CoreCoord lhs_grid_size = lhs.shard_spec()->grid.ranges().begin()->grid_size();
+    CoreCoord lhs_grid_size =
+        lhs.shard_spec()->grid.ranges().begin()->grid_size();
     if (computeWithStorageGridSize < lhs_grid_size) {
       computeWithStorageGridSize = lhs_grid_size;
     }
