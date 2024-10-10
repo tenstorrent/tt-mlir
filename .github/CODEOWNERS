@@ -1,15 +1,21 @@
-* @nsmithtt
+*.cmake @nsmithtt
 *.fbs @tapspatel
+*.txt @nsmithtt
 /.github/ @vmilosevic
-/include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT
-/include/ttmlir/Dialect/TT/ @sdjordjevicTT @rpavlovicTT @mrakitaTT @nobradovictt
-/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @rpavlovicTT @mrakitaTT @nobradovictt
-/include/ttmlir/Dialect/TTKernel/ @rjakovljevicTT
-/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @rpavlovicTT @nobradovictt
-/lib/Conversion/TTNNToEmitC/ @svuckovicTT
-/lib/Dialect/TT/ @sdjordjevicTT @rpavlovicTT @mrakitaTT @nobradovictt
-/lib/Dialect/TTIR/ @sdjordjevicTT @rpavlovicTT @mrakitaTT @nobradovictt
-/lib/Dialect/TTKernel/ @rjakovljevicTT
-/lib/Dialect/TTNN/ @sdjordjevicTT @rpavlovicTT @nobradovictt
+/include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT
+/include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
+/include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
+/include/ttmlir/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
+/include/ttmlir/Dialect/TTKernel/ @nsmithtt @rpavlovicTT @rjakovljevicTT
+/include/ttmlir/Dialect/TTMetal/ @nsmithtt @rpavlovicTT
+/include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @nobradovictt @jserbedzijaTT
+/lib/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT
+/lib/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
+/lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
+/lib/Dialect/TTIR/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
+/lib/Dialect/TTKernel/ @nsmithtt @rpavlovicTT @rjakovljevicTT
+/lib/Dialect/TTMetal/ @nsmithtt @rpavlovicTT
+/lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @nobradovictt @jserbedzijaTT
+/python/ @nsmithtt
 /runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
 /runtime/tools/ @tapspatel
