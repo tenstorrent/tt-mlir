@@ -36,9 +36,6 @@
 
 namespace mlir::tt::ttnn {
 
-constexpr uint64_t kHostAllocatedSize = 0;
-constexpr uint64_t kHostAllocatedAddress = 0;
-
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
@@ -86,6 +83,8 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToMemoryConfigOp>
 createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -97,6 +96,8 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToLayoutOp>
 createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   ::tt::target::TensorLayout layout =
@@ -112,6 +113,8 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToDeviceOp>
 createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -136,6 +139,8 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::FromDeviceOp>
 createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
 
@@ -147,6 +152,9 @@ createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
+
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
   ::tt::target::DataType dtype =
       ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype().value());
@@ -184,6 +192,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
+  constexpr uint64_t kHostAllocatedAddress = 0;
+  constexpr uint64_t kHostAllocatedSize = 0;
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
@@ -305,8 +315,8 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
 
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   auto dim_arg =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
@@ -319,8 +329,8 @@ template <typename TransposeOp>
 createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedAddress, kHostAllocatedSize);
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   int32_t dim0 = op.getDim0();
   int32_t dim1 = op.getDim1();
 
@@ -349,8 +359,8 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto in1 = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
 }
 
@@ -359,10 +369,10 @@ template <typename ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   auto shape =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getShape());
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedAddress, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
 }
@@ -390,8 +400,8 @@ template <typename SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                               kHostAllocatedAddress, kHostAllocatedSize);
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   int32_t dimension = op.getDimension();
 
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);

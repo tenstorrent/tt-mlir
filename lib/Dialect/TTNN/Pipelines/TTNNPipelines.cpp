@@ -6,7 +6,6 @@
 
 #include "mlir/Pass/PassManager.h"
 
-#include "mlir/Transforms/Passes.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -46,10 +45,7 @@ void createTTNNPipelineAnalysisPasses(
 
 void createTTNNPipelineLoweringPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
-  // Add pass to remove unused values.
-  pm.addPass(mlir::createRemoveDeadValuesPass());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
