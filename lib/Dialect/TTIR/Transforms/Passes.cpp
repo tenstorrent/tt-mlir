@@ -694,8 +694,8 @@ public:
 
     assert(op->template hasTrait<TTIROp::Trait>());
     bool modified = false;
-    for (int64_t operandIndex = 0, numOperands = op->getNumOperands();
-         operandIndex < numOperands; ++operandIndex) {
+    for (int64_t operandIndex = 0; operandIndex < op->getNumOperands();
+         ++operandIndex) {
       auto &operand = op->getOpOperand(operandIndex);
       bool isResult = op.isDpsInit(&operand);
 
@@ -747,8 +747,8 @@ public:
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
-    for (int64_t operandIndex = 0, numOperands = op.getNumOperands();
-         operandIndex < numOperands; ++operandIndex) {
+    for (int64_t operandIndex = 0; operandIndex < op.getNumOperands();
+         ++operandIndex) {
       auto &operand = op->getOpOperand(operandIndex);
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
