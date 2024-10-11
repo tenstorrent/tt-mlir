@@ -270,7 +270,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             MemorySpace memorySpace,
                             GridAttr grid,
                             Type elementType,
-                            TensorMemoryLayout memLayout);
+                            TensorMemoryLayout memLayout = TensorMemoryLayout::None);
       LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
       LayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,
@@ -279,6 +279,8 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
       LayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
       LayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
+
+      uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
@@ -292,7 +294,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
       AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
-      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap, ArrayRef<int64_t> logicalTensorShape) const;
+      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
   }];
