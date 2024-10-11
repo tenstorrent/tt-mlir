@@ -12,7 +12,8 @@ namespace mlir::tt::ttmetal {
 //
 struct TTIRToTTMetalBackendPipelineOptions
     : public PassPipelineOptions<TTIRToTTMetalBackendPipelineOptions> {
-  ::llvm::SmallVector<int64_t> meshShape;
+  ListOption<int64_t> meshShape{
+      *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 };
 
 void createTTIRToTTMetalBackendPipeline(
