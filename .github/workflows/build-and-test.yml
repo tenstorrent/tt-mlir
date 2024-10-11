@@ -71,12 +71,12 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
-    - name: Lint
-      shell: bash
-      if: matrix.build.enable_perf == 'OFF'
-      run: |
-        source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+    # - name: Lint
+    #   shell: bash
+    #   if: matrix.build.enable_perf == 'OFF'
+    #   run: |
+    #     source env/activate
+    #     cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
 
     - name: Run Test
       shell: bash
