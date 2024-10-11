@@ -106,10 +106,12 @@ func.func @rsqrt(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
 }
 
 func.func @softmax(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
   %0 = tensor.empty() : tensor<512x1024xbf16>
   // CHECK: %[[C:.*]] = "ttnn.softmax"[[C:.*]]
   // Check for positive dimension attribute
   %1 = "ttir.softmax"(%arg0, %0) <{dimension = 1 : si32, operand_constraints = [#any_device, #any_device]}> : (tensor<512x1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
   %2 = tensor.empty() : tensor<512x1024xbf16>
   // CHECK: %[[C:.*]] = "ttnn.softmax"[[C:.*]]
   // Check for negative dimension attribute
