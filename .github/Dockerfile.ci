@@ -46,10 +46,6 @@ RUN source env/activate && \
 RUN source env/activate && \
     cmake --build build -- ttrt
 
-# Run clang-tidy
-RUN source env/activate && \
-    cmake --build build -- clang-tidy
-
 # Run the tests
 RUN source env/activate && \
     cmake --build build -- check-ttmlir

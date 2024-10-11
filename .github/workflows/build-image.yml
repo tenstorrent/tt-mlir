@@ -47,6 +47,7 @@ jobs:
             GIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.BASE_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.BASE_IMAGE_NAME}}:latest
 
       - name: Build and export base IRD Docker image
         uses: docker/build-push-action@v6
@@ -59,6 +60,7 @@ jobs:
             FROM_IMAGE=base
           tags: |
             ${{ env.BASE_IRD_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.BASE_IRD_IMAGE_NAME}}:latest
 
       - name: Build and export CI Docker image
         uses: docker/build-push-action@v6
@@ -70,6 +72,7 @@ jobs:
             GIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.CI_IMAGE_NAME}}:${{ github.sha }}
+            ${{ env.CI_IMAGE_NAME}}:latest
 
       - name: Build and export IRD Docker image
         uses: docker/build-push-action@v6
@@ -82,51 +85,4 @@ jobs:
             FROM_IMAGE=ci
           tags: |
             ${{ env.IRD_IMAGE_NAME}}:${{ github.sha }}
-
-      # Tag images as latest
-
-      - name: Build and push base Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .github
-          file: .github/Dockerfile.base
-          push: true
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-          tags: |
-            ${{ env.BASE_IMAGE_NAME}}:latest
-
-      - name: Build and push base IRD Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .github
-          file: .github/Dockerfile.ird
-          push: true
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-            FROM_IMAGE=base
-          tags: |
-            ${{ env.BASE_IRD_IMAGE_NAME}}:latest
-
-      - name: Build and push CI Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .github
-          file: .github/Dockerfile.ci
-          push: true
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-          tags: |
-            ${{ env.CI_IMAGE_NAME}}:latest
-
-      - name: Build and push IRD Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .github
-          file: .github/Dockerfile.ird
-          push: true
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-            FROM_IMAGE=ci
-          tags: |
             ${{ env.IRD_IMAGE_NAME}}:latest
