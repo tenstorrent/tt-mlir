@@ -119,16 +119,6 @@ func.func @softmax(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
   return %3 : tensor<512x1024xbf16>
 }
 
-func.func @typecast(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
-  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
-  %0 = tensor.empty() : tensor<64x128xbf16>
-  // CHECK: %[[C:.*]] = "ttnn.typecast"
-  // CHECK-SAME: tensor<64x128xf32,
-  // CHECK-SAME: tensor<64x128xbf16,
-  %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-  return %1 : tensor<64x128xbf16>
-}
-
 func.func @maximum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
   %0 = tensor.empty() : tensor<64x128xf32>
