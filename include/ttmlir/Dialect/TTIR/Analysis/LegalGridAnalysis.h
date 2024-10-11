@@ -16,7 +16,7 @@ struct LegalGridAnalysisInput {
   ChipDescAttr chipDesc;
   GridAttr maxGrid;
   RankedTensorType tensorType;
-  int64_t maxShardedGrids = 64;
+  int64_t maxShardedGrids;
   llvm::StringMap<LayoutOverrideParams> *outputLayoutOverrides;
 
   LegalGridAnalysisInput()
@@ -25,8 +25,10 @@ struct LegalGridAnalysisInput {
 
   LegalGridAnalysisInput(
       ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
+      int64_t maxShardedGrids,
       llvm::StringMap<LayoutOverrideParams> *outputLayoutOverrides)
       : chipDesc(chipDesc), maxGrid(maxGrid), tensorType(tensorType),
+        maxShardedGrids(maxShardedGrids),
         outputLayoutOverrides(outputLayoutOverrides) {}
 
   bool operator==(const LegalGridAnalysisInput &rhs) const {
