@@ -9,6 +9,7 @@ target_include_directories(TTRuntimeSysDesc PUBLIC "$<BUILD_INTERFACE:${TTMETAL_
 add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
 
 add_library(TTRuntimeDebug STATIC debug.cpp)
+set_property(TARGET TTRuntimeDebug PROPERTY CXX_STANDARD 20)
 target_include_directories(TTRuntimeDebug
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include

@@ -11,6 +11,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
+#include "tt/runtime/detail/logger.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
 #include "types_generated.h"
@@ -229,7 +230,7 @@ static void writeFile(std::string const &fileName, char const *data,
                       std::size_t size) {
   if (debug::Env::get().loadKernelsFromDisk) {
     std::ifstream file(fileName);
-    assert(file.is_open() && "Kernel file not found");
+    LOG_ASSERT(file.is_open(), "Kernel file ", fileName, " not found");
     return;
   }
   std::ofstream file(fileName);
@@ -352,8 +353,9 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
       cbRef->desc()->memory_desc()->size() * cbRef->desc()->num_buffers();
   ::tt::DataFormat dataFormat =
       toDataFormat(cbRef->desc()->memory_desc()->data_type());
-  assert(cbRef->tensor_ref());
-  assert(cbRef->tensor_ref()->address() == cbRef->address());
+  LOG_ASSERT(cbRef->tensor_ref());
+  LOG_ASSERT(cbRef->tensor_ref()->address() == cbRef->address(),
+             "Address mismatch between tensor ref and cb ref");
   return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
                               *buffers.at(cbRef->tensor_ref()->global_id()))
       .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
@@ -381,14 +383,15 @@ static void processRuntimeArgs(
     return;
   }
 
-  assert(rt_args_types->size() == rt_args->size());
+  LOG_ASSERT(rt_args_types->size() == rt_args->size());
   std::vector<uint32_t> rt_args_vec;
 
   for (size_t i = 0; i < rt_args->size(); i++) {
     switch (rt_args_types->Get(i)) {
     case ::tt::target::metal::RuntimeArg::RuntimeArgTensorAddress: {
       const auto *rt_arg = static_cast<const TensorAddr *>(rt_args->Get(i));
-      assert(rt_arg->operand_idx() < operands->size() && "invalid operand");
+      LOG_ASSERT(rt_arg->operand_idx() < operands->size(), "invalid operand ",
+                 rt_arg->operand_idx());
       uint32_t global_id = operands->Get(rt_arg->operand_idx())->global_id();
       uint32_t addr = buffers.at(global_id)->address();
       rt_args_vec.push_back(addr);
@@ -422,7 +425,7 @@ void CQExecutor::execute(
        *command->program()->kernels()) {
     ::tt::target::metal::KernelSource const *kernelSource =
         kernelDesc->kernel_as_KernelSource();
-    assert(kernelSource && "Only source kernels supported for now");
+    LOG_ASSERT(kernelSource, "Only source kernels supported for now");
     CoreRangeSet coreRangeSet = toCoreRangeSet(kernelDesc->core_range_set());
     // We need a new API to create a kernel from source string, or directly from
     // binary
@@ -459,18 +462,19 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::EnqueueWriteBufferCommand const *command) {
   ZoneScopedN("EnqueueWriteBufferCommand");
-  assert(buffers.find(command->dst()->global_id()) != buffers.end() &&
-         "Buffer not allocated");
+  LOG_ASSERT(buffers.contains(command->dst()->global_id()),
+             "Buffer not allocated");
   auto buffer = buffers[command->dst()->global_id()];
   constexpr bool blocking = false;
   switch (command->src_type()) { // currently only supporting ConstantBuffer32
   case tt::target::metal::HostBuffer::ConstantBuffer32: {
     const auto *src = command->src_as_ConstantBuffer32();
-    assert(src->data() != nullptr && (*src->data()).size() == 1 &&
-           "Only scalar constant supported");
-    assert(command->dst()->size() ==
-               buffers[command->dst()->global_id()]->size() &&
-           "Size mismatch");
+    LOG_ASSERT(src->data() != nullptr && (*src->data()).size() == 1,
+               "Only scalar constant supported");
+    LOG_ASSERT(command->dst()->size() ==
+                   buffers[command->dst()->global_id()]->size(),
+               "Size mismatch: ", command->dst()->size(),
+               " != ", buffers[command->dst()->global_id()]->size());
     int shapeAccumulate = std::accumulate(
         (*command->dst()->desc()->shape()).begin(),
         (*command->dst()->desc()->shape()).end(), 1, std::multiplies<int>());
@@ -503,8 +507,8 @@ void CQExecutor::execute(
     ::tt::target::metal::DeallocateBufferCommand const *command) {
   ZoneScopedN("DeallocateBufferCommand");
   auto iter = buffers.find(command->ref()->global_id());
-  assert(iter != buffers.end() && "Buffer not allocated");
-  assert(iter->second != nullptr && "Buffer already deallocated");
+  LOG_ASSERT(iter != buffers.end(), "Buffer not allocated");
+  LOG_ASSERT(iter->second != nullptr, "Buffer already deallocated");
   ::tt::tt_metal::DeallocateBuffer(*iter->second);
   buffers.erase(iter);
 }
@@ -512,7 +516,7 @@ void CQExecutor::execute(
 void CQExecutor::execute(
     ::tt::target::metal::CreateEventCommand const *command) {
   ZoneScopedN("CreateEventCommand");
-  assert(events.find(command->ref()->global_id()) == events.end());
+  LOG_ASSERT(not events.contains(command->ref()->global_id()));
   events[command->ref()->global_id()] =
       std::make_shared<::tt::tt_metal::Event>();
 }
