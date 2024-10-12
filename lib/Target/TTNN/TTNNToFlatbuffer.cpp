@@ -126,8 +126,18 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       ::tt::mlir::ttnn::utils::toTargetBufferType(
           op.getMemoryConfig().getBufferType().getValue());
 
-  auto memoryConfigDesc =
-      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+  // TODO(bug #620): This is a temporary solution until we have a proper
+  // ShardSpec defined in ttnn::MemoryConfig IR
+  //
+  llvm::SmallVector<int64_t> shardShapeSmallVec =
+      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding())
+          .getShardShape();
+  std::vector<int64_t> shardShapeVec = std::vector<int64_t>(
+      shardShapeSmallVec.begin(), shardShapeSmallVec.end());
+  auto shardShape = cache.fbb->CreateVector<int64_t>(shardShapeVec);
+
+  auto memoryConfigDesc = CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout,
+                                                 bufferType, shardShape);
 
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
@@ -181,8 +191,18 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       ::tt::mlir::ttnn::utils::toTargetBufferType(
           op.getMemoryConfig()->getBufferType().getValue());
 
-  auto memoryConfigDesc =
-      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+  // TODO(bug #620): This is a temporary solution until we have a proper
+  // ShardSpec defined in ttnn::MemoryConfig IR
+  //
+  llvm::SmallVector<int64_t> shardShapeSmallVec =
+      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding())
+          .getShardShape();
+  std::vector<int64_t> shardShapeVec = std::vector<int64_t>(
+      shardShapeSmallVec.begin(), shardShapeSmallVec.end());
+  auto shardShape = cache.fbb->CreateVector<int64_t>(shardShapeVec);
+
+  auto memoryConfigDesc = CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout,
+                                                 bufferType, shardShape);
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
       cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,

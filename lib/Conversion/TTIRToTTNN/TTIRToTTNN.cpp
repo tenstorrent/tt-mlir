@@ -134,6 +134,16 @@ class ToLayoutOpConversionPattern
 public:
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
+  bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
+    for (mlir::Operation *user : op.getResult().getUsers()) {
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   LogicalResult
   matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -175,11 +185,14 @@ public:
       dtype = elementTypeToDataType(elementType);
     }
 
-    // TODO(bug #665):
-    // Binary ops fail with row major layout in ttnn, defaulting to tile
-    // layout for all ops...
+    // TODO(bug #875):
+    // Remove the following code block once constraints modelling is implemented
+    // on dialect level
     //
-    ttnnLayoutEnum = ttnn::Layout::Tile;
+    // Default to Tile layout unless op supports only RowMajor layout
+    //
+    ttnnLayoutEnum =
+        shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
 
     // Map TT::MemorySpace to TTNN::BufferType
     //
