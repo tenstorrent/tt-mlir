@@ -8,6 +8,7 @@
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/transpose.h"
+#include "operations/data_movement/slice.h"
 #include "operations/deletion/dealloc.h"
 #include "operations/eltwise/binary.h"
 #include "operations/eltwise/unary.h"
@@ -105,6 +106,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
     return operations::pool::run(op->type_as_MaxPool2dOp(), context);
+  } 
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    return operations::data_movement::run(op->type_as_SliceOp(), context);
   }
   default: {
     throw std::runtime_error("Unsupported operation type");

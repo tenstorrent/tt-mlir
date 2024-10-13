@@ -83,6 +83,27 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     }];
 }
 
+def TTIR_SliceOp : TTIR_DPSOp<"slice"> {
+  let summary = "Slice op.";
+  let description = [{Slice op}];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$output,
+                       DenseI64ArrayAttr:$start_indices,
+                       DenseI64ArrayAttr:$limit_indices,
+                       DenseI64ArrayAttr:$strides,
+                       TT_OperandConstraintArrayAttr:$operand_constraints);
+  
+  let results = (outs AnyRankedTensor:$result);
+
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+  
+}
+
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
     let summary = "Layout op.";
     let description = [{

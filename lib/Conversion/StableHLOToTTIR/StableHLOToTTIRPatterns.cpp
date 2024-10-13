@@ -757,6 +757,71 @@ private:
   }
 };
 
+class StableHLOToTTIRSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SliceOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::SliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SliceOp srcOp,
+                  mlir::stablehlo::SliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    // Replace the original ConcatOp with the destination operation
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceOp>(
+        srcOp,
+        outputType,          // result type
+        adaptor.getOperand(), // input values
+        outputTensor, // output value
+        adaptor.getStartIndicesAttr(),
+        adaptor.getLimitIndicesAttr(),
+        adaptor.getStridesAttr(),
+        rewriter.getArrayAttr( // operand constraints
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkBasicLegality(mlir::stablehlo::ConcatenateOp &srcOp,
+                     mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
+                     ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getInputs().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ConcatOp must have at least one input.");
+    }
+    if (adaptor.getDimension() >=
+        INT32_MAX) { // stablehlo.concatenate dimension is i64,
+                     // ttir.concat dimension is si32
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "ConcatOp dimension is too large.");
+    }
+
+    auto rankedTensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getOperand(0).getType());
+    if (static_cast<int64_t>(adaptor.getDimension()) >=
+        rankedTensorType.getRank()) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Invalid concatenation dimension.");
+    }
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -858,6 +923,12 @@ void addReshapeOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
 }
 
+void addSliceOpConversionPattern(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -877,6 +948,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
+  addSliceOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
