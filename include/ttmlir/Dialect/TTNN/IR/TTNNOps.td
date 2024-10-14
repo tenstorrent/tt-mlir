@@ -399,6 +399,28 @@ def TTNN_ReshapeOp : TTNN_NamedDPSOp<"reshape"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
+    let summary = "Slice op.";
+    let description = [{
+      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
+      indices for each dimension.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$begins,
+                         I32ArrayAttr:$ends,
+                         I32ArrayAttr:$step);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,

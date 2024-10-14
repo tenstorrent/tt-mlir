@@ -5,6 +5,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deletion/dealloc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary.cpp
