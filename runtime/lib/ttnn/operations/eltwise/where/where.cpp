@@ -7,14 +7,14 @@
 #include "tt/runtime/ttnn/operations/utils.h"
 
 namespace tt::runtime::ttnn::operations::where {
-static void runReductionOp(
-    ::tt::target::ttnn::WhereOp const *op, ProgramTensorPool &tensorPool,
-    std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &,
-        const std::optional<std::variant<int, std::vector<int>>> &, const bool,
-        const std::optional<::tt::tt_metal::MemoryConfig> &,
-        const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
-        ttnnOp) {
+static void
+runWhereOp(::tt::target::ttnn::WhereOp const *op, ProgramTensorPool &tensorPool,
+           std::function<::ttnn::Tensor(
+               const ::ttnn::Tensor &,
+               const std::optional<std::variant<int, std::vector<int>>> &,
+               const bool, const std::optional<::tt::tt_metal::MemoryConfig> &,
+               const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
+               ttnnOp) {
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
@@ -27,6 +27,6 @@ static void runReductionOp(
 
 void run(const ::tt::target::ttnn::WhereOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.tensorPool;
-  runReductionOp(op, tensorPool, ::ttnn::where);
+  runWhereOp(op, tensorPool, ::ttnn::where);
 }
 } // namespace tt::runtime::ttnn::operations::where

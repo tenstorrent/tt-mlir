@@ -438,16 +438,17 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
 template <typename WhereOp>
 ::flatbuffers::Offset<::tt::target::ttnn::WhereOp>
 createWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
-  auto in =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto out = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  auto pred = op.getPred();
-  auto ontrue = op.getOnTrue();
-  auto onfalse = op.getOnFalse();
+  auto pred =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getPred()));
+  auto ontrue = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getOnTrue()));
+  auto onfalse = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getOnFalse()));
 
-  return ::tt::target::ttnn::CreateWhereOp(*cache.fbb, in, out, pred, ontrue,
-                                           onfalse);
+  return ::tt::target::ttnn::CreateWhereOp(*cache.fbb, pred, ontrue, onfalse,
+                                           out);
 }
 
 template <typename ConcatOp>
@@ -733,6 +734,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sinOp = dyn_cast<SinOp>(op); sinOp) {
     return createOperation(cache, createEltwiseOp(cache, sinOp), debugString);
+  }
+  if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
+    return createOperation(cache, createWhereOp(cache, whereOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
