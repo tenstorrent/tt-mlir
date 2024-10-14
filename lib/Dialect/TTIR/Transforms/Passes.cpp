@@ -694,9 +694,7 @@ public:
 
     assert(op->template hasTrait<TTIROp::Trait>());
     bool modified = false;
-    for (int64_t operandIndex = 0; operandIndex < op->getNumOperands();
-         ++operandIndex) {
-      auto &operand = op->getOpOperand(operandIndex);
+    for (auto &operand : op->getOpOperands()) {
       bool isResult = op.isDpsInit(&operand);
 
       // TTNN Conv2d moves input, weight, and bias from host to device
@@ -710,7 +708,8 @@ public:
                   .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
 
-      Location newLoc = appendInputSuffix(op.getLoc(), operandIndex);
+      Location newLoc =
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       auto desiredLayout =
           createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint,
                            defaultMemorySpace, defaultDeviceMemoryLayout);
@@ -747,9 +746,7 @@ public:
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
-    for (int64_t operandIndex = 0; operandIndex < op.getNumOperands();
-         ++operandIndex) {
-      auto &operand = op->getOpOperand(operandIndex);
+    for (auto &operand : op->getOpOperands()) {
       // Leave the return values in initMemorySpace, optimizer might decide
       // otherwise
       bool tiled = false;
@@ -758,7 +755,8 @@ public:
         initMemoryLayout = defaultDeviceMemoryLayout;
       }
 
-      Location newLoc = appendInputSuffix(op.getLoc(), operandIndex);
+      Location newLoc =
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       if (auto layout =
               createToLayoutOp(rewriter, newLoc, operand.get(), initMemorySpace,
                                initMemoryLayout, tiled);
