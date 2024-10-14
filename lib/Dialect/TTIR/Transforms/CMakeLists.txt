@@ -1,5 +1,11 @@
 add_mlir_dialect_library(MLIRTTIRTransforms
-        Passes.cpp
+        Allocate.cpp
+        Constant.cpp
+        Generic.cpp
+        Layout.cpp
+        Optimizer.cpp
+        Transforms.cpp
+        Utility.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
