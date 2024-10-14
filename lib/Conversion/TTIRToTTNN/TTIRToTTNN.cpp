@@ -87,8 +87,8 @@ public:
     // If the tensor is not going to device, we can create the op without
     // device-specific attributes
     //
-    tt::TensorMemoryLayout ttTensorMemoryLayout = ttLayoutAttr.getMemLayout();
-    if (ttTensorMemoryLayout == TensorMemoryLayout::None) {
+    tt::TensorMemoryLayout tensorMemoryLayout = ttLayoutAttr.getMemLayout();
+    if (tensorMemoryLayout == TensorMemoryLayout::None) {
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
           op, this->getTypeConverter()->convertType(op.getType()), nullptr,
           shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
@@ -98,15 +98,13 @@ public:
 
     ttnn::BufferType bufferType =
         ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
 
     // Create MemoryConfigAttr
     //
     auto device = getOrInsertDevice(rewriter, op);
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
@@ -212,8 +210,7 @@ public:
 
     // Set the tensor memory layout
     //
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+    TensorMemoryLayout tensorMemoryLayout = ttLayoutAttr.getMemLayout();
 
     // TODO(bug #621):
     // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
@@ -236,7 +233,7 @@ public:
     //
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
 
     // Create ToDeviceOp

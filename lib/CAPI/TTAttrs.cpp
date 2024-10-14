@@ -135,7 +135,7 @@ MlirAttribute ttmlirTTOOBValAttrGet(MlirContext ctx, uint32_t oobVal) {
 MlirAttribute ttmlirTTTensorMemoryLayoutAttrGet(MlirContext ctx,
                                                 uint32_t memLayout) {
   return wrap(TensorMemoryLayoutAttr::get(
-      unwrap(ctx), static_cast<tt::TensorMemoryLayout>(memLayout)));
+      unwrap(ctx), static_cast<TensorMemoryLayout>(memLayout)));
 }
 
 MlirAttribute ttmlirTTIteratorTypeAttrGet(MlirContext ctx,

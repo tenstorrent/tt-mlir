@@ -5,6 +5,7 @@
 #ifndef TTMLIR_TARGET_TTNN_UTILS_H
 #define TTMLIR_TARGET_TTNN_UTILS_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Target/Common/types_generated.h"
@@ -12,23 +13,23 @@
 
 namespace tt::mlir::ttnn::utils {
 
-::tt::target::TensorMemoryLayout toTargetTensorMemoryLayout(
-    ::mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout) {
+::tt::target::TensorMemoryLayout
+toTargetTensorMemoryLayout(::mlir::tt::TensorMemoryLayout tensorMemoryLayout) {
 
   switch (tensorMemoryLayout) {
-  case ::mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
+  case ::mlir::tt::TensorMemoryLayout::Interleaved:
     return ::tt::target::TensorMemoryLayout::Interleaved;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::SingleBank:
+  case ::mlir::tt::TensorMemoryLayout::SingleBank:
     return ::tt::target::TensorMemoryLayout::SingleBank;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::HeightSharded:
+  case ::mlir::tt::TensorMemoryLayout::HeightSharded:
     return ::tt::target::TensorMemoryLayout::HeightSharded;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::WidthSharded:
+  case ::mlir::tt::TensorMemoryLayout::WidthSharded:
     return ::tt::target::TensorMemoryLayout::WidthSharded;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
+  case ::mlir::tt::TensorMemoryLayout::BlockSharded:
     return ::tt::target::TensorMemoryLayout::BlockSharded;
+  case ::mlir::tt::TensorMemoryLayout::None:
+    llvm_unreachable("Unsupported TensorMemoryLayout");
   }
-
-  llvm_unreachable("Unsupported TensorMemoryLayout");
 }
 
 ::tt::target::BufferType
