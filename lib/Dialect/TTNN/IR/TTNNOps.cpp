@@ -2,18 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
+
 #include <optional>
 
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
-
-#include <llvm/ADT/ArrayRef.h>
-
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
+#include "llvm/ADT/ArrayRef.h"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -23,142 +22,181 @@ namespace mlir::tt::ttnn {
 constexpr int TTNN_TILE_HEIGHT = 32;
 constexpr int TTNN_TILE_WIDTH = 32;
 
-static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
-  return layout == ::mlir::tt::TensorMemoryLayout::Interleaved ||
-         ::mlir::tt::isShardedMemoryLayout(layout);
-}
+//===----------------------------------------------------------------------===//
+// Conv2dOp
+//===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::ToMemoryConfigOp::verify() {
-  ::mlir::RankedTensorType inputTy = getInput().getType();
-  ::mlir::RankedTensorType outputTy = getResult().getType();
-  auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
-  auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
-  if (not inputLayout) {
-    return emitOpError("Input tensor type missing layout attribute");
-  }
-  if (not outputLayout) {
-    return emitOpError("Output tensor type missing layout attribute");
-  }
-  ::mlir::tt::MemorySpace outputMemorySpace = outputLayout.getMemorySpace();
-  ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
-      outputLayout.getMemLayout();
-  if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
-      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::None) {
-    return emitOpError("System memory space only supports undef memory layout");
-  }
-
-  if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
-      !isValidDeviceLayout(outputMemoryLayout)) {
-    return emitOpError("Device memory space only supports interleaved or "
-                       "sharded memory layouts");
-  }
-
-  if (outputMemorySpace == ::mlir::tt::MemorySpace::DeviceDRAM &&
-      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::Interleaved) {
-    return emitOpError(
-        "Device DRAM memory space only supports interleaved memory layout");
-  }
-
-  if (outputLayout.hasShardedTensorMemoryLayout()) {
-    if (not outputLayout.hasShardedL1TensorMemoryLayout()) {
-      return emitOpError("Sharded tensors layout must reside in L1");
-    }
-    ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
-    // Currently TTNN backend only supports 2D shard shape
-    if (shardShape.size() != 2) {
-      return emitOpError("Shard shape must be 2D");
-    }
-    if (outputMemoryLayout == ::mlir::tt::TensorMemoryLayout::BlockSharded) {
-      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-      if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
-          shardShape[1] % TTNN_TILE_WIDTH != 0) {
-        return emitOpError(
-            "Shard shape must divide tile shape (32, 32) evenly");
-      }
-    }
-  }
-  return success();
-}
-
-::mlir::LogicalResult mlir::tt::ttnn::EmbeddingOp::verify() {
+// Conv2dOp verification
+::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
 
-  // inputType can have any rank
-
-  // weightType must have rank of 2: (dictionary_size, embedding_size)
-  //
-  if (weightType.getRank() != 2) {
-    return emitOpError("Weight must be a 2D tensor");
+  if (inputType.getRank() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
   }
-
-  // outputType must have rank of inputType + and additional dimension of
-  // embedding_size
-  //
-  if (outputType.getRank() - inputType.getRank() != 1) {
-    return emitOpError("Output must have one dimension more than input");
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
   }
-
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+    auto biasShape = biasType->getShape();
+    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
+      return emitOpError("Bias must only have data on the final dimenstion");
+    }
+  }
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttnn::SoftmaxOp::verify() {
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp
+//===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-
-  // Shapes of input and output of a softmax operation must be the same
-  if (inputType.getShape() != outputType.getShape()) {
-    return emitOpError("Input and output shapes must be the same");
+  ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  if (getKernelHeight() > getInputHeight()) {
+    return emitOpError() << "Kernel height " << getKernelHeight()
+                         << " is greater than input height " << getInputHeight()
+                         << ". This MaxPool2d configuration is invalid.";
   }
 
-  int32_t dim = getDimension();
+  if (getKernelWidth() > getInputWidth()) {
+    return emitOpError() << "Kernel width " << getKernelWidth()
+                         << " is greater than input width " << getInputWidth()
+                         << ". This MaxPool2d configuration is invalid.";
+  }
 
-  // Check that the dim is within the bounds of the input tensor
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension attribute must be within the bounds of the input tensor");
+  if (inputType.getRank() != 4) {
+    return emitOpError()
+           << "Input tensor rank must be 4. Recieved input with rank "
+           << inputType.getRank() << ". Shape: (" << inputShape << ").";
+  }
+
+  if (inputShape[0] != 1 || inputShape[1] != 1) {
+    return emitOpError() << "Maxpool input must be in the form (1, 1, N*H*W, "
+                            "C). Recieved shape ("
+                         << inputShape << ").";
+  }
+
+  if (inputShape[2] != getBatchSize() * getInputHeight() * getInputWidth()) {
+    return emitOpError() << "Maxpool shape (" << inputShape
+                         << ") at dim -2 must be equal to N*H*W. However the "
+                            "attributes given are N="
+                         << getBatchSize() << ", H=" << getInputHeight()
+                         << ", W=" << getInputWidth() << ". " << getBatchSize()
+                         << "*" << getInputHeight() << "*" << getInputWidth()
+                         << " != " << inputShape[2] << ".";
+  }
+
+  if (inputShape[3] != getChannels()) {
+    return emitOpError() << "Maxpool shape (" << inputShape
+                         << ") at dim -3 must be equal to C. However the "
+                            "attribute given is C="
+                         << getChannels() << ". " << inputShape[3]
+                         << " != " << getChannels();
   }
 
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttnn::TransposeOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  auto inputShape = inputType.getShape();
-  auto outputShape = outputType.getShape();
-  int32_t dim0 = getDim0();
-  int32_t dim1 = getDim1();
-  if (inputType.getRank() < 2) {
-    return emitOpError("Input must be at least a 2D tensor");
+//===----------------------------------------------------------------------===//
+// EmptyOp
+//===----------------------------------------------------------------------===//
+
+// EmptyOp verification
+::mlir::LogicalResult mlir::tt::ttnn::EmptyOp::verify() {
+  // ==============================
+  // === CHECK ATTRIBUTES START ===
+  // ==============================
+  // Check that the attributes of the op match the attributes of the output
+  // tensor type.
+  //
+  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
+  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+
+  assert(::llvm::isa<tt::LayoutAttr>(output.getEncoding()));
+  tt::LayoutAttr ttLayoutAttr =
+      mlir::cast<tt::LayoutAttr>(output.getEncoding());
+
+  // Shape
+  //
+  assert(output.getShape() == getShape().getShape());
+
+  // DataType and Layout
+  //
+  mlir::MemRefType memref = ttLayoutAttr.getMemref();
+  Type elementType = memref.getElementType();
+  if (getLayout().has_value()) {
+    ttnn::Layout ttnnLayoutEnum;
+    if (llvm::isa<TileType>(elementType)) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    }
+    assert(ttnnLayoutEnum == getLayoutAttr().getValue());
   }
-  if (inputType.getRank() != outputType.getRank()) {
-    return emitOpError("Input must have the same rank as output");
+  if (getDtype().has_value()) {
+    tt::DataType dtype;
+    if (llvm::isa<TileType>(elementType)) {
+      auto tileType = mlir::cast<TileType>(elementType);
+      dtype = tileType.getDataType();
+    } else {
+      dtype = elementTypeToDataType(elementType);
+    }
+    assert(dtype == getDtype());
   }
-  if (dim0 >= inputType.getRank() || dim0 < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension 0 attribute must be within the bounds of the input tensor");
+
+  // MemoryConfig
+  // Check that op has MemoryConfigAttr set on itself, then compare internal
+  // attrs with output tensor attrs.
+  //
+  if (getMemoryConfig().has_value()) {
+    ttnn::BufferType bufferType =
+        mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+    ttnn::TensorMemoryLayout tensorMemoryLayout =
+        mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
+            ttLayoutAttr.getMemLayout());
+    assert(bufferType == getMemoryConfig()->getBufferType().getValue());
+    assert(tensorMemoryLayout ==
+           getMemoryConfig()->getTensorMemoryLayout().getValue());
   }
-  if (dim1 >= inputType.getRank() || dim1 < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension 1 attribute must be within the bounds of the input tensor");
-  }
-  if (dim0 < 0) {
-    dim0 += inputType.getRank();
-  }
-  if (dim1 < 0) {
-    dim1 += inputType.getRank();
-  }
-  if (outputShape[dim0] != inputShape[dim1] ||
-      outputShape[dim1] != inputShape[dim0]) {
-    return emitOpError("Input-output transpose dimension mismatch.");
-  }
+  //
+  // ==============================
+  // ==== CHECK ATTRIBUTES END ====
+  // ==============================
+
+  // ==============================
+  // === CHECK SIGNATURES START ===
+  // ==============================
+  // Check that call-site uses the correct signature. We only allow 2 for now:
+  // 1. none, Shape, DataType, Layout, none
+  // 2. Device, Shape, DataType, Layout, MemoryConfig
+  //
+  assert(
+      // 1.
+      (!getDevice() && getDtype().has_value() && getLayout().has_value() &&
+       !getMemoryConfig().has_value()) ||
+      // 2.
+      (getDevice() && getDtype().has_value() && getLayout().has_value() &&
+       getMemoryConfig().has_value()));
+  //
+  // ==============================
+  // ==== CHECK SIGNATURES END ====
+  // ==============================
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+
+// ConcatOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::ConcatOp::verify() {
   mlir::OperandRange inputs = getInputs();
   int32_t dim = getDim();
@@ -200,6 +238,11 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return mlir::success();
 }
 
+//===----------------------------------------------------------------------===//
+// ReshapeOp
+//===----------------------------------------------------------------------===//
+
+// ReshapeOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::ReshapeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
@@ -267,6 +310,11 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SliceOp
+//===----------------------------------------------------------------------===//
+
+// SliceOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::SliceOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
@@ -380,7 +428,144 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// TransposeOp
+//===----------------------------------------------------------------------===//
+
+// TransposeOp verification
+::mlir::LogicalResult mlir::tt::ttnn::TransposeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+  int32_t dim0 = getDim0();
+  int32_t dim1 = getDim1();
+  if (inputType.getRank() < 2) {
+    return emitOpError("Input must be at least a 2D tensor");
+  }
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input must have the same rank as output");
+  }
+  if (dim0 >= inputType.getRank() || dim0 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 0 attribute must be within the bounds of the input tensor");
+  }
+  if (dim1 >= inputType.getRank() || dim1 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 1 attribute must be within the bounds of the input tensor");
+  }
+  if (dim0 < 0) {
+    dim0 += inputType.getRank();
+  }
+  if (dim1 < 0) {
+    dim1 += inputType.getRank();
+  }
+  if (outputShape[dim0] != inputShape[dim1] ||
+      outputShape[dim1] != inputShape[dim0]) {
+    return emitOpError("Input-output transpose dimension mismatch.");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// EmbeddingOp
+//===----------------------------------------------------------------------===//
+
+// EmbeddingOp verification
+::mlir::LogicalResult mlir::tt::ttnn::EmbeddingOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // inputType can have any rank
+
+  // weightType must have rank of 2: (dictionary_size, embedding_size)
+  //
+  if (weightType.getRank() != 2) {
+    return emitOpError("Weight must be a 2D tensor");
+  }
+
+  // outputType must have rank of inputType + and additional dimension of
+  // embedding_size
+  //
+  if (outputType.getRank() - inputType.getRank() != 1) {
+    return emitOpError("Output must have one dimension more than input");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ToMemoryConfigOp
+//===----------------------------------------------------------------------===//
+
+// Utility methods
+static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
+  return layout == ::mlir::tt::TensorMemoryLayout::Interleaved ||
+         ::mlir::tt::isShardedMemoryLayout(layout);
+}
+
+// ToMemoryConfigOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ToMemoryConfigOp::verify() {
+  ::mlir::RankedTensorType inputTy = getInput().getType();
+  ::mlir::RankedTensorType outputTy = getResult().getType();
+  auto inputLayout =
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
+  auto outputLayout =
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
+  if (not inputLayout) {
+    return emitOpError("Input tensor type missing layout attribute");
+  }
+  if (not outputLayout) {
+    return emitOpError("Output tensor type missing layout attribute");
+  }
+  ::mlir::tt::MemorySpace outputMemorySpace = outputLayout.getMemorySpace();
+  ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
+      outputLayout.getMemLayout();
+  if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::None) {
+    return emitOpError("System memory space only supports undef memory layout");
+  }
+
+  if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
+      !isValidDeviceLayout(outputMemoryLayout)) {
+    return emitOpError("Device memory space only supports interleaved or "
+                       "sharded memory layouts");
+  }
+
+  if (outputMemorySpace == ::mlir::tt::MemorySpace::DeviceDRAM &&
+      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::Interleaved) {
+    return emitOpError(
+        "Device DRAM memory space only supports interleaved memory layout");
+  }
+
+  if (outputLayout.hasShardedTensorMemoryLayout()) {
+    if (not outputLayout.hasShardedL1TensorMemoryLayout()) {
+      return emitOpError("Sharded tensors layout must reside in L1");
+    }
+    ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
+    // Currently TTNN backend only supports 2D shard shape
+    if (shardShape.size() != 2) {
+      return emitOpError("Shard shape must be 2D");
+    }
+    if (outputMemoryLayout == ::mlir::tt::TensorMemoryLayout::BlockSharded) {
+      // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
+      if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
+          shardShape[1] % TTNN_TILE_WIDTH != 0) {
+        return emitOpError(
+            "Shard shape must divide tile shape (32, 32) evenly");
+      }
+    }
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+
 // ANCHOR: adding_an_op_matmul_ttnn_verify
+// MatmulOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
@@ -507,79 +692,11 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
 
-::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType weightType = getWeight().getType();
-  std::optional<::mlir::RankedTensorType> biasType =
-      getBias().getImpl() ? std::make_optional(getBias().getType())
-                          : std::nullopt;
+//===----------------------------------------------------------------------===//
+// AllocOp
+//===----------------------------------------------------------------------===//
 
-  if (inputType.getRank() < 3) {
-    return emitOpError("Input must be at least a 3D tensor");
-  }
-  if (weightType.getRank() != 4) {
-    return emitOpError("Weight must be a 4D tensor");
-  }
-  if (biasType.has_value()) {
-    if (biasType->getRank() != 4) {
-      return emitOpError("Bias must be a 4D tensor");
-    }
-    auto biasShape = biasType->getShape();
-    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
-      return emitOpError("Bias must only have data on the final dimenstion");
-    }
-  }
-  return success();
-}
-
-::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
-  if (getKernelHeight() > getInputHeight()) {
-    return emitOpError() << "Kernel height " << getKernelHeight()
-                         << " is greater than input height " << getInputHeight()
-                         << ". This MaxPool2d configuration is invalid.";
-  }
-
-  if (getKernelWidth() > getInputWidth()) {
-    return emitOpError() << "Kernel width " << getKernelWidth()
-                         << " is greater than input width " << getInputWidth()
-                         << ". This MaxPool2d configuration is invalid.";
-  }
-
-  if (inputType.getRank() != 4) {
-    return emitOpError()
-           << "Input tensor rank must be 4. Recieved input with rank "
-           << inputType.getRank() << ". Shape: (" << inputShape << ").";
-  }
-
-  if (inputShape[0] != 1 || inputShape[1] != 1) {
-    return emitOpError() << "Maxpool input must be in the form (1, 1, N*H*W, "
-                            "C). Recieved shape ("
-                         << inputShape << ").";
-  }
-
-  if (inputShape[2] != getBatchSize() * getInputHeight() * getInputWidth()) {
-    return emitOpError() << "Maxpool shape (" << inputShape
-                         << ") at dim -2 must be equal to N*H*W. However the "
-                            "attributes given are N="
-                         << getBatchSize() << ", H=" << getInputHeight()
-                         << ", W=" << getInputWidth() << ". " << getBatchSize()
-                         << "*" << getInputHeight() << "*" << getInputWidth()
-                         << " != " << inputShape[2] << ".";
-  }
-
-  if (inputShape[3] != getChannels()) {
-    return emitOpError() << "Maxpool shape (" << inputShape
-                         << ") at dim -3 must be equal to C. However the "
-                            "attribute given is C="
-                         << getChannels() << ". " << inputShape[3]
-                         << " != " << getChannels();
-  }
-
-  return success();
-}
-
+// AllocOp verification
 ::mlir::LogicalResult AllocOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
       getResult().getType().getEncoding());
@@ -613,85 +730,28 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttnn::EmptyOp::verify() {
-  // ==============================
-  // === CHECK ATTRIBUTES START ===
-  // ==============================
-  // Check that the attributes of the op match the attributes of the output
-  // tensor type.
-  //
-  assert(::llvm::isa<RankedTensorType>(getResult().getType()));
-  RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
+//===----------------------------------------------------------------------===//
+// SoftmaxOp
+//===----------------------------------------------------------------------===//
 
-  assert(::llvm::isa<tt::LayoutAttr>(output.getEncoding()));
-  tt::LayoutAttr ttLayoutAttr =
-      mlir::cast<tt::LayoutAttr>(output.getEncoding());
+// SoftmaxOp verification
+::mlir::LogicalResult mlir::tt::ttnn::SoftmaxOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // Shape
-  //
-  assert(output.getShape() == getShape().getShape());
-
-  // DataType and Layout
-  //
-  mlir::MemRefType memref = ttLayoutAttr.getMemref();
-  Type elementType = memref.getElementType();
-  if (getLayout().has_value()) {
-    ttnn::Layout ttnnLayoutEnum;
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
-    assert(ttnnLayoutEnum == getLayoutAttr().getValue());
-  }
-  if (getDtype().has_value()) {
-    tt::DataType dtype;
-    if (llvm::isa<TileType>(elementType)) {
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
-    } else {
-      dtype = elementTypeToDataType(elementType);
-    }
-    assert(dtype == getDtype());
+  // Shapes of input and output of a softmax operation must be the same
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("Input and output shapes must be the same");
   }
 
-  // MemoryConfig
-  // Check that op has MemoryConfigAttr set on itself, then compare internal
-  // attrs with output tensor attrs.
-  //
-  if (getMemoryConfig().has_value()) {
-    ttnn::BufferType bufferType =
-        mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
-            ttLayoutAttr.getMemLayout());
-    assert(bufferType == getMemoryConfig()->getBufferType().getValue());
-    assert(tensorMemoryLayout ==
-           getMemoryConfig()->getTensorMemoryLayout().getValue());
-  }
-  //
-  // ==============================
-  // ==== CHECK ATTRIBUTES END ====
-  // ==============================
+  int32_t dim = getDimension();
 
-  // ==============================
-  // === CHECK SIGNATURES START ===
-  // ==============================
-  // Check that call-site uses the correct signature. We only allow 2 for now:
-  // 1. none, Shape, DataType, Layout, none
-  // 2. Device, Shape, DataType, Layout, MemoryConfig
-  //
-  assert(
-      // 1.
-      (!getDevice() && getDtype().has_value() && getLayout().has_value() &&
-       !getMemoryConfig().has_value()) ||
-      // 2.
-      (getDevice() && getDtype().has_value() && getLayout().has_value() &&
-       getMemoryConfig().has_value()));
-  //
-  // ==============================
-  // ==== CHECK SIGNATURES END ====
-  // ==============================
+  // Check that the dim is within the bounds of the input tensor
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension attribute must be within the bounds of the input tensor");
+  }
+
   return success();
 }
 

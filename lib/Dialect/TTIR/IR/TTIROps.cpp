@@ -2,258 +2,115 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstdint>
-#include <string>
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Traits.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
-
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
-#include "ttmlir/Utils.h"
+#include <cstdint>
+#include <string>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
-::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
-  ::mlir::RankedTensorType inputTy = getInput().getType();
-  ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
-  auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
-  if (not inputLayout) {
-    return emitOpError("Input tensor type missing layout attribute");
-  }
-  if (not outputLayout) {
-    return emitOpError("Output tensor type missing layout attribute");
-  }
-  if (inputTy.getShape() != outputTy.getShape()) {
-    return emitOpError("Input and output shapes must be the same");
-  }
-  return success();
+//===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+// ConstantOp folder
+::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor adaptor) {
+  return getValueAttr();
 }
 
-mlir::tt::ttir::ToLayoutOp::CompoundComponents
-mlir::tt::ttir::ToLayoutOp::compoundComponents() {
-  auto inputLayout =
-      mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
-  auto outputLayout =
-      mlir::cast<tt::LayoutAttr>(getOutput().getType().getEncoding());
-  bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
-  bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
-  bool isShardChange =
-      inputLayout.getShardShape() != outputLayout.getShardShape();
-  assert(isGridChange == isShardChange);
-  bool isFormatChange =
-      inputLayout.getElementType() != outputLayout.getElementType();
-  bool isMemorySpaceChange =
-      inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
-  bool isMemoryLayoutChange =
-      inputLayout.getMemLayout() != outputLayout.getMemLayout();
-  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
-          isMemoryLayoutChange};
-}
+//===----------------------------------------------------------------------===//
+// Conv2dOp
+//===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
-  if (getInputs().size() + getOutputs().size() !=
-      getRegion().getNumArguments()) {
-    return emitOpError("The number of input and output operands and "
-                       "region/block arguments must match");
-  }
-
-  // Validate CB mappings.
-  auto operandCBmapping = getOperandCbMapping();
-  auto numCBs = getCbs().size();
-  if (!operandCBmapping.empty()) {
-    for (int64_t mapping : operandCBmapping) {
-      if (mapping < -1 ||
-          (mapping >= 0 && static_cast<size_t>(mapping) >= numCBs)) {
-        return emitOpError("CB index out of bounds");
-      }
-    }
-  }
-
-  return success();
-}
-
-template <typename OpTy>
-static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
-                                            ::mlir::OpBuilder &opBuilder,
-                                            ::mlir::Block *block) {
-  assert(block->getNumArguments() == 3 &&
-         "Binary op block expects two input and one output argument.");
-
-  auto lhs = block->getArgument(0);
-  auto rhs = block->getArgument(1);
-  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
-}
-
-void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
-}
-
-void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
-    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
-}
-
-template <typename OpTy>
-static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
-                                           ::mlir::OpBuilder &opBuilder,
-                                           ::mlir::Block *block) {
-  assert(block->getNumArguments() == 2 &&
-         "Unary op block expects one input and one output argument.");
-
-  auto arg = block->getArgument(0);
-  auto result = opBuilder.create<OpTy>(loc, arg);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
-}
-
-void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
-}
-
-void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
-                                                        block);
-}
-
-static mlir::tt::ttir::KernelOp
-buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
-              ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
-              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs,
-              ::mlir::ArrayAttr operandConstraints) {
-  return opBuilder.create<mlir::tt::ttir::KernelOp>(
-      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs,
-      operandConstraints);
-}
-
-static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
-                           mlir::Location loc, ::mlir::StringRef kernelKind) {
-  auto kernelOp =
-      buildKernelOp(opBuilder, loc, "reduce", kernelKind, block->getArgument(0),
-                    block->getArgument(1),
-                    opBuilder.getArrayAttr(llvm::SmallVector<mlir::Attribute>(
-                        block->getNumArguments(),
-                        opBuilder.getAttr<mlir::tt::OperandConstraintAttr>(
-                            mlir::tt::OperandConstraint::AnyDeviceTile))));
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
-}
-
-void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "sum");
-}
-
-void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                                ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "mean");
-}
-
-void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "max");
-}
-
-::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
+// Conv2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
 
-  // inputType can have any rank
-
-  // weightType must have rank of 2: (dictionary_size, embedding_size)
-  //
-  if (weightType.getRank() != 2) {
-    return emitOpError("Weight must be a 2D tensor");
+  if (inputType.getRank() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
   }
-
-  // outputType must have rank of inputType + and additional dimension of
-  // embedding_size
-  //
-  if (outputType.getRank() - inputType.getRank() != 1) {
-    return emitOpError("Output must have one dimension more than input");
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
   }
-
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+  }
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {
+//===----------------------------------------------------------------------===//
+// MaxPool2dOp
+//===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  std::vector<int64_t> inputShape = getInput().getType().getShape().vec();
 
-  // Shapes of input and output of a softmax operation must be the same
-  if (inputType.getShape() != outputType.getShape()) {
-    return emitOpError("Input and output shapes must be the same");
+  if (inputType.getRank() != 4) {
+    return emitOpError()
+           << "Input tensor rank must be 4. Recieved input with rank "
+           << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
-  int32_t dim = getDimension();
+  if (getOriginalHeight().has_value() != getOriginalWidth().has_value()) {
+    std::string with_value =
+        getOriginalHeight().has_value() ? "original_height" : "original_width";
+    return emitOpError()
+           << "If providing the original height and width as attributes, both "
+              "original_height and original_width must be set. However, only "
+           << with_value << " was provided.";
+  }
 
-  // Check that the dim is within the bounds of the input tensor
-  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension attribute must be within the bounds of the input tensor");
+  if (getOriginalHeight().has_value() && getOriginalWidth().has_value()) {
+    inputShape[1] = getOriginalHeight().value();
+    inputShape[2] = getOriginalWidth().value();
+  }
+
+  if (getKernelHeight() > inputShape[1]) {
+    return emitOpError() << "Kernel height " << getKernelHeight()
+                         << " is greater than input height " << inputShape[1]
+                         << ". This MaxPool2d configuration is invalid.";
+  }
+
+  if (getKernelWidth() > inputShape[2]) {
+    return emitOpError() << "Kernel width " << getKernelWidth()
+                         << " is greater than input width " << inputShape[2]
+                         << ". This MaxPool2d configuration is invalid.";
   }
 
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::TransposeOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
-  auto inputShape = inputType.getShape();
-  auto outputShape = outputType.getShape();
-  int32_t dim0 = getDim0();
-  int32_t dim1 = getDim1();
-  if (inputType.getRank() < 2) {
-    return emitOpError("Input must be at least a 2D tensor");
-  }
-  if (inputType.getRank() != outputType.getRank()) {
-    return emitOpError("Input must have the same rank as output");
-  }
-  if (dim0 >= inputType.getRank() || dim0 < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension 0 attribute must be within the bounds of the input tensor");
-  }
-  if (dim1 >= inputType.getRank() || dim1 < -inputType.getRank()) {
-    return emitOpError(
-        "Dimension 1 attribute must be within the bounds of the input tensor");
-  }
-  if (dim0 < 0) {
-    dim0 += inputType.getRank();
-  }
-  if (dim1 < 0) {
-    dim1 += inputType.getRank();
-  }
-  if (outputShape[dim0] != inputShape[dim1] ||
-      outputShape[dim1] != inputShape[dim0]) {
-    return emitOpError("Input-output transpose dimension mismatch.");
-  }
-  return success();
-}
+//===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
 
+// ConcatOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ConcatOp::verify() {
   mlir::OperandRange inputs = getInputs();
   int32_t dim = getDim();
@@ -295,6 +152,11 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ReshapeOp
+//===----------------------------------------------------------------------===//
+
+// ReshapeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ReshapeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
@@ -362,6 +224,11 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SliceOp
+//===----------------------------------------------------------------------===//
+
+// SliceOp verification
 ::mlir::LogicalResult mlir::tt::ttir::SliceOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
@@ -475,45 +342,11 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   return success();
 }
 
-::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  std::vector<int64_t> inputShape = getInput().getType().getShape().vec();
+//===----------------------------------------------------------------------===//
+// SqueezeOp
+//===----------------------------------------------------------------------===//
 
-  if (inputType.getRank() != 4) {
-    return emitOpError()
-           << "Input tensor rank must be 4. Recieved input with rank "
-           << inputType.getRank() << ". Shape: (" << inputShape << ").";
-  }
-
-  if (getOriginalHeight().has_value() != getOriginalWidth().has_value()) {
-    std::string with_value =
-        getOriginalHeight().has_value() ? "original_height" : "original_width";
-    return emitOpError()
-           << "If providing the original height and width as attributes, both "
-              "original_height and original_width must be set. However, only "
-           << with_value << " was provided.";
-  }
-
-  if (getOriginalHeight().has_value() && getOriginalWidth().has_value()) {
-    inputShape[1] = getOriginalHeight().value();
-    inputShape[2] = getOriginalWidth().value();
-  }
-
-  if (getKernelHeight() > inputShape[1]) {
-    return emitOpError() << "Kernel height " << getKernelHeight()
-                         << " is greater than input height " << inputShape[1]
-                         << ". This MaxPool2d configuration is invalid.";
-  }
-
-  if (getKernelWidth() > inputShape[2]) {
-    return emitOpError() << "Kernel width " << getKernelWidth()
-                         << " is greater than input width " << inputShape[2]
-                         << ". This MaxPool2d configuration is invalid.";
-  }
-
-  return success();
-}
-
+// SqueezeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::SqueezeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
@@ -561,6 +394,50 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// TransposeOp
+//===----------------------------------------------------------------------===//
+
+// TransposeOp verification
+::mlir::LogicalResult mlir::tt::ttir::TransposeOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+  int32_t dim0 = getDim0();
+  int32_t dim1 = getDim1();
+  if (inputType.getRank() < 2) {
+    return emitOpError("Input must be at least a 2D tensor");
+  }
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input must have the same rank as output");
+  }
+  if (dim0 >= inputType.getRank() || dim0 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 0 attribute must be within the bounds of the input tensor");
+  }
+  if (dim1 >= inputType.getRank() || dim1 < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension 1 attribute must be within the bounds of the input tensor");
+  }
+  if (dim0 < 0) {
+    dim0 += inputType.getRank();
+  }
+  if (dim1 < 0) {
+    dim1 += inputType.getRank();
+  }
+  if (outputShape[dim0] != inputShape[dim1] ||
+      outputShape[dim1] != inputShape[dim0]) {
+    return emitOpError("Input-output transpose dimension mismatch.");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// UnsqueezeOp
+//===----------------------------------------------------------------------===//
+
+// UnsqueezeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::UnsqueezeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
@@ -606,11 +483,86 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   return success();
 }
 
-::mlir::OpFoldResult mlir::tt::ttir::ConstantOp::fold(FoldAdaptor adaptor) {
-  return getValueAttr();
+//===----------------------------------------------------------------------===//
+// EmbeddingOp
+//===----------------------------------------------------------------------===//
+
+// EmbeddingOp verification
+::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // inputType can have any rank
+
+  // weightType must have rank of 2: (dictionary_size, embedding_size)
+  //
+  if (weightType.getRank() != 2) {
+    return emitOpError("Weight must be a 2D tensor");
+  }
+
+  // outputType must have rank of inputType + and additional dimension of
+  // embedding_size
+  //
+  if (outputType.getRank() - inputType.getRank() != 1) {
+    return emitOpError("Output must have one dimension more than input");
+  }
+
+  return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ToLayoutOp
+//===----------------------------------------------------------------------===//
+
+// ToLayoutOp verification
+::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
+  ::mlir::RankedTensorType inputTy = getInput().getType();
+  ::mlir::RankedTensorType outputTy = getOutput().getType();
+  auto inputLayout =
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
+  auto outputLayout =
+      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
+  if (not inputLayout) {
+    return emitOpError("Input tensor type missing layout attribute");
+  }
+  if (not outputLayout) {
+    return emitOpError("Output tensor type missing layout attribute");
+  }
+  if (inputTy.getShape() != outputTy.getShape()) {
+    return emitOpError("Input and output shapes must be the same");
+  }
+  return success();
+}
+
+// ToLayoutOp utility methods
+mlir::tt::ttir::ToLayoutOp::CompoundComponents
+mlir::tt::ttir::ToLayoutOp::compoundComponents() {
+  auto inputLayout =
+      mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
+  auto outputLayout =
+      mlir::cast<tt::LayoutAttr>(getOutput().getType().getEncoding());
+  bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
+  bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
+  bool isShardChange =
+      inputLayout.getShardShape() != outputLayout.getShardShape();
+  assert(isGridChange == isShardChange);
+  bool isFormatChange =
+      inputLayout.getElementType() != outputLayout.getElementType();
+  bool isMemorySpaceChange =
+      inputLayout.getMemorySpace() != outputLayout.getMemorySpace();
+  bool isMemoryLayoutChange =
+      inputLayout.getMemLayout() != outputLayout.getMemLayout();
+  return {isLayoutChange, isGridChange, isFormatChange, isMemorySpaceChange,
+          isMemoryLayoutChange};
+}
+
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+
 // ANCHOR: adding_an_op_matmul_ttir_verify
+// MatmulOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
@@ -737,27 +689,11 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
-::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
-  ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType weightType = getWeight().getType();
-  std::optional<::mlir::RankedTensorType> biasType =
-      getBias().getImpl() ? std::make_optional(getBias().getType())
-                          : std::nullopt;
+//===----------------------------------------------------------------------===//
+// AllocOp
+//===----------------------------------------------------------------------===//
 
-  if (inputType.getRank() < 3) {
-    return emitOpError("Input must be at least a 3D tensor");
-  }
-  if (weightType.getRank() != 4) {
-    return emitOpError("Weight must be a 4D tensor");
-  }
-  if (biasType.has_value()) {
-    if (biasType->getRank() != 4) {
-      return emitOpError("Bias must be a 4D tensor");
-    }
-  }
-  return success();
-}
-
+// AllocOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
       getResult().getType().getEncoding());
@@ -789,4 +725,159 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SoftmaxOp
+//===----------------------------------------------------------------------===//
+
+// SoftmaxOp verification
+::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Shapes of input and output of a softmax operation must be the same
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("Input and output shapes must be the same");
+  }
+
+  int32_t dim = getDimension();
+
+  // Check that the dim is within the bounds of the input tensor
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+        "Dimension attribute must be within the bounds of the input tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GenericOp
+//===----------------------------------------------------------------------===//
+
+// GenericOp verification
+::mlir::LogicalResult mlir::tt::ttir::GenericOp::verify() {
+  if (getInputs().size() + getOutputs().size() !=
+      getRegion().getNumArguments()) {
+    return emitOpError("The number of input and output operands and "
+                       "region/block arguments must match");
+  }
+
+  // Validate CB mappings.
+  auto operandCBmapping = getOperandCbMapping();
+  auto numCBs = getCbs().size();
+  if (!operandCBmapping.empty()) {
+    for (int64_t mapping : operandCBmapping) {
+      if (mapping < -1 ||
+          (mapping >= 0 && static_cast<size_t>(mapping) >= numCBs)) {
+        return emitOpError("CB index out of bounds");
+      }
+    }
+  }
+
+  return success();
+}
+
+// GenericOp builders
+
+// Build a generic region for a binary elementwise operation.
+template <typename OpTy>
+static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
+                                            ::mlir::OpBuilder &opBuilder,
+                                            ::mlir::Block *block) {
+  assert(block->getNumArguments() == 3 &&
+         "Binary op block expects two input and one output argument.");
+
+  auto lhs = block->getArgument(0);
+  auto rhs = block->getArgument(1);
+  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+}
+
+// Build a generic region for a unary elementwise operation.
+template <typename OpTy>
+static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
+                                           ::mlir::OpBuilder &opBuilder,
+                                           ::mlir::Block *block) {
+  assert(block->getNumArguments() == 2 &&
+         "Unary op block expects one input and one output argument.");
+
+  auto arg = block->getArgument(0);
+  auto result = opBuilder.create<OpTy>(loc, arg);
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+}
+
+// AddOp generic region builder
+void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
+}
+
+// MultiplyOp generic region builder
+void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
+    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
+}
+
+// ExpOp generic region builder
+void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
+}
+
+// DivOp generic region builder
+void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
+                                                        block);
+}
+
+//===----------------------------------------------------------------------===//
+// KernelOp
+//===----------------------------------------------------------------------===//
+
+// KernelOp builders
+static mlir::tt::ttir::KernelOp
+buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
+              ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
+              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs,
+              ::mlir::ArrayAttr operandConstraints) {
+  return opBuilder.create<mlir::tt::ttir::KernelOp>(
+      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs,
+      operandConstraints);
+}
+
+// Reduce op kernel builder
+static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
+                           mlir::Location loc, ::mlir::StringRef kernelKind) {
+  auto kernelOp =
+      buildKernelOp(opBuilder, loc, "reduce", kernelKind, block->getArgument(0),
+                    block->getArgument(1),
+                    opBuilder.getArrayAttr(llvm::SmallVector<mlir::Attribute>(
+                        block->getNumArguments(),
+                        opBuilder.getAttr<mlir::tt::OperandConstraintAttr>(
+                            mlir::tt::OperandConstraint::AnyDeviceTile))));
+  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
+}
+
+// Sum op kernel builder
+void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "sum");
+}
+
+// Mean op kernel builder
+void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "mean");
+}
+
+// Max op kernel builder
+void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "max");
 }
