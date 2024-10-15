@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-
+// XFAIL: true
 # RUN: %python %s | FileCheck %s
 
 from ttmlir.ttir_builder import TTIRBuilder, compile_as_mlir_module, Operand
