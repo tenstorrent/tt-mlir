@@ -115,7 +115,8 @@ public:
       return Builder(ctx).getI64Type();
     });
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
-      return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
+      auto cbOpaqueType = Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
+      return emitc::LValueType::get(cbOpaqueType);
     });
   }
 };
@@ -138,9 +139,17 @@ public:
     rewriter.setInsertionPointToStart(&op.getCallableRegion()->front());
     for (auto arg : blockArgs) {
       auto cb = cast<ttkernel::CBType>(arg.getType());
+      // Get opaque type i.e emitc::LValueType<emitc::OpaqueType>
       auto cbType = getTypeConverter()->convertType(cb);
-      auto var = rewriter.create<emitc::VariableOp>(
+      // Create a variable of type emitc::LValueType<emitc::OpaqueType>
+      auto lValueVar = rewriter.create<emitc::VariableOp>(
           op.getLoc(), cbType, convertCBPort(rewriter, cb.getPort()));
+      // Get the emitc::OpaqueType from the emitc::LValueType<emitc::OpaqueType>
+      auto opaqueType = cast<emitc::LValueType>(cbType).getValueType();
+      // Load the value from the lvalue variable this
+      // will allow use to use the value
+      auto var =
+          rewriter.create<emitc::LoadOp>(op.getLoc(), opaqueType, lValueVar);
       arg.replaceAllUsesWith(var);
     }
     op.getCallableRegion()->front().eraseArguments(0, blockArgs.size());
