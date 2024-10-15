@@ -23,7 +23,8 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  implicitDeviceOptions.meshShape = options.meshShape;
+  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
+      options.meshShape.begin(), options.meshShape.end());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
   mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
   layoutOptions.initMemorySpace = mlir::tt::MemorySpace::System;
