@@ -4,3 +4,4 @@ third_party/tt-metal
 .DS_STORE
 .vscode/*
 .cache
+*pycache*

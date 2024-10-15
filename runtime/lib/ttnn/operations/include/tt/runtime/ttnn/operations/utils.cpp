@@ -120,19 +120,18 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
-  const ::flatbuffers::Vector<int32_t> *targetShardShape =
-      layout->memory_desc()->shape();
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  std::array<uint32_t, 2> ttnnShardShape;
-  std::copy(targetShardShape->begin(), targetShardShape->end(),
-            ttnnShardShape.begin());
+  const ::flatbuffers::Vector<int64_t> *shardShape = memcfg->shard_shape();
+  std::array<uint32_t, 2> ttnnShardShape = {
+      static_cast<uint32_t>(shardShape->Get(0)),
+      static_cast<uint32_t>(shardShape->Get(1))};
+
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
       ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
 
   ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
                                        shardSpec};
-
   return memoryConfig;
 }
 

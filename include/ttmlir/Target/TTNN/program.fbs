@@ -123,6 +123,14 @@ table ReshapeOp {
   shape: [int32];
 }
 
+table SliceOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  begins: [int64];
+  ends: [int64];
+  step: [int64];
+}
+
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
   in0: tt.target.TensorRef;
@@ -193,6 +201,7 @@ union OpType {
   Conv2dOp,
   ConcatOp,
   ReshapeOp,
+  SliceOp,
   MaxPool2dOp,
   DeallocOp
 }

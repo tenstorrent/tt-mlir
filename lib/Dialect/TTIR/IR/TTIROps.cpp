@@ -362,6 +362,119 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::SliceOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::mlir::ArrayAttr begins = getBeginsAttr();
+  ::mlir::ArrayAttr ends = getEndsAttr();
+  ::mlir::ArrayAttr stepAttr = getStepAttr();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Verify that the input is at least 1D tensor
+  if (inputType.getRank() < 1) {
+    return emitOpError("Input must be at least a 1D tensor");
+  }
+
+  // Verify that the input rank matches number of elements in begins, ends, and
+  // step
+  size_t input_rank = static_cast<size_t>(inputType.getRank());
+  if (input_rank != begins.size() || input_rank != ends.size() ||
+      input_rank != stepAttr.size()) {
+    return emitOpError("Begins, ends, and step attributes must have the same "
+                       "number of elements as the input tensor rank");
+  }
+
+  // Validate that the output tensor has the same element type as the input
+  // tensor
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError(
+        "Output tensor must have the same element type as the input tensor");
+  }
+
+  // Verify the output tensor rank
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError(
+        "Output tensor must have the same rank as the input tensor");
+  }
+
+  // Verify begin, end, step and the output tensor dimensions
+  for (size_t i = 0; i < input_rank; ++i) {
+    int64_t dimSize = inputShape[i];
+
+    int32_t begin = ::mlir::cast<::mlir::IntegerAttr>(begins[i]).getInt();
+    int32_t end = ::mlir::cast<::mlir::IntegerAttr>(ends[i]).getInt();
+    int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[i]).getInt();
+
+    // Adjust negative begin and end
+    int32_t adjustedBegin = (begin < 0) ? (begin + dimSize) : begin;
+    int32_t adjustedEnd = (end < 0) ? (end + dimSize) : end;
+
+    std::ostringstream inputShapeStream;
+    inputShapeStream << "(";
+    for (size_t i = 0; i < inputShape.size(); ++i) {
+      inputShapeStream << inputShape[i];
+      if (i != inputShape.size() - 1) {
+        inputShapeStream << ", ";
+      }
+    }
+    inputShapeStream << ")";
+    std::string inputShapeStr = inputShapeStream.str();
+
+    if (adjustedBegin < 0 || adjustedBegin >= dimSize) {
+      return emitOpError() << "Invalid begin index for dimension "
+                           << std::to_string(i) << ". Expected value in range ["
+                           << std::to_string(-dimSize) << ", " << dimSize
+                           << "), got " << begin
+                           << ". Input shape: " << inputShapeStr;
+    }
+    if (adjustedEnd < 0 || adjustedEnd > dimSize) {
+      return emitOpError() << "Invalid end index for dimension "
+                           << std::to_string(i) << ". Expected value in range ["
+                           << std::to_string(-dimSize) << ", " << dimSize
+                           << "], got " << end
+                           << ". Input shape: " << inputShapeStr;
+    }
+
+    auto formatValueMessage = [](int value, int adjustedValue) {
+      return value < 0 ? std::to_string(adjustedValue) + " (" +
+                             std::to_string(value) + ")"
+                       : std::to_string(value);
+    };
+    std::string beginValueMessage = formatValueMessage(begin, adjustedBegin);
+    std::string endValueMessage = formatValueMessage(end, adjustedEnd);
+
+    if (step == 0) {
+      return emitOpError("Step value for dimension " + std::to_string(i) +
+                         " cannot be zero");
+    } else if (step > 0 && adjustedBegin > adjustedEnd) {
+      return emitOpError() << "For positive step, begin index must be less "
+                              "than or equal to end index for dimension "
+                           << i << ". Got begin: " << beginValueMessage
+                           << ", end: " << endValueMessage << ", step: " << step
+                           << ", input shape: " << inputShapeStr;
+    } else if (step < 0 && adjustedBegin < adjustedEnd) {
+      return emitOpError() << "For negative step, begin index must be greater "
+                              "than or equal to end index for dimension "
+                           << i << ". Got begin: " << beginValueMessage
+                           << ", end: " << endValueMessage << ", step: " << step
+                           << ", input shape: " << inputShapeStr;
+    }
+
+    // Calculate the expected size of the output dimension
+    int32_t expectedDimSize =
+        (std::abs(adjustedEnd - adjustedBegin) + std::abs(step) - 1) /
+        std::abs(step);
+    if (outputType.getDimSize(i) != expectedDimSize) {
+      return emitOpError() << "Mismatch in dimension " << std::to_string(i)
+                           << " of the output tensor: expected size "
+                           << expectedDimSize << ", but got "
+                           << outputType.getDimSize(i);
+    }
+  }
+
+  return success();
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   std::vector<int64_t> inputShape = getInput().getType().getShape().vec();

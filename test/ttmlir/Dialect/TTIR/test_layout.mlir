@@ -7,4 +7,10 @@ module attributes {} {
     %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<8x64x128xf32>, tensor<8x64x128xf32>, tensor<8x64x128xf32>) -> tensor<8x64x128xf32>
     return %1 : tensor<8x64x128xf32>
   }
+
+  func.func @test_unused_argument(%arg0: tensor<8x64x128xf32>) -> tensor<8x64x128xf32> {
+    // CHECK: %[[C:.*]] = tensor.empty() : tensor<8x64x128xf32, #layout>
+    %0 = tensor.empty() : tensor<8x64x128xf32>
+    return %0 : tensor<8x64x128xf32>
+  }
 }

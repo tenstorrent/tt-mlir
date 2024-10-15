@@ -568,6 +568,29 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
+    let summary = "Slice op.";
+    let description = [{
+      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
+      indices for each dimension.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32ArrayAttr:$begins,
+                         I32ArrayAttr:$ends,
+                         I32ArrayAttr:$step,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
     let summary = "Squeeze op.";
     let description = [{

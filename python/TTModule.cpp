@@ -12,6 +12,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Utils.h"
 
 namespace mlir::ttmlir::python {
 void populateTTModule(py::module &m) {
@@ -230,10 +231,16 @@ void populateTTModule(py::module &m) {
       });
 
   py::class_<tt::OperandConstraintAttr>(m, "OperandConstraintAttr")
-      .def_static("get", [](uint32_t operandConstraint, MlirContext ctx) {
-        return wrap(tt::OperandConstraintAttr::get(
-            unwrap(ctx),
-            static_cast<tt::OperandConstraint>(operandConstraint)));
+      .def_static("get",
+                  [](MlirContext ctx, uint32_t operandConstraint) {
+                    return wrap(tt::OperandConstraintAttr::get(
+                        unwrap(ctx),
+                        static_cast<tt::OperandConstraint>(operandConstraint)));
+                  })
+      .def_static("get", [](MlirContext ctx,
+                            std::vector<MlirAttribute> attributesArray) {
+        return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
+            ctx, attributesArray);
       });
 
   py::class_<tt::DeviceType>(m, "DeviceType")

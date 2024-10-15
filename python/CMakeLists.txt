@@ -3,6 +3,7 @@ include(AddMLIRPython)
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
 set(TTMLIR_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ttmlir")
+set(TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/test_infra")
 
 add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
@@ -12,6 +13,7 @@ get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 
 declare_mlir_python_sources(TTMLIRPythonSources)
 declare_mlir_python_sources(TTMLIRPythonExtensions)
+declare_mlir_python_sources(TTMLIRPythonTestInfra)
 
 declare_mlir_python_sources(TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
@@ -56,6 +58,12 @@ declare_mlir_python_sources(TTMLIRPythonSources.Passes
   SOURCES passes.py
 )
 
+declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
+  ROOT_DIR "${TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonTestInfra
+  SOURCES ttir_builder.py
+)
+
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
   ADD_TO_PARENT TTMLIRPythonExtensions
@@ -87,6 +95,7 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.scf
   TTMLIRPythonSources
   TTMLIRPythonExtensions
+  TTMLIRPythonTestInfra
 )
 
 add_mlir_python_common_capi_library(TTMLIRPythonCAPI
@@ -103,7 +112,7 @@ add_mlir_python_modules(TTMLIRPythonModules
   DECLARED_SOURCES ${TTMLIR_PYTHON_SOURCES}
   COMMON_CAPI_LINK_LIBS
     TTMLIRPythonCAPI
-  )
+)
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)
