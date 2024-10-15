@@ -77,6 +77,13 @@ def TTIRSlidingWindow2dFixShapes: Pass<"ttir-sliding-window-2d-fix-shapes", "::m
   }];
 }
 
+def TTIRReLuPatternMatch: Pass<"ttir-relu-pattern-matching", "::mlir::ModuleOp"> {
+  let summary = "Apply pattern matching to reconstruct the ReLu Op.";
+  let description = [{
+    Apply pattern matching to reconstruct the ReLu Op.
+  }];
+}
+
 def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleOp"> {
   let summary = "Split compound layouts.";
   let description = [{

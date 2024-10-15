@@ -12,6 +12,7 @@
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSLIDINGWINDOW2DFIXSHAPES
+#define GEN_PASS_DEF_TTIRRELUPATTERNMATCH
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -148,6 +149,72 @@ public:
     registry.insert<mlir::tt::ttir::TTIRDialect>();
     registry.insert<mlir::tt::TTDialect>();
     registry.insert<mlir::func::FuncDialect>();
+  }
+};
+
+class TTIRReLuPatternMatch
+    : public impl::TTIRReLuPatternMatchBase<TTIRReLuPatternMatch> {
+public:
+  using impl::TTIRReLuPatternMatchBase<
+      TTIRReLuPatternMatch>::TTIRReLuPatternMatchBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    Operation *constantOp = nullptr;
+    Operation *broadcastOp = nullptr;
+    Operation *maximumOp = nullptr;
+    bool sequenceFound = false;
+
+    module->walk([&](ConstantOp op) {
+      constantOp = op;
+      if (mlir::isa<mlir::tt::ttir::ConstantOp>(constantOp)) {
+        if (not constantOp->hasOneUse()) {
+          // pattern matching failed, exit.
+          return;
+        }
+        broadcastOp = *constantOp->getResult(0).getUsers().begin();
+        if (mlir::isa<mlir::tt::ttir::BroadcastOp>(broadcastOp)) {
+          if (not broadcastOp->hasOneUse()) {
+            // pattern matching failed, exit.
+            return;
+          }
+          maximumOp = *broadcastOp->getResult(0).getUsers().begin();
+          if (mlir::isa<mlir::tt::ttir::MaximumOp>(maximumOp)) {
+            sequenceFound = true;
+          } else {
+            // pattern matching failed, exit.
+            return;
+          }
+        }
+      }
+    });
+
+    if (sequenceFound) {
+
+      // Construct the Relu Op
+      mlir::tt::ttir::ReluOp reluOp = rewriter.create<mlir::tt::ttir::ReluOp>(
+          maximumOp->getLoc(), maximumOp->getResult(0).getType(),
+          maximumOp->getOperand(0),
+          maximumOp->getOperand(2), // emptyOp
+          rewriter.getArrayAttr(
+              SmallVector<Attribute>(maximumOp->getNumOperands() + 1,
+                                     rewriter.getAttr<OperandConstraintAttr>(
+                                         OperandConstraint::AnyDeviceTile))));
+
+      rewriter.replaceOp(maximumOp, reluOp);
+
+      // erase all the old ops
+      auto brEmpty = broadcastOp->getOperand(1).getDefiningOp();
+      assert(mlir::isa<tensor::EmptyOp>(brEmpty) &&
+             "Broadcast Op second operand should be EmptyOp");
+
+      rewriter.eraseOp(maximumOp);
+      rewriter.eraseOp(broadcastOp);
+      rewriter.eraseOp(brEmpty);
+      rewriter.eraseOp(constantOp);
+    }
   }
 };
 
