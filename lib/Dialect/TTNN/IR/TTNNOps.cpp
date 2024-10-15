@@ -432,7 +432,7 @@ namespace mlir::tt::ttnn {
 // TransposeOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::TransposeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getResult().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
   int32_t dim0 = getDim0();
@@ -472,7 +472,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::EmbeddingOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType outputType = getResult().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
 
   // inputType can have any rank
 
@@ -733,7 +733,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 // SoftmaxOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::SoftmaxOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getResult().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
 
   // Shapes of input and output of a softmax operation must be the same
   if (inputType.getShape() != outputType.getShape()) {
