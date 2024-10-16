@@ -7,16 +7,73 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include <cstddef>
+#include <cstdint>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringRef.h>
 
 namespace mlir::tt::ttnn {
-struct LayoutOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>> {
+struct InputLayoutOverrideParser
+    : public llvm::cl::parser<llvm::StringMap<InputLayoutOverrideParams>> {
 public:
-  LayoutOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>>(opt) {}
+  InputLayoutOverrideParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<InputLayoutOverrideParams>>(opt) {}
 
   bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<LayoutOverrideParams> &value) {
+             llvm::StringMap<InputLayoutOverrideParams> &value) {
+    SmallVector<StringRef> opOverrideList;
+    constexpr size_t kvPairSize = 2;
+    constexpr size_t iOpName = 0;
+    constexpr size_t iOperand = 1;
+    constexpr char opSeparator = ',';
+    constexpr char opParamSeparator = ':';
+
+    arg.split(opOverrideList, opSeparator);
+    for (const StringRef override : opOverrideList) {
+      SmallVector<StringRef, kvPairSize> opOverrideParts;
+      override.split(opOverrideParts, opParamSeparator);
+      if (opOverrideParts.size() != kvPairSize) {
+        opt.error("Invalid format for input layouts override: " + override);
+        return true;
+      }
+
+      // Parse operand index.
+      int64_t operandIdx;
+      if (opOverrideParts[iOperand].getAsInteger(10 /*Radix*/, operandIdx)) {
+        opt.error("Invalid operand size: " + opOverrideParts[iOperand]);
+        return true;
+      }
+
+      // Set parsed op overrides.
+      value[opOverrideParts[iOpName]] = InputLayoutOverrideParams{operandIdx};
+    }
+    return false;
+  }
+
+  static void print(llvm::raw_ostream &os,
+                    const llvm::StringMap<InputLayoutOverrideParams> &value) {
+    os << "override-input-layout=";
+    size_t count = 0;
+    for (const auto &entry : value) {
+      os << entry.getKey() << "=";
+      const InputLayoutOverrideParams &params = entry.getValue();
+      os << params.operandIdx;
+      if (++count < value.size()) {
+        os << ",";
+      }
+    }
+    os << "\n";
+  }
+};
+
+struct OutputLayoutOverrideParser
+    : public llvm::cl::parser<llvm::StringMap<OutputLayoutOverrideParams>> {
+public:
+  OutputLayoutOverrideParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<llvm::StringMap<OutputLayoutOverrideParams>>(opt) {}
+
+  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
+             llvm::StringMap<OutputLayoutOverrideParams> &value) {
     SmallVector<StringRef> opOverrideList;
     constexpr size_t kMaxGridSize = 2;
     constexpr size_t kvPairSize = 2;
@@ -82,19 +139,19 @@ public:
       }
 
       // Set parsed op overrides.
-      value[opOverrideParts[iOpName]] =
-          LayoutOverrideParams{grid, memorySpace.value(), memoryLayout.value()};
+      value[opOverrideParts[iOpName]] = OutputLayoutOverrideParams{
+          grid, memorySpace.value(), memoryLayout.value()};
     }
     return false;
   }
 
   static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<LayoutOverrideParams> &value) {
+                    const llvm::StringMap<OutputLayoutOverrideParams> &value) {
     os << "override-output-layout=";
     size_t count = 0;
     for (const auto &entry : value) {
       os << entry.getKey() << "=";
-      const LayoutOverrideParams &params = entry.getValue();
+      const OutputLayoutOverrideParams &params = entry.getValue();
       // Print grid values
       for (size_t i = 0; i < params.grid.size(); ++i) {
         os << params.grid[i];
@@ -125,6 +182,28 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
+  // Option to manually insert TTIR_ToLayoutOp for specific op's operand.
+  // The format is a comma separated list of op names and operand index
+  // separated by ':' separator.
+  //
+  // op_name:operand_idx
+  //
+  // * operand_idx=0,1,...
+  //
+  // Full Example: "op1:0,op2:1"
+  //
+  // This will insert two TTIR_ToLayoutOps responsible for resharding the op1's
+  // first operand and op2's second operand.
+  //
+  // Note: This option is only valid if optimizerPassEnabled is true.
+  //
+  Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
+      overrideInputLayout{
+          *this, "override-input-layout",
+          llvm::cl::desc(
+              "Manually insert TTIR_ToLayoutOp for specific op's operand."),
+          llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+
   // Option to override output layout for specific ops.
   // The format is a comma separated list of op names equal to the output layout
   // params separated by ":"
@@ -143,11 +222,12 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<LayoutOverrideParams>, LayoutOverrideParser>
+  Option<llvm::StringMap<OutputLayoutOverrideParams>,
+         OutputLayoutOverrideParser>
       overrideOutputLayout{
           *this, "override-output-layout",
           llvm::cl::desc("Override output tensor layout for specific ops."),
-          llvm::cl::init(llvm::StringMap<LayoutOverrideParams>())};
+          llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
 
   // If this option is true, run sharding pass and try to shard ops.
   //

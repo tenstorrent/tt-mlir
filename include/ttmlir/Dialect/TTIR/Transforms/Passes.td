@@ -115,9 +115,13 @@ def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
     by updating layout attribute of each op.
   }];
   let options = [
+    Option<"overrideInputLayout", "override-input-layout",
+          "llvm::StringMap<InputLayoutOverrideParams>",
+          /*default=*/"llvm::StringMap<InputLayoutOverrideParams>()",
+           "Manually insert TTIR_ToLayoutOp for specific op's operand.">,
     Option<"overrideOutputLayout", "override-output-layout",
-          "llvm::StringMap<LayoutOverrideParams>",
-          /*default=*/"llvm::StringMap<LayoutOverrideParams>()",
+          "llvm::StringMap<OutputLayoutOverrideParams>",
+          /*default=*/"llvm::StringMap<OutputLayoutOverrideParams>()",
            "Override output tensor layout for specific ops.">,
     Option<"shardingPassEnabled", "sharding-pass-enabled",
           "bool",
