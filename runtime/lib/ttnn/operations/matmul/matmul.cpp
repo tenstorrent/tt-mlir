@@ -91,6 +91,7 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       ::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig>
       programConfig = std::nullopt;
 
+  // TODO(bug #891): ttnn::matmul doesn't chose correct program config.
   if (workaround::Env::get().setMatmul1DProgramConfig &&
       outputMemoryConfig.memory_layout ==
           ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED) {
