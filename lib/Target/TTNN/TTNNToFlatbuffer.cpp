@@ -258,6 +258,12 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Abs;
   } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Add;
+  } else if constexpr (std::is_same_v<EltwiseOp, LogicalAndOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LogicalAnd;
+  } else if constexpr (std::is_same_v<EltwiseOp, LogicalNotOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LogicalNot;
+  } else if constexpr (std::is_same_v<EltwiseOp, LogicalOrOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LogicalOr;
   } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
   } else if constexpr (std::is_same_v<EltwiseOp, NegOp>) {
@@ -474,6 +480,15 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseOp(cache, addOp), debugString);
+  }
+  if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
+    return createOperation(cache, createEltwiseOp(cache, andOp), debugString);
+  }
+  if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
+    return createOperation(cache, createEltwiseOp(cache, notOp), debugString);
+  }
+  if (auto orOp = dyn_cast<LogicalOrOp>(op); orOp) {
+    return createOperation(cache, createEltwiseOp(cache, orOp), debugString);
   }
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
     return createOperation(cache, createEltwiseOp(cache, multiplyOp),

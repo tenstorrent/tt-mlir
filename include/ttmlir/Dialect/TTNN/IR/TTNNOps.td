@@ -146,6 +146,13 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
+    let summary = "Eltwise logical not op.";
+    let description = [{
+      Eltwise logical not operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -248,6 +255,20 @@ def TTNN_LessThanOp : TTNN_ElementwiseBinaryOp<"lt"> {
     let summary = "Eltwise less than.";
     let description = [{
       Eltwise less than operation.
+    }];
+}
+
+def TTNN_LogicalAndOp : TTNN_ElementwiseBinaryOp<"logical_and"> {
+    let summary = "Eltwise logical and.";
+    let description = [{
+      Eltwise logical and operation.
+    }];
+}
+
+def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or"> {
+    let summary = "Eltwise logical or.";
+    let description = [{
+      Eltwise logical or operation.
     }];
 }
 

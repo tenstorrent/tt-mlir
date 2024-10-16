@@ -67,9 +67,12 @@ enum EltwiseOpType: uint32 {
   Typecast = 14,
   Equal = 15,
   NotEqual = 16,
-  GreaterThan = 19,
   LessEqual = 17,
   LessThan = 18,
+  GreaterThan = 19,
+  LogicalAnd = 20,
+  LogicalOr = 21,
+  LogicalNot = 22,
 }
 
 table EltwiseOp {

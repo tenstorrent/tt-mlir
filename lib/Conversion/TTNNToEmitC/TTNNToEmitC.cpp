@@ -527,6 +527,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Eltwise unary ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AbsOp>,
+               DefaultOpConversionPattern<ttnn::LogicalNotOp>,
                DefaultOpConversionPattern<ttnn::NegOp>,
                DefaultOpConversionPattern<ttnn::ReluOp>,
                DefaultOpConversionPattern<ttnn::SqrtOp>,
@@ -539,6 +540,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Eltwise binary ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AddOp>,
+               DefaultOpConversionPattern<ttnn::LogicalAndOp>,
+               DefaultOpConversionPattern<ttnn::LogicalOrOp>,
                DefaultOpConversionPattern<ttnn::SubtractOp>,
                MultiplyOpConversionPattern,
                DefaultOpConversionPattern<ttnn::EqualOp>,
