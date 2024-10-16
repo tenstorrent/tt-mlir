@@ -14,7 +14,7 @@ jobs:
     outputs:
       docker-image: ${{ steps.build.outputs.docker-image }}
     steps:
-      - uses: ./.github/actions/build-image
+
       - name: Fix permissions
         shell: bash
         run: sudo chown ubuntu:ubuntu -R $(pwd)
