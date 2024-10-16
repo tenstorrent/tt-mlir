@@ -57,6 +57,7 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$cbs,
+                         Variadic<AnyRankedTensor>:$intermedCBs,
                          Variadic<AnyRankedTensor>:$outputs,
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,

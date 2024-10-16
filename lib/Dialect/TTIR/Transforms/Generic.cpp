@@ -18,6 +18,7 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRGENERICREGION
 #define GEN_PASS_DEF_TTIRGENERICREGIONOPERANDSTOMEMREF
 #define GEN_PASS_DEF_TTIRGENERICOPCBS
+#define GEN_PASS_DEF_TTIRGENERICOPINTERMEDCBS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -179,7 +180,7 @@ public:
         createOperandConstraints(rewriter, op.getKind(), op.getOperands());
     auto dispatch = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
-        ValueRange() /* cbs */, op.getOutputs(), rewriter.getAttr<GridAttr>(),
+        ValueRange() /* cbs */, ValueRange(), op.getOutputs(), rewriter.getAttr<GridAttr>(),
         indexingMaps, iteratorTypes, constraints);
 
     // Create a new basic block for the dispatch op and create block arguments
@@ -263,7 +264,7 @@ public:
 
     auto genericOp = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
-        ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
+        ValueRange() /* cbs */, ValueRange(), dps.getDpsInits(), gridAttr, indexingMaps,
         iteratorTypes, constraints);
 
     // Create a new basic block for the generic op and create block arguments.
@@ -505,7 +506,7 @@ public:
     rewriter.setInsertionPointAfter(generic);
     auto newGenericOp = rewriter.create<ttir::GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        cbValues, generic.getOutputs(), generic.getGrid(),
+        cbValues, generic.getIntermedCBs(), generic.getOutputs(), generic.getGrid(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
         newConstraintsArray, operandCBMapping);
 
@@ -513,6 +514,53 @@ public:
     newGenericOp->getRegion(0).takeBody(oldRegion);
 
     rewriter.replaceOp(generic, newGenericOp);
+    return success();
+  }
+};
+
+class TTIRGenericOpIntermedCBsRewriter : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp generic,
+                                PatternRewriter &rewriter) const final {
+    if (!generic.getIntermedCBs().empty()) {
+      // Already inserted CBs, therefore skip.
+      return failure();
+    }
+
+    rewriter.setInsertionPointToStart(generic->getBlock());
+    uint32_t numOperands = generic->getNumOperands();
+
+    llvm::outs() << "num operands " << numOperands;
+
+    SmallVector<Value> intermedCBs;
+    auto operand = generic->getOperands()[numOperands - 1];
+    auto ty = mlir::cast<RankedTensorType>(operand.getType());
+
+    auto operandTy = operand.getType();
+    auto operandLayout = mlir::cast<LayoutAttr>(
+        mlir::cast<RankedTensorType>(operandTy).getEncoding());
+
+    // Creating a CB for the operand. It takes the same type as the operand,
+    // but changes its grid. This may result in overly large CBs at the
+    // moment.
+    auto emptyOp = rewriter.create<tensor::EmptyOp>(
+        generic->getLoc(), ty.getShape(), ty.getElementType(), operandLayout);
+    intermedCBs.push_back(emptyOp.getResult());
+
+    rewriter.setInsertionPointAfter(generic);
+    auto newGenericOp = rewriter.create<ttir::GenericOp>(
+        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
+        generic.getCbs(), intermedCBs, generic.getOutputs(), generic.getGrid(),
+        generic.getIndexingMaps(), generic.getIteratorTypes(),
+        generic.getOperandConstraints(), generic.getOperandCbMapping());
+
+    auto &oldRegion = generic.getRegion();
+    newGenericOp->getRegion(0).takeBody(oldRegion);
+
+    rewriter.replaceOp(generic, newGenericOp);
+    llvm::outs() << "done";
     return success();
   }
 };
@@ -530,4 +578,19 @@ public:
     }
   }
 };
+
+class TTIRGenericOpIntermedCBs : public impl::TTIRGenericOpIntermedCBsBase<TTIRGenericOpIntermedCBs> {
+public:
+  using impl::TTIRGenericOpIntermedCBsBase<TTIRGenericOpIntermedCBs>::TTIRGenericOpIntermedCBsBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<TTIRGenericOpIntermedCBsRewriter>(&getContext());
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
+  }
+};
+
 } // namespace mlir::tt::ttir

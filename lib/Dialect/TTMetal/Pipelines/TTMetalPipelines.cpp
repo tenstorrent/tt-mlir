@@ -29,6 +29,7 @@ void createTTIRToTTMetalBackendPipeline(
   layoutOptions.defaultDeviceMemoryLayout = mlir::tt::TensorMemoryLayout::None;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
   pm.addPass(mlir::tt::ttir::createTTIRGenericOpCBs());
+  pm.addPass(mlir::tt::ttir::createTTIRGenericOpIntermedCBs());
   pm.addPass(mlir::tt::ttir::createTTIRGenericRegionOperandsToMemref());
   pm.addPass(mlir::tt::ttir::createTTIRAllocate());
   pm.addPass(createConvertTTIRToTTMetalPass());
