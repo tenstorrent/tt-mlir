@@ -35,7 +35,7 @@ jobs:
         run: |
           # Output the image name
           set pipefail
-          DOCKER_CI_IMAGE=$(.github/build-docker-images.sh | tee /dev/tty | tail -n 1)
+          DOCKER_CI_IMAGE=$(.github/build-docker-images.sh | tail -n 1)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
