@@ -3,10 +3,15 @@ name: Build and Test
 on:
   workflow_dispatch:
   workflow_call:
+  push:
 
 jobs:
-  build-ttmlir:
 
+  build-image:
+    uses: ./.github/workflows/build-image.yml
+
+  build-ttmlir:
+    needs: build-image
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -20,8 +25,7 @@ jobs:
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
-      options: --user root
+      image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
     - uses: actions/checkout@v4
@@ -142,7 +146,9 @@ jobs:
   run-tests:
 
     timeout-minutes: 30
-    needs: build-ttmlir
+    needs: 
+      - build-image
+      - build-ttmlir
     strategy:
       fail-fast: false
       matrix:
@@ -158,8 +164,8 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
-      options: --user root --device /dev/tenstorrent/0
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
@@ -245,7 +251,9 @@ jobs:
   run-ttrt-tests:
 
     timeout-minutes: 30
-    needs: build-ttmlir
+    needs: 
+      - build-image
+      - build-ttmlir
     strategy:
       fail-fast: false
       matrix:
@@ -258,8 +266,8 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
-      options: --user root --device /dev/tenstorrent/0
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
