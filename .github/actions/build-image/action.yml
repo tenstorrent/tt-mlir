@@ -1,4 +1,4 @@
-name: Build Docker
+name: Build Docker Image
 description: Build and Publish Docker Image
 runs:
   using: 'composite'
@@ -24,4 +24,4 @@ runs:
       set pipefail
       DOCKER_CI_IMAGE=$(.github/build-docker-images.sh | tail -n 1)
       echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
-      echo "docker-image=$DOCKER_IMAGE" >> "$GITHUB_OUTPUT"
+      echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
