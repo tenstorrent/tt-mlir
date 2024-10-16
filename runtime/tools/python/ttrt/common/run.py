@@ -152,6 +152,13 @@ class Run:
             help="Disable maxpool2d preshard workaround",
         )
         Run.register_arg(
+            name="--disable-matmul-1d-program-config",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="Disable matmul 1d program config workaround",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -331,6 +338,7 @@ class Run:
                 not self["--disable-empty-op-row-major"],
                 not self["--disable-full-op-row-major"],
                 not self["--disable-maxpool2d-preshard"],
+                not self["--disable-matmul-1d-program-config"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")

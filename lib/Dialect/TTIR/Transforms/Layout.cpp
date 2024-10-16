@@ -99,6 +99,19 @@ getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
   return TensorMemoryLayout::None;
 }
 
+inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
+  if (isa<NameLoc>(loc)) {
+    NameLoc oldLoc = mlir::cast<NameLoc>(loc);
+    StringAttr newName = StringAttr::get(
+        loc->getContext(), oldLoc.getName().str() + "_in_" +
+                               std::to_string(operandIndex) + "_layout");
+
+    return NameLoc::get(newName, oldLoc.getChildLoc());
+  }
+
+  return loc;
+}
+
 //===----------------------------------------------------------------------===//
 // To layout pass
 //===----------------------------------------------------------------------===//
@@ -297,9 +310,11 @@ public:
               mlir::cast<TTIROp>(op.getOperation())
                   .getOperandConstraints()[operand.getOperandNumber()])
               .getValue();
-      auto desiredLayout = createToLayoutOp(
-          rewriter, op.getLoc(), operand.get(), operandConstraint,
-          defaultMemorySpace, defaultDeviceMemoryLayout);
+      Location newLoc =
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+      auto desiredLayout =
+          createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint,
+                           defaultMemorySpace, defaultDeviceMemoryLayout);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
@@ -341,9 +356,11 @@ public:
       if (isDeviceMemorySpace(initMemorySpace)) {
         initMemoryLayout = defaultDeviceMemoryLayout;
       }
+      Location newLoc =
+          appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       if (auto layout =
-              createToLayoutOp(rewriter, op.getLoc(), operand.get(),
-                               initMemorySpace, initMemoryLayout, tiled);
+              createToLayoutOp(rewriter, newLoc, operand.get(), initMemorySpace,
+                               initMemoryLayout, tiled);
           layout) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });

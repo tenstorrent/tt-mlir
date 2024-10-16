@@ -7,9 +7,11 @@
 namespace tt::runtime::workaround {
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
 const Env &Env::get(bool ignoreTileShape, bool emptyOpForceRowMajor,
-                    bool fullOpForceRowMajor, bool maxpool2dPreshard) {
+                    bool fullOpForceRowMajor, bool maxpool2dPreshard,
+                    bool setMatmul1DProgramConfig) {
   static const Env config(ignoreTileShape, emptyOpForceRowMajor,
-                          fullOpForceRowMajor, maxpool2dPreshard);
+                          fullOpForceRowMajor, maxpool2dPreshard,
+                          setMatmul1DProgramConfig);
   return config;
 }
 #endif
