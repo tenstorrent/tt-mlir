@@ -95,6 +95,13 @@ table ReductionOp {
   keep_dim: bool;
 }
 
+table WhereOp {
+  pred: tt.target.TensorRef;
+  on_true: tt.target.TensorRef;
+  on_false: tt.target.TensorRef;
+  output: tt.target.TensorRef;
+}
+
 table EmbeddingOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
@@ -198,6 +205,7 @@ union OpType {
   EltwiseOp,
   MatmulOp,
   ReductionOp,
+  WhereOp,
   EmbeddingOp,
   SoftmaxOp,
   TransposeOp,
