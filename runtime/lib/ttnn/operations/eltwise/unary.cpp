@@ -116,6 +116,27 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Ceil: {
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::ceil);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Pow: {
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::pow);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Sine: {
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::sine);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Cosine: {
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::cosine);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Logit: {
+    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool,
+                                                ::ttnn::logistic);
+    break;
+  }
   default:
     throw std::invalid_argument("Unsupported unary operation");
   }

@@ -196,32 +196,31 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-
-def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
-    let summary = "Eltwise cast op.";
+def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil op.";
     let description = [{
-      Eltwise cast operation.
+      Eltwise ceil operation.
     }];
 }
 
-def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
-    let summary = "Eltwise square root.";
+def TTIR_CosineOp: TTIR_ElementwiseUnaryOp<"cosine"> {
+    let summary = "Eltwise cosine op.";
     let description = [{
-      Eltwise square root operation.
+      Eltwise cosine operation.
     }];
 }
 
-def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
-    let summary = "Eltwise reciprocal square root.";
+def TTIR_LogitOp: TTIR_ElementwiseUnaryOp<"logit"> {
+    let summary = "Eltwise logit op.";
     let description = [{
-      Eltwise reciprocal square root operation.
+      Eltwise logistic operation.
     }];
 }
 
-def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate op.";
+def TTIR_PowOp: TTIR_ElementwiseUnaryOp<"pow"> {
+    let summary = "Eltwise power op.";
     let description = [{
-      Eltwise negate operation.
+      Eltwise power operation.
     }];
 }
 
@@ -246,10 +245,45 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise reciprocal square root.";
+    let description = [{
+      Eltwise reciprocal square root operation.
+    }];
+}
+
 def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTIR_SineOp: TTIR_ElementwiseUnaryOp<"sine"> {
+    let summary = "Eltwise sine.";
+    let description = [{
+      Eltwise sine operation.
+    }];
+}
+
+def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise square root.";
+    let description = [{
+      Eltwise square root operation.
+    }];
+}
+
+def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
+    let summary = "Eltwise cast op.";
+    let description = [{
+      Eltwise cast operation.
+    }];
+}
+
+def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate op.";
+    let description = [{
+      Eltwise negate operation.
     }];
 }
 
