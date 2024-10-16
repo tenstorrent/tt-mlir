@@ -395,7 +395,10 @@ class Perf:
                         tracy_capture_tool_command, shell=True
                     )
 
-                    command_options = f"--program-index {self['--program-index']} --loops {self['--loops']}"
+                    command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} "
+
+                    if self["--save-artifacts"]:
+                        command_options += "--save-artifacts "
 
                     library_link_path = self.globals.get_ld_path(
                         f"{self.globals.get_ttmetal_home_path()}"
@@ -403,7 +406,7 @@ class Perf:
                     test_env_flags = f"LD_LIBRARY_PATH={library_link_path}"
 
                     ttrt_executable_path = shutil.which("ttrt")
-                    test_command = f"{test_env_flags} python -m tracy -p {ttrt_executable_path} run {bin.file_path} --save-artifacts {command_options}"
+                    test_command = f"{test_env_flags} python -m tracy -p {ttrt_executable_path} run {bin.file_path} {command_options}"
                     print(f"test command for binary={bin.file_path} is: {test_command}")
                     testProcess = subprocess.Popen(
                         [test_command], shell=True, env=env_vars, preexec_fn=os.setsid

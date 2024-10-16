@@ -20,9 +20,10 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ::ttnn::operations::matmul::matmul(
       lhs, rhs, /*bias=*/std::nullopt,
-      ::ttnn::operations::matmul::Matmul{/*program_config=*/std::nullopt,
-                                         /*bcast_batch=*/std::nullopt,
-                                         outputMemoryConfig, outputDataType});
+      ::ttnn::operations::matmul::Matmul{.output_mem_config =
+                                             outputMemoryConfig,
+                                         .output_dtype = outputDataType,
+                                         .output_tile = std::nullopt});
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::matmul

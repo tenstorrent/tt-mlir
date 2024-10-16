@@ -15,8 +15,8 @@ deriveMeshViewCoordinates(const ::ttnn::MeshDevice &meshDevice,
                           const std::unordered_set<uint32_t> &desiredDeviceIds,
                           const ::tt::target::Dim2d *meshViewShape) {
   ::tt::tt_metal::Coordinate topLeft, bottomRight;
-  for (int row = 0; row < meshDevice.num_rows(); row++) {
-    for (int col = 0; col < meshDevice.num_cols(); col++) {
+  for (size_t row = 0; row < meshDevice.num_rows(); row++) {
+    for (size_t col = 0; col < meshDevice.num_cols(); col++) {
       const ::ttnn::Device *currDevice = meshDevice.get_device(row, col);
       if (desiredDeviceIds.contains(currDevice->id())) {
         topLeft.row = row;

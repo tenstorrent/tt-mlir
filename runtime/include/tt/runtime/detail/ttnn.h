@@ -42,9 +42,9 @@
 #pragma clang diagnostic ignored "-Wc99-extensions"
 
 #define FMT_HEADER_ONLY
+#include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#include "impl/device/mesh_device.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"

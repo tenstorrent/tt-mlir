@@ -300,8 +300,6 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
 
     computeConfig.fp32_dest_acc_en =
         kernelSource->config_as_TensixConfig()->fp32_dest_acc_en();
-    computeConfig.preserve_fp32_precision =
-        kernelSource->config_as_TensixConfig()->preserve_fp32_precision();
     computeConfig.math_approx_mode =
         kernelSource->config_as_TensixConfig()->math_approx_mode();
     return computeConfig;
