@@ -13,11 +13,7 @@ jobs:
       - builder
     outputs:
       docker-image: ${{ steps.build.outputs.docker-image }}
-      bla: bla-bla
-      bla2: ${{ steps.build.outputs.bla }}
-
     steps:
-      # - uses: .github/actions/build-image
       - name: Fix permissions
         run: sudo chown ubuntu:ubuntu -R $(pwd)
   
@@ -39,10 +35,8 @@ jobs:
           set pipefail
           DOCKER_CI_IMAGE=$(.github/build-docker-images.sh | tail -n 1)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
-          echo "docker-image=$DOCKER_IMAGE" >> "$GITHUB_OUTPUT"
-          echo "bla=blaaa" >> "$GITHUB_OUTPUT"
+          echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
-    
   build-ttmlir:
     needs: build-image
     timeout-minutes: 120
@@ -63,8 +57,6 @@ jobs:
     steps:
 
     - run: |
-        echo "Bla: ${{ needs.build-image.outputs.bla }}"
-        echo "Bla2: ${{ needs.build-image.outputs.bla2 }}"
         echo "Docker: ${{ needs.build-image.outputs.docker-image }}"
 
     - uses: actions/checkout@v4
