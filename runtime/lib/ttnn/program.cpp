@@ -21,17 +21,20 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/reduction/reduction.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn {
-
+using LogType = ::tt::runtime::logger::LogType;
 struct ProgramExecutor {
   ProgramExecutor(const TensorMap &liveTensors, ::ttnn::MeshDevice *meshDevice)
       : context(ProgramContext(liveTensors, meshDevice)) {}
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+      LOG_DEBUG(LogType::LogRuntimeTTNN,
+                "Executing operation: ", op->debug_info()->c_str());
       runOperation(op);
     }
   }
@@ -71,8 +74,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     if (operations::unary::isUnaryOp(eltwiseOp)) {
       return operations::unary::run(eltwiseOp, context);
     }
-    assert(operations::binary::isBinaryOp(eltwiseOp) &&
-           "Eltwise op should be either unary or binary");
+    LOG_ASSERT(operations::binary::isBinaryOp(eltwiseOp),
+               "Eltwise op should be either unary or binary");
     return operations::binary::run(eltwiseOp, context);
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
@@ -144,19 +147,23 @@ void runProgram(::ttnn::MeshDevice &meshDevice,
   }
   TensorMap liveTensors;
   int inputIndex = 0;
-  assert(program->inputs()->size() == inputs.size());
+  LOG_ASSERT(program->inputs()->size() == inputs.size(),
+             "Program input size mismatch: ", program->inputs()->size(),
+             " != ", inputs.size());
   for (::tt::target::TensorRef const *input : *program->inputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
-    assert(inserted && "Duplicate input tensor");
+    LOG_ASSERT(inserted, "Duplicate input tensor");
   }
 
   int outputIndex = 0;
-  assert(program->outputs()->size() == outputs.size());
+  LOG_ASSERT(program->outputs()->size() == outputs.size(),
+             "Program output size mismatch: ", program->outputs()->size(),
+             " != ", outputs.size());
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
-    assert(inserted && "Duplicate output tensor");
+    LOG_ASSERT(inserted, "Duplicate output tensor");
   }
   ProgramExecutor executor(liveTensors, &meshDevice);
   executor.execute(program);

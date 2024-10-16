@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "get_device.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -45,13 +46,14 @@ constructMeshView(const ::ttnn::MeshDevice &meshDevice,
 void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
   const ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   const ::tt::target::Dim2d *meshViewShape = op->mesh();
-  assert(meshViewShape->y() == 1 &&
-         "Expected 1xN mesh shape for get device op");
+  LOG_ASSERT(
+      meshViewShape->y() == 1,
+      "Expected mesh row = 1 for get device op, got: ", meshViewShape->y());
   const ::flatbuffers::Vector<uint32_t> *deviceIds = op->chip_ids();
   std::unordered_set<uint32_t> desiredDeviceIds(deviceIds->begin(),
                                                 deviceIds->end());
-  assert(desiredDeviceIds.size() == deviceIds->size() &&
-         "Duplicate device ids in get device op");
+  LOG_ASSERT(desiredDeviceIds.size() == deviceIds->size(),
+             "Duplicate device ids in get device op");
   std::unique_ptr<::ttnn::MeshDeviceView> meshView =
       constructMeshView(meshDevice, desiredDeviceIds, meshViewShape);
   context.addMeshView(op->out()->global_id(), std::move(meshView));

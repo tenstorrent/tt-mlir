@@ -6,6 +6,7 @@
 
 #include "flatbuffers/idl.h"
 
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -138,8 +139,9 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
   std::vector<TensorDesc> inputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  assert(program->device_programs()->size() == 1 &&
-         "Currently only one device is supported");
+  LOG_ASSERT(program->device_programs()->size() == 1,
+             "Currently only one device program is supported, got: ",
+             program->device_programs()->size());
   for (auto const *input : *program->device_programs()->Get(0)->inputs()) {
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
@@ -158,7 +160,9 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
   std::vector<TensorDesc> outputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  assert(program->device_programs()->size() == 1);
+  LOG_ASSERT(program->device_programs()->size() == 1,
+             "Currently only one device program is supported, got: ",
+             program->device_programs()->size());
   for (auto const *output : *program->device_programs()->Get(0)->outputs()) {
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),

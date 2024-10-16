@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -46,10 +47,10 @@ void deallocateBuffers(Device device) {
 
 DeviceRuntime getCurrentRuntime() {
 #if !defined(TT_RUNTIME_ENABLE_TTNN)
-  assert(detail::globalCurrentRuntime != DeviceRuntime::TTNN);
+  LOG_ASSERT(detail::globalCurrentRuntime != DeviceRuntime::TTNN);
 #endif
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL)
-  assert(detail::globalCurrentRuntime != DeviceRuntime::TTMetal);
+  LOG_ASSERT(detail::globalCurrentRuntime != DeviceRuntime::TTMetal);
 #endif
   return detail::globalCurrentRuntime;
 }
@@ -67,10 +68,10 @@ std::vector<DeviceRuntime> getAvailableRuntimes() {
 
 void setCurrentRuntime(const DeviceRuntime &runtime) {
 #if !defined(TT_RUNTIME_ENABLE_TTNN)
-  assert(runtime != DeviceRuntime::TTNN);
+  LOG_ASSERT(runtime != DeviceRuntime::TTNN);
 #endif
 #if !defined(TT_RUNTIME_ENABLE_TTMETAL)
-  assert(runtime != DeviceRuntime::TTMetal);
+  LOG_ASSERT(runtime != DeviceRuntime::TTMetal);
 #endif
   detail::globalCurrentRuntime = runtime;
 }
@@ -104,9 +105,9 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
-  assert(not shape.empty());
-  assert(not stride.empty());
-  assert(itemsize > 0);
+  LOG_ASSERT(not shape.empty());
+  LOG_ASSERT(not stride.empty());
+  LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::createTensor(data, shape, stride, itemsize,
