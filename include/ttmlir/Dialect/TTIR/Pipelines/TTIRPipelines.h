@@ -17,11 +17,7 @@ struct StableHLOToTTIRPipelineOptions
   Option<bool> removeDeadValuesEnabled{
       *this, "enable-remove-dead-values",
       llvm::cl::desc("Enable --remove-dead-values optimization pass."),
-      llvm::cl::init(false)};
-  Option<bool> SparseConstantPropogationEnabled{
-      *this, "enable-sparse-constant-propogation",
-      llvm::cl::desc("Enable --sccp optimization pass."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
   Option<bool> arithDialectConversionsEnabled{
       *this, "enable-arith-to-stablehlo",
       llvm::cl::desc("Enable Arith to StableHLO conversion pass."),
