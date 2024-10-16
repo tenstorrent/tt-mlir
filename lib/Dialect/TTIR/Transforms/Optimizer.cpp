@@ -50,8 +50,9 @@ public:
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
       LegalGridAnalysis legalGridAnalysis =
           getChildAnalysis<LegalGridAnalysis>(op);
-      legalGridAnalysis.init(LegalGridAnalysisInput(
-          chipDesc, max_grid, tensorType, &overrideOutputLayout));
+      legalGridAnalysis.init(LegalGridAnalysisInput(chipDesc, max_grid,
+                                                    tensorType, maxLegalLayouts,
+                                                    &overrideOutputLayout));
       legalLayouts[op] = legalGridAnalysis.getResult();
     });
 

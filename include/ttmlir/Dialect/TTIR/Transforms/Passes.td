@@ -127,6 +127,10 @@ def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
           "bool",
           /*default=*/"false",
           "Resharding pass. Temp disabled till we support all types of shard specs.">,
+    Option<"maxLegalLayouts", "max-legal-layouts",
+          "int64_t",
+          /*default=*/"64",
+          "Override maximum number of legal layouts for grid analysis.">
   ];
 }
 
