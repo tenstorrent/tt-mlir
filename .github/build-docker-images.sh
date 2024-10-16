@@ -25,6 +25,7 @@ build_and_push() {
     else
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \
+            --progress=plain \
             --build-arg GIT_SHA=$CURRENT_SHA \
             --build-arg FROM_TAG=$DOCKER_TAG \
             ${from_image:+--build-arg FROM_IMAGE=$from_image} \
