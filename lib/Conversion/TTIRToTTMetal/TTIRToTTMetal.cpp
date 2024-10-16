@@ -878,21 +878,21 @@ public:
     buildEltwiseUnaryWaitInput(arithOrMathOp, builder, cbOperands);
     buildEltwiseUnaryReserveOutput(arithOrMathOp, builder, cbOperands);
 
-    // We always operate on the first and only tile in DST register.
-    Value dstTileIndex = i32(0, builder);
+    // We always operate on the first and only tile in DST register, index 0.
+    // We always operate on first tile in CB, this zero index is used for both.
+    Value zeroIndex = i32(0, builder);
 
     // MATH acquires lock on DST register.
     builder.create<ttkernel::TileRegsAcquireOp>(location);
 
     // For all unary ops first copy tile from input CB at inCBTileIndex to DST
     // register at dstTileIndex.
-    builder.create<ttkernel::CopyTileOp>(location, inCB, dstTileIndex,
-                                         dstTileIndex);
+    builder.create<ttkernel::CopyTileOp>(location, inCB, zeroIndex, zeroIndex);
 
     // Perform computation on tile in DST register on dstTileIndex (the only
     // tile in DST).
     if (mlir::isa<math::ExpOp>(arithOrMathOp)) {
-      builder.create<ttkernel::ExpTileOp>(location, dstTileIndex);
+      builder.create<ttkernel::ExpTileOp>(location, zeroIndex);
     } else {
       llvm_unreachable("Unhandled unary op compute conversion.");
     }
@@ -906,8 +906,7 @@ public:
     // Copy tile from DST at dstTileIndex to outCB at outCBTileIndex.
     // outCBTileIndex increments as loops iterate, thus placing one result tile
     // after another in outCB.
-    builder.create<ttkernel::PackTileOp>(location, dstTileIndex, outCB,
-                                         dstTileIndex);
+    builder.create<ttkernel::PackTileOp>(location, zeroIndex, outCB, zeroIndex);
 
     // PACK releases lock on DST.
     builder.create<ttkernel::TileRegsReleaseOp>(location);
@@ -937,13 +936,15 @@ public:
       buildEltwiseBinaryWaitInput(arithOrMathOp, builder, cbOperands);
       buildEltwiseBinaryReserveOutput(arithOrMathOp, builder, cbOperands);
 
-      Value dstIndex = i32(0, builder);
+      // We always operate on tile 0 in CB and DST, this index is used for both.
+      Value zeroIndex = i32(0, builder);
       builder.create<ttkernel::TileRegsAcquireOp>(location);
-      builder.create<ttkernel::AddTilesOp>(location, inCB0, inCB1, dstIndex,
-                                           dstIndex, dstIndex);
+      builder.create<ttkernel::AddTilesOp>(location, inCB0, inCB1, zeroIndex,
+                                           zeroIndex, zeroIndex);
       builder.create<ttkernel::TileRegsCommitOp>(location);
       builder.create<ttkernel::TileRegsWaitOp>(location);
-      builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB, dstIndex);
+      builder.create<ttkernel::PackTileOp>(location, zeroIndex, outCB,
+                                           zeroIndex);
       builder.create<ttkernel::TileRegsReleaseOp>(location);
 
       buildEltwiseBinaryPopInput(arithOrMathOp, builder, cbOperands);
@@ -994,17 +995,18 @@ public:
     auto outCB = cbOperands[2];
     auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
 
-    Value dstIndex = i32(0, builder);
+    // We always operate on tile 0 in CB and DST, this index is used for both.
+    Value zeroIndex = i32(0, builder);
 
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     if (mlir::isa<arith::MulFOp>(op)) {
-      builder.create<ttkernel::MulTilesOp>(op.getLoc(), inCB0, inCB1, dstIndex,
-                                           dstIndex, dstIndex);
+      builder.create<ttkernel::MulTilesOp>(op.getLoc(), inCB0, inCB1, zeroIndex,
+                                           zeroIndex, zeroIndex);
     } else if (mlir::isa<arith::DivFOp>(op)) {
       // Source index for CB input 1 is 0(dstIndex), because of sync needed with
       // recip.
-      builder.create<ttkernel::MulTilesOp>(op.getLoc(), inCB0, inCB1,
-                                           inCB0TileIndex, dstIndex, dstIndex);
+      builder.create<ttkernel::MulTilesOp>(
+          op.getLoc(), inCB0, inCB1, inCB0TileIndex, zeroIndex, zeroIndex);
     } else {
       llvm_unreachable("Common compute for multiplying tiles should be called "
                        "only on MulFOp and DivFOp");
@@ -1012,8 +1014,8 @@ public:
 
     builder.create<ttkernel::TileRegsCommitOp>(op.getLoc());
     builder.create<ttkernel::TileRegsWaitOp>(op.getLoc());
-    builder.create<ttkernel::PackTileOp>(op.getLoc(), dstIndex, outCB,
-                                         dstIndex);
+    builder.create<ttkernel::PackTileOp>(op.getLoc(), zeroIndex, outCB,
+                                         zeroIndex);
     builder.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
   }
 
@@ -1022,7 +1024,8 @@ public:
                             SmallVector<unsigned> blockArgIteratorMapping,
                             OpBuilder &builder,
                             SmallVector<std::int64_t> &operandIndices) const {
-    Value dstIndex = i32(0, builder);
+    // We always operate on tile 0 in CB and DST, this index is used for both.
+    Value zeroIndex = i32(0, builder);
     Value one = i32(1, builder);
 
     auto inputCB = cbOperands[operandIndices[0]];
@@ -1032,14 +1035,14 @@ public:
     builder.create<ttkernel::CBReserveBackOp>(op.getLoc(), inputCB, one);
     builder.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
     builder.create<ttkernel::RecipTileInitOp>(op.getLoc());
-    builder.create<ttkernel::CopyTileOp>(op.getLoc(), inputCB, dstIndex,
-                                         dstIndex);
-    builder.create<ttkernel::RecipTileOp>(op.getLoc(), dstIndex);
+    builder.create<ttkernel::CopyTileOp>(op.getLoc(), inputCB, zeroIndex,
+                                         zeroIndex);
+    builder.create<ttkernel::RecipTileOp>(op.getLoc(), zeroIndex);
     builder.create<ttkernel::TileRegsCommitOp>(op.getLoc());
 
     builder.create<ttkernel::TileRegsWaitOp>(op.getLoc());
-    builder.create<ttkernel::PackTileOp>(op.getLoc(), dstIndex, outputCB,
-                                         dstIndex);
+    builder.create<ttkernel::PackTileOp>(op.getLoc(), zeroIndex, outputCB,
+                                         zeroIndex);
     builder.create<ttkernel::TileRegsReleaseOp>(op.getLoc());
     builder.create<ttkernel::CBPushBackOp>(op.getLoc(), outputCB, one);
   }
