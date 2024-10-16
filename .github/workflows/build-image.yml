@@ -14,7 +14,10 @@ jobs:
     steps:
 
       - name: Fix permissions
-        run: sudo chmod 777 -R $GITHUB_WORKSPACE
+        run: sudo chown ubuntu:ubuntu -R $(pwd)
+
+      # - name: Git safe dir
+      #   run: git config --global --add safe.directory $(pwd)
 
       - name: Checkout repository
         uses: actions/checkout@v4
