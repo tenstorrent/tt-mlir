@@ -20,7 +20,7 @@ build_and_push() {
     local dockerfile=$2
     local from_image=$3
 
-    if docker manifest inspect $image_name:$DOCKER_TAG; then
+    if docker manifest inspect $image_name:$DOCKER_TAG > /dev/null; then
         echo "Image $image_name:$DOCKER_TAG already exists"
     else
         echo "Building image $image_name:$DOCKER_TAG"
