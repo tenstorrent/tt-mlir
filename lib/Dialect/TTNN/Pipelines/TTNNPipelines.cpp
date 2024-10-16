@@ -51,6 +51,8 @@ void createTTNNPipelineLoweringPasses(
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
   pm.addPass(mlir::createRemoveDeadValuesPass());
+  // Dealloc pass for tensor memory deallocation after last use.
+  pm.addPass(createTTNNDeallocate());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,

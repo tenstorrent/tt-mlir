@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "to_device.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -14,6 +15,7 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   ::ttnn::Device &device =
       context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
+  DEBUG_ASSERT(inputTensor.is_allocated());
   assert(utils::isOnHost(inputTensor) &&
          "Calling ttnn::to_device on a device tensor");
 

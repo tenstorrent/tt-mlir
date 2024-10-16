@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "embedding.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 
@@ -12,6 +13,9 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
+  DEBUG_ASSERT(input.is_allocated());
+  DEBUG_ASSERT(weight.is_allocated());
+
   // default params for embedding op
   std::optional<int> padToken = std::nullopt;
   ::tt::tt_metal::Layout layout = ::ttnn::ROW_MAJOR_LAYOUT;

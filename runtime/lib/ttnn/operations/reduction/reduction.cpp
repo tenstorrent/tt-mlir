@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "reduction.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 
@@ -18,6 +19,7 @@ static void runReductionOp(
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
+  DEBUG_ASSERT(in.is_allocated());
 
   const auto *fbDimArg = op->dim_arg();
   std::optional<vector<int>> dimArg =

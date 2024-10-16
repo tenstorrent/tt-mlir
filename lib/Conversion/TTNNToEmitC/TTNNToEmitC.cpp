@@ -514,6 +514,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ToLayoutOpConversionPattern,
                DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>,
+               DefaultOpConversionPattern<ttnn::DeallocOp>,
                ToDeviceOpConversionPattern, FromDeviceOpConversionPattern>(
       typeConverter, ctx);
 
