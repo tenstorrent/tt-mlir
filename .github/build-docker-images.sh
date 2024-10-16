@@ -24,15 +24,15 @@ build_and_push() {
         echo "Image $image_name:$DOCKER_TAG already exists"
     else
         echo "Building image $image_name:$DOCKER_TAG"
-        echo docker build \
+        docker build \
             --build-arg GIT_SHA=$CURRENT_SHA \
             ${from_image:+--build-arg FROM_IMAGE=$from_image} \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \
             -f $dockerfile .
         echo "Pushing image $image_name:$DOCKER_TAG"
-        echo docker push $image_name:$DOCKER_TAG
-        echo docker push $image_name:latest
+        docker push $image_name:$DOCKER_TAG
+        # echo docker push $image_name:latest
     fi
 }
 
