@@ -3,7 +3,6 @@ name: Build and Test
 on:
   workflow_dispatch:
   workflow_call:
-  push:
 
 jobs:
 
@@ -58,9 +57,6 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
-
-    - run: |
-        echo "Docker: ${{ needs.build-image.outputs.docker-image }}"
 
     - uses: actions/checkout@v4
       with:
