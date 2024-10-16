@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "maxpool2d.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -48,6 +49,7 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
       ::ttnn::operations::pool::MaxPool2DOp();
 
   ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
+  DEBUG_ASSERT(input.is_allocated());
   if (workaround::Env::get().maxpool2dPreshard) {
     input = preshardForMaxPool2d(op, device, input);
   }

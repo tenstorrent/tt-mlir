@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "conv2d.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -16,6 +17,9 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
       context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
+  DEBUG_ASSERT(input.is_allocated());
+  DEBUG_ASSERT(weight.is_allocated());
+
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;

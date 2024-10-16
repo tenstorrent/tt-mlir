@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "to_memory_config.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
@@ -199,6 +200,7 @@ void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
 
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in0()->global_id());
+  DEBUG_ASSERT(inputTensor.is_allocated());
   assert(utils::isOnHost(inputTensor) or
          utils::isOnDevice(inputTensor) && "Unsupported storage type");
 

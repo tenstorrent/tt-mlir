@@ -16,6 +16,7 @@ getEltwiseUnaryOPInputTensor(const ::tt::target::ttnn::EltwiseOp *op,
   LOG_ASSERT(op->ins()->size() == 1, "Expected 1 input, got ",
              op->ins()->size());
   *in = &(tensorPool.at(op->ins()->Get(0)->global_id()));
+  DEBUG_ASSERT((*in)->is_allocated());
 }
 
 static void runEltwiseUnaryOP(

@@ -7,4 +7,11 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TTNNDeallocate: Pass<"ttnn-deallocate", "::mlir::ModuleOp"> {
+  let summary = "Insert deallocate ops for tensors.";
+  let description = [{
+    This pass inserts deallocate ops after a tensor value's last use.
+  }];
+}
+
 #endif
