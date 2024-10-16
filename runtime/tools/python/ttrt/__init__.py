@@ -39,7 +39,9 @@ def main():
         return 1
 
     request_api = args.api(args)
-    request_api()
+    result_code, results = request_api()
+
+    return result_code
 
 
 if __name__ == "__main__":

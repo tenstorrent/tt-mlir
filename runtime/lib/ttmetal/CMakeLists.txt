@@ -14,7 +14,3 @@ target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY)
 add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY tt-metal FBS_GENERATION)
 
 # Optionally compile profiling code and link tracy client for perf profiling.
-if (TT_RUNTIME_ENABLE_PERF_TRACE)
-  target_compile_definitions(TTRuntimeTTMetal PUBLIC TRACY_ENABLE)
-  target_link_libraries(TTRuntimeTTMetal PUBLIC TRACY_LIBRARY)
-endif()

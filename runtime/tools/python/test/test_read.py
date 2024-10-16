@@ -205,7 +205,7 @@ def test_section():
 
 
 def test_section_cmd():
-    command = f"ttrt read {BINARY_FILE_PATH} --section mlir --log-file {test_section_cmd.__name__}_read.log"
+    command = f"ttrt read {BINARY_FILE_PATH} --section all --log-file {test_section_cmd.__name__}_read.log"
     sub_process_command(command)
 
     assert (

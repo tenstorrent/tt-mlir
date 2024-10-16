@@ -151,6 +151,9 @@ class Read:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
 
         for path in ttnn_binary_paths:
@@ -166,6 +169,9 @@ class Read:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
 
         for path in ttmetal_binary_paths:
@@ -181,6 +187,9 @@ class Read:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
 
         self.logging.debug(f"------finished checking constraints for read API")
@@ -202,6 +211,9 @@ class Read:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.error(
+                    f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 bin.test_result = "error"
 
@@ -219,6 +231,9 @@ class Read:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.error(
+                    f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 bin.test_result = "error"
 
@@ -236,6 +251,9 @@ class Read:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.error(
+                    f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 bin.test_result = "error"
 
@@ -262,6 +280,9 @@ class Read:
                 }
 
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
         for bin in self.ttnn_binaries:
             if bin.test_result == "pass":
@@ -274,6 +295,9 @@ class Read:
                 }
 
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
         for bin in self.ttmetal_binaries:
             if bin.test_result == "pass":
@@ -286,6 +310,9 @@ class Read:
                 }
 
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
         self.results.save_results("read_results.json")
 
@@ -310,6 +337,8 @@ class Read:
         self.logging.debug(
             f"----------------------------finished read API----------------------------"
         )
+
+        return self.results.get_result_code(), self.results.get_results()
 
     def all(self, binary):
         try:

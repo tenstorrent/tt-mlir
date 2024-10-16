@@ -22,6 +22,10 @@ set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  add_compile_options(-DTRACY_ENABLE=ON)
+endif()
+
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
 
 include(TTMLIRBuildTypes)
