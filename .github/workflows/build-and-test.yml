@@ -8,8 +8,14 @@ on:
 jobs:
 
   build-image:
-    uses: ./.github/workflows/build-image.yml
-
+    runs-on:
+      - in-service
+      - builder
+    outputs:
+      docker-image: ${{ steps.build.outputs.docker-image }}
+    steps:
+      - uses: .github/actions/build-image
+    
   build-ttmlir:
     needs: build-image
     timeout-minutes: 120
@@ -28,6 +34,10 @@ jobs:
       image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
+
+    - run: |
+        echo "Docker: ${{ needs.build-image.outputs.docker-image }}"
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
