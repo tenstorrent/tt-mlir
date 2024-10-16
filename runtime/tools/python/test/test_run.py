@@ -393,23 +393,133 @@ def test_load_kernels_from_disk_cmd():
     ), f"one of more tests failed in={test_load_kernels_from_disk_cmd.__name__}"
 
 
-def test_enable_async_ttnn():
+def test_disable_async_ttnn():
     API.initialize_apis()
     custom_args = {}
     custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--enable-async-ttnn"] = True
+    custom_args["--disable-async-ttnn"] = True
     run_instance = API.Run(args=custom_args)
     run_instance()
 
     assert (
         check_results("run_results.json") == 0
-    ), f"one of more tests failed in={test_enable_async_ttnn.__name__}"
+    ), f"one of more tests failed in={test_disable_async_ttnn.__name__}"
 
 
-def test_enable_async_ttnn_cmd():
-    command = f"ttrt run {BINARY_FILE_PATH} --enable-async-ttnn --log-file {test_enable_async_ttnn_cmd.__name__}_run.log"
+def test_disable_async_ttnn_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --disable-async-ttnn --log-file {test_disable_async_ttnn_cmd.__name__}_run.log"
     sub_process_command(command)
 
     assert (
         check_results("run_results.json") == 0
-    ), f"one of more tests failed in={test_enable_async_ttnn_cmd.__name__}"
+    ), f"one of more tests failed in={test_disable_async_ttnn_cmd.__name__}"
+
+
+def test_disable_ignore_tile_shape():
+    API.initialize_apis()
+    custom_args = {}
+    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["--disable-ignore-tile-shape"] = True
+    run_instance = API.Run(args=custom_args)
+    run_instance()
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_ignore_tile_shape.__name__}"
+
+
+def test_disable_ignore_tile_shape_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --disable-ignore-tile-shape --log-file {test_disable_ignore_tile_shape_cmd.__name__}_run.log"
+    sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_ignore_tile_shape_cmd.__name__}"
+
+
+def test_disable_empty_op_row_major():
+    API.initialize_apis()
+    custom_args = {}
+    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["--disable-empty-op-row-major"] = True
+    run_instance = API.Run(args=custom_args)
+    run_instance()
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_empty_op_row_major.__name__}"
+
+
+def test_disable_empty_op_row_major_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --disable-empty-op-row-major --log-file {test_disable_empty_op_row_major_cmd.__name__}_run.log"
+    sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_empty_op_row_major_cmd.__name__}"
+
+
+def test_disable_full_op_row_major():
+    API.initialize_apis()
+    custom_args = {}
+    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["--disable-full-op-row-major"] = True
+    run_instance = API.Run(args=custom_args)
+    run_instance()
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_full_op_row_major.__name__}"
+
+
+def test_disable_full_op_row_major_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --disable-full-op-row-major --log-file {test_disable_full_op_row_major_cmd.__name__}_run.log"
+    sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_full_op_row_major_cmd.__name__}"
+
+
+def test_disable_maxpool2d_preshard():
+    API.initialize_apis()
+    custom_args = {}
+    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["--disable-maxpool2d-preshard"] = True
+    run_instance = API.Run(args=custom_args)
+    run_instance()
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_maxpool2d_preshard.__name__}"
+
+
+def test_disable_maxpool2d_preshard_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --disable-maxpool2d-preshard --log-file {test_disable_maxpool2d_preshard_cmd.__name__}_run.log"
+    sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_maxpool2d_preshard_cmd.__name__}"
+
+def test_disable_matmul_1d_program_config():
+    API.initialize_apis()
+    custom_args = {}
+    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["--disable-matmul-1d-program-config"] = True
+    run_instance = API.Run(args=custom_args)
+    run_instance()
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_matmul_1d_program_config.__name__}"
+
+
+def test_disable_matmul_1d_program_config_cmd():
+    command = f"ttrt run {BINARY_FILE_PATH} --disable-matmul-1d-program-config --log-file {test_disable_matmul_1d_program_config_cmd.__name__}_run.log"
+    sub_process_command(command)
+
+    assert (
+        check_results("run_results.json") == 0
+    ), f"one of more tests failed in={test_disable_matmul_1d_program_config_cmd.__name__}"
+    

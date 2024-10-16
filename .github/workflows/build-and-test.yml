@@ -240,7 +240,7 @@ jobs:
       if: matrix.build.enable_perf == 'ON'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon --host-only
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
 
   run-ttrt-tests:
 

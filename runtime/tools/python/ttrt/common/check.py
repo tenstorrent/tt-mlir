@@ -186,7 +186,6 @@ class Check:
             for bin in binaries:
                 test_result = {
                     "file_path": bin.file_path,
-                    "result": "fail",
                     "exception": "",
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
@@ -200,28 +199,34 @@ class Check:
                         self.logging.info(
                             f"system desc for device did not match flatbuffer: {bin.file_path}"
                         )
+                        test_result["result"] = "error"
                         test_result[
                             "exception"
                         ] = f"system desc for device did not match flatbuffer: {bin.file_path}"
+                        test_result["system_desc"] = "system_desc queried from device"
                     else:
                         self.logging.info(
                             f"system desc for device matched flatbuffer: {bin.file_path}"
                         )
                         test_result["result"] = "pass"
+                        test_result["system_desc"] = "system_desc queried from device"
                 else:
                     for desc in self.system_desc_binaries:
                         if bin.fbb_dict["system_desc"] != desc.fbb_dict["system_desc"]:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
                             )
+                            test_result["result"] = "error"
                             test_result[
                                 "exception"
                             ] = f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
+                            test_result["system_desc"] = f"{desc.file_path}"
                         else:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} matched flatbuffer: {bin.file_path}"
                             )
                             test_result["result"] = "pass"
+                            test_result["system_desc"] = f"{desc.file_path}"
 
                 self.results.add_result(test_result)
 

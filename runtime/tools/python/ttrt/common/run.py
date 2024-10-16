@@ -117,7 +117,7 @@ class Run:
             help="pickup the kernels from disk (/tmp) instead of the flatbuffer",
         )
         Run.register_arg(
-            name="--enable-async-ttnn",
+            name="--disable-async-ttnn",
             type=bool,
             default=False,
             choices=[True, False],
@@ -128,35 +128,35 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable ignore tile shape workaround",
+            help="disable ignore tile shape workaround",
         )
         Run.register_arg(
             name="--disable-empty-op-row-major",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable empty op force row major workaround",
+            help="disable empty op force row major workaround",
         )
         Run.register_arg(
             name="--disable-full-op-row-major",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable full op force row major workaround",
+            help="disable full op force row major workaround",
         )
         Run.register_arg(
             name="--disable-maxpool2d-preshard",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable maxpool2d preshard workaround",
+            help="disable maxpool2d preshard workaround",
         )
         Run.register_arg(
             name="--disable-matmul-1d-program-config",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable matmul 1d program config workaround",
+            help="disable matmul 1d program config workaround",
         )
         Run.register_arg(
             name="binary",
@@ -330,7 +330,7 @@ class Run:
                 return
 
             debug_env = ttrt.runtime.DebugEnv.get(
-                self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
+                self["--load-kernels-from-disk"], self["--disable-async-ttnn"]
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
@@ -508,6 +508,9 @@ class Run:
                     "program_index": self["--program-index"],
                 }
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"FAIL: test case={bin.file_path}")
 
         for bin in self.ttmetal_binaries:
             if bin.test_result == "pass":
@@ -520,6 +523,9 @@ class Run:
                     "program_index": self["--program-index"],
                 }
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"FAIL: test case={bin.file_path}")
 
         self.results.save_results("run_results.json")
 

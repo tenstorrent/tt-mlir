@@ -148,6 +148,9 @@ class Query:
                 "artifacts": self.artifacts.artifacts_folder_path,
             }
             self.results.add_result(test_result)
+            self.logging.info(f"PASS: getting system_desc passed")
+        else:
+            self.logging.error(f"FAIL: getting system_desc failed")
 
         self.results.save_results("query_results.json")
 

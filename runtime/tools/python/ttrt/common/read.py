@@ -262,6 +262,9 @@ class Read:
                 }
 
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"FAIL: test case={bin.file_path}")
 
         for bin in self.ttnn_binaries:
             if bin.test_result == "pass":
@@ -274,6 +277,9 @@ class Read:
                 }
 
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"FAIL: test case={bin.file_path}")
 
         for bin in self.ttmetal_binaries:
             if bin.test_result == "pass":
@@ -286,6 +292,9 @@ class Read:
                 }
 
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"FAIL: test case={bin.file_path}")
 
         self.results.save_results("read_results.json")
 
