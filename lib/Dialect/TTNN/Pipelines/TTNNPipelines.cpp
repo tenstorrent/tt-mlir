@@ -20,6 +20,11 @@ void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
+
+  // Inlines all private functions. I.e flattens the program into the main
+  // function. Removes all private functions.
+  pm.addPass(mlir::createInlinerPass());
+
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
