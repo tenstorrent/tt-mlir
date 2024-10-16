@@ -3,7 +3,9 @@ description: Build and Publish Docker Image
 runs:
   using: 'composite'
   steps:
+
   - name: Fix permissions
+    shell: bash
     run: sudo chown ubuntu:ubuntu -R $(pwd)
 
   - name: Checkout repository
