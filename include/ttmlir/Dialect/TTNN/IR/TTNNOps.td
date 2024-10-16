@@ -125,17 +125,24 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     }];
 }
 
-def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
-    let summary = "Eltwise sqrt.";
+def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil.";
     let description = [{
-      Eltwise sqrt operation.
+      Eltwise ceil operation.
     }];
 }
 
-def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
-    let summary = "Eltwise rsqrt.";
+def TTNN_CosineOp : TTNN_ElementwiseUnaryOp<"cosine"> {
+    let summary = "Eltwise cosine.";
     let description = [{
-      Eltwise rsqrt operation.
+      Eltwise cosine operation.
+    }];
+}
+
+def TTNN_LogitOp : TTNN_ElementwiseUnaryOp<"logit"> {
+    let summary = "Eltwise logit.";
+    let description = [{
+      Eltwise logistic operation.
     }];
 }
 
@@ -153,6 +160,13 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     }];
 }
 
+def TTNN_PowOp : TTNN_ElementwiseUnaryOp<"pow"> {
+    let summary = "Eltwise power.";
+    let description = [{
+      Eltwise power operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -164,6 +178,27 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
+    }];
+}
+
+def TTNN_SineOp : TTNN_ElementwiseUnaryOp<"sine"> {
+    let summary = "Eltwise sine.";
+    let description = [{
+      Eltwise sine operation.
+    }];
+}
+
+def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise sqrt.";
+    let description = [{
+      Eltwise sqrt operation.
+    }];
+}
+
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise rsqrt.";
+    let description = [{
+      Eltwise rsqrt operation.
     }];
 }
 
@@ -180,6 +215,7 @@ def TTNN_TypecastOp : TTNN_ElementwiseUnaryOp<"typecast"> {
       Eltwise typecast operation.
     }];
 }
+
 
 def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential.";
