@@ -108,6 +108,32 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
+  let summary = "Determine op configurations for maximum performance.";
+  let description = [{
+    Go through the ops, set sharding specs for each op based on sharding analysis,
+    by updating layout attribute of each op.
+  }];
+  let options = [
+    Option<"overrideOutputLayout", "override-output-layout",
+          "llvm::StringMap<LayoutOverrideParams>",
+          /*default=*/"llvm::StringMap<LayoutOverrideParams>()",
+           "Override output tensor layout for specific ops.">,
+    Option<"shardingPassEnabled", "sharding-pass-enabled",
+          "bool",
+          /*default=*/"false",
+           "Enable sharding pass.">,
+    Option<"reshardingEnabled", "resharding-enabled",
+          "bool",
+          /*default=*/"false",
+          "Resharding pass. Temp disabled till we support all types of shard specs.">,
+    Option<"maxLegalLayouts", "max-legal-layouts",
+          "int64_t",
+          /*default=*/"64",
+          "Override maximum number of legal layouts for grid analysis.">
+  ];
+}
+
 def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   let summary = "Load system desc.";
   let description = [{

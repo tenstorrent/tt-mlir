@@ -54,7 +54,7 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.memoryLayoutAnalysisPolicy =
         options.memoryLayoutAnalysisPolicy;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
-    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
+    pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }
 }
 
