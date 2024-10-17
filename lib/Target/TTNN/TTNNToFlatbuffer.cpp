@@ -255,9 +255,9 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-          kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateAllGatherOp(
-      *cache.fbb, input, output, op.getDim(), op.getNumLinks());
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateAllGatherOp(*cache.fbb, input, output,
+                                               op.getDim(), op.getNumLinks());
 }
 
 template <typename EltwiseOp>
