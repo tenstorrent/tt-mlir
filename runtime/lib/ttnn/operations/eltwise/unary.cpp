@@ -76,6 +76,14 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::abs);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Ceil: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::ceil);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Cos: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::cos);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::LogicalNot: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::logical_not);
     break;
@@ -100,6 +108,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Sin: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sin);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Typecast: {
     runTypecastOp(op, tensorPool);
     break;
@@ -110,18 +122,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
     runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Ceil: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::ceil);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Sine: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sin);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Cosine: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::cos);
     break;
   }
   default:
