@@ -13,7 +13,6 @@ namespace mlir::tt::ttir {
 //
 struct StableHLOToTTIRPipelineOptions
     : public PassPipelineOptions<StableHLOToTTIRPipelineOptions> {
-  // Option to enable --remove-dead-values optimization pass.
   Option<bool> removeDeadValuesEnabled{
       *this, "enable-remove-dead-values",
       llvm::cl::desc("Enable --remove-dead-values optimization pass."),
@@ -31,6 +30,9 @@ struct StableHLOToTTIRPipelineOptions
       // This pass will convert stablehlo.composite ops into func.call ops so
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
+  Option<bool> sparseConstantPropagationEnabled{
+      *this, "enable-sparse-constant-propagation",
+      llvm::cl::desc("Enable --sccp optimization pass."), llvm::cl::init(true)};
 };
 
 void createStableHLOToTTIRPipeline(
