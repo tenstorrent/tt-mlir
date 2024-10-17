@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "operations/ccl/all_gather.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/creation/empty.h"
@@ -112,6 +113,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
     return operations::pool::run(op->type_as_MaxPool2dOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
   default: {
     throw std::runtime_error("Unsupported operation type");
