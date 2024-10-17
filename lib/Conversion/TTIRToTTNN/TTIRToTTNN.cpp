@@ -211,7 +211,8 @@ public:
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user)) {
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
+          isa<ttir::SliceOp>(user)) {
         return true;
       }
     }

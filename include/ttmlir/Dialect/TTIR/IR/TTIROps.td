@@ -653,8 +653,9 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
-      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
-      indices for each dimension.
+      Extract a sub-tensor (slice) from the input tensor across one or more dimensions.
+      The `begins`, `ends`, and `step` attributes specify the start, stop, and step indices
+      for each dimension of the tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -662,6 +663,31 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_IndexOp: TTIR_DPSOp<"index"> {
+    let summary = "Index op.";
+    let description = [{
+      Extract a sub-tensor (slice) from the input tensor along a specified dimension.
+      The `begin`, `end`, and `step` attributes define the start, stop, and step indices for the
+      selected dimension (`dim`) of the tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32Attr:$dim,
+                         I32Attr:$begin,
+                         I32Attr:$end,
+                         I32Attr:$step,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);

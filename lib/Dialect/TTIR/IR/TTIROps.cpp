@@ -343,6 +343,116 @@
 }
 
 //===----------------------------------------------------------------------===//
+// IndexOp
+//===----------------------------------------------------------------------===//
+
+// IndexOp verification
+::mlir::LogicalResult mlir::tt::ttir::IndexOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+  int32_t dim = getDim();
+  int32_t begin = getBegin();
+  int32_t end = getEnd();
+  int32_t step = getStep();
+
+  // Verify that the input is at least 1D tensor
+  if (inputType.getRank() < 1) {
+    return emitOpError("Input must be at least a 1D tensor");
+  }
+
+  // Validate that the output tensor has the same element type as the input
+  // tensor
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError(
+        "Output tensor must have the same element type as the input tensor");
+  }
+
+  // Verify the output tensor rank
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError(
+        "Output tensor must have the same rank as the input tensor");
+  }
+
+  // Verify that the dim attribute is within the bounds of the input tensor
+  if (dim < 0 || dim >= inputType.getRank()) {
+    return emitOpError() << "Invalid dimension index " << dim
+                         << ". Input tensor rank is " << inputType.getRank();
+  }
+
+  // Verify begin, end, step and the output tensor dimensions
+  int64_t dimSize = inputShape[dim];
+
+  // Adjust negative begin and end
+  int32_t adjustedBegin = (begin < 0) ? (begin + dimSize) : begin;
+  int32_t adjustedEnd = (end < 0) ? (end + dimSize) : end;
+
+  std::ostringstream inputShapeStream;
+  inputShapeStream << "(";
+  for (size_t i = 0; i < inputShape.size(); ++i) {
+    inputShapeStream << inputShape[i];
+    if (i != inputShape.size() - 1) {
+      inputShapeStream << ", ";
+    }
+  }
+  inputShapeStream << ")";
+  std::string inputShapeStr = inputShapeStream.str();
+
+  if (adjustedBegin < 0 || adjustedBegin >= dimSize) {
+    return emitOpError() << "Invalid begin index for dimension "
+                         << std::to_string(dim) << ". Expected value in range ["
+                         << std::to_string(-dimSize) << ", " << dimSize
+                         << "), got " << begin
+                         << ". Input shape: " << inputShapeStr;
+  }
+  if (adjustedEnd < 0 || adjustedEnd > dimSize) {
+    return emitOpError() << "Invalid end index for dimension "
+                         << std::to_string(dim) << ". Expected value in range ["
+                         << std::to_string(-dimSize) << ", " << dimSize
+                         << "], got " << end
+                         << ". Input shape: " << inputShapeStr;
+  }
+
+  auto formatValueMessage = [](int value, int adjustedValue) {
+    return value < 0 ? std::to_string(adjustedValue) + " (" +
+                           std::to_string(value) + ")"
+                     : std::to_string(value);
+  };
+  std::string beginValueMessage = formatValueMessage(begin, adjustedBegin);
+  std::string endValueMessage = formatValueMessage(end, adjustedEnd);
+
+  if (step == 0) {
+    return emitOpError("Step value for dimension " + std::to_string(dim) +
+                       " cannot be zero");
+  } else if (step > 0 && adjustedBegin > adjustedEnd) {
+    return emitOpError() << "For positive step, begin index must be less "
+                            "than or equal to end index for dimension "
+                         << dim << ". Got begin: " << beginValueMessage
+                         << ", end: " << endValueMessage << ", step: " << step
+                         << ", input shape: " << inputShapeStr;
+  } else if (step < 0 && adjustedBegin < adjustedEnd) {
+    return emitOpError() << "For negative step, begin index must be greater "
+                            "than or equal to end index for dimension "
+                         << dim << ". Got begin: " << beginValueMessage
+                         << ", end: " << endValueMessage << ", step: " << step
+                         << ", input shape: " << inputShapeStr;
+  }
+
+  // Calculate the expected size of the output dimension
+  int32_t expectedDimSize =
+      (std::abs(adjustedEnd - adjustedBegin) + std::abs(step) - 1) /
+      std::abs(step);
+  if (outputType.getDimSize(dim) != expectedDimSize) {
+    return emitOpError() << "Mismatch in dimension " << std::to_string(dim)
+                         << " of the output tensor: expected size "
+                         << expectedDimSize << ", but got "
+                         << outputType.getDimSize(dim);
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SqueezeOp
 //===----------------------------------------------------------------------===//
 
