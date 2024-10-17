@@ -556,7 +556,6 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let arguments = (ins AnyRankedTensor:$input,
                          I32Attr:$dim,
                          I32Attr:$num_links);
-//                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 

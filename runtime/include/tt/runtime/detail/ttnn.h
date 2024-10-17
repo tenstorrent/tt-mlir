@@ -47,8 +47,6 @@
 #include "impl/device/mesh_device.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
-// #include "ttnn/operations/ccl/line_all_gather/line_all_gather.hpp"
-// #include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core/core.hpp"

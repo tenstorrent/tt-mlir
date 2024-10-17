@@ -729,9 +729,6 @@ public:
     RankedTensorType type =
         mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     Value device = getOrInsertDevice(rewriter, op);
-    // ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
-    // rewriter.getContext(),
-    // mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
     tensor::EmptyOp emptyOp = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), this->getTypeConverter()->convertType(type), device);
 

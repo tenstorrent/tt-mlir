@@ -754,8 +754,20 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
-::mlir::LogicalResult AllGatherOp::verify() { return success(); }
+::mlir::LogicalResult AllGatherOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
 
-::mlir::LogicalResult ReduceScatterOp::verify() { return success(); }
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError("Invalid dimension for all gather op.");
+  }
+
+  return success();
+}
+
+::mlir::LogicalResult ReduceScatterOp::verify() {
+  // TODO
+  return success();
+}
 
 } // namespace mlir::tt::ttnn

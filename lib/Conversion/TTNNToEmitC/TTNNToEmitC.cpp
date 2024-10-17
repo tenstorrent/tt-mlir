@@ -499,37 +499,6 @@ public:
   }
 };
 
-// AllGatherOp conversion pattern
-//
-class AllGatherOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::AllGatherOp> {
-
-public:
-  AllGatherOpConversionPattern(const TypeConverter &typeConverter,
-                               MLIRContext *context, PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::AllGatherOp>(
-            typeConverter, context, benefit) {}
-
-  LogicalResult
-  matchAndRewrite(ttnn::AllGatherOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    llvm::SmallVector<Attribute, 4> attrs;
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
-    attrs.push_back(createStdNullopt(rewriter));
-
-    ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
-
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), arrayAttrs, nullptr, adaptor.getOperands());
-
-    return success();
-  }
-};
-
 } // namespace
 
 namespace mlir::tt {
