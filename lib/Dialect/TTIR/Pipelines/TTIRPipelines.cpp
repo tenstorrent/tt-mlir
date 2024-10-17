@@ -8,6 +8,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
@@ -21,6 +22,7 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(createConvertArithToStableHLOPass());
   }
   pm.addPass(createConvertStableHLOToTTIRPass());
+  pm.addPass(createTTIRGatherPatternMatch());
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
