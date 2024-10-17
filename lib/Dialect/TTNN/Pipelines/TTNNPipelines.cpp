@@ -10,6 +10,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include <iostream>
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -33,6 +34,8 @@ void createTTNNPipelineTTIRPasses(
   layoutOptions.defaultDeviceMemoryLayout =
       mlir::tt::TensorMemoryLayout::Interleaved;
   pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
+
+  pm.addPass(mlir::tt::ttir::createTTIRDecompose());
 }
 
 void createTTNNPipelineAnalysisPasses(
