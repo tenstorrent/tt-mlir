@@ -217,6 +217,13 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     }];
 }
 
+def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate op.";
+    let description = [{
+      Eltwise negate operation.
+    }];
+}
+
 def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -263,13 +270,6 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let summary = "Eltwise cast op.";
     let description = [{
       Eltwise cast operation.
-    }];
-}
-
-def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate op.";
-    let description = [{
-      Eltwise negate operation.
     }];
 }
 

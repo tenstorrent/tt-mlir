@@ -183,17 +183,17 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
     }];
 }
 
-def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cosine"> {
+def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     let summary = "Eltwise cosine.";
     let description = [{
       Eltwise cosine operation.
     }];
 }
 
-def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate.";
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+    let summary = "Eltwise exponential.";
     let description = [{
-      Eltwise negate operation.
+      Eltwise exponential operation.
     }];
 }
 
@@ -201,6 +201,13 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate.";
+    let description = [{
+      Eltwise negate operation.
     }];
 }
 
@@ -218,7 +225,7 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
-def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sine"> {
+def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.

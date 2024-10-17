@@ -865,6 +865,9 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                                                ctx);
       mlir::stablehlo::CeilOp, mlir::tt::ttir::CeilOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::ConvertOp, mlir::tt::ttir::TypecastOp>>(typeConverter,
+                                                               ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::CosineOp, mlir::tt::ttir::CosOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
@@ -876,9 +879,6 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::SineOp, mlir::tt::ttir::SinOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SqrtOp, mlir::tt::ttir::SqrtOp>>(typeConverter, ctx);
-  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
-      mlir::stablehlo::ConvertOp, mlir::tt::ttir::TypecastOp>>(typeConverter,
-                                                               ctx);
 }
 
 void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
