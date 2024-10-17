@@ -117,24 +117,15 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Ceil: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::ceil);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Pow: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::pow);
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::ceil);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sine: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::sine);
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sin);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Cosine: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::cosine);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Logit: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool,
-                                                ::ttnn::logistic);
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::cos);
     break;
   }
   default:

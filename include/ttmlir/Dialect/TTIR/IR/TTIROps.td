@@ -203,24 +203,10 @@ def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
     }];
 }
 
-def TTIR_CosineOp: TTIR_ElementwiseUnaryOp<"cosine"> {
+def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     let summary = "Eltwise cosine op.";
     let description = [{
       Eltwise cosine operation.
-    }];
-}
-
-def TTIR_LogitOp: TTIR_ElementwiseUnaryOp<"logit"> {
-    let summary = "Eltwise logit op.";
-    let description = [{
-      Eltwise logistic operation.
-    }];
-}
-
-def TTIR_PowOp: TTIR_ElementwiseUnaryOp<"pow"> {
-    let summary = "Eltwise power op.";
-    let description = [{
-      Eltwise power operation.
     }];
 }
 
@@ -259,7 +245,7 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTIR_SineOp: TTIR_ElementwiseUnaryOp<"sine"> {
+def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.
