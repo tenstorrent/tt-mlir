@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "operations/context/get_device.h"
 #include "operations/ccl/all_gather.h"
+#include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
