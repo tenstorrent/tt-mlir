@@ -26,6 +26,9 @@ DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN"
 SYSTEM_DESC_FILE_PATH = f"{TT_MLIR_HOME}/ttrt-artifacts/system_desc.ttsys"
 SYSTEM_DESC_DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN"
 
+if not os.path.isdir("ttrt-results"):
+    os.makedirs("ttrt-results")
+
 
 def sub_process_command(test_command):
     result = subprocess.run(

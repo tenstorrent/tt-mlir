@@ -75,6 +75,13 @@ class Perf:
             help="collect performance trace on host only",
         )
         Perf.register_arg(
+            name="--result-file",
+            type=str,
+            default="perf_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -492,7 +499,7 @@ class Perf:
                 }
                 self.results.add_result(test_result)
 
-        self.results.save_results("perf_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing perf API")
 
