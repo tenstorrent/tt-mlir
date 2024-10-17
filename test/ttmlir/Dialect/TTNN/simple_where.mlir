@@ -6,8 +6,9 @@ module @jit_eltwise_where {
     %1 = "ttir.eq"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xf32>) -> tensor<13x37xf32>
     %2 = tensor.empty() : tensor<13x37xf32>
     %3 = "ttir.where"(%1, %arg0, %arg1, %2) <{operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xf32>) -> tensor<13x37xf32>
-     // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
-     // CHECK: %[[C:.*]] = "ttnn.where"[[C:.*]]
+     // CHECK: %[[EMPTY:.*]] = "ttnn.empty"{{.*}}
+     // CHECK: %[[VAL1:[0-9]+]] = "ttnn.eq"(%{{[0-9]+}}, %{{[0-9]+}}, %[[EMPTY]])
+     // CHECK: %{{[0-9]+}} = "ttnn.where"(%[[VAL1]], %{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
      return %3 : tensor<13x37xf32>
   }
 }

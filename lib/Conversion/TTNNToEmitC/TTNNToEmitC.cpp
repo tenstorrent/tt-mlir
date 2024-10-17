@@ -679,15 +679,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Other ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>,
-               DefaultOpConversionPattern<ttnn::EmbeddingOp>>(typeConverter,
-                                                              ctx);
+               DefaultOpConversionPattern<ttnn::EmbeddingOp>,
+               DefaultOpConversionPattern<ttnn::WhereOp>>(typeConverter, ctx);
 
   // CCL ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AllGatherOp>>(typeConverter,
                                                               ctx);
-               DefaultOpConversionPattern<ttnn::EmbeddingOp>,
-               DefaultOpConversionPattern<ttnn::WhereOp>>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

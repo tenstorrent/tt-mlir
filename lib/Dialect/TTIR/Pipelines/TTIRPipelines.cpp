@@ -31,9 +31,6 @@ void createStableHLOToTTIRPipeline(
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
-  if (options.sparseConstantPropogationEnabled) {
-    pm.addPass(mlir::createSCCPPass());
-  }
 }
 #endif
 

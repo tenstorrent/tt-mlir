@@ -12,6 +12,7 @@
 #include "operations/data_movement/transpose.h"
 #include "operations/deletion/dealloc.h"
 #include "operations/eltwise/binary/binary.h"
+#include "operations/eltwise/tertiary/where.h"
 #include "operations/eltwise/binary/binary_composite.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
@@ -151,6 +152,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::WhereOp: {
+    return operations::where::run(op->type_as_WhereOp(), context);
   }
   default: {
     throw std::runtime_error("Unsupported operation type");

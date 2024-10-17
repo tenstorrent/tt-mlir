@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_WHERE_H
-#define TTNN_RUNTIME_WHERE_H
+#ifndef TTNN_RUNTIME_LIB_TTNN_OPERATIONS_ELTWISE_TERTIARY_WHERE_H
+#define TTNN_RUNTIME_LIB_TTNN_OPERATIONS_ELTWISE_TERTIARY_WHERE_H
 
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"

@@ -149,7 +149,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 def TTNN_WhereOp : TTNN_NamedDPSOp<"where"> {
     let summary = "Where op.";
     let description = [{
-      Select operation.
+      Selects an element from on_true or on_false based on pred.
     }];
 
     let arguments = (ins AnyRankedTensor:$pred,
