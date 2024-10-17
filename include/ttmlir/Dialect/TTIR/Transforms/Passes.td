@@ -108,6 +108,14 @@ def TTIRAllocate: Pass<"ttir-allocate", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRDecompose: Pass<"ttir-decompose", "::mlir::ModuleOp"> {
+  let summary = "Decompose ops to more simpler ops";
+  let description = [{
+    Go through the ops, set sharding specs for each op based on sharding analysis,
+    by updating layout attribute of each op.
+  }];
+}
+
 def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   let summary = "Load system desc.";
   let description = [{

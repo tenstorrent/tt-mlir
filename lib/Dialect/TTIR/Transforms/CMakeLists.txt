@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Constant.cpp
         Generic.cpp
         Layout.cpp
+        Decompose.cpp
         Transforms.cpp
         Utility.cpp
 
