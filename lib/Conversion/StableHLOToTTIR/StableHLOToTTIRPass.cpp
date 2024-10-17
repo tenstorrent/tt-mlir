@@ -42,6 +42,10 @@ public:
         auto ElementType = type.getElementType();
         return RankedTensorType::get({1}, ElementType);
       }
+      if (type.getElementType() == IntegerType::get(ctx, 1)) {
+        return RankedTensorType::get(type.getShape(),
+                                     IntegerType::get(ctx, 32));
+      }
       return type;
     });
   }
