@@ -240,13 +240,25 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
                   dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
           for (auto arg : region.getArguments()) {
-            assert(arg.getArgNumber() < operands.size());
-            auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
-            auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-            auto tensorRef = operands[arg.getArgNumber()];
-            cbs.push_back(
-                ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
-                                          cbType.getAddress(), cbDesc));
+            llvm::outs() << arg.getArgNumber() << " " << operands.size() << "\n";
+            if (arg.getArgNumber() < operands.size()) {
+              auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
+              auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
+              auto tensorRef = operands[arg.getArgNumber()];
+              llvm::outs() << cbType.getAddress() << "\n";
+              cbs.push_back(
+                  ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
+                                            cbType.getAddress(), cbDesc));
+            } else {
+              auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
+              auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
+              // TODO(pjanevksi): fix tensor ref properly
+              auto tensorRef = operands[0];
+              llvm::outs() << cbType.getAddress() << "\n";
+              cbs.push_back(
+                  ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
+                                            cbType.getAddress(), cbDesc));
+            }
           }
 
           std::string &source = cppKernels[region.getRegionNumber()];

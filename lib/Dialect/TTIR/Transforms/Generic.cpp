@@ -337,6 +337,7 @@ struct TTIRGenericOperandsToMemrefRewriter
 
       for (auto blockArg : entry->getArguments()) {
         uint32_t blockArgNumber = blockArg.getArgNumber();
+        llvm::outs() << "block arg number " << blockArgNumber << "\n";
         auto matchingOperand = generic.getMatchingOperand(blockArgNumber);
         auto operandType = matchingOperand.getType();
 
@@ -529,7 +530,15 @@ public:
       return failure();
     }
 
-    rewriter.setInsertionPointToStart(generic->getBlock());
+    SmallVector<Attribute> cbConstraints;
+    for (size_t i = 0; i < generic.getOperandConstraints().size(); ++i) {
+        cbConstraints.push_back(
+          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::L1));
+    }
+    cbConstraints.push_back(
+          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::L1));
+
+    // rewriter.setInsertionPointToStart(generic->getBlock());
     uint32_t numOperands = generic->getNumOperands();
 
     llvm::outs() << "num operands " << numOperands;
@@ -538,15 +547,16 @@ public:
     auto operand = generic->getOperands()[numOperands - 1];
     auto ty = mlir::cast<RankedTensorType>(operand.getType());
 
-    auto operandTy = operand.getType();
-    auto operandLayout = mlir::cast<LayoutAttr>(
-        mlir::cast<RankedTensorType>(operandTy).getEncoding());
+     auto desiredElementType = rewriter.getType<TileType>(ty.getElementType());
+
+    auto desiredLayout = rewriter.getAttr<LayoutAttr>(
+        ty, MemorySpace::DeviceL1, generic.getGrid(), desiredElementType);
 
     // Creating a CB for the operand. It takes the same type as the operand,
     // but changes its grid. This may result in overly large CBs at the
     // moment.
     auto emptyOp = rewriter.create<tensor::EmptyOp>(
-        generic->getLoc(), ty.getShape(), ty.getElementType(), operandLayout);
+        generic->getLoc(), ty.getShape(), ty.getElementType(), desiredLayout);
     intermedCBs.push_back(emptyOp.getResult());
 
     rewriter.setInsertionPointAfter(generic);
@@ -554,7 +564,7 @@ public:
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getCbs(), intermedCBs, generic.getOutputs(), generic.getGrid(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
-        generic.getOperandConstraints(), generic.getOperandCbMapping());
+        rewriter.getArrayAttr(cbConstraints), generic.getOperandCbMapping());
 
     auto &oldRegion = generic.getRegion();
     newGenericOp->getRegion(0).takeBody(oldRegion);

@@ -115,7 +115,7 @@ public:
     }
   };
 
-  // This routine calculates the data movement for a tensor layout change by
+  // This routine calculates the data movement for a tensor layout change byf
   // tracing the walk order of the src and dst affine maps.  The sample routine
   // is just a helper function that iterates over the tensor shape and calls the
   // lambda with the current index.  It walks the shape in innermost-major
@@ -506,6 +506,18 @@ public:
     return exists;
   }
 
+  ttkernel::CBPort getIntermedPort() const {
+    static std::int64_t intermedPort = 0;
+    std::uint32_t portIdx = 0;
+    
+    portIdx = ttmlir::utils::enum_as_int(ttkernel::CBPort::Intermed0) + intermedPort;
+    intermedPort++;
+    std::optional<ttkernel::CBPort> maybePort =
+        ttkernel::symbolizeCBPort(portIdx);
+    assert(maybePort.has_value() && "Expected legal port value");
+    return maybePort.value();
+  }
+
   ttkernel::CBPort getPort(unsigned argNumber,
                            std::int64_t numDPSInputs) const {
     std::int64_t operandInOutPartition = numDPSInputs;
@@ -763,8 +775,8 @@ public:
   void convertInitBinaryOp(Operation &arithOrMathOp,
                            ArrayRef<BlockArgument> cbOperands,
                            OpBuilder &builder) const {
-    assert(cbOperands.size() == 3 &&
-           "Expected two input and one output CB for binary op.");
+    // assert(cbOperands.size() == 3 &&
+    //        "Expected two input and one output CB for binary op.");
 
     auto inCB0 = cbOperands[0];
     auto inCB1 = cbOperands[1];
@@ -882,8 +894,8 @@ public:
                               ArrayRef<BlockArgument> iterators,
                               SmallVector<unsigned> blockArgIteratorMapping,
                               OpBuilder &builder) const {
-    assert(cbOperands.size() == 3 &&
-           "Expected two input and one output CB for binary op.");
+    // assert(cbOperands.size() == 3 &&
+    //        "Expected two input and one output CB for binary op.");
 
     auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
     auto inCB0 = cbOperands[0];
@@ -1168,8 +1180,8 @@ public:
     assert(users.begin() != users.end());
     assert(mlir::isa<ttir::YieldOp>(*users.begin()));
     assert(computeBlock->getNumArguments() > numDPSInputs);
-    assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
-           "Expected 1 output");
+    // assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
+    //        "Expected 1 output");
 
     auto outputMemref = mlir::cast<ttkernel::CBType>(
                             computeBlock->getArgument(numDPSInputs).getType())
@@ -1228,6 +1240,7 @@ public:
   std::pair<SmallVector<Type>, SmallVector<StreamedOperand>>
   getBlockArgumentTypesAsCBs(ttir::GenericOp op,
                              mlir::Block::BlockArgListType blockArguments,
+                             ValueRange intermedCBs,
                              PatternRewriter &rewriter) const {
 
     SmallVector<Type> rewrittenBlockArgumentTypes;
@@ -1236,6 +1249,7 @@ public:
     for (auto arg : blockArguments) {
       auto port = getPort(arg.getArgNumber(), op.getInputs().size());
       auto tensor = mlir::cast<RankedTensorType>(arg.getType());
+      llvm::outs() << tensor.getEncoding() << "\n";
       auto buffer = mlir::cast<BufferAttr>(tensor.getEncoding());
       auto memref = buffer.getMemref();
 
@@ -1249,6 +1263,7 @@ public:
       auto correspondingOperand =
           cbMapping == -1 ? matchingOperand : op.getCbs()[cbMapping];
       auto address = lookupAddress(correspondingOperand);
+      llvm::outs() << "lookupaddress " << address << "\n";
       assert(address && "Expected valid address");
 
       rewrittenBlockArgumentTypes.push_back(
@@ -1275,6 +1290,23 @@ public:
           PhysicalCoreCoordMapping::getMemorySpaceMapping(
               op.getDevice().getChipIds(), op.getSystemDesc().getChipDescs(),
               MemorySpace::DeviceL1)));
+    }
+
+    for (auto intermedCB : intermedCBs) {
+      llvm::outs() << intermedCB << "\n";
+      auto tensor = mlir::cast<RankedTensorType>(intermedCB.getType());
+      llvm::outs() << tensor.getEncoding() << "\n";
+      auto buffer = mlir::cast<LayoutAttr>(tensor.getEncoding());
+      auto memref = buffer.getMemref();
+      
+      auto address = 0;
+
+      auto port = getIntermedPort();
+
+      rewrittenBlockArgumentTypes.push_back(
+          rewriter.getType<ttkernel::CBType>(port, address, memref));
+
+      llvm::outs() << tensor << "\n";
     }
 
     return {rewrittenBlockArgumentTypes, streamedOperands};
@@ -1353,7 +1385,7 @@ public:
     SmallVector<Type> rewrittenBlockArgumentTypes;
     SmallVector<StreamedOperand> streamedOperands;
     std::tie(rewrittenBlockArgumentTypes, streamedOperands) =
-        getBlockArgumentTypesAsCBs(op, op->getRegion(0).getArguments(),
+        getBlockArgumentTypesAsCBs(op, op->getRegion(0).getArguments(), op.getIntermedCBs(),
                                    rewriter);
 
     assert(streamedOperands.size() <= 1 &&

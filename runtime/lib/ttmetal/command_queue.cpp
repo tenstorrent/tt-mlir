@@ -354,11 +354,19 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
   ::tt::DataFormat dataFormat =
       toDataFormat(cbRef->desc()->memory_desc()->data_type());
   LOG_ASSERT(cbRef->tensor_ref());
-  LOG_ASSERT(cbRef->tensor_ref()->address() == cbRef->address(),
-             "Address mismatch between tensor ref and cb ref");
-  return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
+  // LOG_ASSERT(cbRef->tensor_ref()->address() == cbRef->address(),
+            //  "Address mismatch between tensor ref and cb ref");
+  std::cout << cbRef->tensor_ref()->address() << " " <<  cbRef->address() << std::endl;
+  if (cbRef->tensor_ref()->address() != 0 && cbRef->address() != 0) {
+    std::cout << "address" << std::endl;
+    return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
                               *buffers.at(cbRef->tensor_ref()->global_id()))
       .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  } else {
+    std::cout << "no address" << std::endl;
+    return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}})
+      .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  }
 }
 
 // Process various types of runtime args if present and call Metal APIs.
@@ -423,6 +431,7 @@ void CQExecutor::execute(
   std::unordered_set<uint32_t> createdCBs;
   for (::tt::target::metal::KernelDesc const *kernelDesc :
        *command->program()->kernels()) {
+    std::cout << "new kernel desc" << std::endl;
     ::tt::target::metal::KernelSource const *kernelSource =
         kernelDesc->kernel_as_KernelSource();
     LOG_ASSERT(kernelSource, "Only source kernels supported for now");
