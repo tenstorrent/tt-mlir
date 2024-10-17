@@ -14,6 +14,12 @@ namespace mlir::tt::ttmetal {
 // stream.
 LogicalResult translateTTMetalToFlatbuffer(Operation *op,
                                            llvm::raw_ostream &os);
+
+LogicalResult
+dumpGoldenInfoToFlatbufferFile(std::vector<std::string> &operand_names,
+                               std::vector<std::vector<float>> &tensor_data,
+                               std::vector<std::vector<uint8_t>> &tensor_shapes,
+                               llvm::raw_ostream &os);
 } // namespace mlir::tt::ttmetal
 
 #endif

@@ -13,6 +13,7 @@ from ttmlir.dialects import ttir, tt, func, tensor
 from ttmlir.passes import (
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
+    golden_info_to_flatbuffer_file,
 )
 
 
@@ -64,6 +65,25 @@ class TTIRBuilder:
         self._goldens: Dict[Operand, Golden] = {}
 
     # ----- Public helpers -----
+
+    def dump_goldens(self, file_name: str = "golden.ttmg"):
+        """Flattens golden tensors and provides dumps them to flatbuffer file."""
+        operand_names = []
+        flattened_tensor_data = []
+        tensor_shapes = []
+        # random_tensor_seeds unused currently, but can be used for randomly
+        # generated tensors in order not to store entire tensor.
+        random_tensor_seeds = []
+
+        for operand, golden in self._goldens.items():
+            operand_names.append(TTIRBuilder._get_name(operand))
+            flattened_tensor_data.append(torch.flatten(golden.tensor).tolist())
+            tensor_shapes.append(list(golden.tensor.shape))
+            random_tensor_seeds.append(golden.seed)  # can be None, take care
+
+        golden_info_to_flatbuffer_file(
+            operand_names, flattened_tensor_data, tensor_shapes, file_name
+        )
 
     def print_goldens(self) -> None:
         """
@@ -310,7 +330,7 @@ class TTIRBuilder:
 def compile_as_mlir_module(
     *inputs_shapes: Tuple[Shape],
     module_dump: bool = True,
-    golden_dump: bool = False,
+    golden_dump: bool = True,
 ):
     """
     Decorator to define a MLIR module specified as a python function.
@@ -328,7 +348,7 @@ def compile_as_mlir_module(
         Set to True if printout of generated MLIR module is wished.
 
     golden_dump: bool
-        Set to True if printout of generated goldens is wished.
+        Set to True to dump golden info to flatbuffer file.
 
     Example
     -------
@@ -394,7 +414,7 @@ def compile_as_mlir_module(
                     print(module)
 
                 if golden_dump:
-                    builder.print_goldens()
+                    builder.dump_goldens()
 
                 return module
 
@@ -428,7 +448,7 @@ def ttir_to_ttmetal(dump_to_file: bool = True, file_name: str = "test.mlir"):
 
 
 def ttmetal_to_flatbuffer(
-    file_name: str = "ttrt.ttm", golden_info: List[Golden] = None
+    file_name: str = "ttrt.ttmg", golden_info: List[Golden] = None
 ):
     """
     Converts TTMetal module to flatbuffer and saves to file.

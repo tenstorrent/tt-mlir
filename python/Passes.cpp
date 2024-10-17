@@ -7,6 +7,7 @@
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+#include <cstdint>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
 
@@ -162,6 +163,25 @@ void populatePassesModule(py::module &m) {
                   moduleOp, file))) {
             throw std::runtime_error("Failed to write flatbuffer to file: " +
                                      filepath);
+          }
+        });
+
+  m.def("golden_info_to_flatbuffer_file",
+        [](std::vector<std::string> &operand_names,
+           std::vector<std::vector<float>> &tensor_data,
+           std::vector<std::vector<uint8_t>> &tensor_shapes,
+           std::string &filepath) {
+          std::error_code fileError;
+          llvm::raw_fd_ostream file(filepath, fileError);
+          if (fileError) {
+            throw std::runtime_error("Failed to open file: " + filepath +
+                                     ". Error: " + fileError.message());
+          }
+
+          if (mlir::failed(mlir::tt::ttmetal::dumpGoldenInfoToFlatbufferFile(
+                  operand_names, tensor_data, tensor_shapes, file))) {
+            throw std::runtime_error(
+                "Failed to write golden info flatbuffer to file: " + filepath);
           }
         });
 }

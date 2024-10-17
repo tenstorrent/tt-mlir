@@ -9,7 +9,6 @@ from ttmlir.ttir_builder import (
     compile_as_mlir_module,
     Operand,
     ttir_to_ttmetal,
-    ttmetal_to_flatbuffer,
 )
 
 
@@ -68,6 +67,6 @@ def test_arbitrary_op_chain(
 
 if __name__ == "__main__":
     test_add()
-    test_multiply()
-    test_exp()
-    test_arbitrary_op_chain()
+    # test_multiply()
+    # test_exp()
+    # test_arbitrary_op_chain()

@@ -5,6 +5,7 @@ set(COMMON_FBS_GEN_SOURCES
   types.fbs
   version.fbs
   debug_info.fbs
+  golden_info.fbs
 )
 
 build_flatbuffers("${COMMON_FBS_GEN_SOURCES}" COMMON_FBS)
