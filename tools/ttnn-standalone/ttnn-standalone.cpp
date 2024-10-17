@@ -24,15 +24,14 @@ ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::MemoryConfig v8 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v9 = ttnn::to_device(v7, v3, v8);
-  ttnn::Shape v10 = ttnn::Shape(Shape({
+  ttnn::Shape v10 = ttnn::Shape(tt::tt_metal::LegacyShape({
       64,
       128,
   }));
-  ttnn::Device &v11 = *v3;
   ttnn::MemoryConfig v12 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v13 = ttnn::empty(v10, ttnn::DataType::FLOAT32,
-                                 ttnn::Layout::ROW_MAJOR, v11, v12);
+                                 ttnn::Layout::ROW_MAJOR, v3, v12);
   ttnn::Tensor v14 = ttnn::multiply(v6, v9, std::nullopt, std::nullopt, v13);
   ttnn::Tensor v15 = ttnn::to_layout(v14, ttnn::Layout::ROW_MAJOR, std::nullopt,
                                      std::nullopt, v3);
@@ -43,12 +42,12 @@ ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
 int main() {
   // Create shapes
   //
-  const size_t tensor_width = 32;
-  const size_t tensor_height = 32;
+  const size_t tensor_height = 64;
+  const size_t tensor_width = 128;
   ttnn::Shape xs =
-      ttnn::Shape(tt::tt_metal::Shape{1, 1, tensor_width, tensor_height});
+      ttnn::Shape(tt::tt_metal::LegacyShape{1, 1, tensor_height, tensor_width});
   ttnn::Shape ys =
-      ttnn::Shape(tt::tt_metal::Shape{1, 1, tensor_width, tensor_height});
+      ttnn::Shape(tt::tt_metal::LegacyShape{1, 1, tensor_height, tensor_width});
 
   // Create tensors on cpu
   //
