@@ -1,4 +1,8 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
 set -e
 
 REPO=tenstorrent/tt-mlir
@@ -23,7 +27,7 @@ build_and_push() {
     local dockerfile=$2
     local on_main=$3
     local from_image=$4
-    
+
 
     if docker manifest inspect $image_name:$DOCKER_TAG > /dev/null; then
         echo "Image $image_name:$DOCKER_TAG already exists"
@@ -57,4 +61,3 @@ build_and_push $IRD_IMAGE_NAME .github/Dockerfile.ird $ON_MAIN ci
 echo "All images built and pushed successfully"
 echo "CI_IMAGE_NAME:"
 echo $CI_IMAGE_NAME:$DOCKER_TAG
-
