@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTIRAnalysis
+add_mlir_dialect_library(MLIRTTNNAnalysis
         LegalGridAnalysis.cpp
         OpConfigAnalysis.cpp
         ShardingAnalysis.cpp
@@ -10,8 +10,8 @@ add_mlir_dialect_library(MLIRTTIRAnalysis
         ${PROJECT_SOURCE_DIR}/include/ttmlir
 
         DEPENDS
-        MLIRTTIROpsIncGen
-        MLIRTTIRPassesIncGen
+        MLIRTTNNOpsIncGen
+        MLIRTTNNPassesIncGen
         MLIRTTOpsIncGen
 
         LINK_LIBS

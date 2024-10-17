@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_LEGALGRIDANALYSIS_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_LEGALGRIDANALYSIS_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
-#include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 #include "llvm/ADT/StringMap.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 struct LegalGridAnalysisInput {
   ChipDescAttr chipDesc;
@@ -43,15 +43,15 @@ struct LegalGridAnalysisInput {
 };
 
 class LegalGridAnalysis
-    : public TTIRAnalysis<LegalGridAnalysisInput, std::vector<LayoutAttr>> {
+    : public TTNNAnalysis<LegalGridAnalysisInput, std::vector<tt::LayoutAttr>> {
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;
 
 public:
-  LegalGridAnalysis(Operation *op) : TTIRAnalysis(op) {}
+  LegalGridAnalysis(Operation *op) : TTNNAnalysis(op) {}
 };
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_LEGALGRIDANALYSIS_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
