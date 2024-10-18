@@ -250,6 +250,16 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       op.getGroups());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
+createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateAllGatherOp(*cache.fbb, input, output,
+                                               op.getDim(), op.getNumLinks());
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -577,6 +587,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString);
+  }
+  if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
+    return createOperation(cache, createOp(cache, allGatherOp), debugString);
   }
   if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {
     return createOperation(cache, createConcatOp(cache, concatOp), debugString);
