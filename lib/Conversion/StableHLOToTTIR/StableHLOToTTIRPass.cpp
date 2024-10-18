@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include <llvm/ADT/ArrayRef.h>
+#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -25,6 +26,7 @@ using namespace mlir::tt;
 namespace mlir::tt::ttir {
 
 #define GEN_PASS_DEF_CONVERTSTABLEHLOTOTTIR
+#define GEN_PASS_DEF_CONVERTARITHTOSTABLEHLO
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttir
@@ -105,12 +107,45 @@ struct ConvertStableHLOToTTIRPass
   }
 };
 
+struct ConvertArithToStableHLOPass
+    : public ttir::impl::ConvertArithToStableHLOBase<
+          ConvertArithToStableHLOPass> {
+  void runOnOperation() final {
+    mlir::ConversionTarget target(getContext());
+
+    target.addIllegalDialect<mlir::arith::ArithDialect>();
+
+    // For now keep the same type assuming StableHLO ops operate on builtin
+    // tensor.
+    TypeConverter typeConverter;
+    typeConverter.addConversion([](Type type) {
+      assert(isa<RankedTensorType>(type) &&
+             "only ranked tensor type supported");
+      return type;
+    });
+    RewritePatternSet patterns(&getContext());
+
+    populateArithToStableHLOPatterns(&getContext(), patterns, typeConverter);
+
+    // Apply conversion.
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+      signalPassFailure();
+      return;
+    }
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass() {
   return std::make_unique<ConvertStableHLOToTTIRPass>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createConvertArithToStableHLOPass() {
+  return std::make_unique<ConvertArithToStableHLOPass>();
 }
 
 } // namespace mlir::tt
