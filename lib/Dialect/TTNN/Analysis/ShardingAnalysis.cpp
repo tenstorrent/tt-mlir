@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/ShardingAnalysis.h"
-#include "ttmlir/Dialect/TTIR/Analysis/DFShardingPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardingAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 bool ShardingAnalysis::applyOverrides() {
 
@@ -15,11 +15,12 @@ bool ShardingAnalysis::applyOverrides() {
   return false;
 }
 
-llvm::DenseMap<Operation *, std::vector<LayoutAttr>> filterShardedOnly(
-    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts) {
-  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> shardedLayouts;
+llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+                      &legalLayouts) {
+  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> shardedLayouts;
   for (const auto &opLayouts : legalLayouts) {
-    std::vector<LayoutAttr> opShardedLayouts;
+    std::vector<tt::LayoutAttr> opShardedLayouts;
     for (const auto &layout : opLayouts.second) {
       if (layout.hasShardedL1TensorMemoryLayout()) {
         opShardedLayouts.push_back(layout);
@@ -54,7 +55,7 @@ void ShardingAnalysis::analysisImplementation() {
     assert(shardChainConfig.getState() == ShardChainState::Completed);
     for (const auto &shardSpec : shardChainConfig.getShardSpecs()) {
       analysisResult.legalLayouts[shardSpec.op] =
-          std::vector<LayoutAttr>{shardSpec.layout};
+          std::vector<tt::LayoutAttr>{shardSpec.layout};
     }
 
     analysisResult.reshardedEdges.insert(
@@ -62,4 +63,4 @@ void ShardingAnalysis::analysisImplementation() {
         shardChainConfig.getReshardedEdges().end());
   }
 }
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn

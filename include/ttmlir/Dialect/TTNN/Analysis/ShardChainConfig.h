@@ -2,19 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_SHARDCHAINCONFIG_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_SHARDCHAINCONFIG_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDCHAINCONFIG_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDCHAINCONFIG_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include <unordered_set>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 struct ShardSpec {
   Operation *op;
   uint tensorSplitFactor;
-  LayoutAttr layout;
+  tt::LayoutAttr layout;
 };
 
 // Enum to track the state of the shard chain.
@@ -36,12 +36,14 @@ private:
 public:
   ShardChainConfig() : shardSpecs(), state() {}
 
-  ShardSolver resolve(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
-      unsigned usableL1CacheSize);
+  ShardSolver
+  resolve(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+              &legalLayouts,
+          unsigned usableL1CacheSize);
   void build();
-  void complete(const llvm::DenseMap<Operation *, LayoutAttr> &selectedOpLayout,
-                std::unordered_set<Edge> &reshardedEdges);
+  void
+  complete(const llvm::DenseMap<Operation *, tt::LayoutAttr> &selectedOpLayout,
+           std::unordered_set<Edge> &reshardedEdges);
 
   bool isEmpty() { return shardSpecs.empty(); }
   void addShardSpec(ShardSpec &&spec) {
@@ -56,6 +58,6 @@ public:
   }
 };
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_SHARDCHAINCONFIG_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDCHAINCONFIG_H

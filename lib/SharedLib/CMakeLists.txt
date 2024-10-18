@@ -20,7 +20,7 @@ set(TTMLIR_LIBS
     MLIRTTMetalDialect
     MLIRTTIRTransforms
     MLIRTTNNTransforms
-    MLIRTTIRAnalysis
+    MLIRTTNNAnalysis
     MLIRTTNNPipelines
     MLIRTTMetalPipelines
     TTMLIRTTNNToEmitC
