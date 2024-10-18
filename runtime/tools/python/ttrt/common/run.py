@@ -372,7 +372,9 @@ class Run:
 
                                 inputs = []
                                 outputs = []
+                                idx = 1
                                 for i in program.input_tensors:
+                                    torch.save(i, f"inputs_{idx}.pt")
                                     inputs.append(
                                         ttrt.runtime.create_tensor(
                                             i.data_ptr(),
@@ -382,6 +384,7 @@ class Run:
                                             Binary.Program.to_data_type(i.dtype),
                                         )
                                     )
+                                    idx += 1
 
                                 for i in program.output_tensors:
                                     outputs.append(
