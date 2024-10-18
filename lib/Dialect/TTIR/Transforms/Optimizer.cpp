@@ -81,9 +81,6 @@ public:
 
         // Insert ToLayout op in between producerOp and consumerOp
         //
-        producerOp->dump();
-        consumerOp->dump();
-        llvm::outs() << consumerOpLocName << " " << operandIndex << '\n';
         insertReshardEdge(producerOp, consumerOp, operandIndex);
       }
     });
