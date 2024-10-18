@@ -660,17 +660,13 @@ private:
   matchAndRewriteInternal(mlir::stablehlo::CompareOp srcOp,
                           mlir::stablehlo::CompareOp::Adaptor adaptor,
                           ConversionPatternRewriter &rewriter) const {
-    // TTNN doesn't support boolean data type. TTNN compare operations have same
-    // output data type as of input data type (e.g. comparing float32 will
-    // produce float32 result). So input operand is used to create output type
-    // and output tensor and the generated output tensor will be different type
-    // (instead of boolean) depending on input operands.
-    mlir::RankedTensorType outputType = mlir::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(srcOp->getOperand(0).getType()));
+    mlir::RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(this->getTypeConverter()->convertType(
+            srcOp->getResults()[0].getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    DestOp TTIROp = rewriter.replaceOpWithNewOp<DestOp>(
+    rewriter.replaceOpWithNewOp<DestOp>(
         srcOp,
         TypeRange(
             this->getTypeConverter()->convertType(outputTensor.getType())),
@@ -679,10 +675,6 @@ private:
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
-
-    // rewriter may miss replacing all uses due to different output tensor type.
-    // Replacing all uses of srcOp explicitly.
-    rewriter.replaceAllOpUsesWith(srcOp, TTIROp);
 
     return success();
   }
@@ -751,6 +743,55 @@ private:
         rankedTensorType.getRank()) {
       return rewriter.notifyMatchFailure(srcOp,
                                          "Invalid concatenation dimension.");
+    }
+
+    return success();
+  }
+};
+
+template <typename SrcOp, typename DestOp,
+          typename Adaptor = typename SrcOp::Adaptor>
+class StableHLOToTTIROpLogicalOpConversionPattern
+    : public OpConversionPattern<SrcOp> {
+
+  using OpConversionPattern<SrcOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (not err.succeeded()) {
+      return err;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    rewriter.replaceOpWithNewOp<DestOp>(
+        srcOp,
+        TypeRange(
+            this->getTypeConverter()->convertType(outputTensor.getType())),
+        adaptor.getOperands(), ValueRange(outputTensor),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(SrcOp srcOp, Adaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+    if (mlir::cast<RankedTensorType>(srcOp->getOperand(0).getType())
+                .getElementTypeBitWidth() > 1 &&
+        mlir::cast<RankedTensorType>(srcOp->getOperand(1).getType())
+                .getElementTypeBitWidth() > 1) {
+      llvm::errs()
+          << "error: TTIR does not support bitwise logical operation.\n";
+      return rewriter.notifyMatchFailure(
+          srcOp, "TTIR does not support bitwise logical operation.");
     }
 
     return success();
@@ -858,6 +899,19 @@ void addReshapeOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
 }
 
+void addLogicalOpConversionPattern(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
+      mlir::stablehlo::AndOp, mlir::tt::ttir::LogicalAndOp>>(typeConverter,
+                                                             ctx);
+  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
+      mlir::stablehlo::NotOp, mlir::tt::ttir::LogicalNotOp>>(typeConverter,
+                                                             ctx);
+  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
+      mlir::stablehlo::OrOp, mlir::tt::ttir::LogicalOrOp>>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -877,6 +931,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
+  addLogicalOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
