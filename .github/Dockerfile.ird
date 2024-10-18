@@ -1,6 +1,5 @@
-ARG GIT_SHA
-ARG FROM_IMAGE=${GIT_SHA:-base}
-ARG FROM_TAG=${GIT_SHA:-latest}
+ARG FROM_IMAGE=base
+ARG FROM_TAG=latest
 
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-${FROM_IMAGE}-ubuntu-22-04:${FROM_TAG}
 SHELL ["/bin/bash", "-c"]
