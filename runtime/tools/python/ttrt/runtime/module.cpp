@@ -68,6 +68,8 @@ PYBIND11_MODULE(_C, m) {
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
         py::arg("outputs"), "Submit a binary for execution");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
+  m.def("open_so", &tt::runtime::openSo, py::arg("path"),
+        "Open a shared object file");
 
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)

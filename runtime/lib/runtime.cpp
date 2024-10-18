@@ -10,6 +10,8 @@
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
+
+#include <dlfcn.h>
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -219,6 +221,15 @@ void wait(Event event) {
   }
 #endif
   throw std::runtime_error("runtime is not enabled");
+}
+
+void *openSo(std::string path) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return dlopen(path.c_str(), RTLD_LAZY);
+  }
+#endif
+  throw std::runtime_error("ttnn runtime is not enabled");
 }
 
 } // namespace tt::runtime
