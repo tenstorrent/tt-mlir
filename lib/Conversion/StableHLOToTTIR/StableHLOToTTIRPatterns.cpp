@@ -890,10 +890,9 @@ public:
   matchAndRewrite(mlir::arith::ConstantOp srcOp,
                   mlir::arith::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
 
-    rewriter.replaceOpWithNewOp<mlir::stablehlo::ConstantOp>(
-        srcOp, outputType, adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::ConstantOp>(srcOp,
+                                                             srcOp.getValue());
     return success();
   }
 };
