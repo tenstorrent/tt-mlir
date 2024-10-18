@@ -1,5 +1,7 @@
 include(ExternalProject)
 
+set(TT_METAL_VERSION "047cdd97fa26b229208ce2f6f8b149c3df277be0")
+
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
   set(ARCH_NAME "grayskull")
   set(ARCH_EXTRA_DIR "grayskull")
@@ -56,7 +58,7 @@ ExternalProject_Add(
     -DENABLE_TRACY=${TT_RUNTIME_ENABLE_PERF_TRACE}
     -DENABLE_LIBCXX=OFF
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
-  GIT_TAG 047cdd97fa26b229208ce2f6f8b149c3df277be0
+  GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS ON
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH}
 )
