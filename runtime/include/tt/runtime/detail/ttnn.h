@@ -107,6 +107,9 @@ void runProgram(::ttnn::MeshDevice &meshDevice,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
 
+std::vector<Tensor> do_stuff(void *so, std::string func_name,
+                             std::vector<Tensor> inputs);
+
 } // namespace tt::runtime::ttnn
 
 #endif

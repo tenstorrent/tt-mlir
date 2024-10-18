@@ -57,6 +57,9 @@ void wait(Event event);
 
 void *openSo(std::string path);
 
+std::vector<Tensor> runSoProgram(void *so, std::string name,
+                                 std::vector<Tensor> inputs);
+
 } // namespace tt::runtime
 
 #endif

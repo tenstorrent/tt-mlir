@@ -347,6 +347,11 @@ class Run:
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
+            so_handle = ttrt.runtime.open_so(
+                "/localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/build/libemitc_fwd.so"
+            )
+            print("opened so handle")
+
             try:
                 for bin in binaries:
                     try:
@@ -424,6 +429,13 @@ class Run:
                                 )
 
                             ttrt.runtime.wait(event)
+
+                            emitc_outs = ttrt.runtime.run_so_program(
+                                so_handle,
+                                "_Z7forwardSt6vectorIN2tt8tt_metal6TensorESaIS2_EE",
+                                inputs,
+                            )
+                            print("got outs")
 
                             if self["--identity"]:
                                 self.logging.debug(

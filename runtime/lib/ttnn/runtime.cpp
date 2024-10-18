@@ -6,9 +6,15 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+#include "ttnn/tensor/host_buffer/functions.hpp"
+#include "ttnn/tensor/types.hpp"
+#include <dlfcn.h>
+#include <memory>
+#include <vector>
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
@@ -134,6 +140,60 @@ Event submit(Device deviceHandle, Binary executableHandle,
 void wait(Event event) {
   // Not implemented
   LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
+}
+
+std::vector<Tensor> do_stuff(void *so, std::string func_name,
+                             std::vector<Tensor> inputs) {
+  // Convert inputs to TTNN tensors using .as method
+  //
+  std::vector<::ttnn::Tensor> ttnnInputs;
+  for (auto &input : inputs) {
+    LOG_ASSERT(input.matchesRuntime(DeviceRuntime::TTNN));
+    ttnnInputs.push_back(input.as<::ttnn::Tensor>(DeviceRuntime::TTNN));
+  }
+
+  // Clear previous error
+  //
+  dlerror();
+
+  // Get function from shared object
+  //
+  using ForwardFunction =
+      std::vector<::ttnn::Tensor> (*)(std::vector<::ttnn::Tensor>);
+  std::cout << "before" << std::endl;
+  ForwardFunction forwardFunc = (ForwardFunction)dlsym(so, func_name.c_str());
+  std::cout << "after" << std::endl;
+
+  const char *dlsym_error = dlerror();
+  if (dlsym_error) {
+    std::cerr << "Failed to load symbol: " << dlsym_error << std::endl;
+    dlclose(so);
+    throw std::runtime_error("Failed to load symbol");
+  }
+
+  // Call function
+  //
+  std::vector<::ttnn::Tensor> ttnnOutputs = forwardFunc(ttnnInputs);
+
+  // Convert outputs to Tensor using Tensor constructor
+  //
+  std::vector<Tensor> outputs;
+  for (::ttnn::Tensor &output : ttnnOutputs) {
+    BorrowedBuffer borrowedBuffer =
+        std::get<BorrowedStorage>(output.tensor_attributes->storage).buffer;
+
+    std::visit(
+        [&outputs, &output](auto &&buffer) {
+          outputs.push_back(
+              Tensor(std::make_shared<::ttnn::Tensor>(std::move(output)),
+                     std::shared_ptr<void>(static_cast<void *>(buffer.data()),
+                                           [](void *) {}),
+                     DeviceRuntime::TTNN));
+        },
+        borrowedBuffer);
+  }
+
+  return outputs;
 }
 
 } // namespace tt::runtime::ttnn
