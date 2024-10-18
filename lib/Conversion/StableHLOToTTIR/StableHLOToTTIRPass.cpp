@@ -4,10 +4,12 @@
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
+#include <llvm/ADT/ArrayRef.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Dialect.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Pass/Pass.h>
@@ -37,12 +39,28 @@ public:
              "only ranked tensor type supported");
       return type;
     });
+
+    // TTNN doesn't support either scalars or boolean data. This transformation
+    // converts boolean to bfloat16 and scalars to 1-D tensors.
     addConversion([&](RankedTensorType type) -> RankedTensorType {
-      if (type.getShape().size() == 0) {
-        auto ElementType = type.getElementType();
-        return RankedTensorType::get({1}, ElementType);
+      bool changed = false;
+      Type elementType = type.getElementType();
+      llvm::ArrayRef<int64_t> shape = type.getShape();
+      // Convert the element type to bfloat16 if the input is boolean.
+      if (type.getElementTypeBitWidth() == 1) {
+        elementType = BFloat16Type::get(elementType.getContext());
+        changed = true;
       }
-      return type;
+
+      // Return 1-D tensor instead of scalar with either original element type
+      // or bfloat16 (in case of boolean input).
+      if (shape.size() == 0) {
+        return RankedTensorType::get({1}, elementType);
+      }
+
+      // Return tensor with bfloat16 element type and original shape for boolean
+      // tensor; incoming tensor otherwise.
+      return changed ? RankedTensorType::get(shape, elementType) : type;
     });
   }
 };
