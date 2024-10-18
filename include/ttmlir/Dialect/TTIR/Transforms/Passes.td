@@ -134,6 +134,14 @@ def TTIROptimizer: Pass<"ttir-optimizer", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTIRGatherPatternMatch : Pass<"convert-ttir-to-ttir", "::mlir::ModuleOp"> {
+  let summary = "Convert GatherOp in TTIR dialect to EmbeddingOp in TTIR dialect.";
+  let description = [{
+    Convert GatherOp in TTIR dialect to EmbeddingOp in TTIR dialect. Add ReshapeOp to the input of EmbeddingOp if needed.
+  }];
+}
+
+
 def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   let summary = "Load system desc.";
   let description = [{
