@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
+#include <utility>
 
 namespace mlir::tt::ttnn {
 struct InputLayoutOverrideParser
@@ -24,28 +25,37 @@ public:
     SmallVector<StringRef> opOverrideList;
     constexpr size_t kvPairSize = 2;
     constexpr size_t iOpName = 0;
-    constexpr size_t iOperand = 1;
+    constexpr size_t iOperands = 1;
     constexpr char opSeparator = ',';
+    constexpr char opNameSeparator = '=';
     constexpr char opParamSeparator = ':';
 
     arg.split(opOverrideList, opSeparator);
     for (const StringRef override : opOverrideList) {
       SmallVector<StringRef, kvPairSize> opOverrideParts;
-      override.split(opOverrideParts, opParamSeparator);
+      override.split(opOverrideParts, opNameSeparator);
       if (opOverrideParts.size() != kvPairSize) {
         opt.error("Invalid format for input layouts override: " + override);
         return true;
       }
 
-      // Parse operand index.
-      int64_t operandIdx;
-      if (opOverrideParts[iOperand].getAsInteger(10 /*Radix*/, operandIdx)) {
-        opt.error("Invalid operand size: " + opOverrideParts[iOperand]);
-        return true;
+      SmallVector<int64_t> operandIndexes;
+      SmallVector<StringRef> operandIndexParts;
+
+      // Parse operand indexes.
+      opOverrideParts[iOperands].split(operandIndexParts, opParamSeparator);
+      for (const StringRef operandIndexPart : operandIndexParts) {
+        int64_t operandIndexValue;
+        if (operandIndexPart.getAsInteger(10 /*Radix*/, operandIndexValue)) {
+          opt.error("Invalid operand index: " + operandIndexPart);
+          return true;
+        }
+        operandIndexes.push_back(operandIndexValue);
       }
 
       // Set parsed op overrides.
-      value[opOverrideParts[iOpName]] = InputLayoutOverrideParams{operandIdx};
+      value[opOverrideParts[iOpName]] =
+          InputLayoutOverrideParams{std::move(operandIndexes)};
     }
     return false;
   }
@@ -57,7 +67,12 @@ public:
     for (const auto &entry : value) {
       os << entry.getKey() << "=";
       const InputLayoutOverrideParams &params = entry.getValue();
-      os << params.operandIdx;
+      for (int64_t operandIdx : params.operandIdxes) {
+        os << operandIdx
+           << (operandIdx < static_cast<int64_t>(params.operandIdxes.size()) - 1
+                   ? ':'
+                   : char());
+      }
       if (++count < value.size()) {
         os << ",";
       }

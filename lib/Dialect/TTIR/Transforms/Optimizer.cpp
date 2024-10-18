@@ -9,6 +9,11 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include <cstddef>
+#include <cstdint>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/IR/Operation.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIROPTIMIZER
@@ -39,6 +44,52 @@ public:
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+
+    // Manually insert ToLayout input override ops.
+    //
+    moduleOp->walk([&](Operation *consumerOp) {
+      // Skip non TTIR operations.
+      // Skip operations which do not implement DestinationStyleOpInterface.
+      //
+      if (!isa<ttir::TTIRDialect>(consumerOp->getDialect())) {
+        return;
+      }
+
+      // Skip ops without location since input layout override
+      // uses op's location as an identifier.
+      //
+      if (!isa<NameLoc>(consumerOp->getLoc())) {
+        return;
+      }
+
+      // Check if consumerOp should be overriden.
+      //
+      StringRef consumerOpLocName =
+          mlir::cast<NameLoc>(consumerOp->getLoc()).getName();
+      auto opInputOverride = overrideInputLayout.find(consumerOpLocName);
+
+      if (opInputOverride == overrideInputLayout.end()) {
+        return;
+      }
+
+      // Process each operand.
+      //
+      InputLayoutOverrideParams override = opInputOverride->getValue();
+      for (int64_t operandIndex : override.operandIdxes) {
+        Operation *producerOp =
+            consumerOp->getOperand(operandIndex).getDefiningOp();
+
+        // Insert ToLayout op in between producerOp and consumerOp
+        //
+        producerOp->dump();
+        consumerOp->dump();
+        llvm::outs() << consumerOpLocName << " " << operandIndex << '\n';
+        insertReshardEdge(producerOp, consumerOp, operandIndex);
+      }
+    });
+
+    // Generate legal OP configuration candidates.
+    //
     llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
 
     moduleOp->walk([&](Operation *op) {
@@ -147,83 +198,89 @@ public:
     for (const Edge &edge : reshardedEdges) {
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
+      int64_t operandIndex = edge.operandIndex;
 
-      // If producerOp is a ToLayoutOp, adjust its output layout(update inplace)
-      // to reflect consumerOp's output layout. If producerOp is not a
-      // ToLayoutOp, insert a ToLayoutOp in between producerOp and consumerOp.
+      insertReshardEdge(producerOp, consumerOp, operandIndex);
+    }
+  }
+
+  void insertReshardEdge(Operation *producerOp, Operation *consumerOp,
+                         int64_t operandIndex) {
+    // If producerOp is a ToLayoutOp, adjust its output layout(update inplace)
+    // to reflect consumerOp's output layout. If producerOp is not a
+    // ToLayoutOp, insert a ToLayoutOp in between producerOp and consumerOp.
+    //
+    if (llvm::isa<ttir::ToLayoutOp>(producerOp)) {
+      ttir::ToLayoutOp toLayoutOp = llvm::cast<ttir::ToLayoutOp>(producerOp);
+      LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
+          mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
+              .getEncoding());
+
+      RankedTensorType toLayoutOpTensorType =
+          mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
+      llvm::ArrayRef<int64_t> toLayoutOpTensorShape =
+          toLayoutOpTensorType.getShape();
+      LayoutAttr toLayoutOpLayout =
+          mlir::cast<LayoutAttr>(toLayoutOpTensorType.getEncoding());
+
+      // TODO(nobradovic): Match memory space and layout of consumer op. This
+      // actually needs to be properly resolved based on op type, output
+      // layout and other inputs.
       //
-      if (llvm::isa<ttir::ToLayoutOp>(producerOp)) {
-        ttir::ToLayoutOp toLayoutOp = llvm::cast<ttir::ToLayoutOp>(producerOp);
-        LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
-            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
-                .getEncoding());
+      RankedTensorType newTensorType = RankedTensorType::get(
+          toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
+          toLayoutOpLayout
+              .withElementType(toLayoutOp->getContext(),
+                               consumerOpOutputLayout.getElementType())
+              .withMemorySpace(toLayoutOp.getContext(),
+                               consumerOpOutputLayout.getMemorySpace())
+              .withMemoryLayout(toLayoutOp.getContext(),
+                                consumerOpOutputLayout.getMemLayout())
+              .withGrid(toLayoutOp.getContext(), toLayoutOpTensorType,
+                        consumerOpOutputLayout.getGrid()));
 
-        RankedTensorType toLayoutOpTensorType =
-            mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
-        llvm::ArrayRef<int64_t> toLayoutOpTensorShape =
-            toLayoutOpTensorType.getShape();
-        LayoutAttr toLayoutOpLayout =
-            mlir::cast<LayoutAttr>(toLayoutOpTensorType.getEncoding());
+      toLayoutOp.getResult().setType(newTensorType);
+      toLayoutOp.getOperands().back().setType(newTensorType);
+    } else {
+      LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
+          mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
+              .getEncoding());
 
-        // TODO(nobradovic): Match memory space and layout of consumer op. This
-        // actually needs to be properly resolved based on op type, output
-        // layout and other inputs.
-        //
-        RankedTensorType newTensorType = RankedTensorType::get(
-            toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
-            toLayoutOpLayout
-                .withElementType(toLayoutOp->getContext(),
-                                 consumerOpOutputLayout.getElementType())
-                .withMemorySpace(toLayoutOp.getContext(),
-                                 consumerOpOutputLayout.getMemorySpace())
-                .withMemoryLayout(toLayoutOp.getContext(),
-                                  consumerOpOutputLayout.getMemLayout())
-                .withGrid(toLayoutOp.getContext(), toLayoutOpTensorType,
-                          consumerOpOutputLayout.getGrid()));
+      RankedTensorType producerOpTensorType =
+          mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+      llvm::ArrayRef<int64_t> producerOpTensorShape =
+          producerOpTensorType.getShape();
+      LayoutAttr producerOpLayout =
+          mlir::cast<LayoutAttr>(producerOpTensorType.getEncoding());
 
-        toLayoutOp.getResult().setType(newTensorType);
-        toLayoutOp.getOperands().back().setType(newTensorType);
-      } else {
-        LayoutAttr consumerOpOutputLayout = mlir::cast<LayoutAttr>(
-            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
-                .getEncoding());
+      // TODO(nobradovic): Match memory space and layout of consumer op. This
+      // actually needs to be properly resolved based on op type, output
+      // layout and other inputs.
+      //
+      RankedTensorType newTensorType = RankedTensorType::get(
+          producerOpTensorShape, producerOpTensorType.getElementType(),
+          producerOpLayout
+              .withElementType(consumerOp->getContext(),
+                               consumerOpOutputLayout.getElementType())
+              .withMemorySpace(consumerOp->getContext(),
+                               consumerOpOutputLayout.getMemorySpace())
+              .withMemoryLayout(consumerOp->getContext(),
+                                consumerOpOutputLayout.getMemLayout())
+              .withGrid(consumerOp->getContext(), producerOpTensorType,
+                        consumerOpOutputLayout.getGrid()));
 
-        RankedTensorType producerOpTensorType =
-            mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
-        llvm::ArrayRef<int64_t> producerOpTensorShape =
-            producerOpTensorType.getShape();
-        LayoutAttr producerOpLayout =
-            mlir::cast<LayoutAttr>(producerOpTensorType.getEncoding());
+      OpBuilder builder(consumerOp);
 
-        // TODO(nobradovic): Match memory space and layout of consumer op. This
-        // actually needs to be properly resolved based on op type, output
-        // layout and other inputs.
-        //
-        RankedTensorType newTensorType = RankedTensorType::get(
-            producerOpTensorShape, producerOpTensorType.getElementType(),
-            producerOpLayout
-                .withElementType(consumerOp->getContext(),
-                                 consumerOpOutputLayout.getElementType())
-                .withMemorySpace(consumerOp->getContext(),
-                                 consumerOpOutputLayout.getMemorySpace())
-                .withMemoryLayout(consumerOp->getContext(),
-                                  consumerOpOutputLayout.getMemLayout())
-                .withGrid(consumerOp->getContext(), producerOpTensorType,
-                          consumerOpOutputLayout.getGrid()));
+      mlir::tensor::EmptyOp emptyOp = builder.create<tensor::EmptyOp>(
+          consumerOp->getLoc(), producerOpTensorShape,
+          producerOpTensorType.getElementType(),
+          mlir::cast<LayoutAttr>(newTensorType.getEncoding()));
 
-        OpBuilder builder(consumerOp);
+      Operation *toLayoutOp =
+          builder.create<ttir::ToLayoutOp>(consumerOp->getLoc(), newTensorType,
+                                           producerOp->getResult(0), emptyOp);
 
-        mlir::tensor::EmptyOp emptyOp = builder.create<tensor::EmptyOp>(
-            consumerOp->getLoc(), producerOpTensorShape,
-            producerOpTensorType.getElementType(),
-            mlir::cast<LayoutAttr>(newTensorType.getEncoding()));
-
-        Operation *toLayoutOp = builder.create<ttir::ToLayoutOp>(
-            consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
-            emptyOp);
-
-        consumerOp->setOperand(edge.operandIndex, toLayoutOp->getResult(0));
-      }
+      consumerOp->setOperand(operandIndex, toLayoutOp->getResult(0));
     }
   }
 };

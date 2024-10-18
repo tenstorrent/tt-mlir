@@ -11,7 +11,7 @@
 namespace mlir::tt {
 
 struct InputLayoutOverrideParams {
-  int64_t operandIdx;
+  SmallVector<int64_t> operandIdxes;
 };
 
 struct OutputLayoutOverrideParams {
