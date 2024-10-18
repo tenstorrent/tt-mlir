@@ -9,6 +9,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <llvm/ADT/StringRef.h>
@@ -83,7 +84,13 @@ public:
         //
         insertReshardEdge(producerOp, consumerOp, operandIndex);
       }
+
+      overrideInputLayout.erase(opInputOverride);
     });
+
+    // Check if there are non-existing ops in override-input-layout
+    //
+    assert(overrideInputLayout.empty());
 
     // Generate legal OP configuration candidates.
     //
