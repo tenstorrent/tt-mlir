@@ -14,5 +14,6 @@ add_mlir_library(TTMLIRStableHLOToTTIR
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
 )

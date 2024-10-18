@@ -9,5 +9,7 @@ add_mlir_library(TTMLIRTTNNToEmitC
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
+  MLIREmitCDialect
 )
