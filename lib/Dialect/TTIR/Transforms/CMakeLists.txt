@@ -3,7 +3,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Constant.cpp
         Generic.cpp
         Layout.cpp
-        Optimizer.cpp
         Transforms.cpp
         Utility.cpp
 

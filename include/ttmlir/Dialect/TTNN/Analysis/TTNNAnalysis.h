@@ -2,22 +2,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_TTIRANALYSIS_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_TTIRANALYSIS_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_TTNNANALYSIS_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_TTNNANALYSIS_H
 
 #include "mlir/IR/Operation.h"
 
-namespace mlir::tt::ttir {
-// Base class for all TTIR analyses.
+namespace mlir::tt::ttnn {
+// Base class for all TTNN analyses.
 //
-template <class I, class R> class TTIRAnalysis {
+template <class I, class R> class TTNNAnalysis {
 protected:
   Operation *op;
   bool isValid = false;
   R analysisResult;
   I analysisInput;
 
-  TTIRAnalysis(Operation *op) : op(op) {}
+  TTNNAnalysis(Operation *op) : op(op) {}
 
   // Actual implementation of the analysis.
   // Must be implemented by every analysis type.
@@ -31,7 +31,7 @@ protected:
   virtual bool applyOverrides() = 0;
 
 public:
-  virtual ~TTIRAnalysis() {};
+  virtual ~TTNNAnalysis() {};
 
   // Initialize the analysis with the input if needed.
   //
@@ -70,6 +70,6 @@ private:
     }
   }
 };
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
 
 #endif
