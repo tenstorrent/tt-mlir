@@ -102,3 +102,28 @@ target_compile_definitions(ttnn-standalone PRIVATE
 )
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+
+add_library(emitc_fwd SHARED emitc_fwd.cpp)
+target_include_directories(emitc_fwd PRIVATE .)
+target_include_directories(emitc_fwd PRIVATE
+    # reflect
+    # TODO: Remove this when ttmetal removes this dependency (reflect) from public facing headers
+    $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+
+    # Metalium
+    $ENV{TT_METAL_HOME}
+    $ENV{TT_METAL_HOME}/tt_metal
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
+
+    # TTNN
+    $ENV{TT_METAL_HOME}/ttnn/cpp
+    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
+    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
+)
+set_target_properties(emitc_fwd PROPERTIES PUBLIC_HEADER emitc_fwd.h)

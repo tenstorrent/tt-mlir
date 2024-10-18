@@ -55,6 +55,8 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
+void *openSo(std::string path);
+
 } // namespace tt::runtime
 
 #endif
