@@ -19,6 +19,8 @@ try:
         create_tensor,
         wait,
         WorkaroundEnv,
+        open_so,
+        run_so_program,
     )
 except ModuleNotFoundError:
     raise ImportError(

@@ -7,6 +7,7 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+#include <stdexcept>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
@@ -226,10 +227,24 @@ void wait(Event event) {
 void *openSo(std::string path) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return dlopen(path.c_str(), RTLD_LAZY);
+    void *handle =
+        dlopen(path.c_str(), RTLD_LAZY | RTLD_GLOBAL | RTLD_DEEPBIND);
+    if (!handle) {
+      std::cerr << "Failed to load shared object: " << dlerror() << std::endl;
+      throw std::runtime_error("Failed to load shared object");
+    }
+
+    dlerror();
+    return handle;
   }
 #endif
   throw std::runtime_error("ttnn runtime is not enabled");
+}
+
+std::vector<Tensor> runSoProgram(void *so, std::string name,
+                                 std::vector<Tensor> inputs) {
+
+  return ::tt::runtime::ttnn::do_stuff(so, name, inputs);
 }
 
 } // namespace tt::runtime

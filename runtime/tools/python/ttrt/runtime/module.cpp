@@ -70,6 +70,24 @@ PYBIND11_MODULE(_C, m) {
   m.def("wait", &tt::runtime::wait, py::arg("event"));
   m.def("open_so", &tt::runtime::openSo, py::arg("path"),
         "Open a shared object file");
+  //   m.def("get_func", &tt::runtime::getFunc, py::arg("so"), py::arg("name"),
+  //         "Get a function from a shared object file");
+  //   m.def("get_func",
+  //         [](void *so, std::string name)
+  //             -> std::function<std::vector<Tensor>(std::vector<Tensor>)> {
+  //           // Get the ForwardFunction from C++
+  //           ForwardFunction func = tt::runtime::getFunc(so, name);
+
+  //           // cast Tensor to ttnn::Tensor (use createTensor?)
+
+  //           // Wrap it in a std::function so it can be passed to Python
+  //           return [func](std::vector<ttnn::Tensor> inputs) {
+  //             return func(std::move(inputs));
+  //           };
+  //         });
+  m.def("run_so_program", &tt::runtime::runSoProgram, py::arg("so"),
+        py::arg("name"), py::arg("inputs"),
+        "Run a program from a shared object file");
 
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)

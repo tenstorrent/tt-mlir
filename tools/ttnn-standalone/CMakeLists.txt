@@ -103,6 +103,11 @@ target_compile_definitions(ttnn-standalone PRIVATE
 
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
 
+
+
+
+
+
 add_library(emitc_fwd SHARED emitc_fwd.cpp)
 target_include_directories(emitc_fwd PRIVATE .)
 target_include_directories(emitc_fwd PRIVATE
@@ -126,4 +131,15 @@ target_include_directories(emitc_fwd PRIVATE
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
 )
+# target_link_directories(emitc_fwd PRIVATE
+#     $ENV{TT_METAL_HOME}-build/lib
+# )
+
+# target_link_libraries(emitc_fwd PRIVATE
+#     # Metalium
+#     tt_metal
+#     device
+#     $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
+# )
+
 set_target_properties(emitc_fwd PROPERTIES PUBLIC_HEADER emitc_fwd.h)
