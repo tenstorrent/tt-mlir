@@ -15,10 +15,6 @@ IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04
 DOCKER_TAG=$(./.github/get-docker-tag.sh)
 echo "Docker tag: $DOCKER_TAG"
 
-# Get the SHA of the current commit
-CURRENT_SHA=$(git rev-parse HEAD)
-echo "CURRENT_SHA: $CURRENT_SHA"
-
 # Are we on main branch
 ON_MAIN=$(git branch --show-current | grep -q main && echo "true" || echo "false")
 
@@ -35,7 +31,6 @@ build_and_push() {
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \
             --progress=plain \
-            --build-arg GIT_SHA=$CURRENT_SHA \
             --build-arg FROM_TAG=$DOCKER_TAG \
             ${from_image:+--build-arg FROM_IMAGE=$from_image} \
             -t $image_name:$DOCKER_TAG \
