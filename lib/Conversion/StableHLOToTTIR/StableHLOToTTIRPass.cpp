@@ -114,7 +114,10 @@ struct ConvertArithToStableHLOPass
     mlir::ConversionTarget target(getContext());
 
     target.addIllegalDialect<mlir::arith::ArithDialect>();
-    target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
+    target.addLegalOp<mlir::ModuleOp>();
+    target.addLegalOp<mlir::func::FuncOp>();
+    target.addLegalOp<mlir::func::ReturnOp>();
 
     // For now keep the same type assuming StableHLO ops operate on builtin
     // tensor.
