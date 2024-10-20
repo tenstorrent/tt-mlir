@@ -140,7 +140,7 @@ void populateTTModule(py::module &m) {
              unsigned l1UnreservedBase, unsigned eriscL1UnreservedBase,
              unsigned dramUnreservedBase, unsigned dramUnreservedEnd,
              MlirAttribute chipPhysicalCores, MlirAttribute supportedDataTypes,
-             MlirAttribute supportedTileSizes) {
+             MlirAttribute supportedTileSizes, unsigned numCBs) {
             return wrap(tt::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ArchAttr>(unwrap(arch)), grid,
                 l1Size, numDramChannels, dramChannelSize,
@@ -150,7 +150,8 @@ void populateTTModule(py::module &m) {
                 mlir::dyn_cast<tt::ChipPhysicalCoresAttr>(
                     unwrap(chipPhysicalCores)),
                 mlir::cast<tt::DataTypeAttr>(unwrap(supportedDataTypes)),
-                mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes))));
+                mlir::cast<tt::TileSizeAttr>(unwrap(supportedTileSizes)),
+                numCBs));
           });
 
   py::class_<tt::ChipCoordAttr>(m, "ChipCoordAttr")

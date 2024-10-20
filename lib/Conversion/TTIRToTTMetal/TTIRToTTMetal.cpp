@@ -347,8 +347,17 @@ public:
     assert(shouldTilize ^ shouldUntilize);
     assert(inputLayout.getGrid() == outputLayout.getGrid());
 
+    // Ensure tt-mlir/tt-metal agree on number, and set UnpackToDestMode per CB
+    uint32_t chipNumCBs = op.getSystemDesc().getChipDescs()[0].getNumCBs();
+    constexpr uint32_t kNumCBs = 1 + ttkernel::getMaxEnumValForCBPort();
+    assert(chipNumCBs == kNumCBs && "Mismatch between tt-mlir and tt-metal "
+                                    "number of CBs");
+
+    llvm::SmallVector<ttkernel::UnpackToDestMode, kNumCBs> unpackToDestModes(
+        kNumCBs, ttkernel::UnpackToDestMode::Default);
+
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false);
+        ttkernel::MathFidelity::HiFi4, false, false, unpackToDestModes);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
@@ -1343,8 +1352,17 @@ public:
     //   return failure();
     // }
 
+    // Ensure tt-mlir/tt-metal agree on number, and set UnpackToDestMode per CB
+    uint32_t chipNumCBs = op.getSystemDesc().getChipDescs()[0].getNumCBs();
+    constexpr uint32_t kNumCBs = 1 + ttkernel::getMaxEnumValForCBPort();
+    assert(chipNumCBs == kNumCBs && "Mismatch between tt-mlir and tt-metal "
+                                    "number of CBs");
+
+    llvm::SmallVector<ttkernel::UnpackToDestMode, kNumCBs> unpackToDestModes(
+        kNumCBs, ttkernel::UnpackToDestMode::Default);
+
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false);
+        ttkernel::MathFidelity::HiFi4, false, false, unpackToDestModes);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),

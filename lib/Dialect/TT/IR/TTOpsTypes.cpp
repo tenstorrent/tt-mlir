@@ -88,7 +88,7 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
               (1 << 30),
               tt::ChipPhysicalCoresAttr::get(context, workerCores, dramCores,
                                              {}, {}),
-              supported_data_types, supported_tile_sizes),
+              supported_data_types, supported_tile_sizes, 32),
       },
       // Chip Descriptor Indices
       {
@@ -243,7 +243,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
         element->dram_unreserved_end(), chip_physical_cores_attr,
-        supported_data_types_attr, supported_tile_sizes_attr);
+        supported_data_types_attr, supported_tile_sizes_attr,
+        element->num_cbs());
     chip_desc_list.push_back(current_chip_desc_attr);
   }
 

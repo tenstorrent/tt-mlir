@@ -110,7 +110,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$dramUnreservedEnd,
                     "ChipPhysicalCoresAttr":$chipPhysicalCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
-                    ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes);
+                    ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
+                    "unsigned":$numCBs);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `l1_size` `=` $l1Size `,`
@@ -125,7 +126,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
                              `physical_cores` `=` $chipPhysicalCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
-                             `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `}`}];
+                             `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
+                             `num_cbs` `=` $numCBs `}`}];
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
