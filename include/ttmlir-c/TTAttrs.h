@@ -32,7 +32,7 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned nocDRAMAddressAlignBytes, unsigned l1UnreservedBase,
     unsigned eriscL1UnreservedBase, unsigned dramUnreservedBase,
     MlirAttribute chipPhysicalCores, MlirAttribute *supportedDataTypes,
-    MlirAttribute *supportedTileSizes);
+    MlirAttribute *supportedTileSizes, unsigned numCBs);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(
     MlirContext ctx, unsigned rack, unsigned shelf, unsigned y, unsigned x);
