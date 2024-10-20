@@ -186,3 +186,8 @@ enum MathFidelity : uint8 {
     HiFi3         = 3,
     HiFi4         = 4,
 }
+
+enum UnpackToDestMode : uint8 {
+    UnpackToDestFp32 = 0,
+    Default = 1,
+}

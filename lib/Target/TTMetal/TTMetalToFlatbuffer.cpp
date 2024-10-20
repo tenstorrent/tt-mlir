@@ -75,6 +75,24 @@ struct CQBuilder {
   assert(false && "Unsupported MathFidelity");
 }
 
+std::vector<::tt::target::UnpackToDestMode>
+toFlatbuffer(llvm::ArrayRef<ttkernel::UnpackToDestMode> unpackToDestModes) {
+  std::vector<::tt::target::UnpackToDestMode> result;
+  result.reserve(unpackToDestModes.size());
+
+  for (auto mode : unpackToDestModes) {
+    switch (mode) {
+    case ttkernel::UnpackToDestMode::UnpackToDestFp32:
+      result.push_back(::tt::target::UnpackToDestMode::UnpackToDestFp32);
+      break;
+    case ttkernel::UnpackToDestMode::Default:
+      result.push_back(::tt::target::UnpackToDestMode::Default);
+      break;
+    }
+  }
+  return result;
+}
+
 ::tt::target::metal::EthType toFlatbuffer(ttkernel::EthType ethType) {
   switch (ethType) {
   case ttkernel::EthType::Sender:
@@ -113,10 +131,11 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
     auto tensixConfigAttr =
         mlir::dyn_cast<ttkernel::TensixConfigAttr>(kernelConfig);
     auto configType = ::tt::target::metal::KernelConfig::TensixConfig;
-    auto config = ::tt::target::metal::CreateTensixConfig(
+    auto u2dmVec = toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
+    auto config = ::tt::target::metal::CreateTensixConfigDirect(
         fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
         tensixConfigAttr.getFp32DestAccEn(),
-        tensixConfigAttr.getMathApproxMode());
+        tensixConfigAttr.getMathApproxMode(), &u2dmVec);
     return std::make_pair(configType, config.Union());
   }
   case ttkernel::ThreadType::Ethernet: {

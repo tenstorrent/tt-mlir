@@ -301,6 +301,24 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
         kernelSource->config_as_TensixConfig()->fp32_dest_acc_en();
     computeConfig.math_approx_mode =
         kernelSource->config_as_TensixConfig()->math_approx_mode();
+
+    auto u2dms = kernelSource->config_as_TensixConfig()->unpack_to_dest_mode();
+    computeConfig.unpack_to_dest_mode.reserve(u2dms->size());
+
+    for (auto mode : *u2dms) {
+      switch (mode) {
+      case tt::target::UnpackToDestMode::UnpackToDestFp32: {
+        computeConfig.unpack_to_dest_mode.push_back(
+            UnpackToDestMode::UnpackToDestFp32);
+        break;
+      }
+      case tt::target::UnpackToDestMode::Default: {
+        computeConfig.unpack_to_dest_mode.push_back(UnpackToDestMode::Default);
+        break;
+      }
+      }
+    }
+
     return computeConfig;
   }
 
