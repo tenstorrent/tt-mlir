@@ -20,6 +20,13 @@ struct StableHLOToTTIRPipelineOptions
       // Currently this pass fails if module has a name, so keeping the
       // optimization OFF by default until that issue is fixed on llvm side.
       llvm::cl::init(false)};
+  Option<bool> arithDialectConversionsEnabled{
+      *this, "enable-arith-to-stablehlo",
+      llvm::cl::desc("Enable Arith to StableHLO conversion pass."),
+      // Currently torch-mlir front-end does not convert ConstantOp for Arith
+      // Dialect to StableHLO. This pass makes those conversions until this
+      // is fixed in the upstream torch-mlir.
+      llvm::cl::init(true)};
 };
 
 void createStableHLOToTTIRPipeline(
