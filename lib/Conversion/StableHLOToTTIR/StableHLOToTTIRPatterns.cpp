@@ -9,7 +9,6 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
 #include "mlir/Dialect/Traits.h"
-#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -933,29 +932,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addLogicalOpConversionPattern(ctx, patterns, typeConverter);
-}
-
-class ArithToStableHLOConstantOpConversionPattern
-    : public OpConversionPattern<mlir::arith::ConstantOp> {
-
-  using OpConversionPattern<mlir::arith::ConstantOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::arith::ConstantOp srcOp,
-                  mlir::arith::ConstantOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    rewriter.replaceOpWithNewOp<mlir::stablehlo::ConstantOp>(srcOp,
-                                                             srcOp.getValue());
-    return success();
-  }
-};
-
-void populateArithToStableHLOPatterns(MLIRContext *ctx,
-                                      RewritePatternSet &patterns,
-                                      TypeConverter &typeConverter) {
-  patterns.add<ArithToStableHLOConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

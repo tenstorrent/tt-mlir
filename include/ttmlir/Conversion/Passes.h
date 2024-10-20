@@ -6,6 +6,7 @@
 #define TTMLIR_CONVERSION_PASSES_H
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
+#include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"

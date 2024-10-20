@@ -16,11 +16,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                      TypeConverter &typeConverter);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertStableHLOToTTIRPass();
-
-void populateArithToStableHLOPatterns(MLIRContext *ctx,
-                                      RewritePatternSet &patterns,
-                                      TypeConverter &typeConverter);
-std::unique_ptr<OperationPass<ModuleOp>> createConvertArithToStableHLOPass();
 #endif
 
 } // namespace mlir::tt
