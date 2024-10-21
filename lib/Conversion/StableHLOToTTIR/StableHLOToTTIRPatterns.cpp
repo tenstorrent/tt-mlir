@@ -798,6 +798,48 @@ private:
   }
 };
 
+class StableHLOToTTIRSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SliceOp> {
+
+  using OpConversionPattern<mlir::stablehlo::SliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SliceOp srcOp,
+                  mlir::stablehlo::SliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Create the output tensor type based on inputs
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Create an empty output tensor with the computed shape
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    std::vector<int32_t> start_indices(adaptor.getStartIndices().begin(),
+                                       adaptor.getStartIndices().end());
+    std::vector<int32_t> end_indices(adaptor.getLimitIndices().begin(),
+                                     adaptor.getLimitIndices().end());
+    std::vector<int32_t> step(adaptor.getStrides().begin(),
+                              adaptor.getStrides().end());
+
+    // Replace the original ConcatOp with the destination operation
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceOp>(
+        srcOp,
+        outputType,           // result type
+        adaptor.getOperand(), // input values
+        outputTensor,         // output value
+        rewriter.getI32ArrayAttr(start_indices),
+        rewriter.getI32ArrayAttr(end_indices), rewriter.getI32ArrayAttr(step),
+        rewriter.getArrayAttr( // operand constraints
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -912,6 +954,11 @@ void addLogicalOpConversionPattern(MLIRContext *ctx,
       mlir::stablehlo::OrOp, mlir::tt::ttir::LogicalOrOp>>(typeConverter, ctx);
 }
 
+void addSliceOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                 TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -932,6 +979,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addLogicalOpConversionPattern(ctx, patterns, typeConverter);
+  addSliceOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
