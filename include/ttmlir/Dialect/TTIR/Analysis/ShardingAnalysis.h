@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_SHARDINGANALYSIS_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTIR/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardChainConfig.h"
 #include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
@@ -19,13 +20,16 @@ enum class ShardingPolicyType {
 struct ShardingAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
+  llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides;
 
   ShardingAnalysisInput() : legalLayouts() {}
 
   ShardingAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
-      unsigned usableL1CacheSize)
-      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize) {}
+      unsigned usableL1CacheSize,
+      llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides)
+      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
+        inputLayoutOverrides(inputLayoutOverrides) {}
 
   bool operator==(const ShardingAnalysisInput &rhs) const {
     return legalLayouts == rhs.legalLayouts;

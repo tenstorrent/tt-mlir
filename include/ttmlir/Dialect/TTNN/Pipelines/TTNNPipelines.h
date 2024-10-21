@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Support/CommandLine.h>
 #include <utility>
 
 namespace mlir::tt::ttnn {
@@ -249,6 +250,14 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> shardingPassEnabled{
       *this, "sharding-pass-enabled",
       llvm::cl::desc("Enable sharding pass to shard ops."),
+      llvm::cl::init(false)};
+
+  // If this option is true, insert reshard edges
+  //
+  Option<bool> reshardingEnabled{
+      *this, "resharding-enabled",
+      llvm::cl::desc("Resharding pass. Temp disabled till we support all types "
+                     "of shard specs."),
       llvm::cl::init(false)};
 
   // Option to provide a system descriptor flatbuffer file to compile

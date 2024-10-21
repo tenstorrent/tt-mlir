@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_DFSHARDINGPOLICY_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardChainConfig.h"
 
 namespace mlir::tt::ttir {
@@ -31,7 +32,7 @@ public:
         legalLayouts(legalLayouts), schedule(&schedule),
         usableL1CacheSize(usableL1CacheSize) {}
 
-  void run();
+  void run(llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides);
 };
 
 } // namespace mlir::tt::ttir

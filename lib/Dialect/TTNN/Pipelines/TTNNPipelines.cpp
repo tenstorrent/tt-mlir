@@ -42,6 +42,7 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
+    optimizerOptions.reshardingEnabled = options.reshardingEnabled;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }

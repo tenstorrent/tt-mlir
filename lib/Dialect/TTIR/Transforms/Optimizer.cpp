@@ -46,52 +46,6 @@ public:
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
 
-    // Manually insert ToLayout input override ops.
-    //
-    moduleOp->walk([&](Operation *consumerOp) {
-      // Skip non TTIR operations.
-      // Skip operations which do not implement DestinationStyleOpInterface.
-      //
-      if (!isa<ttir::TTIRDialect>(consumerOp->getDialect())) {
-        return;
-      }
-
-      // Skip ops without location since input layout override
-      // uses op's location as an identifier.
-      //
-      if (!isa<NameLoc>(consumerOp->getLoc())) {
-        return;
-      }
-
-      // Check if consumerOp should be overriden.
-      //
-      StringRef consumerOpLocName =
-          mlir::cast<NameLoc>(consumerOp->getLoc()).getName();
-      auto opInputOverride = overrideInputLayout.find(consumerOpLocName);
-
-      if (opInputOverride == overrideInputLayout.end()) {
-        return;
-      }
-
-      // Process each operand.
-      //
-      InputLayoutOverrideParams override = opInputOverride->getValue();
-      for (int64_t operandIndex : override.operandIdxes) {
-        Operation *producerOp =
-            consumerOp->getOperand(operandIndex).getDefiningOp();
-
-        // Insert ToLayout op in between producerOp and consumerOp
-        //
-        insertReshardEdge(producerOp, consumerOp, operandIndex);
-      }
-
-      overrideInputLayout.erase(opInputOverride);
-    });
-
-    // Check if there are non-existing ops in override-input-layout
-    //
-    assert(overrideInputLayout.empty());
-
     // Generate legal OP configuration candidates.
     //
     llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalLayouts;
@@ -117,8 +71,8 @@ public:
       // Perform sharding analysis.
       //
       ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
-      shardingAnalysis.init(
-          ShardingAnalysisInput(legalLayouts, chipDesc.getUsableL1Size()));
+      shardingAnalysis.init(ShardingAnalysisInput(
+          legalLayouts, chipDesc.getUsableL1Size(), &overrideInputLayout));
       legalLayouts = shardingAnalysis.getResult().legalLayouts;
       opSchedule = shardingAnalysis.getResult().schedule;
       reshardedEdges = shardingAnalysis.getResult().reshardedEdges;
