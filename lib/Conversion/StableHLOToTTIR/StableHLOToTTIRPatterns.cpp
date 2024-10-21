@@ -797,33 +797,6 @@ public:
                                        OperandConstraint::AnyDeviceTile))));
     return success();
   }
-
-private:
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::ConcatenateOp &srcOp,
-                     mlir::stablehlo::ConcatenateOp::Adaptor adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getInputs().empty()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "ConcatOp must have at least one input.");
-    }
-    if (adaptor.getDimension() >=
-        INT32_MAX) { // stablehlo.concatenate dimension is i64,
-                     // ttir.concat dimension is si32
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "ConcatOp dimension is too large.");
-    }
-
-    auto rankedTensorType =
-        mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getOperand(0).getType());
-    if (static_cast<int64_t>(adaptor.getDimension()) >=
-        rankedTensorType.getRank()) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Invalid concatenation dimension.");
-    }
-
-    return success();
-  }
 };
 
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
