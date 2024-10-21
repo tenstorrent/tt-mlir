@@ -19,12 +19,16 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   assert(utils::isOnHost(inputTensor) &&
          "Calling ttnn::to_device on a device tensor");
 
-  ::ttnn::MemoryConfig memoryConfig =
-      utils::createMemoryConfig(op->memcfg(), op->out());
+  std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
+
+  if (op->memcfg()) {
+    memoryConfig =
+        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
+  }
 
   ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
 
-  tensorPool.try_emplace(op->out()->global_id(), out);
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout
