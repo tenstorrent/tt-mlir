@@ -5,8 +5,43 @@ on:
   workflow_call:
 
 jobs:
-  build-ttmlir:
 
+  build-image:
+    runs-on:
+      - in-service
+      - builder
+    outputs:
+      docker-image: ${{ steps.build.outputs.docker-image }}
+    steps:
+
+      - name: Fix permissions
+        shell: bash
+        run: sudo chown ubuntu:ubuntu -R $(pwd)
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker images and output the image name
+        id: build
+        shell: bash
+        run: |
+          # Output the image name
+          set pipefail
+          .github/build-docker-images.sh | tee docker.log
+          DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
+          echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
+          echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
+
+  build-ttmlir:
+    needs: build-image
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -20,10 +55,10 @@ jobs:
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
-      options: --user root
+      image: ${{ needs.build-image.outputs.docker-image }}
 
     steps:
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
@@ -142,7 +177,9 @@ jobs:
   run-tests:
 
     timeout-minutes: 30
-    needs: build-ttmlir
+    needs:
+      - build-image
+      - build-ttmlir
     strategy:
       fail-fast: false
       matrix:
@@ -158,8 +195,8 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
-      options: --user root --device /dev/tenstorrent/0
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
@@ -245,7 +282,9 @@ jobs:
   run-ttrt-tests:
 
     timeout-minutes: 30
-    needs: build-ttmlir
+    needs:
+      - build-image
+      - build-ttmlir
     strategy:
       fail-fast: false
       matrix:
@@ -258,8 +297,8 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:latest
-      options: --user root --device /dev/tenstorrent/0
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
