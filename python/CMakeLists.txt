@@ -9,6 +9,7 @@ add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=ttmlir.")
 
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 
 declare_mlir_python_sources(TTMLIRPythonSources)
@@ -25,7 +26,7 @@ declare_mlir_dialect_python_bindings(
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTBinding.td
   GEN_ENUM_BINDINGS ON
-  GEN_ENUM_TD_FILE dialects/TTEnumBindings.td
+  GEN_ENUM_TD_FILE dialects/TTEnumBinding.td
   SOURCES dialects/tt.py
   DIALECT_NAME tt
 )
@@ -44,6 +45,16 @@ declare_mlir_dialect_python_bindings(
   TD_FILE dialects/TTKernelBinding.td
   SOURCES dialects/ttkernel.py
   DIALECT_NAME ttkernel
+)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT TTMLIRPythonSources.Dialects
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  TD_FILE dialects/TTNNBinding.td
+  GEN_ENUM_BINDINGS ON
+  GEN_ENUM_TD_FILE dialects/TTNNEnumBinding.td
+  SOURCES dialects/ttnn.py
+  DIALECT_NAME ttnn
 )
 
 declare_mlir_python_sources(TTMLIRPythonSources.Overrides
@@ -71,6 +82,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTMLIRModule.cpp
     TTModule.cpp
     TTKernelModule.cpp
+    TTNNModule.cpp
     Overrides.cpp
     Passes.cpp
   EMBED_CAPI_LINK_LIBS
@@ -80,8 +92,8 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     LLVMSupport
     ${dialect_libs}
     ${conversion_libs}
+    ${extension_libs}
     ${translation_libs}
-    MLIR
     TTMLIRStatic
 )
 
