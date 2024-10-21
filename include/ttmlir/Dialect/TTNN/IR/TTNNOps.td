@@ -555,7 +555,7 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          I32Attr:$dim,
-                         I32Attr:$num_links);
+                         DefaultValuedAttr<I32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -571,8 +571,7 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let arguments = (ins AnyRankedTensor:$input,
                          I32Attr:$scatter_split_dim,
                          TTNN_ReduceType:$math_op,
-                         I32Attr:$num_links,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         DefaultValuedAttr<I32Attr, "1">:$num_links);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
