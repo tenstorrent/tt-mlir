@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/ShardChainConfig.h"
-#include "ttmlir/Dialect/TTIR/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 void ShardChainConfig::build() {
   assert(state == ShardChainState::InBuild);
@@ -13,7 +13,8 @@ void ShardChainConfig::build() {
 }
 
 ShardSolver ShardChainConfig::resolve(
-    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
+    const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+        &legalLayouts,
     unsigned usableL1CacheSize) {
   assert(state == ShardChainState::Built);
 
@@ -28,7 +29,7 @@ ShardSolver ShardChainConfig::resolve(
 }
 
 void ShardChainConfig::complete(
-    const llvm::DenseMap<Operation *, LayoutAttr> &selectedOpLayout,
+    const llvm::DenseMap<Operation *, tt::LayoutAttr> &selectedOpLayout,
     std::unordered_set<Edge> &reshardedEdges) {
   assert(state == ShardChainState::Resolved);
   for (auto &shardSpec : shardSpecs) {
@@ -42,4 +43,4 @@ void ShardChainConfig::complete(
   state = ShardChainState::Completed;
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn

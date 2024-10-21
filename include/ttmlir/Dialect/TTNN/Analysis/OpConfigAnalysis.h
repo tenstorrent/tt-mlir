@@ -2,25 +2,27 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_OPCONFIGANALYSIS_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_OPCONFIGANALYSIS_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGANALYSIS_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/Analysis/TTIRAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 struct OpConfigAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<LayoutAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalGrids;
 
   OpConfigAnalysisInput() : legalGrids() {}
 
   OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &&legalGrids)
+      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+          &&legalGrids)
       : legalGrids(std::move(legalGrids)) {}
 
   OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalGrids)
+      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+          &legalGrids)
       : legalGrids(legalGrids) {}
 
   bool operator==(const OpConfigAnalysisInput &rhs) const {
@@ -35,16 +37,16 @@ struct OpConfigAnalysisInput {
 // Determine optimal configuration for each op.
 //
 class OpConfigAnalysis
-    : public TTIRAnalysis<OpConfigAnalysisInput,
-                          llvm::DenseMap<Operation *, LayoutAttr>> {
+    : public TTNNAnalysis<OpConfigAnalysisInput,
+                          llvm::DenseMap<Operation *, tt::LayoutAttr>> {
 
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;
 
 public:
-  OpConfigAnalysis(Operation *op) : TTIRAnalysis(op) {}
+  OpConfigAnalysis(Operation *op) : TTNNAnalysis(op) {}
 };
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_OPCONFIGANALYSIS_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGANALYSIS_H

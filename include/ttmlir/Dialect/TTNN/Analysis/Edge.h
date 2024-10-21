@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTIR_ANALYSIS_EDGE_H
-#define TTMLIR_DIALECT_TTIR_ANALYSIS_EDGE_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_EDGE_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_EDGE_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 struct Edge {
   Operation *producerOp = nullptr;
   Operation *consumerOp = nullptr;
@@ -23,11 +23,11 @@ struct Edge {
   }
 };
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
 
 namespace std {
-template <> struct hash<mlir::tt::ttir::Edge> {
-  size_t operator()(const mlir::tt::ttir::Edge &edge) const noexcept {
+template <> struct hash<mlir::tt::ttnn::Edge> {
+  size_t operator()(const mlir::tt::ttnn::Edge &edge) const noexcept {
     llvm::hash_code code = llvm::hash_value(edge.operandIndex);
     code = llvm::hash_combine(code, edge.producerOp);
     code = llvm::hash_combine(code, edge.consumerOp);
@@ -36,4 +36,4 @@ template <> struct hash<mlir::tt::ttir::Edge> {
 };
 } // namespace std
 
-#endif // TTMLIR_DIALECT_TTIR_ANALYSIS_EDGE_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_EDGE_H
