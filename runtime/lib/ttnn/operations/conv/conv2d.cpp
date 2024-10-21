@@ -24,7 +24,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
-
+  config.fp32_dest_acc_enabled = true;
   // This metric is used to determine whether to use BLOCK_SHARDED or
   // to just use the default HEIGHT_SHARDED. Truly modelling what sharding
   // config to use seems to be an open question.
