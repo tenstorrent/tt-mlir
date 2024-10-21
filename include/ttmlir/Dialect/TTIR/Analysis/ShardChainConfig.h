@@ -6,7 +6,9 @@
 #define TTMLIR_DIALECT_TTIR_ANALYSIS_SHARDCHAINCONFIG_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTIR/Analysis/ShardSolver.h"
+#include <llvm/ADT/StringMap.h>
 #include <unordered_set>
 
 namespace mlir::tt::ttir {
@@ -38,7 +40,8 @@ public:
 
   ShardSolver resolve(
       const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
-      unsigned usableL1CacheSize);
+      unsigned usableL1CacheSize,
+      llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides);
   void build();
   void complete(const llvm::DenseMap<Operation *, LayoutAttr> &selectedOpLayout,
                 std::unordered_set<Edge> &reshardedEdges);

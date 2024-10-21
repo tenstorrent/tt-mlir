@@ -39,8 +39,10 @@ void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
     ttir::TTIROptimizerOptions optimizerOptions;
+    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
+    optimizerOptions.reshardingEnabled = options.reshardingEnabled;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
   }
