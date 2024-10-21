@@ -32,12 +32,13 @@ def TTKernel_TensixConfigAttr: TTKernel_Attr<"TensixConfig", "tensix_config", [T
   }];
   let parameters = (ins "MathFidelity":$math_fidelity,
                         "bool":$fp32_dest_acc_en,
-                        "bool":$math_approx_mode);
-  let assemblyFormat =  "`<` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode `>`";
+                        "bool":$math_approx_mode,
+                        ArrayRefParameter<"UnpackToDestMode">:$unpack_to_dest_mode);
+  let assemblyFormat =  "`<` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
 
   let extraClassDeclaration = [{
     static TensixConfigAttr get(::mlir::MLIRContext *context){
-      return TensixConfigAttr::get(context, MathFidelity::HiFi4, false, false);
+      return TensixConfigAttr::get(context, MathFidelity::HiFi4, false, false, {UnpackToDestMode::Default});
     };
 
     ThreadType getThreadType() const { return ThreadType::Tensix; }

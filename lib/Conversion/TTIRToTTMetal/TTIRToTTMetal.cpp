@@ -347,8 +347,15 @@ public:
     assert(shouldTilize ^ shouldUntilize);
     assert(inputLayout.getGrid() == outputLayout.getGrid());
 
+    // FIXME - Currently metal requires UnpackToDestMode for all 32 CBs but will
+    // be relaxed soon to remove this requirement. Update logic here later.
+    const uint32_t NUM_CIRCULAR_BUFFERS = 32;
+    llvm::SmallVector<ttkernel::UnpackToDestMode, NUM_CIRCULAR_BUFFERS>
+        unpackToDestModes(NUM_CIRCULAR_BUFFERS,
+                          ttkernel::UnpackToDestMode::Default);
+
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false);
+        ttkernel::MathFidelity::HiFi4, false, false, unpackToDestModes);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
@@ -1343,8 +1350,14 @@ public:
     //   return failure();
     // }
 
+    // FIXME - Currently metal requires UnpackToDestMode for all 32 CBs but will
+    // be relaxed soon to remove this requirement. Update logic here later.
+    llvm::SmallVector<ttkernel::UnpackToDestMode, NUM_CIRCULAR_BUFFERS>
+        unpackToDestModes(NUM_CIRCULAR_BUFFERS,
+                          ttkernel::UnpackToDestMode::Default);
+
     auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false);
+        ttkernel::MathFidelity::HiFi4, false, false, unpackToDestModes);
     SmallVector<Attribute> kernelConfigs = {tensixAttr};
     SmallVector<Attribute> coreRanges = {
         rewriter.getAttr<ttmetal::CoreRangeAttr>(op.getGrid()),
