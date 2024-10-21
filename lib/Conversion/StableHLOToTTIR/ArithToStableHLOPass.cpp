@@ -55,6 +55,7 @@ struct ConvertArithToStableHLOPass
 
     target.addIllegalDialect<mlir::arith::ArithDialect>();
     target.addLegalDialect<mlir::stablehlo::StablehloDialect>();
+    target.addLegalOp<mlir::tensor::EmptyOp>();
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
