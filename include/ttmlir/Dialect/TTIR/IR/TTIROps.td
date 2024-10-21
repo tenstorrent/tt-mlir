@@ -217,6 +217,20 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
+    let summary = "Eltwise floor op.";
+    let description = [{
+      Eltwise floor operation.
+    }];
+}
+
+def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Eltwise isfinite op.";
+    let description = [{
+      Eltwise isfinite operation.
+    }];
+}
+
 def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{

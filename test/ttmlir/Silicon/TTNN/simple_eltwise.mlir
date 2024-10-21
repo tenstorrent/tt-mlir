@@ -52,6 +52,22 @@ func.func @concat(%arg0: tensor<32x32xf32>, %arg1: tensor<32x64xf32>) -> tensor<
   return %1 : tensor<32x96xf32>
 }
 
+func.func @floor(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: %[[C:.*]] = "ttnn.floor"[[C:.*]]
+  %1 = "ttir.floor"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @is_finite(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.isfinite"[[C:.*]]
+  %1 = "ttir.isfinite"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  return %1 : tensor<64x128xbf16>
+}
+
 func.func @negate(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %0 = tensor.empty() : tensor<32x32xf32>
   // CHECK: %[[C:.*]] = "ttnn.neg"[[C:.*]]
