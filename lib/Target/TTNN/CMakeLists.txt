@@ -10,6 +10,8 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
     MLIRTTIRDialect
     MLIRTTDialect
     MLIRTTKernelDialect
+    MLIRTTNNTransforms
+    TTMLIRTTNNToEmitC
 )
 
 target_include_directories(TTNNTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
