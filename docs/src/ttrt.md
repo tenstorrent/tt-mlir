@@ -10,6 +10,24 @@ cmake --build build -- ttrt
 ttrt --help
 ```
 
+### Building runtime mode
+Add the following flags when building the compiler
+```bash
+-DTTMLIR_ENABLE_RUNTIME=ON
+```
+
+If you are building with runtime mode on with `-DTTMLIR_ENABLE_RUNTIME=ON`, you will have to install the following packages when using ttrt
+```bash
+pip install torch
+```
+
+### Building perf mode
+Add the following flags when building the compiler
+```bash
+-DTTMLIR_ENABLE_RUNTIME=ON
+-DTT_RUNTIME_ENABLE_PERF_TRACE=ON
+```
+
 ## LOGGER Levels
 ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it will print all log messages.
 ```bash
@@ -31,24 +49,6 @@ source ttrt_env/bin/activate
 3. Install whls (replace with your version of the whls)
 ```bash
 pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
-```
-
-### Building runtime mode
-Add the following flags when building the compiler
-```bash
--DTTMLIR_ENABLE_RUNTIME=ON
-```
-
-If you are building with runtime mode on with `-DTTMLIR_ENABLE_RUNTIME=ON`, you will have to install the following packages when using ttrt
-```bash
-pip install torch
-```
-
-### Building perf mode
-Add the following flags when building the compiler
-```bash
--DTTMLIR_ENABLE_RUNTIME=ON
--DTT_RUNTIME_ENABLE_PERF_TRACE=ON
 ```
 
 ## Generate a flatbuffer file from compiler
@@ -134,6 +134,8 @@ ttrt check
 
 There are different ways you can use the APIs under ttrt. The first is via the command line as follows. All artifacts are saved under `ttrt-artifacts` folder under `TT_MLIR_HOME` environment variable. By default, all logging is printed to the terminal. You can specify a log file to dump output to.
 
+Note: ttrt will only exit with error code 1 if user provides incorrect argument to any API. ttrt will dump a test result json file (user can provide as well) that will neatly list all the tests that were run and their results (pass, error, skip). This is to ensure all tests are run and one test will not stall/cancel all the other tests in the run.
+
 ### read
 Read sections of a binary file
 
@@ -153,6 +155,7 @@ ttrt read system_desc.ttsys
 ttrt read --section system_desc system_desc.ttsys
 ttrt read system_desc.ttsys --log-file ttrt.log
 ttrt read out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
+ttrt read out.ttnn --result-file result.json
 ```
 
 ### run
@@ -177,6 +180,7 @@ ttrt run /dir/of/flatbuffers --log-file ttrt.log
 ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt run out.ttnn --load-kernels-from-disk
 ttrt run out.ttnn --enable-async-ttnn
+ttrt run out.ttnn --result-file result.json
 ```
 
 ### query
@@ -191,6 +195,7 @@ ttrt query --save-artifacts
 ttrt query --clean-artifacts
 ttrt query --save-artifacts --log-file ttrt.log
 ttrt query --save-artifacts --artifact-dir /path/to/some/dir
+ttrt query --result-file result.json
 ```
 
 ### perf
@@ -213,6 +218,7 @@ ttrt perf /dir/of/flatbuffers --host-only
 ttrt perf /dir/of/flatbuffers --loops 10 --host-only
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
 ttrt perf --save-artifacts --artifact-dir /path/to/some/dir
+ttrt perf out.ttnn --result-file result.json
 ```
 
 ### check
@@ -228,6 +234,7 @@ ttrt check out.ttnn --save-artifacts
 ttrt check out.ttnn --log-file ttrt.log
 ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
 ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
+ttrt check out.ttnn --result-file result.json
 ```
 
 ## ttrt as a python package

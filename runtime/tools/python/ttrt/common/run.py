@@ -121,7 +121,14 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable async mode device execution for TTNN runtime",
+            help="enable async mode device execution for TTNN runtime",
+        )
+        Run.register_arg(
+            name="--result-file",
+            type=str,
+            default="run_results.json",
+            choices=None,
+            help="test file to save results to",
         )
         Run.register_arg(
             name="--disable-ignore-tile-shape",
@@ -521,7 +528,7 @@ class Run:
                 }
                 self.results.add_result(test_result)
 
-        self.results.save_results("run_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing run API")
 
