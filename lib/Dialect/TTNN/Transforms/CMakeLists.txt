@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRTTNNTransforms
         Passes.cpp
+        Optimizer.cpp
         TTNNToCpp.cpp
 
         ADDITIONAL_HEADER_DIRS

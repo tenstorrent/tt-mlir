@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 bool OpConfigAnalysis::applyOverrides() {
 
@@ -24,4 +24,4 @@ void OpConfigAnalysis::analysisImplementation() {
     }
   }
 }
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn

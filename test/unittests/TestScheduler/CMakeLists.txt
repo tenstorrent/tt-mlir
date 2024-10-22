@@ -7,5 +7,6 @@ target_link_libraries(SchedulerTests
     MLIR
     MLIRTTDialect
     MLIRTTIRDialect
+    MLIRTTNNPipelines
     MLIRScheduler
 )
