@@ -353,6 +353,22 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
+template <typename WhereOp>
+::flatbuffers::Offset<::tt::target::ttnn::WhereOp>
+createWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  auto pred =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getPred()));
+  auto ontrue = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getOnTrue()));
+  auto onfalse = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getOnFalse()));
+
+  return ::tt::target::ttnn::CreateWhereOp(*cache.fbb, pred, ontrue, onfalse,
+                                           out);
+}
+
 template <typename ConcatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatOp>
 createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
@@ -595,6 +611,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
     return createOperation(cache, createDeallocOp(cache, deallocOp),
                            debugString);
+  }
+  if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
+    return createOperation(cache, createWhereOp(cache, whereOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
