@@ -82,6 +82,7 @@ enum EltwiseOpType: uint32 {
   LogicalOr = 21,
   LogicalNot = 22,
   Cbrt = 23,
+  Minimum = 24,
 }
 
 table EltwiseOp {
