@@ -3,8 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
+#include <llvm/ADT/StringMap.h>
+#include <llvm/Support/Threading.h>
+#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
@@ -12,7 +16,8 @@ bool isCompositeToLayoutOp(mlir::Operation *op) {
   return isa<ttnn::CompositeToLayoutOp>(op);
 }
 
-void DFShardingPolicy::run() {
+void DFShardingPolicy::run(
+    llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides) {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
@@ -194,8 +199,8 @@ void DFShardingPolicy::run() {
   // Resolve shard chain configs.
   //
   for (auto &shardChainConfig : *shardChainConfigs) {
-    ShardSolver shardSolver =
-        shardChainConfig.resolve(legalLayouts, usableL1CacheSize);
+    ShardSolver shardSolver = shardChainConfig.resolve(
+        legalLayouts, usableL1CacheSize, inputLayoutOverrides);
 
     // TODO(nobradovic)
     // For now dummy fetch first legal(largest grid) for shard spec.
@@ -210,6 +215,10 @@ void DFShardingPolicy::run() {
     shardChainConfig.complete(resolvedShardSolution.selectedOpLayout,
                               resolvedShardSolution.reshardedEdges);
   }
+
+  // Check if there are illegal or non-existing ops in insert-reshard
+  //
+  assert(inputLayoutOverrides->empty());
 }
 
 } // namespace mlir::tt::ttnn

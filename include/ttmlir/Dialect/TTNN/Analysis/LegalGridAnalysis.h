@@ -17,7 +17,7 @@ struct LegalGridAnalysisInput {
   GridAttr maxGrid;
   RankedTensorType tensorType;
   int64_t maxShardedGrids;
-  llvm::StringMap<LayoutOverrideParams> *outputLayoutOverrides;
+  llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides;
 
   LegalGridAnalysisInput()
       : chipDesc(nullptr), maxGrid(nullptr), tensorType(nullptr),
@@ -26,7 +26,7 @@ struct LegalGridAnalysisInput {
   LegalGridAnalysisInput(
       ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
       int64_t maxShardedGrids,
-      llvm::StringMap<LayoutOverrideParams> *outputLayoutOverrides)
+      llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides)
       : chipDesc(chipDesc), maxGrid(maxGrid), tensorType(tensorType),
         maxShardedGrids(maxShardedGrids),
         outputLayoutOverrides(outputLayoutOverrides) {}
