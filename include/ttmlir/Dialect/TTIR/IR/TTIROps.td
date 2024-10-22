@@ -336,6 +336,19 @@ def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
+    let summary = "Eltwise minimum OP.";
+    let description = [{
+      Calculates minimum of input tensors' values element-wise and stores result
+      in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.minimum"(%lhs, %rhs, %out) -> %out: [[1, 2, 2], [1, 2, 3]]
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
 

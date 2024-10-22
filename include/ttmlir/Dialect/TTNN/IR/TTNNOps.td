@@ -284,6 +284,19 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
+    let summary = "Eltwise minimum OP.";
+    let description = [{
+      Calculates minimum of input tensors' values element-wise and stores result
+      in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttnn.minimum"(%lhs, %rhs, %out) -> %out: [[1, 2, 2], [1, 2, 3]]
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
