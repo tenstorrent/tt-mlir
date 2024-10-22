@@ -6,9 +6,11 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDSOLVER_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include <algorithm>
 #include <bitset>
+#include <llvm/ADT/StringMap.h>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -276,11 +278,12 @@ private:
                             tt::LayoutAttr const &consumerLayout) const;
 
 public:
-  ShardSolver(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
-                  &legalLayouts,
-              const std::vector<ShardSpec> &shardSpecs,
-              const llvm::DenseSet<Operation *> &shardedOps,
-              const unsigned usableL1CacheSize);
+  ShardSolver(
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
+      const std::vector<ShardSpec> &shardSpecs,
+      const llvm::DenseSet<Operation *> &shardedOps,
+      const unsigned usableL1CacheSize,
+      llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, tt::LayoutAttr const &layout);
 

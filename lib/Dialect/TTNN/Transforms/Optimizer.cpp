@@ -64,8 +64,8 @@ public:
       // Perform sharding analysis.
       //
       ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
-      shardingAnalysis.init(
-          ShardingAnalysisInput(legalLayouts, chipDesc.getUsableL1Size()));
+      shardingAnalysis.init(ShardingAnalysisInput(
+          legalLayouts, chipDesc.getUsableL1Size(), &overrideInputLayout));
       legalLayouts = shardingAnalysis.getResult().legalLayouts;
       opSchedule = shardingAnalysis.getResult().schedule;
       reshardedEdges = shardingAnalysis.getResult().reshardedEdges;
