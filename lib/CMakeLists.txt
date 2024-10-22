@@ -14,7 +14,6 @@ if (TTMLIR_ENABLE_RUNTIME)
 endif()
 
 set(link_libs
-MLIR
 MLIRTTDialect
 MLIRTTIRDialect
 MLIRTTIRTransforms
