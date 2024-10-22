@@ -5,7 +5,7 @@
 
 set -e
 
-CONFIG=${1:-Debug}
+CONFIG=${1:-debug}
 REPO=tenstorrent/tt-mlir
 BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04-$CONFIG
 CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04-$CONFIG

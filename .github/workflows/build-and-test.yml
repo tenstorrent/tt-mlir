@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       config:
-        description: 'Build configuration, Debug or Release'
+        description: 'Build configuration, debug or release'
         required: true
-        default: 'Debug'
+        default: 'debug'
         type: choice
         options:
-          - Debug
-          - Release
+          - debug
+          - release
   workflow_call:
     inputs:
       config:
         type: string
-        default: 'Debug'
+        default: 'debug'
 
 jobs:
 

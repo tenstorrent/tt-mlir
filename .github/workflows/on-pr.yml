@@ -20,9 +20,9 @@ jobs:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
     with:
-      config: 'Debug'
+      config: 'debug'
   build-and-test-release:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
     with:
-      config: 'Release'
+      config: 'release'
