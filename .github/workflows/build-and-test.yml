@@ -16,6 +16,7 @@ on:
       config:
         type: string
         default: 'debug'
+        required: true
 
 jobs:
 
@@ -26,6 +27,15 @@ jobs:
     outputs:
       docker-image: ${{ steps.build.outputs.docker-image }}
     steps:
+
+      - name: Check input
+        shell: bash
+        run: |
+          echo "config=${{ inputs.config }}"
+          if [[ -z "${{ inputs.config }}" ]]; then
+            echo "Error: config cannot be empty"
+            exit 1
+          fi
 
       - name: Fix permissions
         shell: bash
@@ -42,13 +52,13 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build ${{ github.event.inputs.config }} Docker images
+      - name: Build ${{ inputs.config }} Docker images
         id: build
         shell: bash
         run: |
           # Output the image name
           set pipefail
-            .github/build-docker-images.sh ${{ github.event.inputs.config }} | tee docker.log
+            .github/build-docker-images.sh ${{ inputs.config }} | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
@@ -115,7 +125,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ github.event.inputs.config }}
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
     # - name: Lint
@@ -129,7 +139,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ github.event.inputs.config }} -- check-ttmlir
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- check-ttmlir
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
@@ -150,7 +160,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ github.event.inputs.config }} -- ttrt
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- ttrt
 
     - name: Upload ttrt whl
       uses: actions/upload-artifact@v4
