@@ -1,10 +1,11 @@
 ARG FROM_TAG=latest
-ARG CONFIG=Debug
+ARG CONFIG=debug
 
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04-${CONFIG}:${FROM_TAG} AS ci-build
 SHELL ["/bin/bash", "-c"]
 
-ARG CONFIG=Debug
+ARG CONFIG=debug
+ENV CONFIG=$CONFIG
 
 # Create a directory for the build and toolchain
 ENV PROJECT_NAME=tt-mlir
