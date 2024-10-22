@@ -9,7 +9,7 @@ add_mlir_dialect_library(MLIRTTNNPipelines
   MLIRTTNNDialect
   MLIRTTIRTransforms
   MLIRTTNNTransforms
-  MLIRTTIRAnalysis
+  MLIRTTNNAnalysis
   MLIRPass
   MLIRTransforms
 )

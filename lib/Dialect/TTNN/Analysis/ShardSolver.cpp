@@ -2,16 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/ShardSolver.h"
-#include "ttmlir/Dialect/TTIR/Analysis/ShardChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
 
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
 ShardSolver::ShardSolver(
-    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
+    const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+        &legalLayouts,
     const std::vector<ShardSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize)
@@ -67,7 +68,7 @@ bool ShardSolver::resolveStep() {
   for (const auto shardSpec : *shardSpecs) {
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
-    std::vector<LayoutAttr> const &consumerLayouts =
+    std::vector<tt::LayoutAttr> const &consumerLayouts =
         getLegalLayouts(consumerOp);
 
     for (Edge edge : operandOpEdges[consumerOp]) {
@@ -76,7 +77,7 @@ bool ShardSolver::resolveStep() {
 
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
-      std::vector<LayoutAttr> const &producerLayouts =
+      std::vector<tt::LayoutAttr> const &producerLayouts =
           getLegalLayouts(producerOp);
 
       assert(not(consumerLayouts.empty() && producerLayouts.empty()));
@@ -91,7 +92,7 @@ bool ShardSolver::resolveStep() {
       for (std::uint64_t producerId = 0; producerId < producer_count;
            ++producerId) {
         // If the producer cannot accomodate this path, continue.
-        // Also if this is not the LayoutAttr we selected, continue.
+        // Also if this is not the tt::LayoutAttr we selected, continue.
         //
         if (!producerBitset->test(producerId)) {
           continue;
@@ -189,13 +190,13 @@ void ShardSolver::preprocessFirstOp() {
   }
 
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
-  std::vector<LayoutAttr> const &firstOpLayouts = getLegalLayouts(firstOp);
+  std::vector<tt::LayoutAttr> const &firstOpLayouts = getLegalLayouts(firstOp);
   Operation *operandOp = firstOp->getOperand(0).getDefiningOp();
 
   RankedTensorType firstOpInputTensorType =
       mlir::cast<RankedTensorType>(operandOp->getResult(0).getType());
-  LayoutAttr firstOpInputLayout =
-      mlir::cast<LayoutAttr>(firstOpInputTensorType.getEncoding());
+  tt::LayoutAttr firstOpInputLayout =
+      mlir::cast<tt::LayoutAttr>(firstOpInputTensorType.getEncoding());
   constexpr float tensorL1UsageCap = 0.8;
 
   for (size_t i = 0; i < firstOpLayouts.size(); ++i) {
@@ -203,10 +204,10 @@ void ShardSolver::preprocessFirstOp() {
       continue;
     }
 
-    LayoutAttr firstOpLayout = firstOpLayouts[i];
+    tt::LayoutAttr firstOpLayout = firstOpLayouts[i];
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
-    LayoutAttr firstOpInputShardedLayout =
+    tt::LayoutAttr firstOpInputShardedLayout =
         firstOpInputLayout
             .withMemorySpace(firstOp->getContext(),
                              firstOpLayout.getMemorySpace())
@@ -441,9 +442,9 @@ ShardSolver::Bitset *ShardSolver::getOrInsertBitset(Operation *op,
 
 // Returns vector of legal LayoutAttrs for passed in op.
 //
-const std::vector<LayoutAttr> &
+const std::vector<tt::LayoutAttr> &
 ShardSolver::getLegalLayouts(Operation *op) const {
-  static std::vector<LayoutAttr> nullLayouts;
+  static std::vector<tt::LayoutAttr> nullLayouts;
 
   const auto legalIt = legalLayouts->find(op);
 
@@ -460,7 +461,7 @@ ShardSolver::RemainingLayoutAttrs ShardSolver::at(Operation *op) const {
   return layouts;
 }
 
-void ShardSolver::set(Operation *op, LayoutAttr const &layout) {
+void ShardSolver::set(Operation *op, tt::LayoutAttr const &layout) {
   assert(selectedOpLayout.count(op) == 0);
 
   selectedOpLayout[op] = layout;
@@ -486,10 +487,9 @@ void ShardSolver::set(Operation *op, LayoutAttr const &layout) {
   updateSolver(op, true /*expand_root*/, true /*invokedBySet*/);
 }
 
-bool ShardSolver::checkShardCompatible(Operation *producerOp,
-                                       LayoutAttr const &producerLayout,
-                                       Operation *consumerOp,
-                                       LayoutAttr const &consumerLayout) const {
+bool ShardSolver::checkShardCompatible(
+    Operation *producerOp, tt::LayoutAttr const &producerLayout,
+    Operation *consumerOp, tt::LayoutAttr const &consumerLayout) const {
 
   // TEMP : Dummy mock implementation, will be replaced.
   //
@@ -535,4 +535,4 @@ ShardSolverSolution const ShardSolver::finish() {
   assert(selectedOpLayout.size() == shardedOps->size());
   return ShardSolverSolution(selectedOpLayout, reshardedEdges);
 }
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn
