@@ -1,7 +1,8 @@
 ARG FROM_IMAGE=base
 ARG FROM_TAG=latest
+ARG CONFIG=Debug
 
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-${FROM_IMAGE}-ubuntu-22-04:${FROM_TAG}
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-${FROM_IMAGE}-ubuntu-22-04-${CONFIG}:${FROM_TAG}
 SHELL ["/bin/bash", "-c"]
 
 # Set environment variables

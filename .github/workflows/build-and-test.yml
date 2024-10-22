@@ -2,7 +2,20 @@ name: Build and Test
 
 on:
   workflow_dispatch:
+    inputs:
+      config:
+        description: 'Build configuration, Debug or Release'
+        required: true
+        default: 'Debug'
+        type: choice
+        options:
+          - Debug
+          - Release
   workflow_call:
+    inputs:
+      config:
+        type: string
+        default: 'Debug'
 
 jobs:
 
@@ -29,13 +42,13 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker images and output the image name
+      - name: Build ${{ github.event.inputs.config }} Docker images
         id: build
         shell: bash
         run: |
           # Output the image name
           set pipefail
-          .github/build-docker-images.sh | tee docker.log
+            .github/build-docker-images.sh ${{ github.event.inputs.config }} | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
@@ -90,7 +103,6 @@ jobs:
         -B ${{ steps.strings.outputs.build-output-dir }} \
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=ON \
@@ -103,7 +115,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ github.event.inputs.config }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
     # - name: Lint
@@ -117,7 +129,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ github.event.inputs.config }} -- check-ttmlir
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
@@ -138,7 +150,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- ttrt
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ github.event.inputs.config }} -- ttrt
 
     - name: Upload ttrt whl
       uses: actions/upload-artifact@v4

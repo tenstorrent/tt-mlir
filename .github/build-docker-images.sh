@@ -5,11 +5,14 @@
 
 set -e
 
+CONFIG=${1:-Debug}
 REPO=tenstorrent/tt-mlir
-BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
-CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04
-BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04
-IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04
+BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04-$CONFIG
+CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04-$CONFIG
+BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04-$CONFIG
+IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04-$CONFIG
+
+echo "Building images for config: $CONFIG"
 
 # Compute the hash of the Dockerfile
 DOCKER_TAG=$(./.github/get-docker-tag.sh)
@@ -32,6 +35,7 @@ build_and_push() {
         docker build \
             --progress=plain \
             --build-arg FROM_TAG=$DOCKER_TAG \
+            --build-arg CONFIG=$CONFIG \
             ${from_image:+--build-arg FROM_IMAGE=$from_image} \
             -t $image_name:$DOCKER_TAG \
             -t $image_name:latest \

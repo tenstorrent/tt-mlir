@@ -1,7 +1,10 @@
 ARG FROM_TAG=latest
+ARG CONFIG=Debug
 
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci-build
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04-${CONFIG}:${FROM_TAG} AS ci-build
 SHELL ["/bin/bash", "-c"]
+
+ARG CONFIG=Debug
 
 # Create a directory for the build and toolchain
 ENV PROJECT_NAME=tt-mlir
@@ -24,7 +27,7 @@ RUN git log -1
 
 RUN source env/activate && \
     cmake -B env/build env && \
-    cmake --build env/build
+    cmake --build env/build --config $CONFIG
 
 # Self-test
 
@@ -32,7 +35,6 @@ RUN source env/activate && \
 RUN source env/activate && \
     cmake -G Ninja \
     -B build \
-    -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
@@ -41,17 +43,17 @@ RUN source env/activate && \
     -DTTMLIR_ENABLE_STABLEHLO=ON
 
 RUN source env/activate && \
-    cmake --build build --config Release
+    cmake --build build --config $CONFIG
 
 RUN source env/activate && \
-    cmake --build build -- ttrt
+    cmake --build build --config $CONFIG -- ttrt
 
 # Run the tests
 RUN source env/activate && \
-    cmake --build build -- check-ttmlir
+    cmake --build build --config $CONFIG -- check-ttmlir
 
 # Final stage
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04-${CONFIG}:${FROM_TAG} AS ci
 
 # Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
