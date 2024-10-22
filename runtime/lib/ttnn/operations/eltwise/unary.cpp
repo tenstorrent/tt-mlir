@@ -108,6 +108,22 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Logistic: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Tan: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::tan);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Tanh: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::tanh);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Log: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::log);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
     runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
     break;

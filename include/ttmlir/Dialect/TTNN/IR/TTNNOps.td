@@ -153,6 +153,34 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     }];
 }
 
+def TTNN_LogitOp: TTNN_ElementwiseUnaryOp<"logit"> {
+    let summary = "Eltwise logistic op.";
+    let description = [{
+      Eltwise logistic operation.
+    }];
+}
+
+def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise tan op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
+def TTNN_LogOp: TTNN_ElementwiseUnaryOp<"log"> {
+    let summary = "Eltwise log op.";
+    let description = [{
+      Eltwise log operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
