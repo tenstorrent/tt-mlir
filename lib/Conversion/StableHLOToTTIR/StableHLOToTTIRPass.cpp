@@ -97,9 +97,13 @@ struct ConvertStableHLOToTTIRPass
 
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
 
+    auto op = getOperation();
+    llvm::outs() << "Printam op: \n";
+    op->dump();
+
     // Apply conversion.
     if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+            applyFullConversion(op, target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
