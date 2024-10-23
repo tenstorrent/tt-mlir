@@ -4,6 +4,7 @@ on: push
 
 env:
   SDK_VERSION: "0"
+  ACTIONS_STEP_DEBUG: "true"
 
 jobs:
   build:
