@@ -1,11 +1,11 @@
-set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.sh)
+set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.py)
 set(TTMLIR_BUILD_BIN_DIR ${TTMLIR_BINARY_DIR}/bin)
 
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
   COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/* ${CMAKE_CURRENT_BINARY_DIR}
   COMMAND pip install ${CMAKE_CURRENT_BINARY_DIR}/tt_adapter
-  # DEPENDS ttrt
+  DEPENDS TTMLIRPythonModules
 )
 
 add_custom_command(TARGET explorer POST_BUILD
