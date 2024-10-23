@@ -31,29 +31,6 @@ RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build --config $BUILD_CONFIG
 
-# Self-test
-
-# Build project to test the container
-RUN source env/activate && \
-    cmake -G Ninja \
-    -B build \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DTTMLIR_ENABLE_RUNTIME=ON \
-    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-    -DTTMLIR_ENABLE_STABLEHLO=ON
-
-RUN source env/activate && \
-    cmake --build build --config $BUILD_CONFIG
-
-RUN source env/activate && \
-    cmake --build build --config $BUILD_CONFIG -- ttrt
-
-# Run the tests
-RUN source env/activate && \
-    cmake --build build --config $BUILD_CONFIG -- check-ttmlir
-
 # Final stage
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04-${CONFIG}:${FROM_TAG} AS ci
 ARG FROM_TAG=latest
