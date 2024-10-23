@@ -12,5 +12,6 @@ add_mlir_library(TTMLIRTTKernelToEmitC
   MLIRPass
   MLIRArithToEmitC
   MLIREmitCDialect
+  MLIRTargetCpp
   MLIRTransformUtils
 )
