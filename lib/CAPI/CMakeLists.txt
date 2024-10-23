@@ -3,6 +3,7 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   TTKernelTypes.cpp
   TTAttrs.cpp
   TTTypes.cpp
+  TTNNAttrs.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir-c/
@@ -16,6 +17,7 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   MLIRTTDialect
   MLIRTTIRDialect
   MLIRTTKernelDialect
+  MLIRTTNNDialect
   MLIRTTIRTransforms
   MLIRTTNNAnalysis
 )
