@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
-#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 

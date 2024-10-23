@@ -6,12 +6,10 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDSOLVER_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include <algorithm>
 #include <bitset>
 #include <llvm/ADT/StringMap.h>
-#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
