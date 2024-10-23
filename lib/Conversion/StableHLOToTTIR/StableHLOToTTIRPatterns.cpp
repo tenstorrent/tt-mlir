@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
+#include <vector>
+
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/Value.h"
@@ -23,8 +26,6 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include <algorithm>
-#include <vector>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -69,9 +70,9 @@ public:
   matchAndRewrite(mlir::stablehlo::ReduceOp srcOp,
                   mlir::stablehlo::ReduceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (not err.succeeded()) {
-      return err;
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
     }
 
     const mlir::Operation &innerOp = srcOp.getBody().front().front();
@@ -146,15 +147,15 @@ public:
   matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (not err.succeeded()) {
-      return err;
-    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
@@ -233,19 +234,19 @@ public:
   matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
     // This is a basic version that can only work for cases that can be directly
     // converted to matmul. The op should be extended as other ops such as
     // ttir.permute and ttir.broadcast_in_dim become available.
 
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (not err.succeeded()) {
-      return err;
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
     }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
@@ -282,12 +283,12 @@ private:
           srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
-    if (not dimensions.getLhsBatchingDimensions().empty()) {
+    if (!dimensions.getLhsBatchingDimensions().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
-    if (not dimensions.getRhsBatchingDimensions().empty()) {
+    if (!dimensions.getRhsBatchingDimensions().empty()) {
       return rewriter.notifyMatchFailure(
           srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
@@ -301,45 +302,57 @@ class StableHLOToTTIRConstantOpConversionPattern
 
   using OpConversionPattern<mlir::stablehlo::ConstantOp>::OpConversionPattern;
 
-  mlir::ElementsAttr get1DTensor(mlir::stablehlo::ConstantOp srcOp) const {
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-
-    assert(outputType.getRank() == 1 &&
-           "Should only be called if constant is scalar.");
-    mlir::ElementsAttr elements;
-    if (auto floatAttr =
-            mlir::cast<mlir::DenseFPElementsAttr>(srcOp.getValue())) {
-      std::vector<mlir::APFloat> floatValues(
-          floatAttr.getValues<mlir::APFloat>().begin(),
-          floatAttr.getValues<mlir::APFloat>().end());
-      elements = mlir::DenseFPElementsAttr::get(outputType, floatValues);
-    } else if (auto intAttr =
-                   mlir::cast<mlir::DenseIntElementsAttr>(srcOp.getValue())) {
-      std::vector<mlir::APInt> intValues(
-          intAttr.getValues<mlir::APInt>().begin(),
-          intAttr.getValues<mlir::APInt>().end());
-      elements = mlir::DenseIntElementsAttr::get(outputType, intValues);
-    } else {
-      assert(false && "Unsupported data type");
-    }
-    return elements;
-  }
-
 public:
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ConstantOp srcOp,
                   mlir::stablehlo::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    mlir::ElementsAttr newValue =
-        outputType.getRank() == 1 ? get1DTensor(srcOp) : srcOp.getValue();
+    // Scalar tensors are not supported by TTIR so we have to convert them to
+    // 1-D tensors.
+    mlir::ElementsAttr valueAttr =
+        srcOp.getValue().getShapedType().getShape().empty()
+            ? convertTo1DTensor(srcOp.getValue())
+            : srcOp.getValue();
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
-                                                            newValue);
+                                                            valueAttr);
     return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::ConstantOp &srcOp,
+                                   ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getValue().getShapedType().getShape().empty() &&
+        !srcOp.getValue().getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
+    }
+
+    return success();
+  }
+
+  mlir::ElementsAttr convertTo1DTensor(mlir::ElementsAttr valueAttr) const {
+    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
+        getTypeConverter()->convertType(valueAttr.getShapedType()));
+    if (valueAttr.getElementType().isInteger()) {
+      return mlir::DenseElementsAttr::get<int>(valueType,
+                                               valueAttr.getSplatValue<int>());
+    } else {
+      // In case of float values llvm has a bug where not all float types are
+      // supported for iterating in DenseElementsAttr, so we have to use a
+      // different constructor.
+      std::vector<mlir::APFloat> floatValues(
+          valueAttr.getValues<mlir::APFloat>().begin(),
+          valueAttr.getValues<mlir::APFloat>().end());
+      return mlir::DenseElementsAttr::get(valueType, floatValues);
+    }
   }
 };
 
@@ -558,10 +571,9 @@ public:
   matchAndRewrite(mlir::stablehlo::BroadcastInDimOp srcOp,
                   mlir::stablehlo::BroadcastInDimOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (not err.succeeded()) {
-      return err;
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
     }
 
     auto outputType = mlir::cast<RankedTensorType>(
@@ -760,9 +772,9 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    LogicalResult err = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (not err.succeeded()) {
-      return err;
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
     }
 
     auto outputType = mlir::cast<RankedTensorType>(
