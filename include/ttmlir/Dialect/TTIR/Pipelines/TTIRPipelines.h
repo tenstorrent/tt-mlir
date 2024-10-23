@@ -32,7 +32,8 @@ struct StableHLOToTTIRPipelineOptions
       llvm::cl::init(true)};
   Option<bool> sparseConstantPropagationEnabled{
       *this, "enable-sparse-constant-propagation",
-      llvm::cl::desc("Enable --sccp optimization pass."), llvm::cl::init(true)};
+      llvm::cl::desc("Enable --sccp optimization pass."),
+      llvm::cl::init(false)};
 };
 
 void createStableHLOToTTIRPipeline(
