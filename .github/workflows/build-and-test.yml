@@ -144,7 +144,7 @@ jobs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}
+        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}-${{ inputs.config }}
         path: build/test/report.xml
 
     - name: Show Test Report
