@@ -146,6 +146,17 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTNN_IsFiniteOp :  TTNN_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Isfinite unary OP.";
+    let description = [{
+      Returns a tensor with boolean elements representing if each element is finite or not.
+
+      Example:
+        %input_tensor: [[inf, 5, 7], [1, inf, 4]]
+        "ttnn.isfinite"(%input_tensor, %out) -> %out: [[false, true, true], [true, false, true]]
+    }];
+}
+
 def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
