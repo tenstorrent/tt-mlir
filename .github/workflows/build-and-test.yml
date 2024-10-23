@@ -111,6 +111,7 @@ jobs:
         source env/activate
         cmake -G Ninja \
         -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_BUILD_TYPE=${{ inputs.config }} \
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
