@@ -27,6 +27,12 @@ struct StableHLOToTTIRPipelineOptions
       // Dialect to StableHLO. This pass makes those conversions until this
       // is fixed in the upstream torch-mlir.
       llvm::cl::init(true)};
+  Option<bool> legalizeCompositeToCallEnabled{
+      *this, "enable-composite-to-call",
+      llvm::cl::desc("Enable, --enable-composite-to-call conversion pass."),
+      // This pass will convert stablehlo.composite ops into func.call ops so
+      // that the TTIR inliner pass may inline the ops.
+      llvm::cl::init(true)};
 };
 
 void createStableHLOToTTIRPipeline(
