@@ -1,6 +1,6 @@
 # TT-explorer
 
-TT-explorer is a tool for MLIR graph visualization and applying optimizer overrides in order to easily experiment with model performace.
+TT-explorer is a tool for MLIR graph visualization and applying optimizer overrides in order to easily experiment with model performance.
 
 TODO: add documentation from old tt-explorer repo
 
