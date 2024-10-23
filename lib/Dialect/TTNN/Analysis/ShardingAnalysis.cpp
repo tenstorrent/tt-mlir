@@ -41,7 +41,7 @@ void ShardingAnalysis::analysisImplementation() {
     DFShardingPolicy dfShardingPolicy(
         op, shardChainConfigs, filterShardedOnly(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
-    dfShardingPolicy.run(analysisInput.inputLayoutOverrides);
+    dfShardingPolicy.run(analysisInput.overrideReshardEdges);
     break;
   }
 
