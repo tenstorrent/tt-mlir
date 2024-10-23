@@ -37,6 +37,19 @@ def TTKernel_MathFidelity : I32EnumAttr<"MathFidelity", "TT MathFidelity",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+def TTKernel_UnpackToDestFp32 : I32EnumAttrCase<"UnpackToDestFp32", 0, "unpack_to_dest_fp32">;
+def TTKernel_Default : I32EnumAttrCase<"Default", 1, "default">;
+
+def TTKernel_UnpackToDestMode : I32EnumAttr<"UnpackToDestMode", "TT UnpackToDestMode",
+                           [
+                            TTKernel_UnpackToDestFp32,
+                            TTKernel_Default,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
+
 def TTKernel_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
 def TTKernel_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
 

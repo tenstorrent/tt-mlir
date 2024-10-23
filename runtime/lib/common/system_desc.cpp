@@ -232,7 +232,7 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
         DRAM_ALIGNMENT, l1UnreservedBase,
         ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
         dramUnreservedEnd, chipPhysicalCores, supportedDataTypes,
-        supportedTileSizes));
+        supportedTileSizes, NUM_CIRCULAR_BUFFERS));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

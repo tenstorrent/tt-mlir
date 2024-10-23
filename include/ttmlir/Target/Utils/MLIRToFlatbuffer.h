@@ -265,7 +265,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getDramUnreservedEnd(),
       toFlatbuffer(cache, chipDesc.getChipPhysicalCores()),
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
-      toFlatbuffer(cache, chipDesc.getSupportedTileSizes()));
+      toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
+      chipDesc.getNumCBs());
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>
