@@ -10,9 +10,15 @@ fi
 
 [ -f $TTMLIR_VENV_DIR/bin/activate ] && source $TTMLIR_VENV_DIR/bin/activate
 export TTMLIR_ENV_ACTIVATED=1
-export PATH="$(pwd)/build/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
+export PATH1=$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH
+export PATH2="$(pwd)/build/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
+export PATH=$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH
 export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"
 export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal-build"
 export TT_MLIR_HOME="$(pwd)"
 export PYTHONPATH="$(pwd)/build/python_packages:$(pwd)/.local/toolchain/python_packages/mlir_core:${TT_METAL_HOME}:${TT_METAL_HOME}/tt_eager:${TT_METAL_BUILD_HOME}/tools/profiler/bin:${TT_METAL_HOME}/ttnn"
 export ARCH_NAME="${ARCH_NAME:-wormhole_b0}"
+
+echo "PATH 1: $PATH1"
+echo "PATH 2: $PATH2"
+echo "Python version: $(python --version)"
