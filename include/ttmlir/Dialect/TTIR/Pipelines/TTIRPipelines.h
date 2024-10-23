@@ -13,12 +13,13 @@ namespace mlir::tt::ttir {
 //
 struct StableHLOToTTIRPipelineOptions
     : public PassPipelineOptions<StableHLOToTTIRPipelineOptions> {
-  // Option to enable --remove-dead-values optimization pass.
   Option<bool> removeDeadValuesEnabled{
       *this, "enable-remove-dead-values",
       llvm::cl::desc("Enable --remove-dead-values optimization pass."),
-      // Currently this pass fails if module has a name, so keeping the
-      // optimization OFF by default until that issue is fixed on llvm side.
+      llvm::cl::init(true)};
+  Option<bool> sparseConstantPropagationEnabled{
+      *this, "enable-sparse-constant-propagation",
+      llvm::cl::desc("Enable --sccp optimization pass."),
       llvm::cl::init(false)};
   Option<bool> arithDialectConversionsEnabled{
       *this, "enable-arith-to-stablehlo",
