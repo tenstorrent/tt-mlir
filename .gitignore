@@ -5,3 +5,4 @@ third_party/tt-metal
 .vscode/*
 .cache
 *pycache*
+*.egg-info

@@ -14,7 +14,7 @@ PORT = 8002
 CONVERT_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/mnist_sharding.mlir",
-    "tools/explorer/test/*.mlir",
+    "tools/explorer/test/models/*.mlir",
 ]
 
 
