@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include <llvm/ADT/StringMap.h>
 #include <unordered_set>
@@ -42,7 +43,7 @@ public:
   ShardSolver resolve(
       const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       unsigned usableL1CacheSize,
-      llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides);
+      const std::unordered_set<Edge> &overrideReshardEdges);
   void build();
   void
   complete(const llvm::DenseMap<Operation *, tt::LayoutAttr> &selectedOpLayout,

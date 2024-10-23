@@ -6,10 +6,10 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDINGANALYSIS_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -20,16 +20,16 @@ enum class ShardingPolicyType {
 struct ShardingAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
-  llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides;
+  std::unordered_set<Edge> overrideReshardEdges;
 
   ShardingAnalysisInput() : legalLayouts() {}
 
   ShardingAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
       unsigned usableL1CacheSize,
-      llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides)
+      const std::unordered_set<Edge> &overrideReshardEdges)
       : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
-        inputLayoutOverrides(inputLayoutOverrides) {}
+        overrideReshardEdges(overrideReshardEdges) {}
 
   bool operator==(const ShardingAnalysisInput &rhs) const {
     return legalLayouts == rhs.legalLayouts;

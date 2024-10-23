@@ -4,11 +4,13 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 #include <llvm/ADT/StringMap.h>
 #include <llvm/Support/Threading.h>
 #include <llvm/Support/raw_ostream.h>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -17,7 +19,7 @@ bool isCompositeToLayoutOp(mlir::Operation *op) {
 }
 
 void DFShardingPolicy::run(
-    llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides) {
+    const std::unordered_set<Edge> &overrideReshardEdges) {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
@@ -200,7 +202,7 @@ void DFShardingPolicy::run(
   //
   for (auto &shardChainConfig : *shardChainConfigs) {
     ShardSolver shardSolver = shardChainConfig.resolve(
-        legalLayouts, usableL1CacheSize, inputLayoutOverrides);
+        legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
     // TODO(nobradovic)
     // For now dummy fetch first legal(largest grid) for shard spec.
@@ -215,10 +217,6 @@ void DFShardingPolicy::run(
     shardChainConfig.complete(resolvedShardSolution.selectedOpLayout,
                               resolvedShardSolution.reshardedEdges);
   }
-
-  // Check if there are illegal or non-existing ops in insert-reshard
-  //
-  assert(inputLayoutOverrides->empty());
 }
 
 } // namespace mlir::tt::ttnn

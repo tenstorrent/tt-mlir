@@ -283,7 +283,7 @@ public:
       const std::vector<ShardSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
-      llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides);
+      const std::unordered_set<Edge> &overrideReshardEdges);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, tt::LayoutAttr const &layout);
 

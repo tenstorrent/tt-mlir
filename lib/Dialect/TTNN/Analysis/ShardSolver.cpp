@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
 #include <algorithm>
 #include <cstdint>
@@ -12,6 +12,7 @@
 #include <mlir/IR/Location.h>
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -23,7 +24,7 @@ ShardSolver::ShardSolver(
     const std::vector<ShardSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
-    llvm::StringMap<InputLayoutOverrideParams> *inputLayoutOverrides)
+    const std::unordered_set<Edge> &overrideReshardEdges)
     : legalLayouts(&legalLayouts), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize) {
   pathSets.reserve(shardSpecs.size());
@@ -46,36 +47,14 @@ ShardSolver::ShardSolver(
       if (operandOp && shardedOps.count(operandOp) > 0) {
         operandOpEdges[op].emplace_back(Edge(operandOp, op, operandIndex));
         userOpEdges[operandOp].emplace_back(Edge(operandOp, op, operandIndex));
-
-        // Mannually insert reshard edges before ShardSolver start
-        // resolving ShardChainConfig
-        //
-        if (!isa<NameLoc>(op->getLoc())) {
-          continue;
-        }
-
-        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-        auto opInputOverride = inputLayoutOverrides->find(opLocName);
-
-        if (opInputOverride == inputLayoutOverrides->end()) {
-          continue;
-        }
-
-        SmallVector<int64_t> operandIndexes =
-            opInputOverride->getValue().operandIdxes;
-        if (std::find(operandIndexes.begin(), operandIndexes.end(),
-                      operandIndex) != operandIndexes.end()) {
-          insertReshard(Edge(operandOp, op, operandIndex));
-          inputLayoutOverrides->erase(opInputOverride);
-        }
       }
     }
   }
 
-  for (const Edge &edge : reshardedEdges) {
-    edge.producerOp->dump();
-    edge.consumerOp->dump();
-    llvm::outs() << edge.operandIndex << '\n';
+  // Insert override resharding edges
+  //
+  for (const Edge &edge : overrideReshardEdges) {
+    insertReshard(edge);
   }
 
   // Resolve shard chain.

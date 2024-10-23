@@ -5,12 +5,17 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <cassert>
+#include <cstdint>
+#include <llvm/Support/raw_ostream.h>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPTIMIZER
@@ -61,11 +66,44 @@ public:
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     std::unordered_set<Edge> reshardedEdges;
     if (shardingPassEnabled) {
+      // Extract override resharding edges
+      //
+      std::unordered_set<Edge> overrideReshardEdges;
+      moduleOp->walk([&](Operation *op) {
+        if (!isa<DestinationStyleOpInterface>(op)) {
+          return;
+        }
+
+        // Skip ops without location
+        //
+        if (!isa<NameLoc>(op->getLoc())) {
+        }
+
+        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        auto opInputOverride = overrideInputLayout.find(opLocName);
+
+        if (opInputOverride == overrideInputLayout.end()) {
+          return;
+        }
+
+        SmallVector<int64_t> operandIndexes =
+            opInputOverride->getValue().operandIdxes;
+        for (int64_t operandIndex : operandIndexes) {
+          Value operand = op->getOperand(operandIndex);
+          Operation *operandOp = operand.getDefiningOp();
+          overrideReshardEdges.insert(Edge(operandOp, op, operandIndex));
+        }
+      });
+
+      // Check for non-existing ops in override
+      //
+      assert(overrideInputLayout.size() == overrideReshardEdges.size());
+
       // Perform sharding analysis.
       //
       ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
       shardingAnalysis.init(ShardingAnalysisInput(
-          legalLayouts, chipDesc.getUsableL1Size(), &overrideInputLayout));
+          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges));
       legalLayouts = shardingAnalysis.getResult().legalLayouts;
       opSchedule = shardingAnalysis.getResult().schedule;
       reshardedEdges = shardingAnalysis.getResult().reshardedEdges;
