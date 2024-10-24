@@ -5,6 +5,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 
 namespace tt::runtime::ttnn::operations::binary {
 
@@ -121,6 +122,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Maximum: {
     runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::maximum);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Atan2: {
+    runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::atan2);
     break;
   }
   default:
