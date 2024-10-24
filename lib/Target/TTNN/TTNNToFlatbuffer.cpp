@@ -33,6 +33,7 @@
 
 #include <cassert>
 #include <fstream>
+#include <optional>
 
 namespace mlir::tt::ttnn {
 
@@ -47,6 +48,34 @@ constexpr uint64_t kHostAllocatedAddress = 0;
   auto size = coreRange.getSize();
   return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
                                   ::tt::target::Dim2d(size[0], size[1]));
+}
+
+template <typename OpType>
+::flatbuffers::Offset<::tt::target::MemoryConfigDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, OpType op,
+             ::mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+          memoryConfig.getTensorMemoryLayout().getValue());
+  ::tt::target::BufferType bufferType =
+      ::tt::mlir::ttnn::utils::toTargetBufferType(
+          memoryConfig.getBufferType().getValue());
+
+  // TODO(bug #620): This is a temporary solution until we have a proper
+  // ShardSpec defined in ttnn::MemoryConfig IR
+  //
+  llvm::SmallVector<int64_t> shardShapeSmallVec =
+      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding())
+          .getShardShape();
+  std::vector<int64_t> shardShapeVec = std::vector<int64_t>(
+      shardShapeSmallVec.begin(), shardShapeSmallVec.end());
+  auto shardShape = cache.fbb->CreateVector<int64_t>(shardShapeVec);
+
+  ::flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfigDesc =
+      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType,
+                             shardShape);
+
+  return memoryConfigDesc;
 }
 
 ::flatbuffers::Offset<::tt::target::DeviceRef>
@@ -88,11 +117,20 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
 createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
+      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+          op.getMemoryConfig().getTensorMemoryLayout().getValue());
+  ::tt::target::BufferType bufferType =
+      ::tt::mlir::ttnn::utils::toTargetBufferType(
+          op.getMemoryConfig().getBufferType().getValue());
+  auto memoryConfigDesc =
+      CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout, bufferType);
+
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateToMemoryConfigOp(
-      *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device), output);
+  return ::tt::target::ttnn::CreateToMemoryConfigOp(*cache.fbb, input,
+                                                    memoryConfigDesc, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToLayoutOp>
@@ -101,13 +139,36 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
-  auto device = getOperandThroughDPSOps(op.getDevice());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
+  std::optional<::mlir::tt::DataType> dtype = op.getDtype();
+  std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  ::mlir::Value device = op.getDevice();
+  if (device) {
+    device = getOperandThroughDPSOps(device);
+  }
   return ::tt::target::ttnn::CreateToLayoutOp(
-      *cache.fbb, input, layout, cache.at<::tt::target::DeviceRef>(device),
-      output);
+      *cache.fbb, input, layout,
+      dtype.has_value()
+          ? ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value())
+          : ::tt::target::DataType::None,
+      memoryConfig.has_value() ? toFlatbuffer(cache, op, memoryConfig.value())
+                               : 0,
+      device ? cache.at<::tt::target::DeviceRef>(device) : 0, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
+createOp(FlatbufferObjectCache &cache, TypecastOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  ::tt::target::DataType dtype =
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateTypecastOp(*cache.fbb, input, dtype, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ToDeviceOp>
@@ -116,28 +177,16 @@ createOp(FlatbufferObjectCache &cache, ToDeviceOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto device = getOperandThroughDPSOps(op.getDevice());
 
-  ::tt::target::TensorMemoryLayout tensorMemoryLayout =
-      ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
-          op.getMemoryConfig().getTensorMemoryLayout().getValue());
-  ::tt::target::BufferType bufferType =
-      ::tt::mlir::ttnn::utils::toTargetBufferType(
-          op.getMemoryConfig().getBufferType().getValue());
-
-  // TODO(bug #620): This is a temporary solution until we have a proper
-  // ShardSpec defined in ttnn::MemoryConfig IR
-  //
-  llvm::SmallVector<int64_t> shardShapeSmallVec =
-      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding())
-          .getShardShape();
-  std::vector<int64_t> shardShapeVec = std::vector<int64_t>(
-      shardShapeSmallVec.begin(), shardShapeSmallVec.end());
-  auto shardShape = cache.fbb->CreateVector<int64_t>(shardShapeVec);
-
-  auto memoryConfigDesc = CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout,
-                                                 bufferType, shardShape);
-
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
+
+  if (!op.getMemoryConfig()) {
+    return ::tt::target::ttnn::CreateToDeviceOp(
+        *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device),
+        /* memoryConfigDesc */ 0, output);
+  }
+
+  auto memoryConfigDesc = toFlatbuffer(cache, op, op.getMemoryConfig().value());
 
   return ::tt::target::ttnn::CreateToDeviceOp(
       *cache.fbb, input, cache.at<::tt::target::DeviceRef>(device),
@@ -296,8 +345,6 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Div;
   } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
-  } else if constexpr (std::is_same_v<EltwiseOp, TypecastOp>) {
-    type = ::tt::target::ttnn::EltwiseOpType::Typecast;
   } else if constexpr (std::is_same_v<EltwiseOp, ExpOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Exp;
   } else {
@@ -463,6 +510,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString);
   }
+  if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
+    return createOperation(cache, createOp(cache, typecastOp), debugString);
+  }
   if (auto toDeviceOp = dyn_cast<ToDeviceOp>(op); toDeviceOp) {
     return createOperation(cache, createOp(cache, toDeviceOp), debugString);
   }
@@ -569,10 +619,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
-                           debugString);
-  }
-  if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
-    return createOperation(cache, createEltwiseOp(cache, typecastOp),
                            debugString);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

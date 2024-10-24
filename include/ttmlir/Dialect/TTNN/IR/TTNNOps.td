@@ -30,10 +30,17 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{
+      This op converts the memory config of the input tensor based on the given memory config.
+      It handles:
+        - Dram to L1
+        - L1 to Dram
+        - Interleaved to sharded
+        - Sharded to interleaved
+        - Sharded to sharded (reshard)
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device);
+                         TTNN_MemoryConfigAttr:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
@@ -42,28 +49,49 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let summary = "ToLayout op.";
     let description = [{
+      This op converts the layout of the input tensor based on the given layout.
+      It handles:
+        - ROW_MAJOR to TILE
+        - TILE to ROW_MAJOR
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         TT_Device:$device,
-                         TTNN_LayoutAttr:$layout);
+                         TTNN_LayoutAttr:$layout,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         Optional<TT_Device>:$device);
+    let results = (outs AnyRankedTensor:$result);
+}
+
+def TTNN_TypecastOp : TTNN_Op<"typecast"> {
+    let summary = "Typecast op.";
+    let description = [{
+      This op converts the data type of the input tensor based on the given data type.
+      It handles:
+        - conversions of data types.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_DataTypeAttr:$dtype);
     let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
     let description = [{
+      This op sends the input tensor to the given device with the given memory config.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          TT_Device:$device,
-                         TTNN_MemoryConfigAttr:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let summary = "FromDevice op.";
     let description = [{
+      This op retrieves the input tensor from the given device.
     }];
 
     let arguments = (ins AnyRankedTensor:$input);
@@ -171,13 +199,6 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
-    }];
-}
-
-def TTNN_TypecastOp : TTNN_ElementwiseUnaryOp<"typecast"> {
-    let summary = "Eltwise typecast.";
-    let description = [{
-      Eltwise typecast operation.
     }];
 }
 
