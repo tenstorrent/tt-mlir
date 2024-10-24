@@ -112,6 +112,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Expm1: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::expm1);
+    break;
+  }
   default:
     throw std::invalid_argument("Unsupported unary operation");
   }
