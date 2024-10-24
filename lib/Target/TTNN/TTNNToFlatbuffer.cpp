@@ -258,6 +258,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Abs;
   } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Add;
+  } else if constexpr (std::is_same_v<EltwiseOp, CbrtOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Cbrt;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalAndOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalAnd;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalNotOp>) {
@@ -483,6 +485,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
     return createOperation(cache, createEltwiseOp(cache, andOp), debugString);
+  }
+  if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
+    return createOperation(cache, createEltwiseOp(cache, cbrtOp), debugString);
   }
   if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
     return createOperation(cache, createEltwiseOp(cache, notOp), debugString);
