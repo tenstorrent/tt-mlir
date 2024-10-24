@@ -78,9 +78,6 @@ enum BufferType: ushort {
 table MemoryConfigDesc {
   tensor_memory_layout: TensorMemoryLayout;
   buffer_type: BufferType;
-  // TODO(bug #620):
-  // Add support for ShardSpec and remove shard_shape
-  //
   shard_shape: [int64];
 }
 

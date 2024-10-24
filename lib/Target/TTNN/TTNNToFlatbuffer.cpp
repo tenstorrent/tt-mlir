@@ -61,14 +61,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, OpType op,
       ::tt::mlir::ttnn::utils::toTargetBufferType(
           memoryConfig.getBufferType().getValue());
 
-  // TODO(bug #620): This is a temporary solution until we have a proper
-  // ShardSpec defined in ttnn::MemoryConfig IR
-  //
-  llvm::SmallVector<int64_t> shardShapeSmallVec =
-      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding())
-          .getShardShape();
-  std::vector<int64_t> shardShapeVec = std::vector<int64_t>(
-      shardShapeSmallVec.begin(), shardShapeSmallVec.end());
+  llvm::ArrayRef<int64_t> shardShapeArr = memoryConfig.getShardShapeArray();
+  std::vector<int64_t> shardShapeVec(shardShapeArr.begin(),
+                                     shardShapeArr.end());
   auto shardShape = cache.fbb->CreateVector<int64_t>(shardShapeVec);
 
   ::flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfigDesc =
@@ -232,14 +227,10 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       ::tt::mlir::ttnn::utils::toTargetBufferType(
           op.getMemoryConfig()->getBufferType().getValue());
 
-  // TODO(bug #620): This is a temporary solution until we have a proper
-  // ShardSpec defined in ttnn::MemoryConfig IR
-  //
-  llvm::SmallVector<int64_t> shardShapeSmallVec =
-      mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding())
-          .getShardShape();
-  std::vector<int64_t> shardShapeVec = std::vector<int64_t>(
-      shardShapeSmallVec.begin(), shardShapeSmallVec.end());
+  llvm::ArrayRef<int64_t> shardShapeArr =
+      op.getMemoryConfig()->getShardShapeArray();
+  std::vector<int64_t> shardShapeVec(shardShapeArr.begin(),
+                                     shardShapeArr.end());
   auto shardShape = cache.fbb->CreateVector<int64_t>(shardShapeVec);
 
   auto memoryConfigDesc = CreateMemoryConfigDesc(*cache.fbb, tensorMemoryLayout,

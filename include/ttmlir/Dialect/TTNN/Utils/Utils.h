@@ -23,6 +23,8 @@ toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout);
 
 DataType getDataTypeFromMemRef(mlir::MemRefType memref);
 
+Layout getLayoutFromMemRef(mlir::MemRefType memref);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

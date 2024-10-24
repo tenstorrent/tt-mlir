@@ -27,6 +27,22 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
+def TTNN_CompositeToLayoutOp : TTNN_Op<"generic_to_layout"> {
+  let summary = "Composite toLayout op.";
+  let description = [{
+      This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
+      to perform optimizations, and later broken down into specific memory/layout operations (toDevice, toMemoryConfig, toLayout etc.).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       TTNN_LayoutAttr:$layout,
+                       TT_DataTypeAttr:$dtype,
+                       TTNN_MemoryConfigAttr:$memory_config,
+                       Optional<TT_Device>:$device);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{

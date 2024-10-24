@@ -147,7 +147,11 @@ public:
                 op->getContext(),
                 TensorMemoryLayoutAttr::get(op->getContext(),
                                             tensorMemoryLayout),
-                BufferTypeAttr::get(op->getContext(), bufferType)));
+                BufferTypeAttr::get(op->getContext(), bufferType),
+                ShardSpecAttr::get(
+                    op->getContext(),
+                    ShapeAttr::get(op->getContext(),
+                                   ttLayoutAttr.getMemref().getShape()))));
           }
           // TODO (nobradovic): Other memory management ops after lowering to
           // TTNN will need to be special handled as well. Depends on ttnn
@@ -165,7 +169,12 @@ public:
                 op->getContext(),
                 ttnn::TensorMemoryLayoutAttr::get(op->getContext(),
                                                   tensorMemoryLayout),
-                ttnn::BufferTypeAttr::get(op->getContext(), bufferType)));
+                ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
+                ttnn::ShardSpecAttr::get(
+                    op->getContext(),
+                    ttnn::ShapeAttr::get(
+                        op->getContext(),
+                        ttLayoutAttr.getMemref().getShape()))));
           }
         }
       });

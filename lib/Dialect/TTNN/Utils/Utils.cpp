@@ -56,4 +56,16 @@ DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
   }
   return dtype;
 }
+
+Layout getLayoutFromMemRef(mlir::MemRefType memref) {
+  ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+  Type elementType = memref.getElementType();
+  if (llvm::isa<TileType>(elementType)) {
+    ttnnLayoutEnum = ttnn::Layout::Tile;
+  } else {
+    ttnnLayoutEnum = ttnn::Layout::RowMajor;
+  }
+  return ttnnLayoutEnum;
+}
+
 } // namespace mlir::tt::ttnn::utils

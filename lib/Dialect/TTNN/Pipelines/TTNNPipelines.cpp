@@ -44,9 +44,6 @@ void createTTNNPipelineAnalysisPasses(
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
   }
-
-  // Dealloc pass for tensor memory deallocation after last use.
-  pm.addPass(createTTNNDeallocate());
 }
 
 void createTTNNPipelineLoweringPasses(
@@ -55,6 +52,16 @@ void createTTNNPipelineLoweringPasses(
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
   pm.addPass(mlir::createRemoveDeadValuesPass());
+}
+
+void createTTNNPipelineLayoutDecompositionPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNDecomposeGenericLayouts());
+}
+
+void createTTNNPipelineDeallocPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNDeallocate());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
@@ -78,11 +85,27 @@ void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
   createTTNNPipelineLoweringPasses(pm, *optionsStruct);
 }
 
+void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
+                                                         std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineLayoutDecompositionPass(pm, *optionsStruct);
+}
+
+void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
+                                             std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineDeallocPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);
+  createTTNNPipelineLayoutDecompositionPass(pm, options);
+  createTTNNPipelineDeallocPass(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
@@ -93,7 +116,7 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<
       mlir::tt::ttnn::TTIRToTTNNBackendPipelineOptions>(
       "ttir-to-ttnn-backend-pipeline",
-      "Pipeline lowering ttir to ttmetal backend.",
+      "Pipeline lowering ttir to ttnn backend.",
       mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
 }
 } // namespace mlir::tt::ttnn
