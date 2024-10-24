@@ -17,6 +17,9 @@ namespace mlir::tt::ttir {
 #ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
+  if (options.arithDialectConversionsEnabled) {
+    pm.addPass(createConvertArithToStableHLOPass());
+  }
   pm.addPass(createConvertStableHLOToTTIRPass());
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());

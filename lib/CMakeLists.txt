@@ -18,7 +18,7 @@ MLIRTTDialect
 MLIRTTIRDialect
 MLIRTTIRTransforms
 TTMLIRConversions
-MLIRTTIRAnalysis
+MLIRTTNNAnalysis
 MLIRTTNNDialect
 MLIRTTNNTransforms
 MLIRTTKernelDialect

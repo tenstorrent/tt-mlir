@@ -10,7 +10,7 @@ fi
 
 [ -f $TTMLIR_VENV_DIR/bin/activate ] && source $TTMLIR_VENV_DIR/bin/activate
 export TTMLIR_ENV_ACTIVATED=1
-export PATH=$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH
+export PATH="$(pwd)/build/bin:$TTMLIR_TOOLCHAIN_DIR/bin:$TTMLIR_TOOLCHAIN_DIR/venv/bin:$PATH"
 export TT_METAL_HOME="$(pwd)/third_party/tt-metal/src/tt-metal"
 export TT_METAL_BUILD_HOME="$(pwd)/third_party/tt-metal/src/tt-metal-build"
 export TT_MLIR_HOME="$(pwd)"

@@ -2,11 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTIR/Analysis/DFShardingPolicy.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
-namespace mlir::tt::ttir {
+namespace mlir::tt::ttnn {
+
+bool isMemoryManagementOp(mlir::Operation *op) {
+  return isa<ttnn::ToLayoutOp>(op) || isa<ttnn::ToMemoryConfigOp>(op) ||
+         isa<ttnn::ToDeviceOp>(op);
+}
 
 void DFShardingPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
@@ -25,16 +30,16 @@ void DFShardingPolicy::run() {
     while (scheduler.hasUnscheduledOps()) {
       scheduleableOps = scheduler.getScheduleableOps();
 
-      // Before starting a sharding chain, schedule ttir.to_layout ops first
-      // until they are exhausted from schedulable ops.
+      // Before starting a sharding chain, schedule layout/memory management ops
+      // first until they are exhausted from schedulable ops.
       // TODO(nobradovic) :
-      // We need to examine type of to_layout op and determine if for
+      // We need to examine type of memory op and determine if for
       // example we have a space in DRAM to perform this?(system->dram, double
       // check this)
       //
       if (shardChainConfigs->back().isEmpty()) {
         for (auto *op : scheduleableOps) {
-          if (isa<ttir::ToLayoutOp>(op)) {
+          if (isMemoryManagementOp(op)) {
             currentOp = op;
             break;
           }
@@ -49,10 +54,10 @@ void DFShardingPolicy::run() {
       //
       scheduler.scheduleOp(currentOp);
 
-      // Skip sharding process if currentOp is a ttir.to_layout op.
+      // Skip starting sharding chain if currentOp is a memory management op.
       //
       if (shardChainConfigs->back().isEmpty() &&
-          isa<ttir::ToLayoutOp>(currentOp)) {
+          isMemoryManagementOp(currentOp)) {
         currentOp = nullptr;
         continue;
       }
@@ -88,7 +93,8 @@ void DFShardingPolicy::run() {
             // currentOp output tensor shard spec, nextOp exec and nextOp output
             // tensor.
             //
-            LayoutAttr currentOpLayout = legalLayouts.lookup(currentOp).front();
+            tt::LayoutAttr currentOpLayout =
+                legalLayouts.lookup(currentOp).front();
             assert(currentOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> currentOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(currentOp->getResult(0).getType())
@@ -97,7 +103,7 @@ void DFShardingPolicy::run() {
                 currentOpOutputTensorShape, currentOpLayout,
                 currentOpLayout.getMemorySpace());
 
-            LayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
+            tt::LayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
             assert(nextOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> nextOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(nextOp->getResult(0).getType())
@@ -129,10 +135,10 @@ void DFShardingPolicy::run() {
                                                      .getDefiningOp()
                                                      ->getResult(0)
                                                      .getType());
-                LayoutAttr firstOpInputLayout = mlir::cast<LayoutAttr>(
+                tt::LayoutAttr firstOpInputLayout = mlir::cast<tt::LayoutAttr>(
                     firstOpInputTensorType.getEncoding());
 
-                LayoutAttr firstOpInputShardedLayout =
+                tt::LayoutAttr firstOpInputShardedLayout =
                     firstOpInputLayout
                         .withMemorySpace(currentOp->getContext(),
                                          currentOpLayout.getMemorySpace())
@@ -207,4 +213,4 @@ void DFShardingPolicy::run() {
   }
 }
 
-} // namespace mlir::tt::ttir
+} // namespace mlir::tt::ttnn

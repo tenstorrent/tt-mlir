@@ -20,6 +20,11 @@ void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
+
+  // Inlines all private functions. I.e flattens the program into the main
+  // function. Removes all private functions.
+  pm.addPass(mlir::createInlinerPass());
+
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
@@ -38,12 +43,15 @@ void createTTNNPipelineTTIRPasses(
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
-    ttir::TTIROptimizerOptions optimizerOptions;
+    ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
     optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
-    pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
+    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
   }
+
+  // Dealloc pass for tensor memory deallocation after last use.
+  pm.addPass(createTTNNDeallocate());
 }
 
 void createTTNNPipelineLoweringPasses(
@@ -52,8 +60,6 @@ void createTTNNPipelineLoweringPasses(
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
   pm.addPass(mlir::createRemoveDeadValuesPass());
-  // Dealloc pass for tensor memory deallocation after last use.
-  pm.addPass(createTTNNDeallocate());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
@@ -80,8 +86,8 @@ void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineAnalysisPasses(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
+  createTTNNPipelineAnalysisPasses(pm, options);
 }
 
 //===----------------------------------------------------------------------===//
