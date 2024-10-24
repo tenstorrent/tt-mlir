@@ -3,8 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
+#include <llvm/ADT/StringMap.h>
+#include <llvm/Support/Threading.h>
+#include <llvm/Support/raw_ostream.h>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -13,7 +19,8 @@ bool isMemoryManagementOp(mlir::Operation *op) {
          isa<ttnn::ToDeviceOp>(op);
 }
 
-void DFShardingPolicy::run() {
+void DFShardingPolicy::run(
+    const std::unordered_set<Edge> &overrideReshardEdges) {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
@@ -195,8 +202,8 @@ void DFShardingPolicy::run() {
   // Resolve shard chain configs.
   //
   for (auto &shardChainConfig : *shardChainConfigs) {
-    ShardSolver shardSolver =
-        shardChainConfig.resolve(legalLayouts, usableL1CacheSize);
+    ShardSolver shardSolver = shardChainConfig.resolve(
+        legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
     // TODO(nobradovic)
     // For now dummy fetch first legal(largest grid) for shard spec.

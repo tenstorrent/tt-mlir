@@ -5,12 +5,20 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <cassert>
+#include <cstdint>
+#include <llvm/ADT/StringMap.h>
+#include <llvm/Support/raw_ostream.h>
+#include <mlir/Interfaces/DataLayoutInterfaces.h>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPTIMIZER
@@ -61,11 +69,16 @@ public:
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     std::unordered_set<Edge> reshardedEdges;
     if (shardingPassEnabled) {
+      // Extract override resharding edges
+      //
+      std::unordered_set<Edge> overrideReshardEdges;
+      extractReshardEdges(moduleOp, overrideReshardEdges);
+
       // Perform sharding analysis.
       //
       ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
-      shardingAnalysis.init(
-          ShardingAnalysisInput(legalLayouts, chipDesc.getUsableL1Size()));
+      shardingAnalysis.init(ShardingAnalysisInput(
+          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges));
       legalLayouts = shardingAnalysis.getResult().legalLayouts;
       opSchedule = shardingAnalysis.getResult().schedule;
       reshardedEdges = shardingAnalysis.getResult().reshardedEdges;
@@ -182,6 +195,40 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+  }
+
+  void extractReshardEdges(ModuleOp &moduleOp,
+                           std::unordered_set<Edge> &overrideReshardEdges) {
+    moduleOp->walk([&](Operation *op) {
+      if (!isa<DestinationStyleOpInterface>(op)) {
+        return;
+      }
+
+      // Skip ops without location
+      //
+      if (!isa<NameLoc>(op->getLoc())) {
+        return;
+      }
+
+      StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+      auto opInputOverride = overrideInputLayout.find(opLocName);
+
+      if (opInputOverride == overrideInputLayout.end()) {
+        return;
+      }
+
+      SmallVector<int64_t> operandIndexes =
+          opInputOverride->getValue().operandIdxes;
+      for (int64_t operandIndex : operandIndexes) {
+        Value operand = op->getOperand(operandIndex);
+        Operation *operandOp = operand.getDefiningOp();
+        overrideReshardEdges.insert(Edge(operandOp, op, operandIndex));
+      }
+    });
+
+    // Check for non-existing ops in override
+    //
+    assert(overrideInputLayout.size() == overrideReshardEdges.size());
   }
 
   void processReshardedEdges(const std::unordered_set<Edge> &reshardedEdges) {
