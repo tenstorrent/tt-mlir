@@ -551,7 +551,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::LessEqualOp>,
                DefaultOpConversionPattern<ttnn::LessThanOp>,
                DefaultOpConversionPattern<ttnn::MaximumOp>,
-               DefaultOpConversionPattern<ttnn::DivOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::DivOp>,
+               DefaultOpConversionPattern<ttnn::Atan2Op>>(typeConverter, ctx);
 
   // Tensor manipulation ops
   //
