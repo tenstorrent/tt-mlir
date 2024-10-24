@@ -869,6 +869,8 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::RsqrtOp, mlir::tt::ttir::RsqrtOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SqrtOp, mlir::tt::ttir::SqrtOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::Log1pOp, mlir::tt::ttir::Log1pOp>>(typeConverter, ctx);
 }
 
 void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
