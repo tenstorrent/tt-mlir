@@ -5,9 +5,8 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
-#include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 #include "ttnn/operations/copy.hpp"
-
+#include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 
 namespace tt::runtime::ttnn::operations::unary {
 
@@ -41,8 +40,8 @@ static void runEltwiseUnaryOP(
 
 static void runEltwiseUnaryCompositeOP(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const ::tt::tt_metal::MemoryConfig&)>
+    std::function<::ttnn::Tensor(const ::ttnn::Tensor &,
+                                 const ::tt::tt_metal::MemoryConfig &)>
         ttnnOp) {
 
   ::ttnn::Tensor *in = nullptr;

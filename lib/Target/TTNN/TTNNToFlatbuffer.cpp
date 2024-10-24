@@ -542,8 +542,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString);
   }
   if (auto log1pOp = dyn_cast<Log1pOp>(op); log1pOp) {
-    return createOperation(cache, createEltwiseOp(cache, log1pOp),
-                           debugString);
+    return createOperation(cache, createEltwiseOp(cache, log1pOp), debugString);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
     return createOperation(cache, createEltwiseOp(cache, reciprocalOp),
