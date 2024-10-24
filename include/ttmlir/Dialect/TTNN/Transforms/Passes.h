@@ -13,11 +13,21 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 namespace mlir::tt::ttnn {
+
+// Optimizer
+#define GEN_PASS_DECL
+#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
+
+#define GEN_PASS_REGISTRATION
+#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
+
+// TTNN Passes
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
+
 } // namespace mlir::tt::ttnn
 
 #endif
