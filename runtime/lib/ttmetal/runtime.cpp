@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include "tt_metal/detail/tt_metal.hpp"
 
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Version.h"
@@ -77,6 +78,13 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
 void closeDevice(Device device) {
   ::tt::tt_metal::MeshDevice &ttmetalMeshDevice =
       device.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  for (::tt::tt_metal::Device *ttmetalDevice : ttmetalMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
+  }
+#endif
+
   ttmetalMeshDevice.close_devices();
 }
 
