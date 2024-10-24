@@ -105,6 +105,12 @@ private:
           "Expecting StableHLO Reduce OP to have a body operation defined.");
     }
 
+    if (adaptor.getDimensions().size() != 2) {
+      llvm::errs() << "error: TTIR supports only two dimensional reduceOp\n";
+      return rewriter.notifyMatchFailure(
+          srcOp, "TTIR supports only two dimensional reduceOp");
+    }
+
     return success();
   }
 
@@ -118,8 +124,13 @@ private:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr()[0])));
+    // Create an Attribute vector of input dimensions.
+    SmallVector<Attribute, 4> dimAttribute;
+    for (size_t idx = 0; idx < adaptor.getDimensions().size(); ++idx) {
+      dimAttribute.push_back(
+          rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr()[idx]));
+    }
+    mlir::ArrayAttr dimArg = rewriter.getArrayAttr(dimAttribute);
 
     // If someone changes definition of TTIR_ReductionOp this constant will
     // become outdated, but I currently see no way to get this info (without
@@ -132,7 +143,7 @@ private:
 
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,
-        false /* keep_dim */, dimArg, operandConstraints);
+        true /* keep_dim */, dimArg, operandConstraints);
 
     return success();
   }
@@ -208,19 +219,6 @@ public:
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
-    return success();
-  }
-
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::TransposeOp &srcOp,
-                     mlir::stablehlo::TransposeOp::Adaptor &adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-
-    if (adaptor.getPermutation().size() != 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR supports only two dimensional transposeOp.");
-    }
-
     return success();
   }
 };
