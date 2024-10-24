@@ -406,6 +406,49 @@ def TT_ArgumentAllocationAttr : TT_Attr<"ArgumentAllocation", "arg_alloc", []> {
   let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
 }
 
+
+def TT_ConvLayoutAttr : AttrDef<TT_Dialect, "ConvLayout"> {
+  let mnemonic = "conv";
+  let summary = "Structure of dimension information for conv op";
+  let description = [{
+    Holds the layout information for the input activation, weights, and output.
+    For example, if your input layout was "NHWC", weight layout was "OIHW", and output layout was "NHWC".
+    You would have:
+      inputBatchDimension = 0
+      inputHeightDimension = 1
+      inputWidthDimension = 2
+      inputWidthDimension = 3
+
+      kernelInputFeatureDimension = 1
+      kernelOutputFeatureDimension = 0
+      kernelWindowHeightDimension = 2
+      kernelWindowWidthDimension = 3
+
+      outputBatchDimension = 0
+      outputFeatureDimension = 1
+      outputHeightDimension = 2
+      outputWidthDimension = 3
+  }];
+  let parameters = (ins
+    "int64_t":$inputBatchDimension,
+    "int64_t":$inputHeightDimension,
+    "int64_t":$inputWidthDimension,
+    "int64_t":$inputFeatureDimension,
+
+    "int64_t":$kernelInputFeatureDimension,
+    "int64_t":$kernelOutputFeatureDimension,
+    "int64_t":$kernelWindowHeightDimension,
+    "int64_t":$kernelWindowWidthDimension,
+
+    "int64_t":$outputBatchDimension,
+    "int64_t":$outputFeatureDimension,
+    "int64_t":$outputHeightDimension,
+    "int64_t":$outputWidthDimension
+  );
+  
+  let assemblyFormat = "`<` `input_N` $inputBatchDimension `,` `input_H` $inputHeightDimension `,` `input_W` $inputWidthDimension `,` `input_C` $inputFeatureDimension `,` `kernel_I` $kernelInputFeatureDimension `,` `kernel_O` $kernelOutputFeatureDimension `,` `kernel_H` $kernelWindowHeightDimension `,` `kernel_W` $kernelWindowWidthDimension `,` `output_N` $outputBatchDimension `,` `output_C` $outputFeatureDimension `,` `output_H` $outputHeightDimension `,` `output_W` $outputWidthDimension`>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

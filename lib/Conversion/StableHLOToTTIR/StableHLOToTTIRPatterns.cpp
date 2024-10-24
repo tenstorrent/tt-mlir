@@ -401,6 +401,7 @@ public:
       }
     }
 
+    auto dimInfo = adaptor.getDimensionNumbers();
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::Conv2dOp>(
         srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
         mlir::Value(nullptr), outputTensor, stride_height_attr,
@@ -409,6 +410,20 @@ public:
         rewriter.getSI32IntegerAttr(padding[1]),
         rewriter.getSI32IntegerAttr(padding[2]),
         rewriter.getSI32IntegerAttr(padding[3]),
+        rewriter.getAttr<ConvLayoutAttr>(
+          dimInfo.getInputBatchDimension(),
+          dimInfo.getInputSpatialDimensions()[0],
+          dimInfo.getInputSpatialDimensions()[1],
+          dimInfo.getInputFeatureDimension(),
+          dimInfo.getKernelInputFeatureDimension(),
+          dimInfo.getKernelOutputFeatureDimension(),
+          dimInfo.getKernelSpatialDimensions()[0],
+          dimInfo.getKernelSpatialDimensions()[1],
+          dimInfo.getOutputBatchDimension(),
+          dimInfo.getOutputFeatureDimension(),
+          dimInfo.getOutputSpatialDimensions()[0],
+          dimInfo.getOutputSpatialDimensions()[1]
+        ),
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(

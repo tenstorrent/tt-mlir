@@ -59,6 +59,37 @@
       return emitOpError("Bias must be a 4D tensor");
     }
   }
+
+  std::string input_layout = "XXXX";
+  input_layout[getConvLayout().getInputBatchDimension()] = 'N';
+  input_layout[getConvLayout().getInputFeatureDimension()] = 'C';
+  input_layout[getConvLayout().getInputHeightDimension()] = 'H';
+  input_layout[getConvLayout().getInputWidthDimension()] = 'W';
+
+  if (input_layout != "NCHW" && input_layout != "NHWC") {
+      return emitOpError("Conv2d inputs must be either channel-first or channel-last (NCHW or NHWC). Got " + input_layout);
+  };
+
+    std::string output_layout = "XXXX";
+    output_layout[getConvLayout().getOutputBatchDimension()] = 'N';
+    output_layout[getConvLayout().getOutputFeatureDimension()] = 'C';
+    output_layout[getConvLayout().getOutputHeightDimension()] = 'H';
+    output_layout[getConvLayout().getOutputWidthDimension()] = 'W';
+
+  if (input_layout != output_layout) {
+    return emitOpError("Input layout must be identical to output layout. Got input: " + input_layout + " output: " + output_layout);
+  }
+
+  std::string kernel_layout = "XXXX";
+  kernel_layout[getConvLayout().getKernelOutputFeatureDimension()] = 'O';
+  kernel_layout[getConvLayout().getKernelInputFeatureDimension()] = 'I';
+  kernel_layout[getConvLayout().getKernelWindowHeightDimension()] = 'H';
+  kernel_layout[getConvLayout().getKernelWindowWidthDimension()] = 'W';
+
+  if (kernel_layout != "OIHW" && kernel_layout != "HWIO") {
+    return emitOpError("Kernel layout must be either OIHW or HWIO. Got " +kernel_layout);
+  }
+
   return success();
 }
 

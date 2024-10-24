@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <fstream>
+#include <mlir/IR/Attributes.h>
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
