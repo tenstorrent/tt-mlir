@@ -281,6 +281,18 @@ def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
     }];
 }
 
+def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
+    let summary = "Eltwise log1p operation.";
+    let description = [{
+        Performs element-wise logarithm plus one operation on `operand` tensor and
+        puts the result in the output tensor.
+
+        Example:
+          %a: [0.0, -0.999, 7.0, 6.38905621, 15.0]
+          "ttir.logp1"(%a, %out) -> %out: [0.0, -6.90776825, 2.07944155, 2.0, 2.77258873]
+      }];
+}
+
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise binary op.";

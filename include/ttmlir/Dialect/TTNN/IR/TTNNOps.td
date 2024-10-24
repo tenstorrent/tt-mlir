@@ -244,6 +244,18 @@ def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     }];
 }
 
+def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p"> {
+    let summary = "Eltwise log1p operation.";
+    let description = [{
+        Performs element-wise logarithm plus one operation on `operand` tensor and
+        puts the result in the output tensor.
+
+        Example:
+          %a: [0.0, -0.999, 7.0, 6.38905621, 15.0]
+          "ttnn.logp1"(%a, %out) -> %out: [0.0, -6.90776825, 2.07944155, 2.0, 2.77258873]
+      }];
+}
+
 def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{
