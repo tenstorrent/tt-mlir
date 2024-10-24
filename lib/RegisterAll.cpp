@@ -53,6 +53,7 @@ void mlir::tt::registerAllPasses() {
   mlir::registerPass(mlir::createRemoveDeadValuesPass);
 
   mlir::tt::ttir::registerPasses();
+  mlir::tt::ttnn::registerTTNNOptimizer();
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
 
