@@ -57,6 +57,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::pow);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Atan2: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::atan2);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::BitwiseAnd: {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::bitwise_and);
     break;
