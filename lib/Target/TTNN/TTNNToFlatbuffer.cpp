@@ -283,6 +283,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   } else if constexpr (std::is_same_v<EltwiseOp, LessThanOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LessThan;
   } else if constexpr (std::is_same_v<EltwiseOp, MaximumOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Minimum;
+  } else if constexpr (std::is_same_v<EltwiseOp, MinimumOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Maximum;
   } else if constexpr (std::is_same_v<EltwiseOp, ReluOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Relu;
@@ -521,6 +523,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
     return createOperation(cache, createEltwiseOp(cache, maximumOp),
+                           debugString);
+  }
+  if (auto minimumOp = dyn_cast<MinimumOp>(op); minimumOp) {
+    return createOperation(cache, createEltwiseOp(cache, minimumOp),
                            debugString);
   }
   if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {
