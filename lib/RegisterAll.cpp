@@ -4,10 +4,10 @@
 
 #include "ttmlir/RegisterAll.h"
 
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
-
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -36,6 +36,12 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
+}
+
+void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
+  // Both the inliner for TTIRDialect and FuncDialect must be registered
+  // since we use a combination of TTIRDialect and FuncDialect in the IR
+  mlir::func::registerInlinerExtension(registry);
 }
 
 void mlir::tt::registerAllPasses() {
