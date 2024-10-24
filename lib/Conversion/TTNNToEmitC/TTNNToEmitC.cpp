@@ -527,6 +527,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Eltwise unary ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AbsOp>,
+               DefaultOpConversionPattern<ttnn::CbrtOp>,
                DefaultOpConversionPattern<ttnn::LogicalNotOp>,
                DefaultOpConversionPattern<ttnn::NegOp>,
                DefaultOpConversionPattern<ttnn::ReluOp>,
