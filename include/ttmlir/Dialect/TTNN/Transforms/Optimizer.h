@@ -95,13 +95,15 @@ public:
   }
 
 protected:
-  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>>
+  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
+                       mlir::tt::InputLayoutOverrideParser>
       overrideInputLayout{
           *this, "insert-reshard",
           ::llvm::cl::desc(
               "Manually insert reshard for specific op's operand."),
           ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
-  ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>>
+  ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
+                       mlir::tt::OutputLayoutOverrideParser>
       overrideOutputLayout{
           *this, "override-output-layout",
           ::llvm::cl::desc("Override output tensor layout for specific ops."),
