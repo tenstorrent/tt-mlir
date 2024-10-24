@@ -8,7 +8,7 @@ module attributes {} {
     return %1 : tensor<32xbf16>
   }
 
-  func.func @slice_1d_step_positive(%arg0: tensor<64xbf16>) -> tensor<16xbf16> {
+  func.func @slice_1d_step(%arg0: tensor<64xbf16>) -> tensor<16xbf16> {
     %0 = tensor.empty() : tensor<16xbf16>
     // CHECK: %[[C:.*]] = "ttir.slice"[[C:.*]]
     %1 = "ttir.slice"(%arg0, %0) <{begins = [0: i32], ends = [64: i32], step = [4: i32], operand_constraints = [#any_device_tile, #any_device_tile]}> : (tensor<64xbf16>, tensor<16xbf16>) -> tensor<16xbf16>
