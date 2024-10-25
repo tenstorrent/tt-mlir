@@ -22,6 +22,7 @@ table GoldenTensor {
   name: string;
   shape: [int64];
   stride: [int64];
+  data_type: DataType;
   data: [GoldenData];
 }
 
