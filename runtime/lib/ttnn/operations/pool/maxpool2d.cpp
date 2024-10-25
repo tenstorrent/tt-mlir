@@ -33,7 +33,7 @@ preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
       ::ttnn::operations::conv::conv2d::determine_parallel_config(
           ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, op->batch_size(),
           op->channels(), output_height, output_width, op->channels(),
-          device.grid_size(), ShardOrientation::ROW_MAJOR);
+          &device, ShardOrientation::ROW_MAJOR);
   auto sharded_memory_config = ::ttnn::operations::conv::conv2d::
       create_sharded_memory_config_from_parallel_config(inputShape,
                                                         parallel_config, 1);
