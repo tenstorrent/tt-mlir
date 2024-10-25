@@ -6,7 +6,6 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_DFSHARDINGPOLICY_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
 #include <unordered_set>

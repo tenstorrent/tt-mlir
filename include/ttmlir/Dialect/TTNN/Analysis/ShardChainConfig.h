@@ -6,7 +6,6 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_SHARDCHAINCONFIG_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include <llvm/ADT/StringMap.h>

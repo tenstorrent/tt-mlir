@@ -3,14 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
-#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Scheduler/Scheduler.h"
-#include <llvm/ADT/StringMap.h>
-#include <llvm/Support/Threading.h>
-#include <llvm/Support/raw_ostream.h>
-#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 

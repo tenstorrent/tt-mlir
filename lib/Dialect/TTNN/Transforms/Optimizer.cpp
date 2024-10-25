@@ -5,20 +5,12 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
-#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include <cassert>
-#include <cstdint>
-#include <llvm/ADT/StringMap.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Interfaces/DataLayoutInterfaces.h>
-#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPTIMIZER
