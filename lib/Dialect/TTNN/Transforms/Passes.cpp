@@ -11,7 +11,7 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
-#define GEN_PASS_DEF_TTNNDECOMPOSEGENERICLAYOUTS
+#define GEN_PASS_DEF_TTNNDECOMPOSECOMPOSITELAYOUTS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -98,13 +98,13 @@ public:
   }
 };
 
-class TTNNDecomposeGenericLayouts
-    : public impl::TTNNDecomposeGenericLayoutsBase<
-          TTNNDecomposeGenericLayouts> {
+class TTNNDecomposeCompositeLayouts
+    : public impl::TTNNDecomposeCompositeLayoutsBase<
+          TTNNDecomposeCompositeLayouts> {
 
 public:
-  using impl::TTNNDecomposeGenericLayoutsBase<
-      TTNNDecomposeGenericLayouts>::TTNNDecomposeGenericLayoutsBase;
+  using impl::TTNNDecomposeCompositeLayoutsBase<
+      TTNNDecomposeCompositeLayouts>::TTNNDecomposeCompositeLayoutsBase;
 
   void runOnOperation() final {
     ModuleOp module = getOperation();
@@ -120,7 +120,7 @@ public:
       });
     });
     for (Operation *op : opsToReplace) {
-      this->createLayoutConversionOps(dyn_cast<ttnn::CompositeToLayoutOp>(op),
+      this->createLayoutConversionOps(mlir::cast<ttnn::CompositeToLayoutOp>(op),
                                       rewriter);
       rewriter.eraseOp(op);
     }

@@ -25,6 +25,9 @@ DataType getDataTypeFromMemRef(mlir::MemRefType memref);
 
 Layout getLayoutFromMemRef(mlir::MemRefType memref);
 
+mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
+                                       DataType dtype);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

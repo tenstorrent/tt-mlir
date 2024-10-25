@@ -118,7 +118,8 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  const ::flatbuffers::Vector<int64_t> *shardShape = memcfg->shard_shape();
+  const ::flatbuffers::Vector<int64_t> *shardShape =
+      memcfg->shard_spec()->shard_shape();
   std::array<uint32_t, 2> ttnnShardShape = {
       static_cast<uint32_t>(shardShape->Get(0)),
       static_cast<uint32_t>(shardShape->Get(1))};

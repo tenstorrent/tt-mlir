@@ -75,10 +75,15 @@ enum BufferType: ushort {
   Trace = 4,
 }
 
+// TODO (#620): Add other fields like core_ranges, shard orientation etc.
+table ShardSpec {
+  shard_shape: [int64];
+}
+
 table MemoryConfigDesc {
   tensor_memory_layout: TensorMemoryLayout;
   buffer_type: BufferType;
-  shard_shape: [int64];
+  shard_spec: ShardSpec;
 }
 
 table MemoryDesc {

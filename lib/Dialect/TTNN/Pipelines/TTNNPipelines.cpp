@@ -56,7 +56,7 @@ void createTTNNPipelineLoweringPasses(
 
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(createTTNNDecomposeGenericLayouts());
+  pm.addPass(createTTNNDecomposeCompositeLayouts());
 }
 
 void createTTNNPipelineDeallocPass(

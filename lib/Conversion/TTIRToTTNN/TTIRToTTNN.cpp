@@ -142,6 +142,11 @@ public:
 
     auto outputMemref = outputLayoutAttr.getMemref();
 
+    // Determine the output data type
+    DataType dtype = ttnn::utils::getDataTypeFromMemRef(outputMemref);
+    DataTypeAttr outputDataType =
+        DataTypeAttr::get(rewriter.getContext(), dtype);
+
     // Determine the output layout (tile or row major)
     ttnn::BufferType outputBufferType =
         ttnn::utils::toTTNNBufferType(outputLayoutAttr.getMemorySpace());
@@ -150,6 +155,8 @@ public:
         ttnn::utils::getLayoutFromMemRef(outputMemref);
 
     bool isOnHost = outputBufferType == ttnn::BufferType::SystemMemory;
+
+    RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
     if (!isOnHost) {
       // TODO(bug #665):
       // Binary ops fail with row major layout in ttnn, defaulting to and
@@ -164,15 +171,25 @@ public:
       //
       outputLayoutEnum =
           shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
+      if (outputLayoutEnum == ttnn::Layout::RowMajor) {
+        Type newElementType = ttnn::utils::createRowMajorTypeFromDtype(
+            rewriter.getContext(), dtype);
+        result =
+            RankedTensorType::get(result.getShape(), result.getElementType(),
+                                  outputLayoutAttr.withElementType(
+                                      rewriter.getContext(), newElementType));
+      } else if (outputLayoutEnum == ttnn::Layout::Tile) {
+        result = RankedTensorType::get(
+            result.getShape(), result.getElementType(),
+            outputLayoutAttr.withElementType(
+                rewriter.getContext(),
+                TileType::get(rewriter.getContext(), {32, 32}, dtype)));
+      }
+      op.getResult().setType(result);
     }
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
-
-    // Determine the output data type
-    DataType dtype = ttnn::utils::getDataTypeFromMemRef(outputMemref);
-    DataTypeAttr outputDataType =
-        DataTypeAttr::get(rewriter.getContext(), dtype);
 
     // Determine output memory config attr
     ttnn::TensorMemoryLayout outputTensorMemoryLayout =
@@ -187,8 +204,8 @@ public:
                                                   outputMemref.getShape())));
 
     rewriter.replaceOpWithNewOp<ttnn::CompositeToLayoutOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), outputLayout, outputDataType, outputMemConfigAttr,
+        op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
+        outputLayout, outputDataType, outputMemConfigAttr,
         isOnHost ? nullptr : getOrInsertDevice(rewriter, op));
 
     return success();

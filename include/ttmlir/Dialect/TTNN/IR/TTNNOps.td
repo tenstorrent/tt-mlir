@@ -27,7 +27,7 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
-def TTNN_CompositeToLayoutOp : TTNN_Op<"generic_to_layout"> {
+def TTNN_CompositeToLayoutOp : TTNN_Op<"composite_to_layout"> {
   let summary = "Composite toLayout op.";
   let description = [{
       This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
