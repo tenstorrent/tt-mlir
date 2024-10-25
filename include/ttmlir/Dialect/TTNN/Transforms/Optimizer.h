@@ -37,6 +37,9 @@ std::unique_ptr<::mlir::Pass> createTTNNOptimizer(TTNNOptimizerOptions options);
 } // namespace impl
 namespace impl {
 
+// Go through the ops, set sharding specs for each op based on sharding
+// analysis, by updating layout attribute of each op.
+//
 template <typename DerivedT>
 class TTNNOptimizerBase : public ::mlir::OperationPass<::mlir::ModuleOp> {
 public:
@@ -150,12 +153,6 @@ createTTNNOptimizer(TTNNOptimizerOptions options) {
 //===----------------------------------------------------------------------===//
 #ifdef GEN_PASS_REGISTRATION
 inline void registerTTNNOptimizer() {
-  ::mlir::registerPass(
-      []() -> std::unique_ptr<::mlir::Pass> { return createTTNNOptimizer(); });
-}
-
-// Old registration code, kept for temporary backwards compatibility.
-inline void registerTTNNOptimizerPass() {
   ::mlir::registerPass(
       []() -> std::unique_ptr<::mlir::Pass> { return createTTNNOptimizer(); });
 }
