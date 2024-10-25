@@ -15,6 +15,7 @@ table Program {
   inputs: [TensorRef];
   outputs: [TensorRef];
   device_programs: [DeviceProgram];
+  debug_info: DebugInfo;
 }
 
 table TTMetalBinary {

@@ -1,5 +1,40 @@
 namespace tt.target;
 
+table GoldenDataEmbedded {
+  data: [uint8];
+}
+
+table GoldenDataRandomSeed {
+  seed: uint64;
+}
+
+table GoldenDataURL {
+  url: string;
+}
+
+union GoldenData {
+  GoldenDataEmbedded,
+  GoldenDataRandomSeed,
+  GoldenDataURL,
+}
+
+table GoldenTensor {
+  name: string;
+  shape: [int64];
+  stride: [int64];
+  data: [GoldenData];
+}
+
+table GoldenKV {
+  key: string;
+  value: GoldenTensor;
+}
+
+table GoldenInfo {
+  intputs: [GoldenTensor];
+  golden_map: [GoldenKV];
+}
+
 table MLIR {
   name: string;
   source: string;
@@ -8,4 +43,5 @@ table MLIR {
 table DebugInfo {
   mlir: MLIR;
   cpp: string;
+  golden_info: GoldenInfo;
 }

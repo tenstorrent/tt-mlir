@@ -78,6 +78,7 @@ CQExecutor::execute(::tt::target::metal::CommandQueue const *commandQueue) {
   }
   initEvents.clear();
 
+  FnPtr* callback = debug::get_register_callback();
   for (::tt::target::metal::Command const *command :
        *commandQueue->commands()) {
     execute(command);
@@ -457,6 +458,10 @@ void CQExecutor::execute(
 
   constexpr bool blocking = false;
   ::tt::tt_metal::EnqueueProgram(*cq, program, blocking);
+
+  if (callback) {
+    (*callback)(command->tensor_refs());
+  }
 }
 
 void CQExecutor::execute(

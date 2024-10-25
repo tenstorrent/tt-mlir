@@ -586,13 +586,18 @@ class Binary(Flatbuffer):
             self.output_tensors = []
 
         def populate_inputs(self, init_fn):
+            golden_info = program.get_golden_info()
             for i in self.program["inputs"]:
-                torch_tensor = init_fn(
-                    i["desc"]["shape"],
-                    dtype=Binary.Program.from_data_type(
-                        i["desc"]["layout"]["memory_desc"]["data_type"]
-                    ),
-                )
+                if golden_info.inputs[i]:
+                    torch_tensor = golden_info.inputs[i]
+                    self.input_tensors.append(torch_tensor)
+                else:
+                    torch_tensor = init_fn(
+                        i["desc"]["shape"],
+                        dtype=Binary.Program.from_data_type(
+                            i["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
                 self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
