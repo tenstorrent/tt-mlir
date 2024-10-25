@@ -477,8 +477,7 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
                          SI32Attr:$dim,
-
-    TT_OperandConstraintArrayAttr:$operand_constraints);
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -505,6 +504,27 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+}
+
+// CCL ops
+def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
+    let summary = "All gather operation.";
+    let description = [{
+      All gather op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {

@@ -46,6 +46,7 @@
 #include "hostdevcommon/common_values.hpp"
 #include "impl/device/mesh_device.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core/core.hpp"
