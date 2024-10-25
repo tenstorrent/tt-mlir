@@ -2,7 +2,21 @@ name: Build and Test
 
 on:
   workflow_dispatch:
+    inputs:
+      config:
+        description: 'Build configuration, debug or release'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
   workflow_call:
+    inputs:
+      config:
+        type: string
+        default: 'debug'
+        required: true
 
 jobs:
 
@@ -13,6 +27,15 @@ jobs:
     outputs:
       docker-image: ${{ steps.build.outputs.docker-image }}
     steps:
+
+      - name: Check input
+        shell: bash
+        run: |
+          echo "config=${{ inputs.config }}"
+          if [[ -z "${{ inputs.config }}" ]]; then
+            echo "Error: config cannot be empty"
+            exit 1
+          fi
 
       - name: Fix permissions
         shell: bash
@@ -29,13 +52,13 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker images and output the image name
+      - name: Build ${{ inputs.config }} Docker images
         id: build
         shell: bash
         run: |
           # Output the image name
           set pipefail
-          .github/build-docker-images.sh | tee docker.log
+            .github/build-docker-images.sh ${{ inputs.config }} | tee docker.log
           DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
@@ -88,9 +111,9 @@ jobs:
         source env/activate
         cmake -G Ninja \
         -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_BUILD_TYPE=${{ inputs.config }} \
         -DCMAKE_CXX_COMPILER=clang++-17 \
         -DCMAKE_C_COMPILER=clang-17 \
-        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=${{ steps.strings.outputs.install-output-dir }} \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DTTMLIR_ENABLE_RUNTIME=ON \
@@ -103,7 +126,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }}
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
     # - name: Lint
@@ -117,12 +140,12 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- check-ttmlir
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}
+        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}-${{ inputs.config }}
         path: build/test/report.xml
 
     - name: Show Test Report
@@ -138,12 +161,12 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- ttrt
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- ttrt
 
     - name: Upload ttrt whl
       uses: actions/upload-artifact@v4
       with:
-        name: ttrt-whl-${{ matrix.build.name }}
+        name: ttrt-whl-${{ matrix.build.name }}-${{ inputs.config }}
         path: build/runtime/tools/python/build/ttrt*.whl
 
     # This is needed to preserve file permissions
@@ -156,7 +179,7 @@ jobs:
     - name: Upload install folder to archive
       uses: actions/upload-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.name }}
+        name: install-artifacts-${{ matrix.build.name }}-${{ inputs.config }}
         path: ${{ steps.strings.outputs.install-output-dir }}/artifact.tar
 
     - name: Get the latest tag
@@ -223,7 +246,7 @@ jobs:
     - name: Use build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.name }}
+        name: install-artifacts-${{ matrix.build.name }}-${{ inputs.config }}
         path: ${{ steps.strings.outputs.install-output-dir }}
 
     # This is needed to preserve file permissions
@@ -241,7 +264,7 @@ jobs:
     - name: Download ttrt run whls
       uses: actions/download-artifact@v4
       with:
-        name: ttrt-whl-${{ matrix.build.name }}
+        name: ttrt-whl-${{ matrix.build.name }}-${{ inputs.config }}
 
     - name: Install ttrt run whls
       shell: bash
@@ -325,7 +348,7 @@ jobs:
     - name: Use build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.name }}
+        name: install-artifacts-${{ matrix.build.name }}-${{ inputs.config }}
         path: ${{ steps.strings.outputs.install-output-dir }}
 
     # This is needed to preserve file permissions
@@ -343,7 +366,7 @@ jobs:
     - name: Download ttrt run whls
       uses: actions/download-artifact@v4
       with:
-        name: ttrt-whl-${{ matrix.build.name }}
+        name: ttrt-whl-${{ matrix.build.name }}-${{ inputs.config }}
 
     - name: Install ttrt run whls
       shell: bash

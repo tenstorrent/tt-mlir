@@ -15,6 +15,13 @@ jobs:
   macos-build:
     uses: ./.github/workflows/macos-build.yml
     secrets: inherit
-  build-and-test:
+  build-and-test-debug:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+    with:
+      config: 'debug'
+  build-and-test-release:
+    uses: ./.github/workflows/build-and-test.yml
+    secrets: inherit
+    with:
+      config: 'release'
