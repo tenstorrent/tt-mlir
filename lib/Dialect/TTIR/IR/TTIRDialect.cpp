@@ -8,6 +8,11 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/TypeSwitch.h"
+
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
 
 using namespace mlir;
 using namespace mlir::tt::ttir;
@@ -59,4 +64,8 @@ void TTIRDialect::initialize() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
       >();
   addInterfaces<TTIRInlinerInterface>();
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
+      >();
 }

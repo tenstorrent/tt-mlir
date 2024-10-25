@@ -25,6 +25,7 @@ void createTTNNPipelineTTIRPasses(
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
 
+  pm.addPass(mlir::tt::ttir::createTTIRConvolutionToConv2d());
   pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 

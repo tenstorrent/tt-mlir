@@ -63,6 +63,54 @@
 }
 
 //===----------------------------------------------------------------------===//
+// ConvolutionOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ConvolutionOp::verify() {
+  if (getConvolutionLayout().getInputSpatialDimensions().size() !=
+      getConvolutionLayout().getOutputSpatialDimensions().size()) {
+    return emitOpError("Convolution input, output, and kernel must have the "
+                       "same number of spatial dimensions");
+  }
+  if (getConvolutionLayout().getInputSpatialDimensions().size() !=
+      getConvolutionLayout().getKernelSpatialDimensions().size()) {
+    return emitOpError("Convolution input, output, and kernel must have the "
+                       "same number of spatial dimensions");
+  }
+
+  // Subtract 2 from the rank as to not count batch and feature dimension
+  if (getInput().getType().getRank() - 2 !=
+      (int64_t)getConvolutionLayout().getInputSpatialDimensions().size()) {
+    return emitOpError("Input tensor must have the same number of spatial "
+                       "dimensions as specified in the ConvolutionLayout");
+  }
+
+  if (getWeight().getType().getRank() - 2 !=
+      (int64_t)getConvolutionLayout().getKernelSpatialDimensions().size()) {
+    return emitOpError("Weight tensor must have the same number of spatial "
+                       "dimensions as specified in the ConvolutionLayout");
+  }
+
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
+
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+  }
+
+  if (getWindowStrides().size() !=
+      getConvolutionLayout().getInputSpatialDimensions().size()) {
+    return emitOpError("Window strides must have the same number of elements "
+                       "as the spatial dimensions of the input tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 

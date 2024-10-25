@@ -119,4 +119,11 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
+def TTIRConvolutionToConv2d: Pass<"ttir-convolution-to-conv2d", "::mlir::ModuleOp"> {
+  let summary = "Convert eligible convolution ops to conv2d ops.";
+  let description = [{
+    This pass converts eligible convolution ops to conv2d ops.
+  }];
+}
+
 #endif
