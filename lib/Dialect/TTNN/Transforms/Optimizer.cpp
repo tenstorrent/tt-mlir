@@ -22,7 +22,7 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPTIMIZER
-#include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
+#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
 
 class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
