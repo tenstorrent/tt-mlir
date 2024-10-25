@@ -373,46 +373,28 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    std::vector<int64_t> strides =
-        adaptor.getWindowStrides().value_or(ArrayRef<int64_t>({1, 1})).vec();
-    IntegerAttr stride_height_attr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(strides[0]));
-    IntegerAttr stride_width_attr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(strides[1]));
-
-    std::vector<int64_t> dilation =
-        adaptor.getLhsDilation().value_or(ArrayRef<int64_t>({1, 1})).vec();
-
-    IntegerAttr dilation_height_attr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(dilation[0]));
-    IntegerAttr dilation_width_attr =
-        rewriter.getSI32IntegerAttr(static_cast<int32_t>(dilation[1]));
-
-    IntegerAttr groups_attr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(adaptor.getFeatureGroupCount()));
-
-    std::vector<int32_t> padding;
-    if (!adaptor.getPadding().has_value()) {
-      padding = {0, 0, 0, 0};
-    } else {
-      for (auto iter = adaptor.getPadding()->value_begin<int64_t>();
-           iter < adaptor.getPadding()->value_end<int64_t>(); iter++) {
-        padding.push_back(static_cast<int32_t>(*iter));
-      }
-    }
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::Conv2dOp>(
+    auto dimNums = adaptor.getDimensionNumbers();
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConvolutionOp>(
         srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-        mlir::Value(nullptr), outputTensor, stride_height_attr,
-        stride_width_attr, dilation_height_attr, dilation_width_attr,
-        groups_attr, rewriter.getSI32IntegerAttr(padding[0]),
-        rewriter.getSI32IntegerAttr(padding[1]),
-        rewriter.getSI32IntegerAttr(padding[2]),
-        rewriter.getSI32IntegerAttr(padding[3]),
+        mlir::Value(nullptr), outputTensor, adaptor.getWindowStridesAttr(),
+        adaptor.getPaddingAttr(), adaptor.getLhsDilationAttr(),
+        adaptor.getRhsDilationAttr(), adaptor.getWindowReversalAttr(),
+        mlir::tt::ttir::ConvolutionLayoutAttr::get(
+            getContext(), dimNums.getInputBatchDimension(),
+            dimNums.getInputFeatureDimension(),
+            dimNums.getInputSpatialDimensions(),
+            dimNums.getKernelOutputFeatureDimension(),
+            dimNums.getKernelInputFeatureDimension(),
+            dimNums.getKernelSpatialDimensions(),
+            dimNums.getOutputBatchDimension(),
+            dimNums.getOutputFeatureDimension(),
+            dimNums.getOutputSpatialDimensions()),
+        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr(),
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
+
     return success();
   }
 };
