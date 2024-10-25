@@ -43,8 +43,8 @@ ExternalProject_Add(
     -DPython3_FIND_VIRTUALENV=ONLY
     -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
-    -DCMAKE_C_COMPILER=clang-17
-    -DCMAKE_CXX_COMPILER=clang++-17
+    -DCMAKE_C_COMPILER=clang
+    -DCMAKE_CXX_COMPILER=clang++
     -DLLVM_ENABLE_PROJECTS=mlir
     -DLLVM_INSTALL_UTILS=ON
     # Build shared libraries
