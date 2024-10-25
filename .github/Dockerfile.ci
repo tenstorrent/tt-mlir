@@ -1,12 +1,9 @@
 ARG FROM_TAG=latest
-ARG CONFIG=debug
-
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04-${CONFIG}:${FROM_TAG} AS ci-build
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci-build
 SHELL ["/bin/bash", "-c"]
 
-ARG FROM_TAG=latest
-ARG CONFIG=debug
-ENV BUILD_CONFIG=$CONFIG
+ARG CONFIG
+ENV BUILD_CONFIG=${CONFIG:+--config $CONFIG}
 
 # Create a directory for the build and toolchain
 ENV PROJECT_NAME=tt-mlir
@@ -29,16 +26,6 @@ RUN git log -1
 
 RUN source env/activate && \
     cmake -B env/build env && \
-    cmake --build env/build --config $BUILD_CONFIG
-
-# Final stage
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04-${CONFIG}:${FROM_TAG} AS ci
-ARG FROM_TAG=latest
-ARG CONFIG=debug
-
-# Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
-ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
-RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
-COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
+    cmake --build env/build $BUILD_CONFIG
 
 RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR

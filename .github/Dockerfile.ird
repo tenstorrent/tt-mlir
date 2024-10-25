@@ -1,8 +1,6 @@
-ARG FROM_IMAGE=base
 ARG FROM_TAG=latest
-ARG CONFIG=debug
-
-FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-${FROM_IMAGE}-ubuntu-22-04-${CONFIG}:${FROM_TAG}
+ARG CONFIG
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-22-04${CONFIG:+-$CONFIG}:${FROM_TAG}
 SHELL ["/bin/bash", "-c"]
 
 # Set environment variables
@@ -14,7 +12,8 @@ RUN apt-get update && apt-get install -y \
     ssh \
     sudo \
     wget \
-    vim
+    vim \
+    gh
 
 # Create a directory for the toolchain and set permissions
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \

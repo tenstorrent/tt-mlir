@@ -20,51 +20,24 @@ on:
 
 jobs:
 
-  build-image:
-    runs-on:
-      - in-service
-      - builder
+  docker-ci-image:
+    runs-on: ubuntu-latest
     outputs:
-      docker-image: ${{ steps.build.outputs.docker-image }}
+      image: ${{ steps.read.outputs.docker-image }}
     steps:
-
-      - name: Check input
-        shell: bash
-        run: |
-          echo "config=${{ inputs.config }}"
-          if [[ -z "${{ inputs.config }}" ]]; then
-            echo "Error: config cannot be empty"
-            exit 1
-          fi
-
-      - name: Fix permissions
-        shell: bash
-        run: sudo chown ubuntu:ubuntu -R $(pwd)
-
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build ${{ inputs.config }} Docker images
-        id: build
+      - name: Get docker image name
+        id: read
         shell: bash
         run: |
-          # Output the image name
-          set pipefail
-            .github/build-docker-images.sh ${{ inputs.config }} | tee docker.log
-          DOCKER_CI_IMAGE=$(tail -n 1 docker.log)
+          # Call script to get docker tag and compose image name
+          DOCKER_IMAGE_TAG=$(.github/get-docker-tag.sh)
+          DOCKER_CI_IMAGE=ghcr.io/${{ github.repository }}/tt-mlir-ci-ubuntu-22-04:$DOCKER_IMAGE_TAG
           echo "DOCKER_CI_IMAGE $DOCKER_CI_IMAGE"
           echo "docker-image=$DOCKER_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
   build-ttmlir:
-    needs: build-image
+    needs: docker-ci-image
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -78,7 +51,7 @@ jobs:
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ needs.docker-ci-image.outputs.image }}
 
     steps:
 
@@ -201,7 +174,7 @@ jobs:
 
     timeout-minutes: 30
     needs:
-      - build-image
+      - docker-ci-image
       - build-ttmlir
     strategy:
       fail-fast: false
@@ -218,7 +191,7 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ needs.docker-ci-image.outputs.image }}
       options: --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages
@@ -306,7 +279,7 @@ jobs:
 
     timeout-minutes: 30
     needs:
-      - build-image
+      - docker-ci-image
       - build-ttmlir
     strategy:
       fail-fast: false
@@ -320,7 +293,7 @@ jobs:
       - ${{ matrix.build.runs-on }}
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ needs.docker-ci-image.outputs.image }}
       options: --device /dev/tenstorrent/0
       volumes:
         - /dev/hugepages:/dev/hugepages

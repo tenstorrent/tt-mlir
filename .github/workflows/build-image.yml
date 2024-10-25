@@ -1,0 +1,44 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: 'Build configuration, debug or release'
+        required: false
+        type: choice
+        options:
+          - debug
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: false
+
+jobs:
+  build-image:
+    runs-on:
+      - in-service
+      - builder
+    steps:
+
+      - name: Fix permissions
+        shell: bash
+        run: sudo chown ubuntu:ubuntu -R $(pwd)
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ inputs.config }} Docker images
+        id: build
+        shell: bash
+        run: |
+          .github/build-docker-images.sh ${{ inputs.config }}

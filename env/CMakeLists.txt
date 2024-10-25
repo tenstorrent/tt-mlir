@@ -18,7 +18,7 @@ if (NOT EXISTS "${TTMLIR_TOOLCHAIN_DIR}")
 endif()
 
 if (NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
+  set(CMAKE_BUILD_TYPE "MinSizeRel" CACHE STRING "Build type" FORCE)
 endif()
 
 add_custom_target(python-venv ALL COMMAND TTMLIR_TOOLCHAIN=${TTMLIR_TOOLCHAIN_DIR} CURRENT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} bash ${CMAKE_CURRENT_SOURCE_DIR}/build_venv.sh)
@@ -27,7 +27,7 @@ ExternalProject_Add(
     flatbuffers
     CMAKE_GENERATOR Ninja
     CMAKE_ARGS
-    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
     -DFLATBUFFERS_BUILD_TESTS=OFF
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON # Required for linking into shared libraries (python bindings)
