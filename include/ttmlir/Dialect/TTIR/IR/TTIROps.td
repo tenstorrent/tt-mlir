@@ -7,6 +7,7 @@
 
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
+include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -597,6 +598,45 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
 
     let hasVerifier = 1;
 }
+
+def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
+  let summary = "Generalized convolution op.";
+  let description = [{
+    Applies a convolution of the rhs with the lhs.
+
+    This operation captures convolutions of all dimensionality as well
+    as deconvolution/conv transpose.
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$input,
+    AnyRankedTensor:$weight,
+    Optional<AnyRankedTensor>:$bias,
+    AnyRankedTensor:$output,
+    // Default value: one for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$window_strides,
+    // Default value: two zeros for each of the spatial dimension.
+    DefaultValuedOptionalAttr<I64ElementsAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size()*2, 0)">:$padding,
+    // Default value: one for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$input_dilation,
+    // Default value: one for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$weight_dilation,
+    // Default value: false for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseBoolArrayAttr, "SmallVector<bool>(getConvolutionLayout().getInputSpatialDimensions().size(), false)">:$window_reversal,
+    TTIR_ConvolutionLayoutAttr:$convolution_layout,
+    ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
+    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count,
+    TT_OperandConstraintArrayAttr:$operand_constraints
+  );
+
+  let results = (outs AnyRankedTensor);
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 
 def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
