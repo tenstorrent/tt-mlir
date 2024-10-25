@@ -46,6 +46,7 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/Conversion/TTIRToTTMetal/TTIRMatmulToTTMetal.h"
 
 namespace mlir::tt::ttmetal {
 
@@ -195,6 +196,13 @@ public:
                                                    dstRemoteNocAddr, size);
     }
   }
+
+  static void
+  buildNocAsyncMulticastTx(mlir::Location loc, std::int64_t inputBaseAddress, 
+                          std::int64_t outputBaseAddress, std::int64_t addressAlignment, 
+                          NocTx nocTx, PhysicalCoreCoordMapping &physicalCoordMapping) {
+
+      }
 
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
@@ -1852,7 +1860,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                ttmetal::TTIRToTTMetalDispatchRewriter,
                ttmetal::TTIRToTTMetalAllocRewriter,
                ttmetal::TTIRToTTMetalDeallocRewriter,
-               ttmetal::TTIRToTTMetalFillRewriter>(ctx);
+               ttmetal::TTIRToTTMetalFillRewriter,
+               ttmetal::TTIRToTTMetalMatmulRewriter>(ctx);
 }
 
 } // namespace mlir::tt
