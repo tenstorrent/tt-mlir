@@ -40,6 +40,7 @@
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #pragma clang diagnostic ignored "-Wc99-extensions"
+#pragma clang diagnostic ignored "-Wc++11-narrowing"
 
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"

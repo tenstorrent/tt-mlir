@@ -31,7 +31,7 @@ add_library(TTRuntimeTTNNOps
 )
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
-target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2 -fsized-deallocation)
 target_include_directories(TTRuntimeTTNNOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include

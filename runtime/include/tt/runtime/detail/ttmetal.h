@@ -153,19 +153,17 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
   uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
   uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
   uint64_t size = tensorShape[0] * tensorShape[1] * pageSize;
-  auto shardedBufferConfig = ShardedBufferConfig{
-      .device = device,
-      .size = size,
-      .page_size = pageSize,
-      .buffer_type = bufferType,
-      .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
-      .shard_parameters = shardSpecBuffer,
-      .allocate = false,
-  };
+  auto shardedBufferConfig =
+      ShardedBufferConfig{.device = device,
+                          .size = size,
+                          .page_size = pageSize,
+                          .buffer_type = bufferType,
+                          .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
+                          .shard_parameters = shardSpecBuffer};
   std::shared_ptr<::tt::tt_metal::Buffer> buffer =
       ::tt::tt_metal::CreateBuffer(shardedBufferConfig);
   assert(tensorRef->address());
-  buffer->set_address(tensorRef->address());
+  // buffer->set_address(tensorRef->address());
   return buffer;
 }
 #pragma clang diagnostic pop

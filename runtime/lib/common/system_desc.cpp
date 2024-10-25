@@ -174,8 +174,8 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
   return dramUnreservedEnd;
 }
 
-static std::unique_ptr<::tt::runtime::SystemDesc>
-getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
+static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
+    const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
   std::vector<::tt::tt_metal::Device *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
             [](const ::tt::tt_metal::Device *a,
@@ -271,9 +271,10 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::MeshShape meshShape = std::make_pair(1, numDevices);
-  std::shared_ptr<::tt::tt_metal::MeshDevice> meshDevice =
-      ::tt::tt_metal::MeshDevice::create(
+  ::tt::tt_metal::distributed::MeshShape meshShape =
+      std::make_pair(1, numDevices);
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
+      ::tt::tt_metal::distributed::MeshDevice::create(
           meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
           ::tt::tt_metal::DispatchCoreType::WORKER);
   std::exception_ptr eptr = nullptr;
