@@ -47,9 +47,9 @@ public:
       bool changed = false;
       Type elementType = type.getElementType();
       llvm::ArrayRef<int64_t> shape = type.getShape();
-      // Convert the element type to bfloat16 if the input is boolean.
+      // Convert the element type to Int32 if the input is boolean.
       if (type.getElementTypeBitWidth() == 1) {
-        elementType = BFloat16Type::get(elementType.getContext());
+        elementType = IntegerType::get(elementType.getContext(), 32);
         changed = true;
       }
       // Create shape of 1-D tensor in case of scalar input.

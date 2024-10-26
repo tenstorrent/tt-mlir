@@ -317,10 +317,12 @@ public:
 
     // Scalar tensors are not supported by TTIR so we have to convert them to
     // 1-D tensors.
-    mlir::ElementsAttr valueAttr =
-        srcOp.getValue().getShapedType().getShape().empty()
-            ? convertTo1DTensor(srcOp.getValue())
-            : srcOp.getValue();
+    mlir::ElementsAttr valueAttr;
+    if (srcOp.getResult().getType() == outputType) {
+      valueAttr = srcOp.getValue();
+    } else {
+      valueAttr = rebuildTensor(srcOp.getValue());
+    }
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             valueAttr);
@@ -338,12 +340,15 @@ private:
     return success();
   }
 
-  mlir::ElementsAttr convertTo1DTensor(mlir::ElementsAttr valueAttr) const {
+  mlir::ElementsAttr rebuildTensor(mlir::ElementsAttr valueAttr) const {
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
         getTypeConverter()->convertType(valueAttr.getShapedType()));
-    if (valueAttr.getElementType().isInteger()) {
-      return mlir::DenseElementsAttr::get<int>(valueType,
-                                               valueAttr.getSplatValue<int>());
+
+    if (valueType.getElementType().isInteger()) {
+      std::vector<mlir::APInt> intValues(
+          valueAttr.getValues<mlir::APInt>().begin(),
+          valueAttr.getValues<mlir::APInt>().end());
+      return mlir::DenseElementsAttr::get(valueType, intValues);
     } else {
       // In case of float values llvm has a bug where not all float types are
       // supported for iterating in DenseElementsAttr, so we have to use a
