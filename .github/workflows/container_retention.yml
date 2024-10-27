@@ -1,7 +1,8 @@
 on:
   push:
-  # schedule:
-  #   - cron: "0 0 * * *"  # run every day at midnight, utc
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 1 * *"  # run every 1 day of a month
 
 jobs:
   delete-package-versions:
@@ -14,4 +15,4 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           image-names: "tt-mlir*"
           cut-off: 4w
-          dry-run: true
+          dry-run: false
