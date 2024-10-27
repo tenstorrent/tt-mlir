@@ -1,7 +1,7 @@
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 1 * *"  # run every 1 day of a month
+    - cron: "0 0 * * *"  # run every day at midnight
 
 jobs:
   delete-package-versions:
