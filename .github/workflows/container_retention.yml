@@ -1,0 +1,17 @@
+on:
+  push:
+  # schedule:
+  #   - cron: "0 0 * * *"  # run every day at midnight, utc
+
+jobs:
+  delete-package-versions:
+    name: Delete package versions older than 4 weeks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: snok/container-retention-policy@v3.0.0
+        with:
+          account: tenstorrent
+          token: ${{ secrets.GH_TOKEN }}
+          image-names: "tt-mlir*"
+          cut-off: 4w
+          dry-run: true
