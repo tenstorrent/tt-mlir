@@ -1,5 +1,4 @@
 on:
-  push:
   workflow_dispatch:
   schedule:
     - cron: "0 0 1 * *"  # run every 1 day of a month
