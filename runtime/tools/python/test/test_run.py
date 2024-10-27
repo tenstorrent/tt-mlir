@@ -47,7 +47,6 @@ def test_flatbuffer_cmd():
     ), f"one of more tests failed in={test_flatbuffer_cmd.__name__}"
 
 
-@pytest.mark.skip
 def test_dir_flatbuffer():
     API.initialize_apis()
     custom_args = {}
@@ -60,7 +59,6 @@ def test_dir_flatbuffer():
     ), f"one of more tests failed in={test_dir_flatbuffer.__name__}"
 
 
-@pytest.mark.skip
 def test_dir_flatbuffer_cmd():
     command = f"ttrt run {DIRECTORY_PATH} --log-file {test_dir_flatbuffer_cmd.__name__}_run.log"
     sub_process_command(command)
