@@ -176,6 +176,9 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
     for (auto it : *(element->supported_data_types())) {
       switch (it) {
+      case ::tt::target::DataType::None:
+        assert(false && "Unexpected None DataType");
+        break;
       case ::tt::target::DataType::Float32:
         supported_data_types_attr.push_back(
             tt::DataTypeAttr::get(context, tt::DataType::Float32));
@@ -642,6 +645,14 @@ LayoutAttr LayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
       context, getLinear(), getOobVal(), getGrid(),
       buildMemRef(context, getShardShape(), getElementType(), getMemorySpace()),
       memLayout);
+}
+
+LayoutAttr LayoutAttr::withShardShape(::mlir::MLIRContext *context,
+                                      llvm::SmallVector<int64_t> shardShape) {
+  return LayoutAttr::get(
+      context, getLinear(), getOobVal(), getGrid(),
+      buildMemRef(context, shardShape, getElementType(), getMemorySpace()),
+      getMemLayout());
 }
 
 MemorySpace LayoutAttr::getMemorySpace() const {

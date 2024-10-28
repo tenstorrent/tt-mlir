@@ -12,7 +12,7 @@ static void
 getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                ProgramTensorPool &tensorPool,
                                ::ttnn::Tensor **lhs, ::ttnn::Tensor **rhs) {
-  assert(op->ins()->size() == 2 && "Expected 2 inputs");
+  LOG_ASSERT(op->ins()->size() == 2, "Expected 2 inputs");
   *lhs = &(tensorPool.at(op->ins()->Get(0)->global_id()));
   *rhs = &(tensorPool.at(op->ins()->Get(1)->global_id()));
   DEBUG_ASSERT((*lhs)->is_allocated());
@@ -67,7 +67,6 @@ static void runEltwiseBinaryCompositeOP(
 }
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
-  assert(isBinaryOp(op) && "Expected binary operation");
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   /* Eltwise Binary */

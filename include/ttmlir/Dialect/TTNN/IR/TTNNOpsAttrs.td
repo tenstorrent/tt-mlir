@@ -42,8 +42,6 @@ def TTNN_CoreRangeAttr : TTNN_Attr<"CoreRange", "core_range"> {
   }];
 }
 
-def TTNN_CoreRangeArrayAttr : TypedArrayAttrBase<TTNN_CoreRangeAttr, "">;
-
 def TTNN_LayoutAttr : EnumAttr<TTNN_Dialect, TTNN_Layout, "layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
@@ -56,17 +54,6 @@ def TTNN_BufferTypeAttr : EnumAttr<TTNN_Dialect, TTNN_BufferType, "buffer_type">
   let assemblyFormat = "`<` $value `>`";
 }
 
-def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
-  let summary = "TTNN MemoryConfig attribute";
-  let description = [{
-    TTNN memory config attribute
-  }];
-
-  let parameters = (ins AttrParameter<"TensorMemoryLayoutAttr", "">:$tensorMemoryLayout,
-                        AttrParameter<"BufferTypeAttr", "">:$bufferType);
-  let assemblyFormat = "`<` params `>`";
-}
-
 def TTNN_ShapeAttr : TTNN_Attr<"Shape", "shape"> {
   let summary = "TTNN Shape attribute";
   let description = [{
@@ -75,6 +62,37 @@ def TTNN_ShapeAttr : TTNN_Attr<"Shape", "shape"> {
 
   let parameters = (ins ArrayRefParameter<"int64_t">:$shape);
   let assemblyFormat = "`<` custom<DimensionList>($shape) `>`";
+}
+
+def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
+  let summary = "TTNN ShardSpec attribute";
+  let description = [{
+    TTNN ShardSpec attribute
+  }];
+
+  // TODO (#620): Add other fields like core_ranges, shard orientation etc.
+  let parameters = (ins AttrParameter<"ShapeAttr", "">:$shardShape);
+  let assemblyFormat = "`<` params `>`";
+}
+
+def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
+  let summary = "TTNN MemoryConfig attribute";
+  let description = [{
+    TTNN memory config attribute
+  }];
+
+  let parameters = (ins AttrParameter<"TensorMemoryLayoutAttr", "">:$tensorMemoryLayout,
+                        AttrParameter<"BufferTypeAttr", "">:$bufferType,
+                        AttrParameter<"ShardSpecAttr", "">:$shardSpec);
+
+  let assemblyFormat = "`<` params `>`";
+
+  let extraClassDeclaration = [{
+    ::llvm::ArrayRef<int64_t> getShardShapeArray() const
+    {
+      return this->getShardSpec().getShardShape().getShape();
+    }
+  }];
 }
 
 def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {

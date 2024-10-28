@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -166,7 +167,7 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
       (totalProgramCarveOut + totalDramCores - 1) / totalDramCores;
   static_assert(DRAM_ALIGNMENT > 0);
   static_assert((DRAM_ALIGNMENT & (DRAM_ALIGNMENT - 1)) == 0);
-  assert(programCarveOutDramSpace < device->dram_size_per_channel());
+  LOG_ASSERT(programCarveOutDramSpace < device->dram_size_per_channel());
   std::uint32_t dramUnreservedEnd =
       device->dram_size_per_channel() - programCarveOutDramSpace;
   // Align to DRAM_ALIGNMENT

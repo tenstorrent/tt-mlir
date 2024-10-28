@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "utils.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::utils {
@@ -22,9 +23,13 @@ bool isOnDevice(const ::ttnn::Tensor &tensor) {
   return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
 }
 
+::tt::target::MemorySpace
+getMemorySpace(const ::tt::target::TensorRef *tensorRef) {
+  return tensorRef->desc()->layout()->memory_desc()->memory_space();
+}
+
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
-  const ::tt::target::MemorySpace targetMemorySpace =
-      tensorRef->desc()->layout()->memory_desc()->memory_space();
+  const ::tt::target::MemorySpace targetMemorySpace = getMemorySpace(tensorRef);
   return targetMemorySpace == ::tt::target::MemorySpace::System or
          targetMemorySpace == ::tt::target::MemorySpace::SystemMMIO;
 }
@@ -38,15 +43,16 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
 inferLayoutFromTileShape(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =
       tensorRef->desc()->layout()->memory_desc()->tile_shape();
-  assert(::tt::runtime::ttnn::utils::isValidTileShape(tileShape));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(tileShape));
   if (tileShape->x() == 1 and tileShape->y() == 1) {
     return ::ttnn::Layout::ROW_MAJOR;
   }
   return ::ttnn::Layout::TILE;
 }
 
-CoreRangeSet toCoreRangeSet(
-    const ::flatbuffers::Vector<const tt::target::Dim2dRange *> *coreRangeSet) {
+CoreRangeSet
+toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
+                   *coreRangeSet) {
   std::set<CoreRange> coreRanges;
   for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
     CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
@@ -72,17 +78,24 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
       *targetCoreRangeSet = layout->core_range_set();
   const ::flatbuffers::Vector<int32_t> *targetShardShape =
       layout->memory_desc()->shape();
+  const ::tt::target::Dim2d *tileShape = layout->memory_desc()->tile_shape();
 
-  assert(targetCoreRangeSet->size() == 1 &&
-         "Currently only single core range/grid is supported");
+  LOG_ASSERT(targetCoreRangeSet->size() == 1,
+             "Currently only single core range/grid is supported");
 
-  assert(targetShardShape->size() == 2 &&
-         "Only 2D shard shape is supported in TTNN backend");
+  LOG_ASSERT(targetShardShape->size() == 2,
+             "Only 2D shard shape is supported in TTNN backend");
+
+  LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(tileShape),
+             "Invalid tile shape");
 
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
   std::array<uint32_t, 2> ttnnShardShape;
   std::copy(targetShardShape->begin(), targetShardShape->end(),
             ttnnShardShape.begin());
+
+  ttnnShardShape[0] *= tileShape->y();
+  ttnnShardShape[1] *= tileShape->x();
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
@@ -100,7 +113,7 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
 // Prefer to use this method over the one above
 //
 ::tt::tt_metal::MemoryConfig
-createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
+createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
                    const ::tt::target::TensorRef *tensorRef) {
 
   ::ttnn::TensorMemoryLayout tensorMemoryLayout =
@@ -110,21 +123,29 @@ createMemoryConfig(const tt::target::MemoryConfigDesc *memcfg,
   ::ttnn::BufferType bufferType =
       ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());
 
-  // TODO(bug #620):
-  // Until ShardSpec support is added in TTNN, read it from the output tensor.
-  // If ShardSpec is not supplied, an error will be thrown in ttnn lib.
-  //
-  // TODO(bug #620):
-  // Update the method signature above: remove tensorRef
-  //
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
   CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  const ::flatbuffers::Vector<int64_t> *shardShape = memcfg->shard_shape();
+  const ::flatbuffers::Vector<int64_t> *shardShape =
+      memcfg->shard_spec()->shard_shape();
+  const ::tt::target::Dim2d *tileShape = layout->memory_desc()->tile_shape();
+
+  LOG_ASSERT(targetCoreRangeSet->size() == 1,
+             "Currently only single core range/grid is supported");
+
+  LOG_ASSERT(shardShape->size() == 2,
+             "Only 2D shard shape is supported in TTNN backend");
+
+  LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(tileShape),
+             "Invalid tile shape");
+
   std::array<uint32_t, 2> ttnnShardShape = {
       static_cast<uint32_t>(shardShape->Get(0)),
       static_cast<uint32_t>(shardShape->Get(1))};
+
+  ttnnShardShape[0] *= tileShape->y();
+  ttnnShardShape[1] *= tileShape->x();
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
