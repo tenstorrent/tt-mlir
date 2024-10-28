@@ -64,9 +64,10 @@ size_t getNumAvailableDevices() {
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
   assert(deviceIds.size() && "No devices specified");
-  ::tt::tt_metal::MeshShape grid = std::make_pair(1, deviceIds.size());
-  std::shared_ptr<::tt::tt_metal::MeshDevice> meshDevice =
-      ::tt::tt_metal::MeshDevice::create(
+  ::tt::tt_metal::distributed::MeshShape grid =
+      std::make_pair(1, deviceIds.size());
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
+      ::tt::tt_metal::distributed::MeshDevice::create(
           grid, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
           ::tt::tt_metal::DispatchCoreType::WORKER);
 
@@ -75,14 +76,16 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
 }
 
 void closeDevice(Device device) {
-  ::tt::tt_metal::MeshDevice &ttmetalMeshDevice =
-      device.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+  ::tt::tt_metal::distributed::MeshDevice &ttmetalMeshDevice =
+      device.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
   ttmetalMeshDevice.close_devices();
 }
 
 void deallocateBuffers(Device deviceHandle) {
-  ::tt::tt_metal::MeshDevice &meshDevice =
-      deviceHandle.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
 
   for (::tt::tt_metal::Device *device : meshDevice.get_devices()) {
     device->deallocate_buffers();
@@ -170,8 +173,9 @@ Event submit(Device deviceHandle, Binary executableHandle,
   ::tt::target::metal::TTMetalBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::metal::Program const *program =
       fbb.programs()->Get(programIndex);
-  ::tt::tt_metal::MeshDevice &meshDevice =
-      deviceHandle.as<::tt::tt_metal::MeshDevice>(DeviceRuntime::TTMetal);
+  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
   DeviceList allDevices = meshDevice.get_devices();
   assert(allDevices.size() > 0 && "Unexpected empty device mesh");
   DeviceList deviceList = {allDevices[0]};

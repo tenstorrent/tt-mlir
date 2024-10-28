@@ -187,6 +187,13 @@ table DeallocOp {
   in: tt.target.TensorRef;
 }
 
+table AllGatherOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: uint32;
+  num_links: uint32;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -206,7 +213,8 @@ union OpType {
   ReshapeOp,
   SliceOp,
   MaxPool2dOp,
-  DeallocOp
+  DeallocOp,
+  AllGatherOp,
 }
 
 table Operation {

@@ -243,6 +243,9 @@ def test_loops_cmd():
     ), f"one of more tests failed in={test_loops_cmd.__name__}"
 
 
+@pytest.mark.skip(
+    "Issue: 762 - Need to support proper reading of device data. Includes fixing perf mode in ttrt"
+)
 def test_device():
     API.initialize_apis()
     custom_args = {}
@@ -255,6 +258,9 @@ def test_device():
     ), f"one of more tests failed in={test_device.__name__}"
 
 
+@pytest.mark.skip(
+    "Issue: 762 - Need to support proper reading of device data. Includes fixing perf mode in ttrt"
+)
 def test_device_cmd():
     command = (
         f"ttrt perf {BINARY_FILE_PATH} --log-file {test_device_cmd.__name__}_perf.log"

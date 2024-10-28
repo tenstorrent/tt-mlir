@@ -1,5 +1,6 @@
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
@@ -30,7 +31,7 @@ add_library(TTRuntimeTTNNOps
 )
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
-target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2)
+target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2 -fsized-deallocation)
 target_include_directories(TTRuntimeTTNNOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include

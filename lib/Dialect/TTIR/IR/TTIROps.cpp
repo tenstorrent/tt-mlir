@@ -753,6 +753,22 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 //===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+
+// AllGatherOp verification
+::mlir::LogicalResult mlir::tt::ttir::AllGatherOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
+
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError("Invalid dimension for all gather op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 

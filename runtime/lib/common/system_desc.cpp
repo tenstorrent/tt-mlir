@@ -28,9 +28,9 @@
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
 #define FMT_HEADER_ONLY
+#include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#include "impl/device/mesh_device.hpp"
 #pragma clang diagnostic pop
 
 namespace tt::runtime::system_desc {
@@ -158,7 +158,8 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
   std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
                              device->get_active_ethernet_cores().size();
   std::uint32_t totalDramCores = dramGridSize.x * dramGridSize.y;
-  std::uint32_t programCarveOutPerCore = L1_UNRESERVED_BASE;
+  std::uint32_t programCarveOutPerCore =
+      device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
   std::uint32_t totalProgramCarveOut = programCarveOutPerCore * totalCores;
   // The total carve out can be interleaved between all dram channels
   std::uint32_t programCarveOutDramSpace =
@@ -173,8 +174,8 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
   return dramUnreservedEnd;
 }
 
-static std::unique_ptr<::tt::runtime::SystemDesc>
-getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
+static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
+    const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
   std::vector<::tt::tt_metal::Device *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
             [](const ::tt::tt_metal::Device *a,
@@ -190,6 +191,11 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
   ::flatbuffers::FlatBufferBuilder fbb;
 
   for (const ::tt::tt_metal::Device *device : devices) {
+    size_t l1UnreservedBase =
+        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
+    size_t dramUnreservedBase =
+        device->get_base_allocator_addr(::tt::tt_metal::HalMemType::DRAM);
+
     // Construct chip descriptor
     ::tt::target::Dim2d deviceGrid =
         toFlatbuffer(device->compute_with_storage_grid_size());
@@ -223,9 +229,10 @@ getCurrentSystemDescImpl(const ::tt::tt_metal::MeshDevice &meshDevice) {
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
-        DRAM_ALIGNMENT, L1_UNRESERVED_BASE, ERISC_L1_UNRESERVED_BASE,
-        DRAM_UNRESERVED_BASE, dramUnreservedEnd, chipPhysicalCores,
-        supportedDataTypes, supportedTileSizes));
+        DRAM_ALIGNMENT, l1UnreservedBase,
+        ::eth_l1_mem::address_map::ERISC_L1_UNRESERVED_BASE, dramUnreservedBase,
+        dramUnreservedEnd, chipPhysicalCores, supportedDataTypes,
+        supportedTileSizes));
     chipDescIndices.push_back(device->id());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
@@ -264,9 +271,10 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::MeshShape meshShape = std::make_pair(1, numDevices);
-  std::shared_ptr<::tt::tt_metal::MeshDevice> meshDevice =
-      ::tt::tt_metal::MeshDevice::create(
+  ::tt::tt_metal::distributed::MeshShape meshShape =
+      std::make_pair(1, numDevices);
+  std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
+      ::tt::tt_metal::distributed::MeshDevice::create(
           meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
           ::tt::tt_metal::DispatchCoreType::WORKER);
   std::exception_ptr eptr = nullptr;

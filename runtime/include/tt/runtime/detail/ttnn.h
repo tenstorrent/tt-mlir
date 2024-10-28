@@ -40,12 +40,14 @@
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #pragma clang diagnostic ignored "-Wc99-extensions"
+#pragma clang diagnostic ignored "-Wc++11-narrowing"
 
 #define FMT_HEADER_ONLY
+#include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#include "impl/device/mesh_device.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy.hpp"
 #include "ttnn/operations/core/core.hpp"
