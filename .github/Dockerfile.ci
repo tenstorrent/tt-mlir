@@ -28,4 +28,10 @@ RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build $(if [ -n "$BUILD_CONFIG" ]; then echo "--config $BUILD_CONFIG"; fi)
 
+# move to home directory
+WORKDIR $BUILD_DIR
+
+# remove the build directory
+RUN rm -rf $BUILD_DIR/$PROJECT_NAME
+
 RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR
