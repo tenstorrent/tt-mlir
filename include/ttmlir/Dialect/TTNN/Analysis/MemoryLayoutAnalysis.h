@@ -12,14 +12,19 @@
 
 namespace mlir::tt::ttnn {
 
-enum class MemoryLayoutAnalysisPolicyType {
-  DFSharding,
-};
+enum class MemoryLayoutAnalysisPolicyType { DFSharding, L1Interleaved };
+
+::llvm::StringRef
+stringifyMemoryLayoutAnalysisPolicyType(MemoryLayoutAnalysisPolicyType policy);
+
+MemoryLayoutAnalysisPolicyType
+symbolizeMemoryLayoutAnalysisPolicyType(::llvm::StringRef policy);
 
 struct MemoryLayoutAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
   std::unordered_set<Edge> overrideReshardEdges;
+  MemoryLayoutAnalysisPolicyType policy;
 
   MemoryLayoutAnalysisInput() : legalLayouts() {}
 
@@ -27,9 +32,9 @@ struct MemoryLayoutAnalysisInput {
       const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
           &legalLayouts,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges)
+      const std::unordered_set<Edge> &overrideReshardEdges, MemoryLayoutAnalysisPolicyType policy)
       : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges) {}
+        overrideReshardEdges(overrideReshardEdges), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
     return legalLayouts == rhs.legalLayouts;

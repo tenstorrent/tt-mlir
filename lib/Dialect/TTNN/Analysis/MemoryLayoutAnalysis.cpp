@@ -4,8 +4,27 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
 
 namespace mlir::tt::ttnn {
+
+::llvm::StringRef
+stringifyMemoryLayoutAnalysisPolicyType(MemoryLayoutAnalysisPolicyType policy) {
+  switch (policy) {
+  case MemoryLayoutAnalysisPolicyType::DFSharding:
+    return "DFSharding";
+  case MemoryLayoutAnalysisPolicyType::L1Interleaved:
+    return "L1Interleaved";
+  }
+  return "";
+}
+
+MemoryLayoutAnalysisPolicyType
+symbolizeMemoryLayoutAnalysisPolicyType(::llvm::StringRef policy) {
+  return llvm::StringSwitch<MemoryLayoutAnalysisPolicyType>(policy)
+      .Case("DFSharding", MemoryLayoutAnalysisPolicyType::DFSharding)
+      .Case("L1Interleaved", MemoryLayoutAnalysisPolicyType::L1Interleaved);
+}
 
 bool MemoryLayoutAnalysis::applyOverrides() {
 
@@ -33,17 +52,43 @@ filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
   return shardedLayouts;
 }
 
-void MemoryLayoutAnalysis::analysisImplementation() {
-  MemoryLayoutAnalysisPolicyType policy =
-      MemoryLayoutAnalysisPolicyType::DFSharding;
+llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+filterL1InterleavedOnly(
+    const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+        &legalLayouts) {
+  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> l1InterleavedLayouts;
+  for (const auto &opLayouts : legalLayouts) {
+    std::vector<tt::LayoutAttr> opL1InterleavedLayouts;
+    for (const auto &layout : opLayouts.second) {
+      if (layout.hasInterleavedL1TensorMemoryLayout()) {
+        opL1InterleavedLayouts.push_back(layout);
+      }
+    }
 
-  switch (policy) {
-  case MemoryLayoutAnalysisPolicyType::DFSharding:
+    l1InterleavedLayouts[opLayouts.first] = opL1InterleavedLayouts;
+  }
+
+  return l1InterleavedLayouts;
+}
+
+void MemoryLayoutAnalysis::analysisImplementation() {
+  // Apply specific memory layout analysis policy.
+  //
+  switch (analysisInput.policy) {
+  case MemoryLayoutAnalysisPolicyType::DFSharding: {
     DFShardingPolicy dfShardingPolicy(
         op, l1ChainConfigs, filterShardedOnly(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     dfShardingPolicy.run(analysisInput.overrideReshardEdges);
     break;
+  }
+  case MemoryLayoutAnalysisPolicyType::L1Interleaved: {
+    L1InterleavedPolicy l1InterleavedPolicy(
+        op, l1ChainConfigs, filterL1InterleavedOnly(analysisInput.legalLayouts),
+        analysisResult.schedule, analysisInput.usableL1CacheSize);
+    l1InterleavedPolicy.run();
+    break;
+  }
   }
 
   // Copy over default legal layouts.
