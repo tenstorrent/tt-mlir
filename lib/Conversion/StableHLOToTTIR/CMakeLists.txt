@@ -17,4 +17,5 @@ add_mlir_library(TTMLIRStableHLOToTTIR
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
+  StablehloPasses
 )
