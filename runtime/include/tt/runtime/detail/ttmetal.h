@@ -39,7 +39,7 @@
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #define FMT_HEADER_ONLY
-#include "impl/device/mesh_device.hpp"
+#include "distributed/mesh_device.hpp"
 #include "impl/event/event.hpp"
 #include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop
@@ -153,15 +153,14 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
   uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
   uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
   uint64_t size = tensorShape[0] * tensorShape[1] * pageSize;
-  auto shardedBufferConfig = ShardedBufferConfig{
-      .device = device,
-      .size = size,
-      .page_size = pageSize,
-      .buffer_type = bufferType,
-      .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
-      .shard_parameters = shardSpecBuffer,
-      .allocate = false,
-  };
+  auto shardedBufferConfig =
+      ShardedBufferConfig{.device = device,
+                          .size = size,
+                          .page_size = pageSize,
+                          .buffer_type = bufferType,
+                          .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
+                          .shard_parameters = shardSpecBuffer,
+                          .allocate = false};
   std::shared_ptr<::tt::tt_metal::Buffer> buffer =
       ::tt::tt_metal::CreateBuffer(shardedBufferConfig);
   assert(tensorRef->address());

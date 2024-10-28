@@ -116,7 +116,6 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
     auto config = ::tt::target::metal::CreateTensixConfig(
         fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
         tensixConfigAttr.getFp32DestAccEn(),
-        tensixConfigAttr.getPreserveFp32Precision(),
         tensixConfigAttr.getMathApproxMode());
     return std::make_pair(configType, config.Union());
   }

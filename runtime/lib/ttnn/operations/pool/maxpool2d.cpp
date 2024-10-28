@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include <optional>
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -59,7 +60,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
       op->channels(), {op->kernel_height(), op->kernel_width()},
       {op->stride_height(), op->stride_width()},
       {op->padding_height(), op->padding_width()},
-      {op->dilation_height(), op->dilation_width()}, &device);
+      {op->dilation_height(), op->dilation_width()}, std::nullopt,
+      std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
   return;

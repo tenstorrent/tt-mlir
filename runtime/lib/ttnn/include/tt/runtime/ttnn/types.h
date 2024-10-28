@@ -82,7 +82,7 @@ public:
 
   ::ttnn::Device &getDeviceFromView(uint32_t globalId, int deviceId) {
     assert(meshViews.contains(globalId) && "Mesh view not initialized");
-    ::tt::tt_metal::Coordinate deviceCoord =
+    ::tt::tt_metal::distributed::Coordinate deviceCoord =
         meshViews.at(globalId)->find_device(deviceId);
     return *(
         meshViews.at(globalId)->get_device(deviceCoord.row, deviceCoord.col));
