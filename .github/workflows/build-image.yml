@@ -17,14 +17,13 @@ on:
 
 jobs:
   build-image:
-    runs-on:
-      - in-service
-      - builder
+    runs-on: ubuntu-latest
+
     steps:
 
-      - name: Fix permissions
-        shell: bash
-        run: sudo chown ubuntu:ubuntu -R $(pwd)
+      # - name: Fix permissions
+      #   shell: bash
+      #   run: sudo chown ubuntu:ubuntu -R $(pwd)
 
       - uses: actions/checkout@v4
         with:
