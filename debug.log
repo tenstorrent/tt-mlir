@@ -1,0 +1,843 @@
+executing constraint for all provided flatbuffers
+executing action for all provided flatbuffers
+{
+  "version": {
+    "major": 0,
+    "minor": 0,
+    "patch": 82
+  },
+  "ttmlir_git_hash": "f828963c17a541cde585a35822a0ace7c809e8a4",
+  "system_desc": {
+    "chip_descs": [
+      {
+        "arch": "Wormhole_b0",
+        "grid_size": {
+          "y": 8,
+          "x": 8
+        },
+        "l1_size": 1048576,
+        "num_dram_channels": 12,
+        "dram_channel_size": 1048576,
+        "noc_l1_address_align_bytes": 16,
+        "pcie_address_align_bytes": 32,
+        "noc_dram_address_align_bytes": 32
+      }
+    ],
+    "chip_desc_indices": [
+      0
+    ],
+    "chip_capabilities": [
+      3
+    ],
+    "chip_coords": [
+      {
+        "rack": 0,
+        "shelf": 0,
+        "y": 0,
+        "x": 0
+      }
+    ],
+    "chip_channels": [
+
+    ]
+  },
+  "programs": [
+    {
+      "name": "forward",
+      "inputs": [
+        {
+          "global_id": 1,
+          "address": 0,
+          "size": 0,
+          "desc": {
+            "shape": [
+              64,
+              128
+            ],
+            "layout": {
+              "stride": [
+                128,
+                1
+              ],
+              "oob_val": "Undef",
+              "core_range_set": [
+                {
+                  "loc": {
+                    "y": 0,
+                    "x": 0
+                  },
+                  "size": {
+                    "y": 1,
+                    "x": 1
+                  }
+                }
+              ],
+              "memory_desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "tile_shape": {
+                  "y": 1,
+                  "x": 1
+                },
+                "data_type": "Float32",
+                "memory_space": "System",
+                "size": 32768
+              }
+            }
+          }
+        },
+        {
+          "global_id": 2,
+          "address": 0,
+          "size": 0,
+          "desc": {
+            "shape": [
+              64,
+              128
+            ],
+            "layout": {
+              "stride": [
+                128,
+                1
+              ],
+              "oob_val": "Undef",
+              "core_range_set": [
+                {
+                  "loc": {
+                    "y": 0,
+                    "x": 0
+                  },
+                  "size": {
+                    "y": 1,
+                    "x": 1
+                  }
+                }
+              ],
+              "memory_desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "tile_shape": {
+                  "y": 1,
+                  "x": 1
+                },
+                "data_type": "Float32",
+                "memory_space": "System",
+                "size": 32768
+              }
+            }
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "global_id": 7,
+          "address": 0,
+          "size": 0,
+          "desc": {
+            "shape": [
+              64,
+              128
+            ],
+            "layout": {
+              "stride": [
+                128,
+                1
+              ],
+              "oob_val": "Undef",
+              "core_range_set": [
+                {
+                  "loc": {
+                    "y": 0,
+                    "x": 0
+                  },
+                  "size": {
+                    "y": 8,
+                    "x": 8
+                  }
+                }
+              ],
+              "memory_desc": {
+                "shape": [
+                  8,
+                  16
+                ],
+                "tile_shape": {
+                  "y": 1,
+                  "x": 1
+                },
+                "data_type": "Float32",
+                "memory_space": "System",
+                "size": 512
+              }
+            }
+          }
+        }
+      ],
+      "operations": [
+        {
+          "type_type": "OpenDeviceOp",
+          "type": {
+            "mesh": {
+              "y": 8,
+              "x": 8
+            },
+            "chip_ids": [
+              0
+            ],
+            "out": {
+              "global_id": 3
+            }
+          },
+          "debug_info": "%0 = \"ttnn.open_device\"() : () -> !tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>> loc(\"ttnn.mlir\":8:10)"
+        },
+        {
+          "type_type": "FullOp",
+          "type": {
+            "device": {
+              "global_id": 3
+            },
+            "fill_value": 0.0,
+            "out": {
+              "global_id": 4,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%1 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>> loc(\"ttnn.mlir\":9:10)"
+        },
+        {
+          "type_type": "ToMemoryConfigOp",
+          "type": {
+            "in0": {
+              "global_id": 1,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 1,
+                        "x": 1
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      64,
+                      128
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "System",
+                    "size": 32768
+                  }
+                }
+              }
+            },
+            "out": {
+              "global_id": 4,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%2 = \"ttnn.to_memory_config\"(%arg0, %1) : (tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #tt.memory_space<system>>>>, tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>> loc(\"ttnn.mlir\":10:10)"
+        },
+        {
+          "type_type": "FullOp",
+          "type": {
+            "device": {
+              "global_id": 3
+            },
+            "fill_value": 0.0,
+            "out": {
+              "global_id": 5,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%3 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>> loc(\"ttnn.mlir\":11:10)"
+        },
+        {
+          "type_type": "ToMemoryConfigOp",
+          "type": {
+            "in0": {
+              "global_id": 2,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 1,
+                        "x": 1
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      64,
+                      128
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "System",
+                    "size": 32768
+                  }
+                }
+              }
+            },
+            "out": {
+              "global_id": 5,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%4 = \"ttnn.to_memory_config\"(%arg1, %3) : (tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #tt.memory_space<system>>>>, tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>> loc(\"ttnn.mlir\":12:10)"
+        },
+        {
+          "type_type": "FullOp",
+          "type": {
+            "device": {
+              "global_id": 3
+            },
+            "fill_value": 0.0,
+            "out": {
+              "global_id": 6,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%5 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>> loc(\"ttnn.mlir\":13:10)"
+        },
+        {
+          "type_type": "EltwiseOp",
+          "type": {
+            "type": "Subtract",
+            "ins": [
+              {
+                "global_id": 4,
+                "address": 0,
+                "size": 0,
+                "desc": {
+                  "shape": [
+                    64,
+                    128
+                  ],
+                  "layout": {
+                    "stride": [
+                      128,
+                      1
+                    ],
+                    "oob_val": "Undef",
+                    "core_range_set": [
+                      {
+                        "loc": {
+                          "y": 0,
+                          "x": 0
+                        },
+                        "size": {
+                          "y": 8,
+                          "x": 8
+                        }
+                      }
+                    ],
+                    "memory_desc": {
+                      "shape": [
+                        8,
+                        16
+                      ],
+                      "tile_shape": {
+                        "y": 1,
+                        "x": 1
+                      },
+                      "data_type": "Float32",
+                      "memory_space": "DeviceL1",
+                      "size": 512
+                    }
+                  }
+                }
+              },
+              {
+                "global_id": 5,
+                "address": 0,
+                "size": 0,
+                "desc": {
+                  "shape": [
+                    64,
+                    128
+                  ],
+                  "layout": {
+                    "stride": [
+                      128,
+                      1
+                    ],
+                    "oob_val": "Undef",
+                    "core_range_set": [
+                      {
+                        "loc": {
+                          "y": 0,
+                          "x": 0
+                        },
+                        "size": {
+                          "y": 8,
+                          "x": 8
+                        }
+                      }
+                    ],
+                    "memory_desc": {
+                      "shape": [
+                        8,
+                        16
+                      ],
+                      "tile_shape": {
+                        "y": 1,
+                        "x": 1
+                      },
+                      "data_type": "Float32",
+                      "memory_space": "DeviceL1",
+                      "size": 512
+                    }
+                  }
+                }
+              }
+            ],
+            "out": {
+              "global_id": 6,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%6 = \"ttnn.subtract\"(%2, %4, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>>, tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>>, tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>> loc(\"ttnn.mlir\":14:10)"
+        },
+        {
+          "type_type": "FullOp",
+          "type": {
+            "device": {
+              "global_id": 3
+            },
+            "fill_value": 0.0,
+            "out": {
+              "global_id": 7,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "System",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%7 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<system>>>> loc(\"ttnn.mlir\":15:10)"
+        },
+        {
+          "type_type": "ToMemoryConfigOp",
+          "type": {
+            "in0": {
+              "global_id": 6,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "DeviceL1",
+                    "size": 512
+                  }
+                }
+              }
+            },
+            "out": {
+              "global_id": 7,
+              "address": 0,
+              "size": 0,
+              "desc": {
+                "shape": [
+                  64,
+                  128
+                ],
+                "layout": {
+                  "stride": [
+                    128,
+                    1
+                  ],
+                  "oob_val": "Undef",
+                  "core_range_set": [
+                    {
+                      "loc": {
+                        "y": 0,
+                        "x": 0
+                      },
+                      "size": {
+                        "y": 8,
+                        "x": 8
+                      }
+                    }
+                  ],
+                  "memory_desc": {
+                    "shape": [
+                      8,
+                      16
+                    ],
+                    "tile_shape": {
+                      "y": 1,
+                      "x": 1
+                    },
+                    "data_type": "Float32",
+                    "memory_space": "System",
+                    "size": 512
+                  }
+                }
+              }
+            }
+          },
+          "debug_info": "%8 = \"ttnn.to_memory_config\"(%6, %7) : (tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<l1>>>>, tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<system>>>>) -> tensor<64x128xf32, #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #tt.memory_space<system>>>> loc(\"ttnn.mlir\":16:10)"
+        },
+        {
+          "type_type": "CloseDeviceOp",
+          "type": {
+            "in0": {
+              "global_id": 3
+            }
+          },
+          "debug_info": "\"ttnn.close_device\"(%0) : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> () loc(\"ttnn.mlir\":17:5)"
+        }
+      ],
+      "debug_info": {
+        "mlir": {
+          "name": "ttnn",
+          "source": "#l1_ = #tt.memory_space<l1>\n#system = #tt.memory_space<system>\n#layout = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #system>>\n#layout1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #system>>\n#layout2 = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #l1_>>\nmodule attributes {tt.device = #tt.device<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>, tt.system_desc = #tt.system_desc<[{arch = <wormhole_b0>, grid = 8x8, l1_size = 1048576, num_dram_channels = 12, dram_channel_size = 1048576, noc_l1_address_align_bytes = 16, pcie_address_align_bytes = 32, noc_dram_address_align_bytes = 32}], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {\n  func.func @forward(%arg0: tensor<64x128xf32, #layout>, %arg1: tensor<64x128xf32, #layout>) -> tensor<64x128xf32, #layout1> {\n    %0 = \"ttnn.open_device\"() : () -> !tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>\n    %1 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #layout2>\n    %2 = \"ttnn.to_memory_config\"(%arg0, %1) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout2>) -> tensor<64x128xf32, #layout2>\n    %3 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #layout2>\n    %4 = \"ttnn.to_memory_config\"(%arg1, %3) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout2>) -> tensor<64x128xf32, #layout2>\n    %5 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #layout2>\n    %6 = \"ttnn.subtract\"(%2, %4, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32, #layout2>, tensor<64x128xf32, #layout2>, tensor<64x128xf32, #layout2>) -> tensor<64x128xf32, #layout2>\n    %7 = \"ttnn.full\"(%0) <{fillValue = 0.000000e+00 : f32}> : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> tensor<64x128xf32, #layout1>\n    %8 = \"ttnn.to_memory_config\"(%6, %7) : (tensor<64x128xf32, #layout2>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>\n    \"ttnn.close_device\"(%0) : (!tt.device<<#tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, [0]>>) -> ()\n    return %8 : tensor<64x128xf32, #layout1>\n  }\n}\n"
+        },
+        "cpp": "ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {\n  ttnn::Device v3 = ttnn::open_device();\n  ttnn::Tensor v4 = ttnn::full(v3);\n  ttnn::Tensor v5 = ttnn::to_memory_config(v1, v4);\n  ttnn::Tensor v6 = ttnn::full(v3);\n  ttnn::Tensor v7 = ttnn::to_memory_config(v2, v6);\n  ttnn::Tensor v8 = ttnn::full(v3);\n  ttnn::Tensor v9 = ttnn::subtract(v5, v7, v8);\n  ttnn::Tensor v10 = ttnn::full(v3);\n  ttnn::Tensor v11 = ttnn::to_memory_config(v9, v10);\n  ttnn::close_device(v3);\n  return v11;\n}\n\n\n"
+      }
+    }
+  ]
+}
+

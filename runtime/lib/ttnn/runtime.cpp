@@ -75,7 +75,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             std::vector<Tensor> const &outputHandles, bool enableGolden) {
   ::ttnn::Device &device = deviceHandle.as<::ttnn::Device>(DeviceRuntime::TTNN);
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
@@ -91,7 +91,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
   tt::runtime::ttnn::runProgram(device, fbb.programs()->Get(programIndex),
-                                inputs, outputs);
+                                inputs, outputs, enableGolden);
   return Event(nullptr, DeviceRuntime::TTNN);
 }
 

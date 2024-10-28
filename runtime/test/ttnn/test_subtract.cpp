@@ -42,7 +42,7 @@ TEST(TTNNSubtract, Equal) {
   }
 
   auto device = ::tt::runtime::openDevice();
-  auto ev = ::tt::runtime::submit(device, fbb, 0, inputTensors, outputTensors);
+  auto ev = ::tt::runtime::submit(device, fbb, 0, inputTensors, outputTensors, false);
   ::tt::runtime::closeDevice(device);
 
   std::shared_ptr<void> expected =

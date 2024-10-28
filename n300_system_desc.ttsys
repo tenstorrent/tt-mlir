@@ -1,0 +1,43 @@
+{
+  "version": {
+    "major": 0,
+    "minor": 0,
+    "patch": 49
+  },
+  "ttmlir_git_hash": "47a54b1c4e19cdc39bdd6ab6468d9b63ce11f5cd",
+  "product_identifier": "unknown",
+  "system_desc": {
+    "chip_descs": [
+      {
+        "arch": "Wormhole_b0",
+        "grid_size": {
+          "y": 8,
+          "x": 8
+        },
+        "l1_size": 1048576,
+        "num_dram_channels": 12,
+        "dram_channel_size": 1048576,
+        "noc_l1_address_align_bytes": 16,
+        "pcie_address_align_bytes": 32,
+        "noc_dram_address_align_bytes": 32
+      }
+    ],
+    "chip_desc_indices": [
+      0
+    ],
+    "chip_capabilities": [
+      3
+    ],
+    "chip_coords": [
+      {
+        "rack": 0,
+        "shelf": 0,
+        "y": 0,
+        "x": 0
+      }
+    ],
+    "chip_channels": [
+
+    ]
+  }
+}

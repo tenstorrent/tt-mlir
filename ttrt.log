@@ -1,0 +1,1069 @@
+2024-08-22 14:48:07,264 - INFO - set log file=ttrt.log
+2024-08-22 14:48:07,264 - INFO - setting artifacts folder path=/code/tt-mlir/ttrt-artifacts
+2024-08-22 14:48:07,264 - DEBUG - starting run API
+2024-08-22 14:48:07,264 - DEBUG - preprocessing run API
+2024-08-22 14:48:07,264 - DEBUG - starting query API
+2024-08-22 14:48:07,264 - DEBUG - preprocessing query API
+2024-08-22 14:48:07,264 - DEBUG - finished preprocessing query API
+2024-08-22 14:48:07,264 - DEBUG - checking constraints for query API
+2024-08-22 14:48:07,264 - DEBUG - finished constraints for query API
+2024-08-22 14:48:07,264 - DEBUG - executing query API
+2024-08-22 14:48:07,491 - DEBUG - getting system descriptor
+2024-08-22 14:48:08,957 - INFO - {
+  "version": {
+    "major": 0,
+    "minor": 0,
+    "patch": 131
+  },
+  "ttmlir_git_hash": "f9a26264effcd5a1216d2d0f2c63170c1c3ce798",
+  "product_identifier": "unknown",
+  "system_desc": {
+    "chip_descs": [
+      {
+        "arch": "Wormhole_b0",
+        "grid_size": {
+          "y": 8,
+          "x": 8
+        },
+        "l1_size": 1499136,
+        "num_dram_channels": 12,
+        "dram_channel_size": 1073741824,
+        "noc_l1_address_align_bytes": 16,
+        "pcie_address_align_bytes": 32,
+        "noc_dram_address_align_bytes": 32,
+        "physical_cores": {
+          "worker": [
+            {
+              "y": 1,
+              "x": 1
+            },
+            {
+              "y": 1,
+              "x": 2
+            },
+            {
+              "y": 1,
+              "x": 3
+            },
+            {
+              "y": 1,
+              "x": 4
+            },
+            {
+              "y": 1,
+              "x": 6
+            },
+            {
+              "y": 1,
+              "x": 7
+            },
+            {
+              "y": 1,
+              "x": 8
+            },
+            {
+              "y": 1,
+              "x": 9
+            },
+            {
+              "y": 2,
+              "x": 1
+            },
+            {
+              "y": 2,
+              "x": 2
+            },
+            {
+              "y": 2,
+              "x": 3
+            },
+            {
+              "y": 2,
+              "x": 4
+            },
+            {
+              "y": 2,
+              "x": 6
+            },
+            {
+              "y": 2,
+              "x": 7
+            },
+            {
+              "y": 2,
+              "x": 8
+            },
+            {
+              "y": 2,
+              "x": 9
+            },
+            {
+              "y": 4,
+              "x": 1
+            },
+            {
+              "y": 4,
+              "x": 2
+            },
+            {
+              "y": 4,
+              "x": 3
+            },
+            {
+              "y": 4,
+              "x": 4
+            },
+            {
+              "y": 4,
+              "x": 6
+            },
+            {
+              "y": 4,
+              "x": 7
+            },
+            {
+              "y": 4,
+              "x": 8
+            },
+            {
+              "y": 4,
+              "x": 9
+            },
+            {
+              "y": 5,
+              "x": 1
+            },
+            {
+              "y": 5,
+              "x": 2
+            },
+            {
+              "y": 5,
+              "x": 3
+            },
+            {
+              "y": 5,
+              "x": 4
+            },
+            {
+              "y": 5,
+              "x": 6
+            },
+            {
+              "y": 5,
+              "x": 7
+            },
+            {
+              "y": 5,
+              "x": 8
+            },
+            {
+              "y": 5,
+              "x": 9
+            },
+            {
+              "y": 7,
+              "x": 1
+            },
+            {
+              "y": 7,
+              "x": 2
+            },
+            {
+              "y": 7,
+              "x": 3
+            },
+            {
+              "y": 7,
+              "x": 4
+            },
+            {
+              "y": 7,
+              "x": 6
+            },
+            {
+              "y": 7,
+              "x": 7
+            },
+            {
+              "y": 7,
+              "x": 8
+            },
+            {
+              "y": 7,
+              "x": 9
+            },
+            {
+              "y": 8,
+              "x": 1
+            },
+            {
+              "y": 8,
+              "x": 2
+            },
+            {
+              "y": 8,
+              "x": 3
+            },
+            {
+              "y": 8,
+              "x": 4
+            },
+            {
+              "y": 8,
+              "x": 6
+            },
+            {
+              "y": 8,
+              "x": 7
+            },
+            {
+              "y": 8,
+              "x": 8
+            },
+            {
+              "y": 8,
+              "x": 9
+            },
+            {
+              "y": 9,
+              "x": 1
+            },
+            {
+              "y": 9,
+              "x": 2
+            },
+            {
+              "y": 9,
+              "x": 3
+            },
+            {
+              "y": 9,
+              "x": 4
+            },
+            {
+              "y": 9,
+              "x": 6
+            },
+            {
+              "y": 9,
+              "x": 7
+            },
+            {
+              "y": 9,
+              "x": 8
+            },
+            {
+              "y": 9,
+              "x": 9
+            },
+            {
+              "y": 10,
+              "x": 1
+            },
+            {
+              "y": 10,
+              "x": 2
+            },
+            {
+              "y": 10,
+              "x": 3
+            },
+            {
+              "y": 10,
+              "x": 4
+            },
+            {
+              "y": 10,
+              "x": 6
+            },
+            {
+              "y": 10,
+              "x": 7
+            },
+            {
+              "y": 10,
+              "x": 8
+            },
+            {
+              "y": 10,
+              "x": 9
+            }
+          ],
+          "dram": [
+            {
+              "y": 11,
+              "x": 0
+            },
+            {
+              "y": 1,
+              "x": 0
+            },
+            {
+              "y": 5,
+              "x": 0
+            },
+            {
+              "y": 7,
+              "x": 0
+            },
+            {
+              "y": 1,
+              "x": 5
+            },
+            {
+              "y": 11,
+              "x": 5
+            },
+            {
+              "y": 2,
+              "x": 5
+            },
+            {
+              "y": 9,
+              "x": 5
+            },
+            {
+              "y": 8,
+              "x": 5
+            },
+            {
+              "y": 3,
+              "x": 5
+            },
+            {
+              "y": 5,
+              "x": 5
+            },
+            {
+              "y": 7,
+              "x": 5
+            }
+          ],
+          "eth": [
+
+          ],
+          "eth_inactive": [
+            {
+              "y": 6,
+              "x": 7
+            },
+            {
+              "y": 6,
+              "x": 2
+            },
+            {
+              "y": 6,
+              "x": 8
+            },
+            {
+              "y": 0,
+              "x": 4
+            },
+            {
+              "y": 0,
+              "x": 6
+            },
+            {
+              "y": 0,
+              "x": 3
+            },
+            {
+              "y": 0,
+              "x": 7
+            },
+            {
+              "y": 0,
+              "x": 2
+            },
+            {
+              "y": 0,
+              "x": 8
+            },
+            {
+              "y": 6,
+              "x": 6
+            },
+            {
+              "y": 0,
+              "x": 1
+            },
+            {
+              "y": 6,
+              "x": 3
+            },
+            {
+              "y": 0,
+              "x": 9
+            }
+          ]
+        }
+      }
+    ],
+    "chip_desc_indices": [
+      0
+    ],
+    "chip_capabilities": [
+      3
+    ],
+    "chip_coords": [
+      {
+        "rack": 0,
+        "shelf": 0,
+        "y": 0,
+        "x": 0
+      }
+    ],
+    "chip_channels": [
+
+    ]
+  }
+}
+
+2024-08-22 14:48:08,957 - DEBUG - finished executing query API
+2024-08-22 14:48:08,958 - DEBUG - postprocessing query API
+2024-08-22 14:48:08,958 - DEBUG - finished postprocessing query API
+2024-08-22 14:48:08,958 - DEBUG - finished query API
+2024-08-22 14:48:08,958 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts
+2024-08-22 14:48:08,958 - WARNING - directory '/code/tt-mlir/ttrt-artifacts' already exists
+2024-08-22 14:48:08,958 - DEBUG - finished preprocessing read API
+2024-08-22 14:48:08,958 - DEBUG - checking constraints for run API
+2024-08-22 14:48:08,958 - DEBUG - finding all ttnn files from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN
+2024-08-22 14:48:08,958 - DEBUG - checking if directory=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN exists
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_relu.mlir.script
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_eltwise.mlir.script
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_multiply.mlir.tmp.mlir
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_subtract.mlir.tmp.mlir
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_matmul.mlir.script
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_matmul.mlir.tmp.mlir
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_sum.mlir.tmp.mlir
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_div.mlir.script
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_div.mlir.tmp.mlir
+2024-08-22 14:48:08,958 - DEBUG - getting file extension of=simple_subtract.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_multiply.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_ge.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_relu.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_sum.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_eltwise.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_ge.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_sqrt.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_sqrt.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - found file=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - finding all ttmetal files from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN
+2024-08-22 14:48:08,959 - DEBUG - checking if directory=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN exists
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_relu.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_eltwise.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_multiply.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_subtract.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_matmul.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_matmul.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_sum.mlir.tmp.mlir
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_div.mlir.script
+2024-08-22 14:48:08,959 - DEBUG - getting file extension of=simple_div.mlir.tmp.mlir
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_subtract.mlir.script
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_multiply.mlir.script
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_ge.mlir.tmp.mlir
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_relu.mlir.tmp.mlir
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_sum.mlir.script
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_eltwise.mlir.tmp.mlir
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_ge.mlir.script
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_sqrt.mlir.tmp.mlir
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_sqrt.mlir.script
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:08,960 - DEBUG - ttnn_binary_paths=['/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn', '/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn']
+2024-08-22 14:48:08,960 - DEBUG - ttmetal_binary_paths=[]
+2024-08-22 14:48:08,960 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:08,960 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:08,962 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:08,962 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:08,963 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:08,963 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:08,964 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:08,964 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:08,967 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:08,967 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:08,968 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:08,968 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:08,970 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:08,971 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:08,972 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:08,972 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:08,973 - DEBUG - getting file name of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:08,973 - DEBUG - getting file extension of=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:08,974 - DEBUG - finished checking constraints for run API
+2024-08-22 14:48:08,974 - DEBUG - executing run API
+2024-08-22 14:48:08,974 - DEBUG - executing ttnn binaries
+2024-08-22 14:48:10,436 - DEBUG - setting torch manual seed=0
+2024-08-22 14:48:10,437 - DEBUG - opening device id=0
+2024-08-22 14:48:10,443 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:10,443 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:10,444 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:10,444 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:10,973 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:10,973 - DEBUG - input tensors for program=0
+2024-08-22 14:48:10,976 - DEBUG - tensor([[-1.1258, -1.1524, -0.2506,  ...,  1.1648,  0.9234,  1.3873],
+        [-0.8834, -0.4189, -0.8048,  ...,  0.1447,  1.9029,  0.3904],
+        [-0.0394, -0.8015, -0.4955,  ...,  0.5541, -0.1817, -0.2345],
+        ...,
+        [ 0.3735,  2.6150,  0.1530,  ...,  1.0498, -0.2760, -2.1163],
+        [-1.2005,  1.4457,  0.1172,  ..., -0.5705, -0.8428, -1.2050],
+        [-1.6555,  0.7469,  1.6022,  ..., -0.7476, -1.0687, -0.1856]])
+
+2024-08-22 14:48:10,977 - DEBUG - tensor([[ 0.2652, -0.7908,  0.9808,  ..., -2.2366, -0.3921,  0.3631],
+        [-0.4197, -0.8450, -0.6224,  ..., -0.7139,  0.1773,  1.2443],
+        [-1.6741,  2.0464, -0.2173,  ..., -0.3575, -1.2213, -0.3665],
+        ...,
+        [ 0.6394, -1.5881, -0.3395,  ...,  1.1193,  0.4409,  1.3669],
+        [-0.7873,  0.6906,  0.1201,  ..., -0.3143, -0.7680, -0.3209],
+        [ 0.9347,  1.1779, -0.5261,  ...,  0.0908, -1.3665, -1.0782]])
+
+2024-08-22 14:48:10,977 - DEBUG - output tensors for program=0
+2024-08-22 14:48:10,978 - DEBUG - tensor([[-0.2983,  0.9110, -0.2456,  ..., -2.6032, -0.3616,  0.5034],
+        [ 0.3705,  0.3535,  0.5006,  ..., -0.1032,  0.3372,  0.4854],
+        [ 0.0659, -1.6375,  0.1076,  ..., -0.1979,  0.2217,  0.0859],
+        ...,
+        [ 0.2384, -4.1496, -0.0519,  ...,  1.1738, -0.1216, -2.8872],
+        [ 0.9439,  0.9979,  0.0141,  ...,  0.1792,  0.6469,  0.3860],
+        [-1.5461,  0.8787, -0.8422,  ..., -0.0678,  1.4596,  0.2000]])
+
+2024-08-22 14:48:10,978 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:10,978 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:10,978 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:10,978 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:11,534 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:11,534 - DEBUG - input tensors for program=0
+2024-08-22 14:48:11,535 - DEBUG - tensor([[-0.5518,  1.5398,  1.0036,  ..., -0.7435, -0.4808,  0.6858],
+        [-0.6004, -0.1705,  1.5333,  ...,  0.3244,  0.5994, -0.7656],
+        [-0.7279,  0.8455, -0.5387,  ...,  0.7630,  0.1251,  1.1852],
+        ...,
+        [-0.2056,  0.1217, -0.9478,  ...,  0.1713, -0.4021, -1.3807],
+        [ 0.2672,  0.1976, -0.2271,  ...,  0.6212,  1.2829, -0.5572],
+        [-0.8838, -2.1552, -0.8310,  ..., -0.5943, -0.9046,  1.0126]])
+
+2024-08-22 14:48:11,535 - DEBUG - output tensors for program=0
+2024-08-22 14:48:11,536 - DEBUG - tensor([[0.0000, 1.5391, 1.0029,  ..., 0.0000, 0.0000, 0.6855],
+        [0.0000, 0.0000, 1.5332,  ..., 0.3242, 0.5991, 0.0000],
+        [0.0000, 0.8452, 0.0000,  ..., 0.7627, 0.1250, 1.1846],
+        ...,
+        [0.0000, 0.1217, 0.0000,  ..., 0.1713, 0.0000, 0.0000],
+        [0.2671, 0.1975, 0.0000,  ..., 0.6211, 1.2822, 0.0000],
+        [0.0000, 0.0000, 0.0000,  ..., 0.0000, 0.0000, 1.0117]])
+
+2024-08-22 14:48:11,536 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:11,536 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:11,556 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:11,556 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:12,843 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:12,844 - DEBUG - input tensors for program=0
+2024-08-22 14:48:12,847 - DEBUG - tensor([[-0.6680, -0.6602, -1.7656,  ...,  1.7891, -0.2266, -1.4844],
+        [ 1.4609, -1.7422,  0.0291,  ...,  0.8359,  0.4805, -1.9922],
+        [ 1.0000, -1.0469, -0.4492,  ..., -0.9414,  0.2178, -0.4199],
+        ...,
+        [-1.1797, -1.5391, -0.4102,  ...,  1.2578, -2.1562, -0.5430],
+        [ 0.7773,  0.4785,  1.6484,  ...,  0.0972,  1.0078, -1.0703],
+        [ 0.0747, -0.3730,  1.7344,  ..., -0.8750,  0.6055,  0.7891]],
+       dtype=torch.bfloat16)
+
+2024-08-22 14:48:12,847 - DEBUG - output tensors for program=0
+2024-08-22 14:48:12,848 - DEBUG - tensor([[ 10.9375, -42.2500, -33.7500,  ..., -39.0000,  48.7500, -53.5000],
+        [ 13.1250, -74.0000,  33.5000,  ...,  64.5000, -31.6250,  10.5000],
+        [ 23.6250,  50.5000, -41.5000,  ...,  17.2500,  42.5000,  -2.0625],
+        ...,
+        [  0.0000,   0.0000,   0.0000,  ...,   0.0000,   0.0000,   0.0000],
+        [  0.0000,   0.0000,   0.0000,  ...,   0.0000,   0.0000,   0.0000],
+        [  0.0000,   0.0000,   0.0000,  ...,   0.0000,   0.0000,   0.0000]],
+       dtype=torch.bfloat16)
+
+2024-08-22 14:48:12,848 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:12,848 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:12,848 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:12,848 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,252 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,252 - DEBUG - input tensors for program=0
+2024-08-22 14:48:13,253 - DEBUG - tensor([[-0.7139, -0.1602,  1.8921,  ..., -0.1021,  0.6663,  1.9450],
+        [ 1.3447,  1.2590, -0.0624,  ..., -1.0418,  0.2619,  0.0066],
+        [-1.1559, -0.0924, -0.2432,  ..., -0.8045, -0.8415,  1.4032],
+        ...,
+        [ 0.7691, -0.5736,  1.9842,  ...,  0.0312, -1.1538, -0.6510],
+        [ 0.7338, -0.5192, -0.5313,  ...,  0.4201,  0.8571, -0.0113],
+        [-1.1614,  2.1546, -0.0339,  ...,  1.6256, -0.4277,  0.9352]])
+
+2024-08-22 14:48:13,254 - DEBUG - tensor([[-0.7928,  0.6513,  0.5432,  ..., -0.4360, -0.3532, -0.1957],
+        [ 0.3069, -1.1905, -2.7171,  ...,  0.5253, -1.3785,  0.4515],
+        [ 0.6080,  0.1417, -0.2635,  ...,  0.5907,  2.2040,  0.7928],
+        ...,
+        [-0.0683,  1.1162,  1.1162,  ..., -1.1117,  0.6851,  0.0398],
+        [-0.7230,  0.7199, -1.2158,  ...,  0.8486,  2.1603, -0.8146],
+        [-0.0633, -1.9589,  0.4506,  ..., -0.6032, -0.1898,  0.6324]])
+
+2024-08-22 14:48:13,254 - DEBUG - output tensors for program=0
+2024-08-22 14:48:13,255 - DEBUG - tensor([[ 0.0791, -0.8110,  1.3486,  ...,  0.3337,  1.0190,  2.1396],
+        [ 1.0371,  2.4492,  2.6543,  ..., -1.5664,  1.6396, -0.4448],
+        [-1.7637, -0.2340,  0.0203,  ..., -1.3945, -3.0449,  0.6094],
+        ...,
+        [ 0.8374, -1.6885,  0.8682,  ...,  1.1426, -1.8389, -0.6904],
+        [ 1.4561, -1.2388,  0.6836,  ..., -0.4282, -1.3027,  0.8032],
+        [-1.0977,  4.1133, -0.4844,  ...,  2.2285, -0.2378,  0.3027]])
+
+2024-08-22 14:48:13,255 - DEBUG - evaluating program=1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,255 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,255 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,870 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,870 - DEBUG - input tensors for program=1
+2024-08-22 14:48:13,871 - DEBUG - tensor([[-1.2229, -0.2111,  0.2079,  ..., -0.1448, -0.1384,  0.3162],
+        [ 0.4542, -1.4635,  0.1212,  ..., -0.6385, -0.5041, -0.1856],
+        [ 1.6059,  1.1164, -0.1023,  ..., -0.6411, -0.6162,  1.3023],
+        ...,
+        [-1.2239,  0.7401,  1.0083,  ..., -0.1845, -1.2239,  0.5425],
+        [-0.5994,  1.2301, -0.1166,  ..., -1.4274, -0.0392,  1.3772],
+        [ 0.0418, -0.8010, -0.7655,  ...,  1.1106, -0.2582, -1.2310]])
+
+2024-08-22 14:48:13,872 - DEBUG - tensor([[-0.3683, -0.6667,  1.6227,  ...,  0.4731, -0.6416, -0.3340],
+        [-0.9643,  0.7776,  0.9364,  ..., -1.0344, -1.0899,  0.6937],
+        [ 1.7080, -1.2851, -0.5668,  ...,  0.4477,  0.6022, -1.4206],
+        ...,
+        [ 0.0114, -0.1803, -0.4820,  ..., -0.8072,  0.7413, -0.5210],
+        [ 1.0825,  0.3918,  0.8962,  ...,  0.6489, -0.5912,  0.5498],
+        [ 0.6512,  0.0069, -0.4587,  ..., -0.5474,  0.7480, -0.2550]])
+
+2024-08-22 14:48:13,872 - DEBUG - output tensors for program=1
+2024-08-22 14:48:13,873 - DEBUG - tensor([[ 3.3193e+00,  3.1641e-01,  1.2803e-01,  ..., -3.0544e-01,
+          2.1551e-01, -9.4652e-01],
+        [-4.7051e-01, -1.8815e+00,  1.2925e-01,  ...,  6.1652e-01,
+          4.6232e-01, -2.6745e-01],
+        [ 9.3992e-01, -8.6801e-01,  1.8051e-01,  ..., -1.4314e+00,
+         -1.0230e+00, -9.1588e-01],
+        ...,
+        [-1.0759e+02, -4.0977e+00, -2.0885e+00,  ...,  2.2825e-01,
+         -1.6489e+00, -1.0401e+00],
+        [-5.5303e-01,  3.1361e+00, -1.3001e-01,  ..., -2.1985e+00,
+          6.6419e-02,  2.5065e+00],
+        [ 6.4131e-02, -1.1651e+02,  1.6667e+00,  ..., -2.0259e+00,
+         -3.4467e-01,  4.8257e+00]])
+
+2024-08-22 14:48:13,873 - DEBUG - evaluating program=2 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,873 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,873 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,874 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,874 - DEBUG - input tensors for program=2
+2024-08-22 14:48:13,875 - DEBUG - tensor([[-0.6034,  0.6987, -2.6390,  ...,  1.6453, -0.5487,  0.2747],
+        [-0.2013,  0.3916, -2.7606,  ..., -0.5635,  0.6946, -1.9018],
+        [ 0.3044,  0.6714,  0.4604,  ...,  0.1558, -1.4232,  1.4052],
+        ...,
+        [-0.1637, -1.6182,  1.3411,  ...,  0.3255,  1.0720,  1.5897],
+        [ 0.0146,  1.0533,  1.1524,  ...,  0.4709,  0.7615, -1.7244],
+        [-0.7419,  0.7264, -0.9713,  ...,  1.8238, -0.8896, -0.6699]])
+
+2024-08-22 14:48:13,876 - DEBUG - tensor([[-2.1298, -0.6778, -0.2709,  ...,  1.3503, -0.1227, -0.3258],
+        [-1.8190, -0.0492,  0.6525,  ...,  1.0460,  1.4120, -1.3125],
+        [-0.4992,  0.8950, -0.5332,  ..., -0.1721,  0.5106,  0.9004],
+        ...,
+        [-0.7079, -1.0316, -1.5025,  ..., -0.0257, -1.5466, -1.0195],
+        [ 0.7091,  0.0261, -0.3613,  ..., -0.8739,  1.2445, -1.8589],
+        [ 0.9042,  0.9569,  1.0287,  ..., -0.8825,  0.6210,  0.8012]])
+
+2024-08-22 14:48:13,876 - DEBUG - output tensors for program=2
+2024-08-22 14:48:13,876 - DEBUG - tensor([[ 1.2827, -0.4732,  0.7139,  ...,  2.2195,  0.0672, -0.0894],
+        [ 0.3658, -0.0192, -1.7990,  ..., -0.5893,  0.9798,  2.4924],
+        [-0.1518,  0.6001, -0.2450,  ..., -0.0268, -0.7255,  1.2644],
+        ...,
+        [ 0.1157,  1.6677, -2.0124,  ..., -0.0083, -1.6546, -1.6189],
+        [ 0.0103,  0.0275, -0.4164,  ..., -0.4112,  0.9465,  3.2014],
+        [-0.6699,  0.6941, -0.9982,  ..., -1.6078, -0.5515, -0.5357]])
+
+2024-08-22 14:48:13,876 - DEBUG - evaluating program=3 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,877 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,877 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,878 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,878 - DEBUG - input tensors for program=3
+2024-08-22 14:48:13,879 - DEBUG - tensor([[ 0.8961,  0.8292,  0.2427,  ...,  0.3366, -1.3364,  1.0955],
+        [ 0.9742,  0.4359, -1.8390,  ...,  0.7192,  0.1972, -0.1528],
+        [-0.7723, -2.8668,  1.4281,  ..., -1.5156, -0.7099, -0.9463],
+        ...,
+        [-1.7610,  0.1849,  0.4855,  ..., -0.5616, -0.2726,  0.3107],
+        [-0.4634,  0.0953,  1.1048,  ...,  0.5103,  1.5432, -0.1450],
+        [-0.1770, -0.8758, -1.2776,  ..., -0.1840,  1.6910,  0.2579]])
+
+2024-08-22 14:48:13,879 - DEBUG - output tensors for program=3
+2024-08-22 14:48:13,879 - DEBUG - tensor([[0.8960, 0.8291, 0.2427,  ..., 0.3364, 0.0000, 1.0947],
+        [0.9741, 0.4358, 0.0000,  ..., 0.7188, 0.1971, 0.0000],
+        [0.0000, 0.0000, 1.4277,  ..., 0.0000, 0.0000, 0.0000],
+        ...,
+        [0.0000, 0.1849, 0.4854,  ..., 0.0000, 0.0000, 0.3105],
+        [0.0000, 0.0952, 1.1045,  ..., 0.5103, 1.5430, 0.0000],
+        [0.0000, 0.0000, 0.0000,  ..., 0.0000, 1.6904, 0.2578]])
+
+2024-08-22 14:48:13,879 - DEBUG - evaluating program=4 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,880 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:13,880 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:14,431 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:14,431 - DEBUG - input tensors for program=4
+2024-08-22 14:48:14,433 - DEBUG - tensor([[ 1.7124, -0.8475, -1.7806,  ..., -1.1619, -0.8437, -0.6316],
+        [-1.0022, -0.3319,  1.0442,  ..., -0.8091,  0.5073,  1.2775],
+        [-1.4096, -0.7992, -0.9047,  ...,  0.5929, -0.4174, -1.1955],
+        ...,
+        [-0.4846, -0.4591, -1.4851,  ..., -0.4773,  0.6810, -0.7071],
+        [ 2.4284,  0.1782,  0.2825,  ...,  2.5873,  0.6658,  1.7441],
+        [-0.5492, -1.3152,  0.3624,  ..., -0.5817, -0.8482,  1.4696]])
+
+2024-08-22 14:48:14,433 - DEBUG - tensor([[ 0.9609, -1.1071,  0.3187,  ..., -0.5347,  1.9039, -0.9149],
+        [ 0.5577, -0.5756,  0.9776,  ...,  1.5998,  0.1096,  0.1745],
+        [-0.8812,  0.8376, -0.3522,  ...,  0.9486, -0.3666, -1.5846],
+        ...,
+        [ 0.4755,  0.1994,  1.7567,  ..., -0.7267, -0.9196,  1.0339],
+        [-0.4546,  1.0464,  0.0500,  ..., -2.0108,  0.2862, -1.8041],
+        [-1.1473,  0.2076, -0.1182,  ...,  0.4827, -1.5492,  0.2216]])
+
+2024-08-22 14:48:14,433 - DEBUG - output tensors for program=4
+2024-08-22 14:48:14,434 - DEBUG - tensor([[1., 1., 0.,  ..., 0., 0., 1.],
+        [0., 1., 1.,  ..., 0., 1., 1.],
+        [0., 0., 0.,  ..., 0., 0., 1.],
+        ...,
+        [0., 0., 0.,  ..., 1., 1., 0.],
+        [1., 0., 1.,  ..., 1., 1., 1.],
+        [1., 0., 1.,  ..., 0., 1., 1.]])
+
+2024-08-22 14:48:14,434 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:14,434 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:14,435 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:14,435 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:14,435 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:14,435 - DEBUG - input tensors for program=0
+2024-08-22 14:48:14,436 - DEBUG - tensor([[-0.1196,  1.1932,  0.8839,  ...,  2.2459, -0.7761, -0.6670],
+        [-0.6041, -0.6247,  0.3334,  ..., -0.1151,  1.3939,  1.4164],
+        [ 1.1662, -0.1660, -0.4328,  ..., -1.5614, -0.4202, -1.9587],
+        ...,
+        [ 0.6510,  0.3034, -0.9328,  ...,  1.0183, -0.3915,  0.1543],
+        [ 0.7541, -0.1409, -0.9019,  ...,  0.0634,  1.5962, -0.5277],
+        [ 0.7841,  0.0271, -0.8466,  ..., -0.0290,  1.3551, -0.2257]])
+
+2024-08-22 14:48:14,437 - DEBUG - tensor([[-1.0035, -0.3858, -1.9950,  ...,  0.7704, -1.9770,  0.2509],
+        [-0.3365,  0.0595,  0.3327,  ...,  2.0237, -0.5109,  0.0647],
+        [ 0.6054,  1.5161,  0.2598,  ...,  0.2670, -0.4242, -0.6889],
+        ...,
+        [ 0.5982,  0.7220, -0.9050,  ...,  3.1140,  1.0365,  0.7935],
+        [-0.0720,  0.5468,  0.4798,  ...,  0.9126,  0.9037,  1.2235],
+        [-0.1502,  0.8795,  0.0190,  ...,  0.0948,  0.8749, -0.0095]])
+
+2024-08-22 14:48:14,437 - DEBUG - output tensors for program=0
+2024-08-22 14:48:14,438 - DEBUG - tensor([[ 1.1922e-01, -3.0879e+00, -4.4233e-01,  ...,  2.9100e+00,
+          3.9186e-01, -2.6588e+00],
+        [ 1.7929e+00, -1.0482e+01,  1.0010e+00,  ..., -5.6821e-02,
+         -2.7253e+00,  2.1882e+01],
+        [ 1.9267e+00, -1.0952e-01, -1.6646e+00,  ..., -5.8460e+00,
+          9.8993e-01,  2.8419e+00],
+        ...,
+        [ 1.0867e+00,  4.1989e-01,  1.0301e+00,  ...,  3.2669e-01,
+         -3.7736e-01,  1.9438e-01],
+        [-1.0472e+01, -2.5735e-01, -1.8767e+00,  ...,  6.9418e-02,
+          1.7656e+00, -4.3130e-01],
+        [-5.2163e+00,  3.0839e-02, -4.4479e+01,  ..., -3.0513e-01,
+          1.5465e+00,  2.3856e+01]])
+
+2024-08-22 14:48:14,438 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:14,438 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:14,438 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:14,438 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:14,439 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:14,439 - DEBUG - input tensors for program=0
+2024-08-22 14:48:14,440 - DEBUG - tensor([[-0.3158,  0.4882,  0.2528,  ..., -0.0286,  0.5325,  1.1044],
+        [ 0.7076, -1.6455,  1.4365,  ..., -0.2603,  0.1624, -0.9646],
+        [-0.8171, -1.6917,  0.2856,  ..., -0.4219, -0.1646,  0.9502],
+        ...,
+        [-0.0686,  1.2189,  0.4218,  ..., -1.2931, -1.2035,  0.8392],
+        [-0.1884, -1.7335,  1.5043,  ..., -2.4483, -2.3178, -0.4936],
+        [-0.6431,  0.6048,  0.2681,  ...,  0.2914, -0.4605, -0.2453]])
+
+2024-08-22 14:48:14,440 - DEBUG - tensor([[ 0.0035,  0.3547,  1.2715,  ...,  0.8438,  0.3240,  0.5470],
+        [-0.7086, -0.5998, -0.4726,  ...,  0.5240,  0.8441, -0.8247],
+        [-0.9046,  0.6699,  0.7784,  ..., -2.1421,  0.5626, -0.1234],
+        ...,
+        [ 0.0825,  0.4423, -1.3451,  ..., -1.3474,  0.2992,  0.1641],
+        [-2.0418,  0.2051, -0.5498,  ...,  0.3861,  1.9963, -0.9558],
+        [-0.8023, -0.3881,  0.0489,  ..., -0.0136,  0.8858, -1.3798]])
+
+2024-08-22 14:48:14,440 - DEBUG - output tensors for program=0
+2024-08-22 14:48:14,441 - DEBUG - tensor([[0., 1., 0.,  ..., 0., 1., 1.],
+        [1., 0., 1.,  ..., 0., 0., 0.],
+        [1., 0., 0.,  ..., 1., 0., 1.],
+        ...,
+        [0., 1., 1.,  ..., 1., 0., 1.],
+        [1., 0., 1.,  ..., 0., 0., 1.],
+        [1., 1., 1.,  ..., 1., 0., 1.]])
+
+2024-08-22 14:48:14,441 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:14,441 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:14,441 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:14,441 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:14,442 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:14,442 - DEBUG - input tensors for program=0
+2024-08-22 14:48:14,443 - DEBUG - tensor([[ 0.8034,  0.6323,  0.8977,  ...,  0.2259,  1.3244,  0.1236],
+        [-0.1687,  0.2446,  0.6459,  ...,  0.1541, -0.9722,  0.6347],
+        [ 0.4947, -0.6883,  1.4661,  ..., -0.4457,  0.2735,  0.7163],
+        ...,
+        [ 0.6761,  0.3077, -0.4159,  ...,  2.1476,  0.7906, -1.4504],
+        [ 1.2787, -0.1588, -0.1798,  ...,  0.6199, -0.0092, -0.5473],
+        [ 0.4607, -0.7283,  0.3008,  ...,  0.7711, -2.1231,  1.3570]])
+
+2024-08-22 14:48:14,444 - DEBUG - tensor([[-0.9584, -1.1256, -1.1553,  ...,  1.5166, -0.4113, -0.5889],
+        [ 0.1106, -0.1542,  0.2218,  ..., -0.7327, -0.6705,  1.2143],
+        [-0.5276, -1.7888, -1.7772,  ...,  1.1407, -0.0106, -0.5934],
+        ...,
+        [-0.0028,  0.4190, -0.6911,  ...,  0.3131, -0.2932,  1.1963],
+        [ 0.7719, -0.2009, -0.6020,  ..., -0.8279,  0.7665, -1.1773],
+        [ 0.2754, -1.2736,  0.3865,  ..., -2.3336, -0.1447, -1.9768]])
+
+2024-08-22 14:48:14,444 - DEBUG - output tensors for program=0
+2024-08-22 14:48:14,444 - DEBUG - tensor([[ 1.7612,  1.7568,  2.0527,  ..., -1.2910,  1.7354,  0.7124],
+        [-0.2793,  0.3987,  0.4238,  ...,  0.8862, -0.3013, -0.5791],
+        [ 1.0220,  1.0996,  3.2422,  ..., -1.5859,  0.2842,  1.3091],
+        ...,
+        [ 0.6787, -0.1113,  0.2749,  ...,  1.8340,  1.0835, -2.6465],
+        [ 0.5068,  0.0421,  0.4219,  ...,  1.4473, -0.7754,  0.6299],
+        [ 0.1853,  0.5449, -0.0854,  ...,  3.1035, -1.9785,  3.3330]])
+
+2024-08-22 14:48:14,444 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:14,444 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:14,445 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:14,445 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:16,208 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:16,208 - DEBUG - input tensors for program=0
+2024-08-22 14:48:16,209 - DEBUG - tensor([[ 0.0110,  0.5469, -0.7656,  ..., -0.0942,  0.5039, -1.4219],
+        [-1.5156, -1.0078, -0.2119,  ..., -0.3984, -1.0859, -0.0840],
+        [-2.1406,  0.5156, -0.4902,  ...,  0.0486,  0.3398, -1.9375],
+        ...,
+        [-0.2676,  0.6055, -2.5469,  ..., -1.1172,  1.0078,  1.0938],
+        [-2.3594,  0.9883, -1.3438,  ..., -0.1338,  0.9570, -0.0688],
+        [ 1.6562, -0.6641, -0.1299,  ..., -0.1118,  0.3652,  1.2422]],
+       dtype=torch.bfloat16)
+
+2024-08-22 14:48:16,210 - DEBUG - tensor([[-1.7578, -0.3262, -0.1572,  ...,  1.3984,  2.3125, -0.7617],
+        [-2.4688, -1.0469,  0.5742,  ..., -0.3105,  1.5156,  1.5000],
+        [ 0.1445, -0.0488,  0.8164,  ..., -0.1094, -0.1875, -0.4355],
+        ...,
+        [ 0.9844, -0.8867, -1.1797,  ..., -2.3125, -0.3984, -0.2500],
+        [ 1.8516,  1.8203,  0.1875,  ...,  0.7266, -2.7500,  1.1016],
+        [ 0.3301,  0.1865, -1.0000,  ..., -1.8203,  0.9219,  1.2031]],
+       dtype=torch.bfloat16)
+
+2024-08-22 14:48:16,210 - DEBUG - output tensors for program=0
+2024-08-22 14:48:16,211 - DEBUG - tensor([[-31.0000,  -4.0000,  -8.3125,  ...,   9.1250,  24.1250, -12.1250],
+        [  9.6250,  -8.3750,  14.6875,  ...,   8.4375,   7.7188,  10.8750],
+        [-11.5000, -18.2500,  18.8750,  ...,  29.7500,  -0.7656, -23.3750],
+        ...,
+        [ -5.3750,  -3.0781,   6.1562,  ...,   7.5625,   4.4062,   7.4062],
+        [ 25.2500,  -9.5625,  -7.5000,  ...,   6.3438, -17.1250,  -2.0312],
+        [-10.6875,  15.0000,  13.9375,  ...,   3.4688,  13.4375,  -4.0625]],
+       dtype=torch.bfloat16)
+
+2024-08-22 14:48:16,211 - INFO - evaluating binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,211 - DEBUG - evaluating program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,211 - DEBUG - generating inputs/outputs for loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,211 - DEBUG - starting loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,697 - DEBUG - finished loop=1/1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,697 - DEBUG - input tensors for program=0
+2024-08-22 14:48:16,698 - DEBUG - tensor([[-0.0703,  1.6138,  0.3983,  ...,  1.2445, -0.8362, -1.2391],
+        [ 0.4178, -0.5108, -0.1644,  ..., -0.1877, -0.6301, -0.8186],
+        [-1.5037,  1.1300,  2.8194,  ...,  1.3822, -0.9794, -0.1769],
+        ...,
+        [ 1.1520, -0.9308,  0.6732,  ...,  0.3174,  0.9239, -0.8626],
+        [ 2.3973,  0.2913, -1.5052,  ...,  0.1629,  0.3437, -1.6719],
+        [-0.7344,  1.8092, -0.6222,  ..., -0.8756,  0.7085, -2.4797]])
+
+2024-08-22 14:48:16,698 - DEBUG - output tensors for program=0
+2024-08-22 14:48:16,699 - DEBUG - tensor([[0.0000, 1.2701, 0.6310,  ..., 1.1154,    nan,    inf],
+        [0.6463,    nan, 0.0000,  ..., 0.0000,    nan,    nan],
+        [   inf, 1.0630, 1.6788,  ..., 1.1755,    inf, 0.0000],
+        ...,
+        [1.0730,    inf, 0.8203,  ..., 0.5634, 0.9612,    nan],
+        [1.5481, 0.5397,    inf,  ..., 0.4035, 0.5861,    inf],
+        [   nan, 1.3448,    nan,  ...,    nan, 0.8414,    inf]])
+
+2024-08-22 14:48:16,699 - DEBUG - finished executing ttnn binaries
+2024-08-22 14:48:16,699 - DEBUG - executing ttmetal binaries
+2024-08-22 14:48:16,699 - WARNING - no binaries found to run - returning early
+2024-08-22 14:48:16,699 - DEBUG - finished executing ttmetal binaries
+2024-08-22 14:48:16,699 - DEBUG - finished executing run API
+2024-08-22 14:48:16,699 - DEBUG - postprocessing run API
+2024-08-22 14:48:16,699 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:16,699 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:16,699 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,699 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,699 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,700 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,700 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,700 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:16,700 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_multiply.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,700 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,700 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,700 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,700 - INFO - saving torch tensor=program_0_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,701 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,701 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_multiply.mlir.tmp.ttnn
+2024-08-22 14:48:16,701 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:16,701 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:16,701 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,701 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,701 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,701 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,701 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,701 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:16,702 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_relu.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,702 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,702 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,702 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,702 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,702 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_relu.mlir.tmp.ttnn
+2024-08-22 14:48:16,702 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:16,702 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:16,703 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,703 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,703 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,703 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,703 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,703 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:16,703 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_sum.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,703 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,703 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,703 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,704 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,705 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_sum.mlir.tmp.ttnn
+2024-08-22 14:48:16,705 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:16,705 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:16,705 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,705 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,705 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,705 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,705 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,705 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:16,705 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,705 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,705 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,705 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,706 - INFO - saving torch tensor=program_0_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,706 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,706 - INFO - saving program=1 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_1
+2024-08-22 14:48:16,706 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_1
+2024-08-22 14:48:16,706 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_1' already exists
+2024-08-22 14:48:16,706 - INFO - saving torch tensor=program_1_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_1
+2024-08-22 14:48:16,707 - INFO - saving torch tensor=program_1_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_1
+2024-08-22 14:48:16,707 - INFO - saving torch tensor=program_1_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_1
+2024-08-22 14:48:16,707 - INFO - saving program=2 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_2
+2024-08-22 14:48:16,707 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_2
+2024-08-22 14:48:16,707 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_2' already exists
+2024-08-22 14:48:16,707 - INFO - saving torch tensor=program_2_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_2
+2024-08-22 14:48:16,708 - INFO - saving torch tensor=program_2_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_2
+2024-08-22 14:48:16,708 - INFO - saving torch tensor=program_2_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_2
+2024-08-22 14:48:16,708 - INFO - saving program=3 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_3
+2024-08-22 14:48:16,708 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_3
+2024-08-22 14:48:16,708 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_3' already exists
+2024-08-22 14:48:16,708 - INFO - saving torch tensor=program_3_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_3
+2024-08-22 14:48:16,708 - INFO - saving torch tensor=program_3_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_3
+2024-08-22 14:48:16,709 - INFO - saving program=4 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_eltwise.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_4
+2024-08-22 14:48:16,709 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_4
+2024-08-22 14:48:16,709 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_4' already exists
+2024-08-22 14:48:16,709 - INFO - saving torch tensor=program_4_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_4
+2024-08-22 14:48:16,709 - INFO - saving torch tensor=program_4_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_4
+2024-08-22 14:48:16,709 - INFO - saving torch tensor=program_4_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn/run/program_4
+2024-08-22 14:48:16,710 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_eltwise.mlir.tmp.ttnn
+2024-08-22 14:48:16,710 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:16,710 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:16,710 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,710 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,710 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,710 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,710 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,710 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:16,710 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_div.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,710 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,710 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,710 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,711 - INFO - saving torch tensor=program_0_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,711 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,711 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_div.mlir.tmp.ttnn
+2024-08-22 14:48:16,711 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:16,711 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:16,711 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,711 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,711 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,711 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,712 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,712 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:16,712 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_ge.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,712 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,712 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,712 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,712 - INFO - saving torch tensor=program_0_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,712 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,713 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_ge.mlir.tmp.ttnn
+2024-08-22 14:48:16,713 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:16,713 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:16,713 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,713 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,713 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,713 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,713 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,713 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:16,713 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_subtract.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,713 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,713 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,713 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,714 - INFO - saving torch tensor=program_0_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,714 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,714 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_subtract.mlir.tmp.ttnn
+2024-08-22 14:48:16,714 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:16,714 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:16,714 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,714 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,714 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,714 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,714 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,715 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:16,715 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/Output/simple_matmul.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,715 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,715 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,715 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,715 - INFO - saving torch tensor=program_0_input_1.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,715 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,716 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_matmul.mlir.tmp.ttnn
+2024-08-22 14:48:16,716 - INFO - saving binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn to binary_folder=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,716 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,716 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn' already exists
+2024-08-22 14:48:16,716 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run
+2024-08-22 14:48:16,716 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run' already exists
+2024-08-22 14:48:16,716 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/perf
+2024-08-22 14:48:16,716 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/perf' already exists
+2024-08-22 14:48:16,716 - DEBUG - copying file from=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn to=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,716 - INFO - saving program=0 for binary=/code/tt-mlir/build/test/ttmlir/Silicon/TTNN/eltwise/unary/Output/simple_sqrt.mlir.tmp.ttnn to program_folder=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,716 - DEBUG - creating directory=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,716 - WARNING - directory '/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run/program_0' already exists
+2024-08-22 14:48:16,716 - INFO - saving torch tensor=program_0_input_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,716 - INFO - saving torch tensor=program_0_output_0.pt to folder_path=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn/run/program_0
+2024-08-22 14:48:16,717 - INFO - saving system_desc=system_desc.ttsys to system_desc_folder=/code/tt-mlir/ttrt-artifacts/simple_sqrt.mlir.tmp.ttnn
+2024-08-22 14:48:16,717 - DEBUG - finished postprocessing run API
+2024-08-22 14:48:16,717 - DEBUG - finished run API

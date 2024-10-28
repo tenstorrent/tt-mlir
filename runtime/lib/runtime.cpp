@@ -141,12 +141,12 @@ void closeDevice(Device device) {
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             std::vector<Tensor> const &outputHandles, bool enableGolden) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
                                        programIndex, inputHandles,
-                                       outputHandles);
+                                       outputHandles, enableGolden);
   }
 #endif
 
@@ -154,7 +154,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
                                           programIndex, inputHandles,
-                                          outputHandles);
+                                          outputHandles, enableGolden);
   }
 #endif
   throw std::runtime_error("runtime is not enabled");

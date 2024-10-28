@@ -16,8 +16,90 @@
 #include "types_generated.h"
 #include "utils.h"
 
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+namespace py = pybind11;
+
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+
+// Golden proxy function
+void runGolden(std::vector<::ttnn::Tensor> input_tensors, ::ttnn::Tensor& output_tensor) {
+    std::vector<::ttnn::Tensor> golden_inputs;
+    std::vector<std::shared_ptr<void>> callback_inputs;
+    std::vector<::ttnn::Tensor> golden_outputs;
+    std::vector<std::shared_ptr<void>> callback_outputs;
+
+    // create a copy of the input tensors
+    for (auto tensor : input_tensors) {
+      ::ttnn::Tensor tensor_golden_device;
+
+      if (tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+        tensor_golden_device = ::untilize(tensor);
+      } 
+      else if (tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE) {
+        tensor_golden_device = ::untilize(tensor.cpu());
+      }
+
+      std::uint32_t tensor_size = tensor_golden_device.volume() * tensor_golden_device.element_size();
+      void *tensor_src = ::tt::tt_metal::get_raw_host_data_ptr(lhs_golden_device);
+      std::shared_ptr<void> *tensor_dst = new std::shared_ptr<void>();
+      tensor_dst = malloc(tensor_size);
+      std::memcpy(tensor_dst, tensor_src, tensor_size);
+
+      golden_inputs.push_back(tensor_golden_device);
+      callback_inputs.push_back(tensor_dst);
+    }
+
+    // create a copy of the output tensors
+    for (auto tensor : output_tensor) {
+      ::ttnn::Tensor tensor_golden_device;
+
+      if (tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+        tensor_golden_device = ::untilize(tensor);
+      } 
+      else if (tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE) {
+        tensor_golden_device = ::untilize(tensor.cpu());
+      }
+
+      std::uint32_t tensor_size = tensor_golden_device.volume() * tensor_golden_device.element_size();
+      void *tensor_src = ::tt::tt_metal::get_raw_host_data_ptr(lhs_golden_device);
+      std::shared_ptr<void> *tensor_dst = new std::shared_ptr<void>();
+      tensor_dst = malloc(tensor_size);
+      std::memcpy(tensor_dst, tensor_src, tensor_size);
+
+      golden_outputs.push_back(tensor_golden_device);
+      callback_outputs.push_back(tensor_dst);
+    }
+
+
+    // python callback function
+    py::module sys = py::module::import("sys");
+    sys.attr("path").attr("append")("/code/tt-mlir/runtime/tools/python/ttrt");
+    sys.attr("path").attr("append")("/code/tt-mlir/third_party/tt-metal/src/tt-metal/ttnn");
+    auto golden = py::module::import("common.golden");
+
+    // create pycapsules for inputs and outputs
+    py::capsule input_a_capsule((void *)tensor_a, [](void *data) {
+        std::shared_ptr<void> *tensor = static_cast<std::shared_ptr<void> *>(data);
+        delete tensor;
+    });
+
+    py::capsule input_b_capsule((void *)tensor_b, [](void *data) {
+        std::shared_ptr<void> *tensor = static_cast<std::shared_ptr<void> *>(data);
+        delete tensor;
+    });
+
+    py::capsule output_capsule((void *)output, [](void *data) {
+        std::shared_ptr<void> *tensor = static_cast<std::shared_ptr<void> *>(data);
+        delete tensor;
+    });
+
+    auto result_obj = golden.attr("subtract")(input_a_capsule, input_b_capsule, output_capsule);
+    double result = result_obj.cast<double>();
+    std::cout << "result=" << result << std::endl;
+}
+
 
 // It seems like `ttnn::to_layout` cannot be called inside of the
 // `tt::runtime::ttnn` namespace.  TTNN uses a lot of metaprogramming and for
@@ -96,7 +178,7 @@ updateLayoutAndDataType(const ::ttnn::Tensor &inputTensor,
 static void
 run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   const ::ttnn::Tensor &inputTensor = *liveTensors.at(op->in0()->global_id());
   TT_FATAL(isOnHost(inputTensor) or isOnDevice(inputTensor),
            "Unsupported storage type {}", inputTensor.storage_type());
@@ -196,7 +278,7 @@ run(::tt::target::ttnn::ToMemoryConfigOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   ::ttnn::DataType targetDataTypeTTNN = utils::toTTNNDataType(
       op->out()->desc()->layout()->memory_desc()->data_type());
 
@@ -215,7 +297,7 @@ run(::tt::target::ttnn::EmptyOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
@@ -225,6 +307,10 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
     auto &rhs = *liveTensors.at(op->ins()->Get(1)->global_id());
     tensorPool.push_back(::ttnn::add(lhs, rhs));
     liveTensors.insert_or_assign(op->out()->global_id(), &tensorPool.back());
+
+    if (enableGolden) {
+      runGolden();
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
@@ -302,7 +388,7 @@ run(::tt::target::ttnn::EltwiseOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   switch (op->type()) {
   case ::tt::target::ttnn::ReductionOpType::Sum: {
     auto &in = *liveTensors.at(op->in()->global_id());
@@ -338,7 +424,7 @@ run(::tt::target::ttnn::ReductionOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::EmbeddingOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   ::ttnn::Tensor &input = *liveTensors.at(op->input()->global_id());
   ::ttnn::Tensor &weight = *liveTensors.at(op->weight()->global_id());
 
@@ -349,7 +435,7 @@ run(::tt::target::ttnn::EmbeddingOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
   int32_t dimension = op->dimension();
 
@@ -360,7 +446,7 @@ run(::tt::target::ttnn::SoftmaxOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   ::ttnn::Tensor &in = *liveTensors.at(op->in()->global_id());
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();
@@ -391,7 +477,7 @@ run(::tt::target::ttnn::TransposeOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   auto &lhs = *liveTensors.at(op->in0()->global_id());
   auto &rhs = *liveTensors.at(op->in1()->global_id());
   tensorPool.push_back(::ttnn::operations::matmul::matmul(
@@ -403,7 +489,7 @@ run(::tt::target::ttnn::MatmulOp const *op, ::ttnn::Device &device,
 static void
 run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
     std::unordered_map<std::uint32_t, ::ttnn::Tensor *> &liveTensors,
-    std::list<::ttnn::Tensor> &tensorPool) {
+    std::list<::ttnn::Tensor> &tensorPool, bool enableGolden) {
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::OpenDeviceOp: {
     // Skip for now, do we want device externally supplied?
@@ -414,32 +500,32 @@ run(::tt::target::ttnn::Operation const *op, ::ttnn::Device &device,
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
-    return run(op->type_as_ToMemoryConfigOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_ToMemoryConfigOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
-    return run(op->type_as_EmptyOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_EmptyOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     // Skip for now, we need an empty op
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
-    return run(op->type_as_EltwiseOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_EltwiseOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::MatmulOp: {
-    return run(op->type_as_MatmulOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_MatmulOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::ReductionOp: {
-    return run(op->type_as_ReductionOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_ReductionOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
-    return run(op->type_as_EmbeddingOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_EmbeddingOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
-    return run(op->type_as_SoftmaxOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_SoftmaxOp(), device, liveTensors, tensorPool, enableGolden);
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
-    return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool);
+    return run(op->type_as_TransposeOp(), device, liveTensors, tensorPool, enableGolden);
   }
   default:
     throw std::runtime_error("Unsupported operation type");
@@ -468,7 +554,7 @@ bool handleNopProgram(::tt::target::ttnn::Program const *program,
 void runProgram(::ttnn::Device &device,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs) {
+                std::vector<::ttnn::Tensor *> const &outputs, bool enableGolden) {
   std::unordered_map<std::uint32_t, ::ttnn::Tensor *> liveTensors;
   std::list<::ttnn::Tensor> tensorPool;
 
@@ -494,7 +580,7 @@ void runProgram(::ttnn::Device &device,
   }
 
   for (::tt::target::ttnn::Operation const *op : *program->operations()) {
-    run(op, device, liveTensors, tensorPool);
+    run(op, device, liveTensors, tensorPool, enableGolden);
   }
 }
 } // namespace tt::runtime::ttnn

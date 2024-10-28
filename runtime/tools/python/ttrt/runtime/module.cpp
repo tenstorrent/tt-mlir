@@ -61,6 +61,6 @@ PYBIND11_MODULE(_C, m) {
   m.def("close_device", &tt::runtime::closeDevice, "Close a device");
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
-        py::arg("outputs"), "Submit a binary for execution");
+        py::arg("outputs"), py::arg("enable_golden"), "Submit a binary for execution");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
 }

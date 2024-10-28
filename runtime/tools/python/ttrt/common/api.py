@@ -508,8 +508,8 @@ class API:
 
             for path in ttnn_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
-                if bin.check_version():
-                    self.ttnn_binaries.append(bin)
+                #if bin.check_version():
+                #    self.ttnn_binaries.append(bin)
 
             for path in ttmetal_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
@@ -745,8 +745,8 @@ class API:
 
             for path in ttnn_binary_paths:
                 bin = Binary(self.logger, self.file_manager, path)
-                if not bin.check_version():
-                    continue
+                #if not bin.check_version():
+                #    continue
 
                 if not bin.check_system_desc(self.query):
                     continue
@@ -866,6 +866,7 @@ class API:
                                 program_index,
                                 total_inputs[loop],
                                 total_outputs[loop],
+                                False
                             )
 
                             self.logging.debug(
@@ -1127,8 +1128,8 @@ class API:
 
                 for path in ttnn_binary_paths:
                     bin = Binary(self.logger, self.file_manager, path)
-                    if not bin.check_version():
-                        continue
+                    #if not bin.check_version():
+                    #    continue
 
                     if not bin.check_system_desc(self.query):
                         continue
