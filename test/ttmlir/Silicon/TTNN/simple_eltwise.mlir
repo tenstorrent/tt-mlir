@@ -209,3 +209,11 @@ func.func @expm1(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
   // CHECK: return %{{[0-9]+}} : tensor<[[TENSOR_SHAPE]]xf32, {{.*}}>
 }
+
+func.func @sign(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: %[[C:.*]] = "ttnn.sign"[[C:.*]]
+  %1 = "ttir.sign"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}

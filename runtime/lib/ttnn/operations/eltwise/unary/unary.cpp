@@ -96,6 +96,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Sign: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sign);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
     runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
     break;

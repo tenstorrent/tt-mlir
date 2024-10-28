@@ -160,10 +160,15 @@ def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
-    let summary = "Eltwise ceil.";
+def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
     let description = [{
-      Eltwise ceil operation.
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttnn.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
     }];
 }
 

@@ -204,10 +204,15 @@ def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
     }];
 }
 
-def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
-    let summary = "Eltwise cosine op.";
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
     let description = [{
-      Eltwise cosine operation.
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
     }];
 }
 
