@@ -144,6 +144,7 @@ table ChipDesc {
   physical_cores: ChipPhysicalCores;
   supported_data_types: [DataType];
   supported_tile_sizes: [Dim2d];
+  num_cbs: uint32;
 }
 
 struct ChipCoord {
