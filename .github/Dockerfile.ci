@@ -28,10 +28,14 @@ RUN source env/activate && \
     cmake -B env/build env && \
     cmake --build env/build $(if [ -n "$BUILD_CONFIG" ]; then echo "--config $BUILD_CONFIG"; fi)
 
-# move to home directory
-WORKDIR $BUILD_DIR
 
-# remove the build directory
-RUN rm -rf $BUILD_DIR/$PROJECT_NAME
+# Final stage
+ARG FROM_TAG=latest
+FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
+
+# Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
+ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
+RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
 
 RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR
