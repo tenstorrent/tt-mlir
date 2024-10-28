@@ -29,14 +29,11 @@ struct TTIRToTTNNBackendPipelineOptions
   // The format is a comma separated list of op names and operand index
   // separated by ':' separator.
   //
-  // op_name:operand_idx
+  // Full Example: "op1=0,op2=0:1"
   //
-  // * operand_idx=0,1,...
-  //
-  // Full Example: "op1:0,op2:1"
-  //
-  // This will insert two TTIR_ToLayoutOps responsible for resharding the op1's
-  // first operand and op2's second operand.
+  // This will insert one TTIR_ToLayoutOps responsible for resharding the op1's
+  // first operand and two TTIR_ToLayoutOps responsible for resharding the op2's
+  // first and second operand.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
