@@ -7,12 +7,32 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
-#include <cstdint>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/CommandLine.h>
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 
 namespace mlir::tt::ttnn {
+
+struct MemoryLayoutAnalysisPolicyTypeParser
+    : public llvm::cl::parser<MemoryLayoutAnalysisPolicyType> {
+public:
+  MemoryLayoutAnalysisPolicyTypeParser(llvm::cl::Option &opt)
+      : llvm::cl::parser<MemoryLayoutAnalysisPolicyType>(opt) {}
+
+  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
+             MemoryLayoutAnalysisPolicyType &value) {
+    MemoryLayoutAnalysisPolicyType policy =
+        symbolizeMemoryLayoutAnalysisPolicyType(arg);
+    value = policy;
+    return true;
+  }
+
+  static void print(llvm::raw_ostream &os,
+                    const MemoryLayoutAnalysisPolicyType &value) {
+    os << "memory-layout-analysis-policy="
+       << stringifyMemoryLayoutAnalysisPolicyType(value);
+    os << "\n";
+  }
+};
+
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct TTIRToTTNNBackendPipelineOptions
@@ -84,6 +104,14 @@ struct TTIRToTTNNBackendPipelineOptions
                      "we support all types "
                      "of shard specs."),
       llvm::cl::init(false)};
+
+  // Specify policy for memory layout analysis.
+  //
+  Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
+      memoryLayoutAnalysisPolicy{
+          *this, "memory-layout-analysis-policy",
+          llvm::cl::desc("Specify policy for memory layout analysis."),
+          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
