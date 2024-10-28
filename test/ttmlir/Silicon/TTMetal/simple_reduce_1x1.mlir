@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-load-system-desc="path=%system_desc_path%" --ttir-to-ttmetal-backend-pipeline  %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-backend-pipeline="system-desc-path=%system_desc_path%"  %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #l1_ = #tt.memory_space<l1>
 
