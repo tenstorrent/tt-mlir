@@ -284,6 +284,22 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryOp<"atan2"> {
+    let summary = "Eltwise atan2 OP.";
+    let description = [{
+      Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
+      tensor.
+
+      Example:
+      ```
+        // %lhs: [0.0, 1.0, -1.0]
+        // %rhs: [0.0, 0.0, 0.0]
+        %result = "ttnn.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
+        // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
+      ```
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{

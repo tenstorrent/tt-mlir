@@ -336,6 +336,22 @@ def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
+def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
+    let summary = "Eltwise atan2 OP.";
+    let description = [{
+      Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
+      tensor.
+
+      Example:
+      ```
+        // %lhs: [0.0, 1.0, -1.0]
+        // %rhs: [0.0, 0.0, 0.0]
+        %result = "ttir.atan2"(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
+        // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
+      ```
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
 
