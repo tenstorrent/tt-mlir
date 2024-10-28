@@ -7,10 +7,27 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include <vector>
+
 namespace mlir::tt::ttnn {
 
 bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
+  if (auto reluOp = mlir::dyn_cast_or_null<ReluOp>(op)) {
+    llvm::outs() << "ReluOp [Perf] " << reluOp.getOpPerfCycles() << "\n";
+    llvm::outs() << "ReluOp [L1] " << reluOp.getOpL1Usage() << "\n";
+    llvm::outs() << "ReluOp [Legal] " << reluOp.isOpLegal() << "\n";
+  }
+
+  // LegalGridAnalysis.cpp:(.text+0x13d): undefined reference to
+  // `mlir::tt::ttnn::TTNNOpBackend::getOpPerfCycles()'
+
+  // if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(op)) {
+  //   llvm::errs() << "[Perf] = " << backend.getOpPerfCycles() << "\n";
+  // }
+
+  llvm::outs() << op->getName() << "=" << layout << "\n";
+
   return true;
 }
 
@@ -96,6 +113,7 @@ bool LegalGridAnalysis::applyOverrides() {
 }
 
 void LegalGridAnalysis::analysisImplementation() {
+
   // A first incomplete implementation of the LegalGridAnalysis.
   // This implementation is a placeholder and is meant to just enable testing of
   // other components.

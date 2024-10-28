@@ -754,4 +754,26 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   return success();
 }
 
+// If one wants to override default implementation, they should do like this:
+
+// //===----------------------------------------------------------------------===//
+// // ReluOp
+// //===----------------------------------------------------------------------===//
+
+// // // Relu backend interface
+// size_t ReluOp::getOpPerfCycles() {
+//   // Implement a custom estimate for relu op cycles.
+//   return 5;
+// }
+
+// size_t ReluOp::getOpL1Usage() {
+//   // Implement a custom estimate for relu op L1 usage.
+//   return 10;
+// }
+
+// bool ReluOp::isOpLegal() {
+//   // Implement a custom check for relu op legality.
+//   return true;
+// }
+
 } // namespace mlir::tt::ttnn
