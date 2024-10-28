@@ -106,6 +106,7 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.linalg
   MLIRPythonSources.Dialects.ml_program
   MLIRPythonSources.Dialects.scf
+  MLIRPythonSources.Dialects.tosa
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra
