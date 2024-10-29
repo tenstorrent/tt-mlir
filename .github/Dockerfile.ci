@@ -33,6 +33,9 @@ RUN source env/activate && \
         cmake --build env/build; \
     fi
 
+# Remove nvida from the toolchain
+RUN rm -rf $TTMLIR_TOOLCHAIN_DIR/venv/lib/python3.10/site-packages/*nvidia*
+
 # Final stage
 ARG FROM_TAG=latest
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
