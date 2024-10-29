@@ -18,7 +18,7 @@ table ToMemoryConfigOp {
 table ToLayoutOp {
   in: tt.target.TensorRef;
   layout: tt.target.TensorLayout;
-  dtype: tt.target.DataType;
+  dtype: tt.target.DataType = null;
   memcfg: tt.target.MemoryConfigDesc;
   device: tt.target.DeviceRef;
   out: tt.target.TensorRef;
