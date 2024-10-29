@@ -27,22 +27,6 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
-def TTNN_CompositeToLayoutOp : TTNN_Op<"composite_to_layout"> {
-  let summary = "Composite toLayout op.";
-  let description = [{
-      This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
-      to perform optimizations, and later broken down into specific memory/layout operations (toDevice, toMemoryConfig, toLayout etc.).
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       TTNN_LayoutAttr:$layout,
-                       TT_DataTypeAttr:$dtype,
-                       TTNN_MemoryConfigAttr:$memory_config,
-                       Optional<TT_Device>:$device);
-
-  let results = (outs AnyRankedTensor:$result);
-}
-
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{
@@ -65,10 +49,10 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let summary = "ToLayout op.";
     let description = [{
-      This op converts the layout of the input tensor based on the given layout.
-      It handles:
-        - ROW_MAJOR to TILE
-        - TILE to ROW_MAJOR
+      This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
+      to perform optimizations, and later broken down into specific memory/layout operations (toDevice, toMemoryConfig etc.).
+      Currently in the TTNN backend, we use this op solely for tilize/untilize, therefore marking all other attrs as optional.
+      Once ttnn::to_layout supports other attrs, we can remove the optional tag.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

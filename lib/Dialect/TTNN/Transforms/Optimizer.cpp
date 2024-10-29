@@ -163,16 +163,15 @@ public:
           // TTNN will need to be special handled as well. Depends on ttnn
           // layout attr refactor and lowering.
           //
-          else if (isa<ttnn::CompositeToLayoutOp>(op)) {
+          else if (isa<ttnn::ToLayoutOp>(op)) {
             BufferType bufferType =
                 utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
             TensorMemoryLayout tensorMemoryLayout =
                 utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
             // Update the device op with the new tensor type.
             //
-            ttnn::CompositeToLayoutOp compositeLayoutOp =
-                llvm::cast<ttnn::CompositeToLayoutOp>(op);
-            compositeLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+            ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
+            toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
                 op->getContext(),
                 ttnn::TensorMemoryLayoutAttr::get(op->getContext(),
                                                   tensorMemoryLayout),
@@ -243,45 +242,41 @@ public:
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
-      // If producerOp is a compositeToLayoutOp, adjust its output layout(update
+      // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
-      // compositeToLayoutOp, insert a compositeToLayoutOp in between producerOp
+      // toLayoutOp, insert a toLayoutOp in between producerOp
       // and consumerOp.
       //
-      if (isa<ttnn::CompositeToLayoutOp>(producerOp)) {
-        ttnn::CompositeToLayoutOp compositeLayoutOp =
-            llvm::cast<ttnn::CompositeToLayoutOp>(producerOp);
+      if (isa<ttnn::ToLayoutOp>(producerOp)) {
+        ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(producerOp);
         tt::LayoutAttr consumerOpOutputLayout = mlir::cast<tt::LayoutAttr>(
             mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
                 .getEncoding());
 
-        RankedTensorType compositeLayoutOpTensorType =
-            mlir::cast<RankedTensorType>(
-                compositeLayoutOp.getResult().getType());
-        llvm::ArrayRef<int64_t> compositeLayoutOpTensorShape =
-            compositeLayoutOpTensorType.getShape();
-        tt::LayoutAttr compositeLayoutOpLayout = mlir::cast<tt::LayoutAttr>(
-            compositeLayoutOpTensorType.getEncoding());
+        RankedTensorType toLayoutOpTensorType =
+            mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
+        llvm::ArrayRef<int64_t> toLayoutOpTensorShape =
+            toLayoutOpTensorType.getShape();
+        tt::LayoutAttr toLayoutOpLayout =
+            mlir::cast<tt::LayoutAttr>(toLayoutOpTensorType.getEncoding());
 
         // TODO(nobradovic): Match memory space and layout of consumer op. This
         // actually needs to be properly resolved based on op type, output
         // layout and other inputs.
         //
         RankedTensorType newTensorType = RankedTensorType::get(
-            compositeLayoutOpTensorShape,
-            compositeLayoutOpTensorType.getElementType(),
-            compositeLayoutOpLayout
-                .withElementType(compositeLayoutOp->getContext(),
+            toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
+            toLayoutOpLayout
+                .withElementType(toLayoutOp->getContext(),
                                  consumerOpOutputLayout.getElementType())
-                .withMemorySpace(compositeLayoutOp.getContext(),
+                .withMemorySpace(toLayoutOp.getContext(),
                                  consumerOpOutputLayout.getMemorySpace())
-                .withMemoryLayout(compositeLayoutOp.getContext(),
+                .withMemoryLayout(toLayoutOp.getContext(),
                                   consumerOpOutputLayout.getMemLayout())
-                .withGrid(compositeLayoutOp.getContext(),
-                          compositeLayoutOpTensorType,
+                .withGrid(toLayoutOp.getContext(), toLayoutOpTensorType,
                           consumerOpOutputLayout.getGrid()));
 
-        compositeLayoutOp.getResult().setType(newTensorType);
+        toLayoutOp.getResult().setType(newTensorType);
       }
       // TODO (nobradovic): Memory layout reconfig needs to be reimplemented for
       // TTNN dialect.

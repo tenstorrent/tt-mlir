@@ -200,7 +200,7 @@ public:
             op.getContext(), ttnn::ShapeAttr::get(rewriter.getContext(),
                                                   outputMemref.getShape())));
 
-    rewriter.replaceOpWithNewOp<ttnn::CompositeToLayoutOp>(
+    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
         outputLayout, outputDataType, outputMemConfigAttr,
         isOutputOnHost ? nullptr : getOrInsertDevice(rewriter, op));
