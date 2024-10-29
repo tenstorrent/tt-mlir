@@ -347,6 +347,20 @@ public:
   }
 };
 
+class ClampOpConversionPattern : public OpConversionPattern<ttir::ClampOp> {
+public:
+  using OpConversionPattern<ttir::ClampOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ClampOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ClampOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
+    return success();
+  }
+};
+
 class ConcatOpConversionPattern : public OpConversionPattern<ttir::ConcatOp> {
 public:
   using OpConversionPattern<ttir::ConcatOp>::OpConversionPattern;
@@ -933,6 +947,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,
+           ClampOpConversionPattern,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
            SliceOpConversionPattern,

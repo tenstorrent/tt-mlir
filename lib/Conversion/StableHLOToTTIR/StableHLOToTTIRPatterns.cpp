@@ -970,6 +970,74 @@ public:
   }
 };
 
+class StableHLOToTTIROpClampOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ClampOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ClampOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ClampOp srcOp,
+                  mlir::stablehlo::ClampOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    Value min = adaptor.getMin();
+    Value max = adaptor.getMax();
+    Operation *minDefiningOp = min.getDefiningOp();
+    Operation *maxDefiningOp = max.getDefiningOp();
+    if (minDefiningOp && maxDefiningOp &&
+        isa<mlir::tt::ttir::ConstantOp>(minDefiningOp) &&
+        isa<mlir::tt::ttir::ConstantOp>(maxDefiningOp)) {
+      mlir::ElementsAttr minValAttr =
+          mlir::cast<mlir::tt::ttir::ConstantOp>(minDefiningOp).getValueAttr();
+      mlir::ElementsAttr maxValAttr =
+          mlir::cast<mlir::tt::ttir::ConstantOp>(maxDefiningOp).getValueAttr();
+      if (minValAttr.isSplat() && maxValAttr.isSplat()) {
+        float minValue =
+            minValAttr.getElementType().isInteger()
+                ? static_cast<float>(minValAttr.getSplatValue<int>())
+                : minValAttr.getSplatValue<float>();
+        float maxValue =
+            maxValAttr.getElementType().isInteger()
+                ? static_cast<float>(maxValAttr.getSplatValue<int>())
+                : maxValAttr.getSplatValue<float>();
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
+            srcOp,
+            this->getTypeConverter()->convertType(outputTensor.getType()),
+            Value(adaptor.getOperand()), Value(outputTensor),
+            rewriter.getF32FloatAttr(minValue),
+            rewriter.getF32FloatAttr(maxValue),
+            rewriter.getArrayAttr(
+                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                       rewriter.getAttr<OperandConstraintAttr>(
+                                           OperandConstraint::AnyDeviceTile))));
+
+        return success();
+      }
+    }
+
+    ttir::MaximumOp maximumOp = rewriter.create<mlir::tt::ttir::MaximumOp>(
+        srcOp->getLoc(), min, adaptor.getOperand(), outputTensor,
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+
+    tensor::EmptyOp finalOutputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinimumOp>(
+        srcOp, maximumOp->getResult(0), max, finalOutputTensor,
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -1124,6 +1192,11 @@ void addSliceOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
 }
 
+void addClampOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                 TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpClampOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1146,6 +1219,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addLogicalOpConversionPattern(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
+  addClampOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

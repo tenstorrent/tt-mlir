@@ -28,6 +28,24 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 //===----------------------------------------------------------------------===//
+// ClampOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ClampOp::verify() {
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getInput().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(getResult().getType());
+
+  if (inputTensorType != outputTensorType) {
+    return emitOpError("input and output must have same shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 

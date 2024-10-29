@@ -933,6 +933,35 @@ def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ClampOp : TTIR_DPSOp<"clamp"> {
+    let summary = "Clamp op.";
+    let description = [{
+      Clamp tensor values to a specified range.
+
+      Example:
+        min: 2.000000+00
+        input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+        max: 5.000000+00
+
+        "ttir.clamp"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
+        -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         F32Attr:$min,
+                         F32Attr:$max,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";

@@ -13,7 +13,7 @@ namespace tt::runtime::ttnn::operations::unary::composite {
 inline bool isUnaryCompositeOp(const ::tt::target::ttnn::EltwiseOp *op) {
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Cbrt:
-    return true;
+  case ::tt::target::ttnn::EltwiseOpType::Clamp:
   case ::tt::target::ttnn::EltwiseOpType::Log1p:
     return true;
   default:

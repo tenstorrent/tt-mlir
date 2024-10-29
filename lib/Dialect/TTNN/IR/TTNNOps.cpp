@@ -21,6 +21,35 @@
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
+// ClampOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ClampOp::verify() {
+  ::mlir::Operation::operand_range inputs = getInputs();
+  ::mlir::Operation::result_range outputs = getResults();
+
+  if (inputs.size() != 1) {
+    return emitOpError("expects one tensor as input.");
+  }
+
+  if (outputs.size() != 1) {
+    return emitOpError("generates one tensor as output.");
+  }
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(outputs.front().getType());
+
+  if (inputTensorType != outputTensorType) {
+    return emitOpError("input and output must have same shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 

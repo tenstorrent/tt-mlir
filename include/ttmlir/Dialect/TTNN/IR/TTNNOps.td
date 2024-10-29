@@ -675,6 +675,29 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ClampOp : TTNN_Op<"clamp"> {
+    let summary = "Clamp op.";
+    let description = [{
+      Clamp tensor values to a specified range.
+
+      Example:
+        min: 2.000000+00
+        input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+        max: 5.000000+00
+
+        "ttnn.clamp"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
+        -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         F32Attr:$min,
+                         F32Attr:$max);
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+
+    let hasVerifier = 1;
+}
+
 // Note: NoMemoryEffect is used to indicate that operation can be removed if it is not used.
 // Removal of this operation is done by the dead code elimination pass (RemoveDeadValuesPass).
 def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {

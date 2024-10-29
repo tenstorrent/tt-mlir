@@ -306,6 +306,40 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
                                                op.getDim(), op.getNumLinks());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ClampOpParams>
+createEltwiseOpParams(FlatbufferObjectCache &cache, ClampOp op) {
+  auto min = op.getMin().convertToFloat();
+  auto max = op.getMax().convertToFloat();
+  return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
+}
+
+template <typename EltwiseOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
+createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
+  ::tt::target::ttnn::EltwiseOpType type;
+  ::tt::target::ttnn::EltwiseOpParams paramsType =
+      ::tt::target::ttnn::EltwiseOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Clamp;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
+    params = createEltwiseOpParams(cache, op).Union();
+  } else {
+    llvm_unreachable("unhandled non-DPS EltwiseOp");
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  for (auto input : op.getInputs()) {
+    ins.push_back(
+        cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  }
+  assert(op.getResults().size() == 1);
+  auto out = cache.getOrCreate(op.getResults().front(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
+                                                   paramsType, params);
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -694,6 +728,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
+                           debugString);
+  }
+  if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
                            debugString);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
