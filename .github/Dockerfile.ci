@@ -26,8 +26,12 @@ RUN git log -1
 
 RUN source env/activate && \
     cmake -B env/build env && \
-    cmake --build env/build $(if [ -n "$BUILD_CONFIG" ]; then echo "--config $BUILD_CONFIG"; fi)
-
+    # if BUILD_CONFIG is debug, then build the toolchain with debug symbols
+    if [ "$BUILD_CONFIG" == "debug" ]; then \
+        cmake --build env/build --config debug; \
+    else \
+        cmake --build env/build
+    fi
 
 # Final stage
 ARG FROM_TAG=latest
@@ -36,6 +40,12 @@ FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
 # Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
+# Split copy to get multiple layers
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR/venv $TTMLIR_TOOLCHAIN_DIR/venv
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR/lib $TTMLIR_TOOLCHAIN_DIR/lib
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR/bin $TTMLIR_TOOLCHAIN_DIR/bin
 COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
 
-RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR
+# Show the size of the toolchain
+RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR | sort -h
+RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR/venv/lib/python3.10/site-packages/ | sort -h
