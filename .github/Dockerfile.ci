@@ -27,10 +27,10 @@ RUN git log -1
 RUN source env/activate && \
     cmake -B env/build env && \
     # if BUILD_CONFIG is debug, then build the toolchain with debug symbols
-    if [ "$BUILD_CONFIG" == "debug" ]; then \
+    if [ "$BUILD_CONFIG" = "debug" ]; then \
         cmake --build env/build --config debug; \
     else \
-        cmake --build env/build
+        cmake --build env/build; \
     fi
 
 # Final stage
