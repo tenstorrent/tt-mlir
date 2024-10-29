@@ -21,9 +21,7 @@ on:
 jobs:
 
   docker-ci-image:
-    runs-on:
-      - in-service
-      - builder
+    runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.read.outputs.docker-image }}
     steps:
