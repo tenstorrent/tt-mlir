@@ -1,4 +1,7 @@
-#include "ttmlir/Conversion/TTIRToTTMetal/TTIRMatmulToTTMetal.h"
+#include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 namespace mlir::tt {
 namespace ttmetal {
@@ -10,18 +13,26 @@ class TTIRToTTMetalMatmulRewriter : public OpRewritePattern<ttir::MatmulOp> {
 public:
   using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
 
+  // Region generaterReaderDispatchRegion(ttir::MatmulOp op, PatternRewriter &rewriter) const {
+  //   ttkernel::TilizeInitOp tilize_init = rewriter.create<ttkernel::TilizeInitOp>(op.getLoc());
+  //   ttkernel::TilizeBlockOp tilize_block = rewriter.create<ttkernel::TilizeBlockOp>(op.getLoc());
+  //   // ...
+  //   Block *readerBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
+  //   OpBuilder readerBuilder(tensixBlock, tensixBlock->begin());
+  // }
+
   LogicalResult matchAndRewrite(ttir::MatmulOp op, PatternRewriter &rewriter) const final {
     RankedTensorType tensorA = op.getA().getType();
     RankedTensorType tensorB = op.getB().getType();
     RankedTensorType outputTensor = op.getOutput().getType();
-    ArrayAttr constraints = op.getOperandConstraints();
+    // ArrayAttr constraints = op.getOperandConstraints();
 
-    // Operands must be DRAM OR L1 AND Tile Layout
-    if ((std::find(constraints.begin(), constraints.end(), OperandConstraint::DRAM) == constraints.end() &&
-        std::find(constraints.begin(), constraints.end(), OperandConstraint::L1) == constraints.end()) ||
-        std::find(constraints.begin(), constraints.end(), OperandConstraint::Tile) == constraints.end()) {
-          return failure();
-    }
+    // // Operands must be DRAM OR L1 AND Tile Layout
+    // if ((std::find(constraints.begin(), constraints.end(), OperandConstraint::DRAM) == constraints.end() &&
+    //     std::find(constraints.begin(), constraints.end(), OperandConstraint::L1) == constraints.end()) ||
+    //     std::find(constraints.begin(), constraints.end(), OperandConstraint::Tile) == constraints.end()) {
+    //       return failure();
+    // }
 
     uint32_t tensorARank = tensorA.getRank();
     uint32_t tensorBRank = tensorB.getRank();
@@ -43,9 +54,11 @@ public:
          outputTensor.getShape()[outputTensorRank - 2] % TILE_HEIGHT != 0)) {
       return failure();
     }
-
+    
     return success();
   }
 };
-}
-} // namespace mlir::tt::ttmetal
+
+} // namespace ttmetal
+
+} // namespace mlir::tt
