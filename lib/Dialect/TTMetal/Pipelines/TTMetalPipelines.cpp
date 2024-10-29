@@ -16,7 +16,9 @@ namespace mlir::tt::ttmetal {
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalBackendPipelineOptions &options) {
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc());
+  ttir::TTIRLoadSystemDescOptions systemDescOptions;
+  systemDescOptions.path = options.systemDescPath;
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
   implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
       options.meshShape.begin(), options.meshShape.end());
