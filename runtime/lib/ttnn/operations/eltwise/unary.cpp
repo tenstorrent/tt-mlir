@@ -82,6 +82,7 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Cbrt: {
     runEltwiseUnaryCompositeOP(op, tensorPool, ::ttnn::cbrt);
+    break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Ceil: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::ceil);
@@ -89,7 +90,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Cos: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::cos);
->>>>>>> fed63d88 (Add tests.)
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LogicalNot: {
@@ -118,10 +118,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Sin: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sin);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Typecast: {
-    runTypecastOp(op, tensorPool);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
