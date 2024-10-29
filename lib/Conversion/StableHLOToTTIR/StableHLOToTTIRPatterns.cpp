@@ -296,6 +296,51 @@ private:
   }
 };
 
+class StableHLOToTTIRGetDimensionSizeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::GetDimensionSizeOp> {
+
+  using OpConversionPattern<
+      mlir::stablehlo::GetDimensionSizeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GetDimensionSizeOp srcOp,
+                  mlir::stablehlo::GetDimensionSizeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    IntegerType intType = IntegerType::get(getContext(), 32);
+    RankedTensorType outputType = RankedTensorType::get({1}, intType);
+    mlir::OpBuilder builder(getContext());
+    IntegerAttr dimension_attr = builder.getIntegerAttr(
+        intType, static_cast<int32_t>(srcOp.getDimension()));
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::GetDimensionSizeOp>(
+        srcOp, outputType, srcOp.getOperand(), dimension_attr);
+
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::GetDimensionSizeOp &srcOp,
+                                   ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getOperand().getType().getShape().empty() &&
+        !srcOp.getOperand().getType().getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
+    }
+    if (!mlir::cast<RankedTensorType>(srcOp.getOperand().getType())) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "Unsupported first operator type.");
+    }
+
+    return success();
+  }
+};
+
 class StableHLOToTTIRConstantOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ConstantOp> {
 
@@ -973,6 +1018,13 @@ void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                                              ctx);
 }
 
+void addGetDimensionSizeOpsConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRGetDimensionSizeOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 void addTensorCreationOpsConversionPatterns(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
                                             TypeConverter &typeConverter) {
@@ -1048,6 +1100,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addGetDimensionSizeOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
   addConv2dOpConversionPattern(ctx, patterns, typeConverter);

@@ -486,6 +486,61 @@ public:
   }
 };
 
+class GetDimensionSizeOpConversionPattern
+    : public OpConversionPattern<ttir::GetDimensionSizeOp> {
+public:
+  using OpConversionPattern<ttir::GetDimensionSizeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GetDimensionSizeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    LogicalResult legalityResult = checkBasicLegality(op, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+    const RankedTensorType inputTensorType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+
+    int64_t dimensionIndex = op.getDimension();
+
+    if (dimensionIndex >=
+        static_cast<int64_t>(inputTensorType.getShape().size())) {
+      return failure();
+    }
+
+    int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+    Type output_type =
+        this->getTypeConverter()->convertType(op->getResult(0).getType());
+    Value device = getOrInsertDevice(rewriter, op);
+
+    if (dimSize == 0) {
+      rewriter.replaceOpWithNewOp<tensor::EmptyOp>(op, output_type, device);
+    } else {
+      ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(dimSize);
+      rewriter.replaceOpWithNewOp<ttnn::FullOp>(op, output_type, device,
+                                                fillValueAttr);
+    }
+
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(::ttir::GetDimensionSizeOp &op,
+                                   ConversionPatternRewriter &rewriter) const {
+    if (op.getOperand().getType().getShape().empty() &&
+        !op.getOperand().getType().getElementType().isIntOrFloat()) {
+      return rewriter.notifyMatchFailure(op, "Unsupported element type.");
+    }
+    if (!mlir::cast<RankedTensorType>(op.getOperand().getType())) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Unsupported first operator type.");
+    }
+
+    return success();
+  }
+};
+
 class ConstantOpConversionPattern
     : public OpConversionPattern<ttir::ConstantOp> {
 public:
@@ -908,7 +963,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            Conv2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
-           AllGatherOpConversionPattern
+           AllGatherOpConversionPattern,
+           GetDimensionSizeOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
