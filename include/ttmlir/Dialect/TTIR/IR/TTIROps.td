@@ -189,6 +189,14 @@ def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {
     }];
 }
 
+def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
+    let summary = "Eltwise cubic root op.";
+    let description = [{
+      Eltwise cubic root operation.
+    }];
+}
+
+
 def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let summary = "Eltwise cast op.";
     let description = [{

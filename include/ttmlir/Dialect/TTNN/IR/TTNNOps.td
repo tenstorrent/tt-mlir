@@ -169,6 +169,13 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     }];
 }
 
+def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
+    let summary = "Eltwise cubic root.";
+    let description = [{
+      Eltwise cubic root operation.
+    }];
+}
+
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
