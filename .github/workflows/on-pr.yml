@@ -29,10 +29,10 @@ jobs:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
     with:
-      config: 'debug'
+      config: 'Debug'
   build-and-test-release:
     needs: build-ci-image
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
     with:
-      config: 'release'
+      config: 'Release'

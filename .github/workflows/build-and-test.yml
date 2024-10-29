@@ -4,21 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       config:
-        description: 'Build configuration, debug or release'
+        description: 'Build configuration, Debug or Release'
         required: true
-        default: 'debug'
+        default: 'Debug'
         type: choice
         options:
-          - debug
-          - release
+          - Debug
+          - Release
   workflow_call:
     inputs:
       config:
         type: string
-        default: 'debug'
         required: true
-env:
-  build-config: ${{ inputs.config == 'debug' && '--config Debug' || '' }}
   
 jobs:
 
@@ -101,7 +98,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} ${{ env.build-config }}
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
     # - name: Lint
@@ -115,7 +112,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} ${{ env.build-config }} -- check-ttmlir
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- check-ttmlir
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
@@ -136,7 +133,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        cmake --build ${{ steps.strings.outputs.build-output-dir }} ${{ env.build-config }} -- ttrt
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- ttrt
 
     - name: Upload ttrt whl
       uses: actions/upload-artifact@v4
