@@ -45,11 +45,13 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
     outputMemoryConfig =
         std::make_optional(utils::createMemoryConfig(op->out()));
   }
-
   ::ttnn::Tensor out =
       ::ttnn::full(shape, fillValue, outputDataType, outputLayout, outputDevice,
                    outputMemoryConfig);
-
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
+  if (tensorPool.isUserOutput(op->out()->global_id())) {
+    tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
+  } else {
+    tensorPool.insert_or_assign(op->out()->global_id(), out);
+  }
 }
 } // namespace tt::runtime::ttnn::operations::creation
