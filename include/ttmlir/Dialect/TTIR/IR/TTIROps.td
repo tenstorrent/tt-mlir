@@ -269,13 +269,6 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
-    let summary = "Eltwise subtract.";
-    let description = [{
-      Eltwise subtract operation.
-    }];
-}
-
 def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
     let summary = "Eltwise equal to.";
     let description = [{
@@ -341,6 +334,26 @@ def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
         %lhs: [[3, 2, 7], [1, 4, 4]]
         %rhs: [[1, 4, 2], [1, 2, 3]]
         "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
+    let summary = "Eltwise minimum OP.";
+    let description = [{
+      Calculates minimum of input tensors' values element-wise and stores result
+      in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.minimum"(%lhs, %rhs, %out) -> %out: [[1, 2, 2], [1, 2, 3]]
+    }];
+}
+
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
+    let summary = "Eltwise subtract.";
+    let description = [{
+      Eltwise subtract operation.
     }];
 }
 
