@@ -23,9 +23,9 @@ jobs:
 
     steps:
 
-      # - name: Fix permissions
-      #   shell: bash
-      #   run: sudo chown ubuntu:ubuntu -R $(pwd)
+      - name: Fix permissions
+        shell: bash
+        run: sudo chown ubuntu:ubuntu -R $(pwd)
 
       - uses: actions/checkout@v4
         with:
