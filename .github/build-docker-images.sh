@@ -9,9 +9,10 @@ set -e
 
 # Check the first argument
 if [ -z "$1" ]; then
-    CONFIG="release"
+    echo "Building images for config: release"
 elif [[ "$1" == "debug" ]]; then
     CONFIG="debug"
+    echo "Building images for config: debug"
 else
     echo "Error: Invalid argument. Use 'debug' or leave empty for default build."
     exit 1
@@ -25,8 +26,6 @@ if [ "$CONFIG" = "debug" ]; then
     IRD_IMAGE_NAME=$IRD_IMAGE_NAME-debug
     CI_IMAGE_NAME=$CI_IMAGE_NAME-debug
 fi
-
-echo "Building images for config: $CONFIG"
 
 # Compute the hash of the Dockerfile
 DOCKER_TAG=$(./.github/get-docker-tag.sh)
