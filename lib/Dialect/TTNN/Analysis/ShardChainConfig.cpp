@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
+#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
+#include <llvm/ADT/StringMap.h>
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -13,16 +17,16 @@ void ShardChainConfig::build() {
 }
 
 ShardSolver ShardChainConfig::resolve(
-    const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
-        &legalLayouts,
-    unsigned usableL1CacheSize) {
+    const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
+    unsigned usableL1CacheSize,
+    const std::unordered_set<Edge> &overrideReshardEdges) {
   assert(state == ShardChainState::Built);
 
   // Reconcile adjacent shard specs.
   // Generate reshard specs where needed.
   //
   ShardSolver shardSolver(legalLayouts, shardSpecs, shardedOps,
-                          usableL1CacheSize);
+                          usableL1CacheSize, overrideReshardEdges);
   state = ShardChainState::Resolved;
 
   return shardSolver;

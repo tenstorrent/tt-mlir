@@ -6,7 +6,9 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_DFSHARDINGPOLICY_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
+#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -32,7 +34,7 @@ public:
         legalLayouts(legalLayouts), schedule(&schedule),
         usableL1CacheSize(usableL1CacheSize) {}
 
-  void run();
+  void run(const std::unordered_set<Edge> &overrideReshardEdges);
 };
 
 } // namespace mlir::tt::ttnn

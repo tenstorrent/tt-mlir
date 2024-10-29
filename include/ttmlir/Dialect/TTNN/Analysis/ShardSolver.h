@@ -9,7 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include <algorithm>
 #include <bitset>
-#include <memory>
+#include <llvm/ADT/StringMap.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -276,11 +276,12 @@ private:
                             tt::LayoutAttr const &consumerLayout) const;
 
 public:
-  ShardSolver(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
-                  &legalLayouts,
-              const std::vector<ShardSpec> &shardSpecs,
-              const llvm::DenseSet<Operation *> &shardedOps,
-              const unsigned usableL1CacheSize);
+  ShardSolver(
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
+      const std::vector<ShardSpec> &shardSpecs,
+      const llvm::DenseSet<Operation *> &shardedOps,
+      const unsigned usableL1CacheSize,
+      const std::unordered_set<Edge> &overrideReshardEdges);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, tt::LayoutAttr const &layout);
 
