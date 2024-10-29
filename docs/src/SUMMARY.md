@@ -11,6 +11,8 @@
   - [ttmlir-translate](./ttmlir-translate.md)
   - [ttrt](./ttrt.md)
   - [tt-explorer](./tt-explorer.md)
+    - [API](./tt-explorer-api.md)
+    - [Roadmap](./tt-explorer-roadmap.md)
 - [Flatbuffers](./flatbuffers.md)
 - [CI](./ci.md)
 - [Additional Reading](./additional-reading.md)
