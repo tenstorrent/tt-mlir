@@ -41,4 +41,10 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 )
 target_include_directories(TTRuntimeTTNNOps PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY)
+
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  target_link_libraries(TTRuntimeTTNNOps PUBLIC TRACY_LIBRARY)
+endif()
+
+
 add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION)

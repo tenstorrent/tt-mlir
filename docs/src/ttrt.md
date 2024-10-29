@@ -197,8 +197,14 @@ ttrt query --save-artifacts --artifact-dir /path/to/some/dir
 Run performance mode of a binary file or a directory of binary files
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 Note: You can collect host only related performance data via `--host-only` flag. By default, host and device side performance data are both collected.
-Restriction: `/dir/of/flatbuffers` can only be used if collecting `--host-only` (as performance data is collected upon closing of device, if we run a directory of flatbuffers, we cannot get accurate device performance data since device is only closed at end of execution).
-Restriction: We can only run perf mode (for now) on .mlir files that have only 1 function (func.func)
+If the saving artifacts flag is provided, perf mode will dump the following files in the artifacts directory
+```bash
+ops_perf_results.csv : compiled op performance results
+profile_log_device.csv : dump of all device side profiled results
+tracy_ops_data.csv : op data results dumped in a readable format
+tracy_ops_times.csv : op time results dumped in a readable format
+tracy_profile_log_host.tracy : tracy profiled results file, this file can be fed into the tracy GUI
+```
 
 ```bash
 ttrt perf --help
@@ -213,6 +219,14 @@ ttrt perf /dir/of/flatbuffers --host-only
 ttrt perf /dir/of/flatbuffers --loops 10 --host-only
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
 ttrt perf --save-artifacts --artifact-dir /path/to/some/dir
+```
+
+To use the Tracy GUI, run the following instructions on your macbook. You can upload your .tracy file into the GUI to view the profiled dumps.
+```bash
+git clone https://github.com/tenstorrent-metal/tracy.git
+cd tracy/profiler/build/unix
+make all
+./Tracy-release
 ```
 
 ### check
@@ -283,9 +297,9 @@ run_instance = API.Run(artifacts=custom_artifacts)
 Once all the arguments are setup, you can run your API instance with all your provided arguments. Note, APIs are stateless. Thus, subsequent calls to the same API instance will not preserve previous call artifacts. You can generate a new artifacts directory for subsequent runs if you wish to call the APIs multiple times, for example.
 
 ```bash
-query_instance()
-read_instance()
-run_instance()
+result_code, results = query_instance()
+result_code, results = read_instance()
+result_code, results = run_instance()
 ```
 
 ### Putting it all together
@@ -312,6 +326,7 @@ artifacts_folder_path = "/opt/folder"
 custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifacts_folder_path)
 
 run_instance = API.Run(args=custom_args, logger=custom_logger, artifacts=custom_artifacts)
+result_code, results = run_instance()
 
 ```
 

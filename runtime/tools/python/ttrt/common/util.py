@@ -672,3 +672,13 @@ class Results:
             json.dump(self.results, file, indent=2)
 
         self.logging.info(f"results saved to={file_name}")
+
+    def get_result_code(self):
+        for entry in self.results:
+            if entry.get("result") != "pass":
+                return 1
+
+        return 0
+
+    def get_results(self):
+        return self.results

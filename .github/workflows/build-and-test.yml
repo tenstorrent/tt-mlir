@@ -277,7 +277,14 @@ jobs:
       if: matrix.build.enable_perf == 'ON'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon --host-only
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+
+    - name: Upload ttrt test report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
+        path: ${{ matrix.build.name }}_results.json
 
   run-ttrt-tests:
 
@@ -392,8 +399,8 @@ jobs:
         source env/activate
         pytest -ssv runtime/tools/python/test/test_run.py
 
-    #- name: ttrt perf tests
-    #  shell: bash
-    #  run: |
-    #    source env/activate
-    #    pytest -ssv runtime/tools/python/test/test_perf.py
+    - name: ttrt perf tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_perf.py
