@@ -58,31 +58,45 @@ void populateTTNNModule(py::module &m) {
       .def_property_readonly("value", [](tt::ttnn::BufferTypeAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
+  py::class_<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
+      .def_static("get",
+                  [](MlirContext ctx, tt::ttnn::ShapeAttr shardShape) {
+                    return wrap(
+                        tt::ttnn::ShardSpecAttr::get(unwrap(ctx), shardShape));
+                  })
+      .def_property_readonly("shard_shape",
+                             &tt::ttnn::ShardSpecAttr::getShardShape);
   py::class_<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
       .def_static("get",
                   [](MlirContext ctx,
                      tt::ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
-                     tt::ttnn::BufferTypeAttr bufferTypeAttr) {
+                     tt::ttnn::BufferTypeAttr bufferTypeAttr,
+                     tt::ttnn::ShardSpecAttr shardSpecAttr) {
                     return wrap(tt::ttnn::MemoryConfigAttr::get(
-                        unwrap(ctx), tensorMemoryLayoutAttr, bufferTypeAttr));
+                        unwrap(ctx), tensorMemoryLayoutAttr, bufferTypeAttr,
+                        shardSpecAttr));
                   })
       .def_static(
           "get_by_value",
-          [](MlirContext ctx, uint32_t tensorMemoryLayout,
-             uint32_t bufferType) {
+          [](MlirContext ctx, uint32_t tensorMemoryLayout, uint32_t bufferType,
+             std::vector<int64_t> shardShape) {
             return wrap(tt::ttnn::MemoryConfigAttr::get(
                 unwrap(ctx),
                 tt::ttnn::TensorMemoryLayoutAttr::get(
                     unwrap(ctx), static_cast<tt::ttnn::TensorMemoryLayout>(
                                      tensorMemoryLayout)),
                 tt::ttnn::BufferTypeAttr::get(
+                    unwrap(ctx), static_cast<tt::ttnn::BufferType>(bufferType)),
+                tt::ttnn::ShardSpecAttr::get(
                     unwrap(ctx),
-                    static_cast<tt::ttnn::BufferType>(bufferType))));
+                    tt::ttnn::ShapeAttr::get(unwrap(ctx), shardShape))));
           })
       .def_property_readonly("tensor_memory_layout",
                              &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
       .def_property_readonly("buffer_type",
-                             &tt::ttnn::MemoryConfigAttr::getBufferType);
+                             &tt::ttnn::MemoryConfigAttr::getBufferType)
+      .def_property_readonly("shard_spec",
+                             &tt::ttnn::MemoryConfigAttr::getShardSpec);
   py::class_<tt::ttnn::ShapeAttr>(m, "ShapeAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> shape) {

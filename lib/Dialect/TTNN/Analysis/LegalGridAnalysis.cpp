@@ -52,8 +52,7 @@ bool cantChangeOutputLayout(Operation *op) {
     return true;
   }
 
-  if (llvm::isa<ToLayoutOp>(op) || llvm::isa<ToMemoryConfigOp>(op) ||
-      llvm::isa<ToDeviceOp>(op)) {
+  if (llvm::isa<CompositeToLayoutOp>(op)) {
     return true;
   }
 

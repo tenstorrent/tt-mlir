@@ -2,21 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "to_device.h"
-#include "tt/runtime/detail/logger.h"
+#include "typecast.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::layout {
-void run(const ::tt::target::ttnn::FromDeviceOp *op, ProgramContext &context) {
+
+void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(inputTensor.is_allocated());
-  LOG_ASSERT(utils::isOnDevice(inputTensor),
-             "Calling ttnn::from_device on a host tensor");
 
-  ::ttnn::Tensor out = ::ttnn::from_device(inputTensor);
+  ::ttnn::DataType targetDataType =
+      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+
+  ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
 
   if (tensorPool.isUserOutput(op->out()->global_id())) {
     tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
@@ -24,4 +24,5 @@ void run(const ::tt::target::ttnn::FromDeviceOp *op, ProgramContext &context) {
     tensorPool.insert_or_assign(op->out()->global_id(), out);
   }
 }
+
 } // namespace tt::runtime::ttnn::operations::layout

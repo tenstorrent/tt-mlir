@@ -4,10 +4,11 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType
 //
-mlir::tt::ttnn::BufferType mlir::tt::ttnn::utils::toTTNNBufferType(
-    const mlir::tt::MemorySpace memorySpace) {
+mlir::tt::ttnn::BufferType
+toTTNNBufferType(const mlir::tt::MemorySpace memorySpace) {
   switch (memorySpace) {
   case MemorySpace::System:
   case MemorySpace::SystemMMIO:
@@ -23,8 +24,7 @@ mlir::tt::ttnn::BufferType mlir::tt::ttnn::utils::toTTNNBufferType(
 
 // Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
 //
-mlir::tt::ttnn::TensorMemoryLayout
-mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
+mlir::tt::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     const ::mlir::tt::TensorMemoryLayout ttTensorMemoryLayout) {
 
   switch (ttTensorMemoryLayout) {
@@ -39,8 +39,62 @@ mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
   case ::mlir::tt::TensorMemoryLayout::SingleBank:
     return ttnn::TensorMemoryLayout::SingleBank;
   case ::mlir::tt::TensorMemoryLayout::None:
-    assert(false && "TensorMemoryLayout::None not supported");
+    return ttnn::TensorMemoryLayout::None;
   }
 
   llvm_unreachable("Unknown TensorMemoryLayout");
 }
+
+DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
+  Type elementType = memref.getElementType();
+  DataType dtype = DataType::Float32;
+  if (llvm::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+  }
+  return dtype;
+}
+
+Layout getLayoutFromMemRef(mlir::MemRefType memref) {
+  ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
+  Type elementType = memref.getElementType();
+  if (llvm::isa<TileType>(elementType)) {
+    ttnnLayoutEnum = ttnn::Layout::Tile;
+  } else {
+    ttnnLayoutEnum = ttnn::Layout::RowMajor;
+  }
+  return ttnnLayoutEnum;
+}
+
+Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return FloatType::getF32(context);
+  case DataType::Float16:
+    return FloatType::getF16(context);
+  case DataType::BFloat16:
+    return FloatType::getBF16(context);
+  case DataType::BFP_Float8:
+    return FloatType::getF16(context);
+  case DataType::BFP_BFloat8:
+    return FloatType::getBF16(context);
+  case DataType::BFP_Float4:
+    return FloatType::getF16(context);
+  case DataType::BFP_BFloat4:
+    return FloatType::getBF16(context);
+  case DataType::BFP_Float2:
+    return FloatType::getF16(context);
+  case DataType::BFP_BFloat2:
+    return FloatType::getBF16(context);
+  case DataType::UInt32:
+    return IntegerType::get(context, 32);
+  case DataType::UInt16:
+    return IntegerType::get(context, 16);
+  case DataType::UInt8:
+    return IntegerType::get(context, 8);
+  }
+}
+
+} // namespace mlir::tt::ttnn::utils

@@ -107,7 +107,10 @@ public:
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
         ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
+        ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+        ttnn::ShardSpecAttr::get(
+            op.getContext(),
+            ttnn::ShapeAttr::get(op.getContext(), memref.getShape())));
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
@@ -117,23 +120,94 @@ public:
   }
 };
 
-// TTIR::ToLayoutOp is a rather generic op that dictates how all the layout
-// properties of a tensor should be set. However, in TTNN world, multiple APIs
-// are required to achieve an arbitrary layout. There are two main distinct
-// paths in this conversion pattern:
-//
-// 1. If the layout calls for device memory, we will call TTNN::ToLayoutOp and
-//    TTNN::ToDeviceOp to achieve the desired layout.
-//
-// 2. If the layout calls for system memory, we will call TTNN::ToLayoutOp to
-//    change the tensor to RowMajor layout, and then the TTNN::FromDeviceOp to
-//    move to host memory
-//
 class ToLayoutOpConversionPattern
     : public OpConversionPattern<ttir::ToLayoutOp> {
 public:
   using OpConversionPattern<ttir::ToLayoutOp>::OpConversionPattern;
 
+  LogicalResult
+  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Get the DPS operand and delete it's creator op, if it's tensor::emptyOp
+    //
+    Value dpsOperand = adaptor.getOperands().back();
+    ttnn::EmptyOp emptyOp = dpsOperand.getDefiningOp<ttnn::EmptyOp>();
+    if (emptyOp) {
+      rewriter.eraseOp(emptyOp);
+    }
+
+    auto outputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+
+    auto outputMemref = outputLayoutAttr.getMemref();
+
+    // Determine the output data type
+    DataType dtype = ttnn::utils::getDataTypeFromMemRef(outputMemref);
+    DataTypeAttr outputDataType =
+        DataTypeAttr::get(rewriter.getContext(), dtype);
+
+    // Determine the output layout (tile or row major)
+    ttnn::BufferType outputBufferType =
+        ttnn::utils::toTTNNBufferType(outputLayoutAttr.getMemorySpace());
+
+    ttnn::Layout outputLayoutEnum =
+        ttnn::utils::getLayoutFromMemRef(outputMemref);
+
+    bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
+
+    RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
+    if (!isOutputOnHost) {
+      // TODO(bug #665):
+      // Binary ops fail with row major layout in ttnn, defaulting to and
+      // assuming tile layout for all device tensors...
+      // Note: mlir doesn't know about this, so tensors may still appear as row
+      // major in the generated mlir
+      // TODO(bug #875):
+      // Remove the following code block once constraints modelling is
+      // implemented on dialect level
+      //
+      // Default to Tile layout unless op supports only RowMajor layout
+      //
+      ttnn::Layout newOutputLayoutEnum =
+          shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
+
+      // If the layout of the output tensor changed as a result of forcing the
+      // layout update the tensor type
+      if (outputLayoutEnum != newOutputLayoutEnum) {
+        result =
+            getLayoutForcedResultTensor(rewriter, result, newOutputLayoutEnum);
+        op.getResult().setType(result);
+        outputLayoutAttr = mlir::cast<tt::LayoutAttr>(result.getEncoding());
+        outputMemref = outputLayoutAttr.getMemref();
+        outputLayoutEnum = newOutputLayoutEnum;
+      }
+    }
+
+    ttnn::LayoutAttr outputLayout =
+        ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
+
+    // Determine output memory config attr
+    ttnn::TensorMemoryLayout outputTensorMemoryLayout =
+        ttnn::utils::toTTNNTensorMemoryLayout(outputLayoutAttr.getMemLayout());
+    ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
+        rewriter.getContext(),
+        ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                          outputTensorMemoryLayout),
+        ttnn::BufferTypeAttr::get(rewriter.getContext(), outputBufferType),
+        ttnn::ShardSpecAttr::get(
+            op.getContext(), ttnn::ShapeAttr::get(rewriter.getContext(),
+                                                  outputMemref.getShape())));
+
+    rewriter.replaceOpWithNewOp<ttnn::CompositeToLayoutOp>(
+        op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
+        outputLayout, outputDataType, outputMemConfigAttr,
+        isOutputOnHost ? nullptr : getOrInsertDevice(rewriter, op));
+
+    return success();
+  }
+
+private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user)) {
@@ -144,99 +218,51 @@ public:
     return false;
   }
 
-  LogicalResult
-  matchAndRewrite(ttir::ToLayoutOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  RankedTensorType
+  getLayoutForcedResultTensor(ConversionPatternRewriter &rewriter,
+                              RankedTensorType oldOutput,
+                              ttnn::Layout newOutputLayoutEnum) const {
+    auto oldOutputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(oldOutput.getEncoding());
+    auto oldOutputMemref = oldOutputLayoutAttr.getMemref();
+    DataType outputDtype = ttnn::utils::getDataTypeFromMemRef(oldOutputMemref);
+    llvm::ArrayRef<std::int64_t> oldShardShape = oldOutputMemref.getShape();
+    size_t shardShapeSize = oldShardShape.size();
+    assert(shardShapeSize >= 2 && "expected at least 2D shape");
 
-    // Find device to be used for the tensor
-    //
-    auto device = getOrInsertDevice(rewriter, op);
-
-    // Get tt::LayoutAttr of the result type
-    //
-    tt::LayoutAttr ttLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
-
-    // Figure out if output tensor is in RowMajor layout or Tile layout
-    // Figure out the data type of the output tensor
-    //
-    mlir::MemRefType memref = ttLayoutAttr.getMemref();
-    Type elementType = memref.getElementType();
-    DataType dtype = DataType::Float32;
-    // TODO(bug #665):
-    // Remove attribute once 665 is fixed
-    //
-    ttnn::Layout ttnnLayoutEnum __attribute__((unused)) =
-        ttnn::Layout::RowMajor;
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-      dtype = elementTypeToDataType(elementType);
+    if (newOutputLayoutEnum == ttnn::Layout::RowMajor) {
+      // Set shard shape to match convention of row major layout
+      auto tileType = mlir::cast<TileType>(oldOutput.getElementType());
+      llvm::SmallVector<int64_t> newShardShape(oldShardShape.begin(),
+                                               oldShardShape.end());
+      newShardShape[shardShapeSize - 2] =
+          oldShardShape[shardShapeSize - 2] * tileType.getHeight();
+      newShardShape[shardShapeSize - 1] =
+          oldShardShape[shardShapeSize - 1] * tileType.getWidth();
+      Type newElementType = ttnn::utils::createRowMajorTypeFromDtype(
+          rewriter.getContext(), outputDtype);
+      RankedTensorType result = RankedTensorType::get(
+          oldOutput.getShape(), oldOutput.getElementType(),
+          oldOutputLayoutAttr
+              .withElementType(rewriter.getContext(), newElementType)
+              .withShardShape(rewriter.getContext(), newShardShape));
+      return result;
     }
 
-    // TODO(bug #875):
-    // Remove the following code block once constraints modelling is implemented
-    // on dialect level
-    //
-    // Default to Tile layout unless op supports only RowMajor layout
-    //
-    ttnnLayoutEnum =
-        shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
-
-    // Map TT::MemorySpace to TTNN::BufferType
-    //
-    ttnn::BufferType bufferType =
-        ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-
-    // If the ToLayoutOp is applied to empty tensor, we need to check whether
-    // the empty tensor is going back to system memory; if so, we should not
-    // call the ToDeviceOp
-    //
-    if (bufferType == ttnn::BufferType::SystemMemory) {
-      rewriter.replaceOpWithNewOp<ttnn::ToMemoryConfigOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          op.getInput(), device);
-      return success();
+    if (newOutputLayoutEnum == ttnn::Layout::Tile) {
+      TileType tileType =
+          TileType::get(rewriter.getContext(), {32, 32}, outputDtype);
+      llvm::SmallVector<int64_t> newShardShape =
+          tileType.getTiledShape(llvm::SmallVector<int64_t>(
+              oldShardShape.begin(), oldShardShape.end()));
+      RankedTensorType result = RankedTensorType::get(
+          oldOutput.getShape(), oldOutput.getElementType(),
+          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType)
+              .withShardShape(rewriter.getContext(), newShardShape));
+      return result;
     }
 
-    // Set the tensor memory layout
-    //
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
-
-    // TODO(bug #621):
-    // Add ttnn::Tensor(tensor, dtype) op call once tt-metal is updated
-    //
-    // Also update the function header comment to reflect this added op
-    //
-    (void)dtype;
-
-    // Create ToLayoutOp
-    //
-    ttnn::ToLayoutOp toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-        op.getInput(), device,
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum));
-
-    // Create MemoryConfigAttr
-    //
-    // TODO(bug #620):
-    // Add support for ShardSpec
-    //
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType));
-
-    // Create ToDeviceOp
-    //
-    rewriter.replaceOpWithNewOp<ttnn::ToDeviceOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), toLayoutOp,
-        device, memoryConfigAttr);
-    return success();
+    llvm_unreachable("Unreachable code path. Unexpected output layout enum");
   }
 };
 
@@ -638,6 +664,38 @@ public:
   }
 };
 
+class TypecastOpConversionPattern
+    : public OpConversionPattern<ttir::TypecastOp> {
+  using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::TypecastOp op, ttir::TypecastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto input = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
+        *op.getInputs().begin());
+    auto result = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
+        *op.getResults().begin());
+
+    tt::LayoutAttr outputLayoutAttr =
+        mlir::cast<tt::LayoutAttr>(result.getType().getEncoding());
+
+    mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
+
+    DataType outputDataType = ttnn::utils::getDataTypeFromMemRef(outputMemref);
+
+    if (op->getUsers().empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "ttir.typecast op should have at least one use.");
+    }
+    rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
+        op, this->getTypeConverter()->convertType(op.getType(0)), input,
+        outputDataType);
+    return success();
+  }
+};
+
 class BroadcastOpConversionPattern
     : public OpConversionPattern<ttir::BroadcastOp> {
   using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
@@ -766,7 +824,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
            ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
            ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
-           ElementwiseOpConversionPattern<ttir::TypecastOp, ttnn::TypecastOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
            ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
@@ -777,6 +834,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
+           TypecastOpConversionPattern,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
            SliceOpConversionPattern,

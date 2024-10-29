@@ -8,9 +8,8 @@
 
 namespace mlir::tt::ttnn {
 
-bool isMemoryManagementOp(mlir::Operation *op) {
-  return isa<ttnn::ToLayoutOp>(op) || isa<ttnn::ToMemoryConfigOp>(op) ||
-         isa<ttnn::ToDeviceOp>(op);
+bool isCompositeToLayoutOp(mlir::Operation *op) {
+  return isa<ttnn::CompositeToLayoutOp>(op);
 }
 
 void DFShardingPolicy::run() {
@@ -39,7 +38,7 @@ void DFShardingPolicy::run() {
       //
       if (shardChainConfigs->back().isEmpty()) {
         for (auto *op : scheduleableOps) {
-          if (isMemoryManagementOp(op)) {
+          if (isCompositeToLayoutOp(op)) {
             currentOp = op;
             break;
           }
@@ -57,7 +56,7 @@ void DFShardingPolicy::run() {
       // Skip starting sharding chain if currentOp is a memory management op.
       //
       if (shardChainConfigs->back().isEmpty() &&
-          isMemoryManagementOp(currentOp)) {
+          isCompositeToLayoutOp(currentOp)) {
         currentOp = nullptr;
         continue;
       }

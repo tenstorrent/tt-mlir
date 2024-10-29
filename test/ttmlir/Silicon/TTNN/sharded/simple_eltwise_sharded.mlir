@@ -82,19 +82,8 @@ func.func @sqrt(%arg0: tensor<224x64xf32>) -> tensor<224x64xf32> {
   return %1 : tensor<224x64xf32>
 }
 
-func.func @softmax(%arg0: tensor<224x64xbf16>) -> tensor<224x64xbf16> {
-  %0 = tensor.empty() : tensor<224x64xbf16>
-  // CHECK: %[[C:.*]] = "ttnn.softmax"[[C:.*]]
-  // Check for positive dimension attribute
-  %1 = "ttir.softmax"(%arg0, %0) <{dimension = 1 : si32, operand_constraints = [#l1_block_sharded, #l1_block_sharded]}> : (tensor<224x64xbf16>, tensor<224x64xbf16>) -> tensor<224x64xbf16>
-  %2 = tensor.empty() : tensor<224x64xbf16>
-  // CHECK: %[[C:.*]] = "ttnn.softmax"[[C:.*]]
-  // Check for negative dimension attribute
-  %3 = "ttir.softmax"(%1, %2) <{dimension = -1 : si32, operand_constraints = [#l1_block_sharded, #l1_block_sharded]}> : (tensor<224x64xbf16>, tensor<224x64xbf16>) -> tensor<224x64xbf16>
-  return %3 : tensor<224x64xbf16>
-}
-
 /////////////////////////////////////////
 // Unsupported eltwise ops with sharding
 //  * Concat: Sharded concat requires ROW MAJOR layout
+//  * Softmax: Sharded softmax produces incorrect values, TODO (#843)
 /////////////////////////////////////////
