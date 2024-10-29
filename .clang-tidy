@@ -23,5 +23,5 @@ CheckOptions:
   llvm-else-after-return.WarnOnConditionVariables: 'false'
   llvm-else-after-return.WarnOnUnfixable: 'false'
   llvm-qualified-auto.AddConstToQualified: 'false'
-SystemHeaders:   false
+# SystemHeaders:   false
 ...

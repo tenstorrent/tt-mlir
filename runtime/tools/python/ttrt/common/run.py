@@ -437,6 +437,8 @@ class Run:
                             )
                             print("got outs")
 
+                            ttrt.runtime.compare_outs(total_outputs[0], emitc_outs)
+
                             if self["--identity"]:
                                 self.logging.debug(
                                     f"checking identity with rtol={self['--rtol']} and atol={self['--atol']}"
@@ -591,7 +593,7 @@ class Run:
         return run_parser
 
     class TorchInitializer:
-        init_fns = sorted(["randn", "arange", "zeros"])
+        init_fns = sorted(["randn", "arange", "zeros", "ones"])
 
         @staticmethod
         def get_initilizer(name):
@@ -628,3 +630,9 @@ class Run:
             import torch
 
             return torch.zeros(shape, dtype=dtype)
+
+        @staticmethod
+        def ones(shape, dtype):
+            import torch
+
+            return torch.ones(shape, dtype=dtype)

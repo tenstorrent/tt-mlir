@@ -29,16 +29,26 @@ std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs) {
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v9 = ttnn::to_device(v7, v3, v8);
   ttnn::Shape v10 = ttnn::Shape(tt::tt_metal::LegacyShape({
-      64,
-      128,
+      32,
+      32,
   }));
   ttnn::MemoryConfig v12 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v13 = ttnn::empty(v10, ttnn::DataType::FLOAT32,
-                                 ttnn::Layout::ROW_MAJOR, v3, v12);
-  ttnn::Tensor v14 = ttnn::multiply(v6, v9, std::nullopt, std::nullopt, v13);
+  ttnn::Tensor v13 =
+      ttnn::empty(v10, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v3, v12);
+  std::cout << "input0:" << std::endl;
+  v6.print();
+  std::cout << "input1:" << std::endl;
+  v9.print();
+  std::cout << std::endl << std::endl;
+  ttnn::Tensor v14 = ttnn::add(v6, v9, std::nullopt, std::nullopt, v13);
+  //   v13.print();
+  //   v14.print();
   ttnn::Tensor v15 = ttnn::to_layout(v14, ttnn::Layout::ROW_MAJOR, std::nullopt,
                                      std::nullopt, v3);
   ttnn::Tensor v16 = ttnn::from_device(v15);
+  std::cout << "Output:" << std::endl;
+  v16.print();
+  std::cout << std::endl << std::endl;
   return std::vector<ttnn::Tensor>{v16};
 }

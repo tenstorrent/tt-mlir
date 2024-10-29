@@ -14,6 +14,7 @@
 #include "ttnn/tensor/types.hpp"
 #include <dlfcn.h>
 #include <memory>
+#include <variant>
 #include <vector>
 namespace tt::runtime::ttnn {
 
@@ -137,6 +138,48 @@ Event submit(Device deviceHandle, Binary executableHandle,
   return Event(nullptr, DeviceRuntime::TTNN);
 }
 
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
+  std::vector<::ttnn::Tensor *> lhsTensors;
+  std::vector<::ttnn::Tensor *> rhsTensors;
+
+  for (auto &tensor : lhs) {
+    lhsTensors.push_back(static_cast<::ttnn::Tensor *>(tensor.handle.get()));
+  }
+  for (auto &tensor : rhs) {
+    rhsTensors.push_back(static_cast<::ttnn::Tensor *>(tensor.handle.get()));
+  }
+
+  LOG_ASSERT(lhsTensors.size() == rhsTensors.size());
+  for (size_t i = 0; i < lhsTensors.size(); i++) {
+    auto lhsTensor = lhsTensors[i];
+    auto rhsTensor = rhsTensors[i];
+    std::cout << "Dtype: " << (int)lhsTensor->get_dtype() << ", "
+              << (int)rhsTensor->get_dtype() << std::endl;
+    LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype());
+    std::cout << "Shape: " << lhsTensor->get_shape() << ", "
+              << rhsTensor->get_shape() << std::endl;
+    LOG_ASSERT(lhsTensor->get_shape() == rhsTensor->get_shape());
+    std::cout << "Layout: " << (int)lhsTensor->get_layout() << ", "
+              << (int)rhsTensor->get_layout() << std::endl;
+    LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout());
+    std::cout << "Logical shape: " << lhsTensor->get_logical_shape() << ", "
+              << rhsTensor->get_logical_shape() << std::endl;
+    LOG_ASSERT(lhsTensor->get_logical_shape() ==
+               rhsTensor->get_logical_shape());
+
+    // LOG_ASSERT(lhsTensor == rhsTensor);
+
+    std::cout << "Printing LHS:" << std::endl;
+    lhsTensor->print();
+    std::cout << std::endl << std::endl;
+    std::cout << "Printing RHS:" << std::endl;
+    rhsTensor->print();
+    std::cout << "Done" << std::endl << std::endl;
+  }
+
+  return true;
+}
+
 void wait(Event event) {
   // Not implemented
   LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));
@@ -179,8 +222,42 @@ std::vector<Tensor> do_stuff(void *so, std::string func_name,
   //
   std::vector<Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
-    BorrowedBuffer borrowedBuffer =
-        std::get<BorrowedStorage>(output.tensor_attributes->storage).buffer;
+    // using Storage = std::variant<OwnedStorage, DeviceStorage,
+    // BorrowedStorage, MultiDeviceHostStorage, MultiDeviceStorage>;
+    if (std::holds_alternative<OwnedStorage>(
+            output.tensor_attributes->storage)) {
+      std::cout << "OwnedStorage" << std::endl;
+    } else if (std::holds_alternative<DeviceStorage>(
+                   output.tensor_attributes->storage)) {
+      std::cout << "DeviceStorage" << std::endl;
+    } else if (std::holds_alternative<BorrowedStorage>(
+                   output.tensor_attributes->storage)) {
+      std::cout << "BorrowedStorage" << std::endl;
+    } else if (std::holds_alternative<MultiDeviceHostStorage>(
+                   output.tensor_attributes->storage)) {
+      std::cout << "MultiDeviceHostStorage" << std::endl;
+    } else if (std::holds_alternative<MultiDeviceStorage>(
+                   output.tensor_attributes->storage)) {
+      std::cout << "MultiDeviceStorage" << std::endl;
+    } else {
+      std::cout << "Unknown" << std::endl;
+    }
+
+    // BorrowedBuffer borrowedBuffer =
+    //     std::get<BorrowedStorage>(output.tensor_attributes->storage).buffer;
+    // std::visit(
+    //     [&outputs, &output](auto &&buffer) {
+    //       outputs.push_back(
+    //           Tensor(std::make_shared<::ttnn::Tensor>(std::move(output)),
+    //                  std::shared_ptr<void>(static_cast<void
+    //                  *>(buffer.data()),
+    //                                        [](void *) {}),
+    //                  DeviceRuntime::TTNN));
+    //     },
+    //     borrowedBuffer);
+
+    OwnedStorage ownedStorage =
+        std::get<OwnedStorage>(output.tensor_attributes->storage).buffer;
 
     std::visit(
         [&outputs, &output](auto &&buffer) {
@@ -190,7 +267,7 @@ std::vector<Tensor> do_stuff(void *so, std::string func_name,
                                            [](void *) {}),
                      DeviceRuntime::TTNN));
         },
-        borrowedBuffer);
+        ownedStorage.get_buffer());
   }
 
   return outputs;

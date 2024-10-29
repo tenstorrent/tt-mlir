@@ -18,6 +18,7 @@ try:
         submit,
         create_tensor,
         wait,
+        compare_outs,
         WorkaroundEnv,
         open_so,
         run_so_program,

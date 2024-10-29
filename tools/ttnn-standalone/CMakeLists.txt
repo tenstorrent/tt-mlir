@@ -57,11 +57,16 @@ target_include_directories(ttnn-standalone PRIVATE
     # reflect
     # TODO: Remove this when ttmetal removes this dependency (reflect) from public facing headers
     $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+    $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
+    $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/1e1af177d4ab0ef660f105434fd1017c4d1f8c17/include/magic_enum
+    $ENV{TT_METAL_HOME}/.cpmcache/boost_core/e679bef5c160cf29d0f37d549881dc5f5a58c332/include
+
 
     # Metalium
     $ENV{TT_METAL_HOME}
     $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device
     $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
@@ -80,6 +85,8 @@ target_link_directories(ttnn-standalone PRIVATE
 )
 
 target_link_libraries(ttnn-standalone PRIVATE
+    # $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238
+    # $ENV{TT_METAL_HOME}-build/lib/libfmt.so.11
     # Metalium
     tt_metal
     device
@@ -114,11 +121,15 @@ target_include_directories(emitc_fwd PRIVATE
     # reflect
     # TODO: Remove this when ttmetal removes this dependency (reflect) from public facing headers
     $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+    $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
+    $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/1e1af177d4ab0ef660f105434fd1017c4d1f8c17/include/magic_enum
+    $ENV{TT_METAL_HOME}/.cpmcache/boost_core/e679bef5c160cf29d0f37d549881dc5f5a58c332/include
 
     # Metalium
     $ENV{TT_METAL_HOME}
     $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device
     $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
@@ -131,15 +142,16 @@ target_include_directories(emitc_fwd PRIVATE
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
 )
-# target_link_directories(emitc_fwd PRIVATE
-#     $ENV{TT_METAL_HOME}-build/lib
-# )
+target_link_directories(emitc_fwd PRIVATE
+    $ENV{TT_METAL_HOME}-build/lib
+)
 
-# target_link_libraries(emitc_fwd PRIVATE
-#     # Metalium
-#     tt_metal
-#     device
-#     $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
-# )
+target_link_libraries(emitc_fwd PRIVATE
+    $ENV{TT_METAL_HOME}-build/lib/libfmt.so.11
+    # Metalium
+    tt_metal
+    device
+    $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
+)
 
 set_target_properties(emitc_fwd PROPERTIES PUBLIC_HEADER emitc_fwd.h)

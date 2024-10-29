@@ -102,6 +102,8 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
+
 void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,

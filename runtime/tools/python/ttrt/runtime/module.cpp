@@ -67,6 +67,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
         py::arg("outputs"), "Submit a binary for execution");
+  m.def("compare_outs", &tt::runtime::compareOuts, py::arg("lhs"),
+        py::arg("rhs"));
   m.def("wait", &tt::runtime::wait, py::arg("event"));
   m.def("open_so", &tt::runtime::openSo, py::arg("path"),
         "Open a shared object file");

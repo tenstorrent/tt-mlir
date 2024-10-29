@@ -224,11 +224,19 @@ void wait(Event event) {
   throw std::runtime_error("runtime is not enabled");
 }
 
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::compareOuts(lhs, rhs);
+  }
+#endif
+  throw std::runtime_error("ttnn runtime is not enabled");
+}
+
 void *openSo(std::string path) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    void *handle =
-        dlopen(path.c_str(), RTLD_LAZY | RTLD_GLOBAL | RTLD_DEEPBIND);
+    void *handle = dlopen(path.c_str(), RTLD_LAZY);
     if (!handle) {
       std::cerr << "Failed to load shared object: " << dlerror() << std::endl;
       throw std::runtime_error("Failed to load shared object");
