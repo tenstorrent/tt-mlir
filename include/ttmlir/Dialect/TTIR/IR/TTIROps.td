@@ -716,7 +716,7 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
+def TTIR_MatmulOp : TTIR_DPSOp<"matmul", [TTIR_GenericRegionOpInterface]> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
@@ -731,6 +731,33 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
+
+      std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
+        assert(sameRank(getOperands()) &&
+               "For now all operands must have the same rank");
+        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
+        SmallVector<AffineMap> indexingMaps(getNumOperands(),
+                                            builder.getMultiDimIdentityMap(rank));
+        SmallVector<Attribute> iteratorTypes(
+            rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
+        return {builder.getAffineMapArrayAttr(indexingMaps),
+                builder.getArrayAttr(iteratorTypes)};
+      }
+
+      static bool sameRank(mlir::OperandRange operands) {
+        if (operands.empty()) {
+          return true;
+        }
+        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
+        for (auto operand : operands) {
+          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
+            return false;
+          }
+        }
+        return true;
+      }
     }];
 
     let hasVerifier = 1;

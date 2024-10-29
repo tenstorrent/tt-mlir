@@ -897,3 +897,18 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "max");
 }
+
+// MatmulOp generic region builder
+void mlir::tt::ttir::MatmulOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                  ::mlir::Block *block) {
+  assert(block->getNumArguments() == 3 &&
+         "Matmul op expects 2 inputs and 1 output argument.");
+  auto kernelOp =
+      buildKernelOp(opBuilder, getLoc(), "matmul", "matmul",
+                    mlir::ValueRange(llvm::ArrayRef<BlockArgument>(std::array<BlockArgument, 2> {block->getArgument(0), block->getArgument(1)})), block->getArgument(2),
+                    opBuilder.getArrayAttr(llvm::SmallVector<mlir::Attribute>(
+                        block->getNumArguments(),
+                        opBuilder.getAttr<mlir::tt::OperandConstraintAttr>(
+                            mlir::tt::OperandConstraint::AnyDeviceTile)))); // TODO(jdesousa): Inherit operand constraints from ttir.matmul, don't assume anydevicetile
+  opBuilder.create<mlir::tt::ttir::YieldOp>(getLoc(), kernelOp->getResults());
+}
