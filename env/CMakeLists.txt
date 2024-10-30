@@ -59,6 +59,7 @@ ExternalProject_Add(
     -DLLVM_ENABLE_ASSERTIONS=ON
     -DMLIR_ENABLE_BINDINGS_PYTHON=ON
     -DCMAKE_C_FLAGS=-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+    -DLLVM_REQUIRES_EH=ON # enable exceptions, required for metal
     SOURCE_SUBDIR llvm
     LIST_SEPARATOR ","
     GIT_REPOSITORY https://github.com/llvm/llvm-project.git

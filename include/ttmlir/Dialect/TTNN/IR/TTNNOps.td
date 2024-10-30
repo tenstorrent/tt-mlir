@@ -164,10 +164,10 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
 
 // If one wants to override default implementation, they should do like this:
 
-// def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
-//       [DeclareOpInterfaceMethods<TTNNOpBackendInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
-//       > {
-def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
+      [DeclareOpInterfaceMethods<TTNNOpBackendInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      > {
+// def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
