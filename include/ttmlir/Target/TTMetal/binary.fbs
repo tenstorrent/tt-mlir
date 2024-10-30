@@ -1,5 +1,6 @@
 include "Common/types.fbs";
 include "Common/version.fbs";
+include "Common/debug_info.fbs";
 include "command.fbs";
 
 namespace tt.target.metal;
@@ -15,6 +16,7 @@ table Program {
   inputs: [TensorRef];
   outputs: [TensorRef];
   device_programs: [DeviceProgram];
+  debug_info: DebugInfo;
 }
 
 table TTMetalBinary {

@@ -1,4 +1,23 @@
+include "Common/types.fbs";
+
 namespace tt.target;
+
+table GoldenTensor {
+  name: string;
+  shape: [int64];
+  stride: [int64];
+  dtype: tt.target.DataType;
+  data: [uint8];
+}
+
+table GoldenKV {
+  key: string;
+  value: GoldenTensor;
+}
+
+table GoldenInfo {
+  golden_map: [GoldenKV];
+}
 
 table MLIR {
   name: string;
@@ -8,4 +27,5 @@ table MLIR {
 table DebugInfo {
   mlir: MLIR;
   cpp: string;
+  golden_info: GoldenInfo;
 }

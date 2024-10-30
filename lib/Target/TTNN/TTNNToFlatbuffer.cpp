@@ -31,6 +31,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "ttmlir/Target/Common/debug_info_generated.h"
+
 #include <cassert>
 #include <fstream>
 #include <optional>
@@ -707,7 +709,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 
-std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
+std::shared_ptr<void>
+ttnnToFlatbuffer(Operation *op,
+                 std::unordered_map<std::string, GoldenTensor> goldenMap) {
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
 
@@ -728,7 +732,21 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
   (void)result;
 
-  auto debugInfo = ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
+  std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
+
+  for (auto element : goldenMap) {
+    std::vector<std::uint8_t> dataTensor = element.second.convertDataToVector();
+    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+        fbb, element.second.name.c_str(), &element.second.shape,
+        &element.second.strides, element.second.dtype, &dataTensor);
+    auto goldenKV = ::tt::target::CreateGoldenKVDirect(
+        fbb, element.first.c_str(), goldenTensor);
+    goldenKVList.push_back(goldenKV);
+  }
+
+  auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
+  auto debugInfo =
+      ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str(), goldenInfo);
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
@@ -756,8 +774,10 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   return bufferPtr;
 }
 
-LogicalResult translateTTNNToFlatbuffer(Operation *op, llvm::raw_ostream &os) {
-  std::shared_ptr<void> data = ttnnToFlatbuffer(op);
+LogicalResult translateTTNNToFlatbuffer(
+    Operation *op, llvm::raw_ostream &os,
+    std::unordered_map<std::string, GoldenTensor> goldenMap) {
+  std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);

@@ -18,7 +18,10 @@ namespace mlir::tt::ttnn {
 void registerTTNNToFlatbuffer() {
   TranslateFromMLIRRegistration reg(
       "ttnn-to-flatbuffer", "translate ttnn to flatbuffer",
-      translateTTNNToFlatbuffer /* function */, [](DialectRegistry &registry) {
+      [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
+        return translateTTNNToFlatbuffer(op, os, {});
+      },
+      [](DialectRegistry &registry) {
         // clang-format off
         registry.insert<mlir::tt::TTDialect,
                         mlir::tt::ttnn::TTNNDialect,
