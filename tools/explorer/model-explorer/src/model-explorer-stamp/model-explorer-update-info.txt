@@ -1,0 +1,7 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The patch step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+command (connected)=/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/cmake/data/bin/cmake;-Dcan_fetch=YES;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/localdev/odjuricic/repos/tt-mlir/tools/explorer/model-explorer/tmp/model-explorer-gitupdate.cmake
+command (disconnected)=/opt/ttmlir-toolchain/venv/lib/python3.10/site-packages/cmake/data/bin/cmake;-Dcan_fetch=NO;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/localdev/odjuricic/repos/tt-mlir/tools/explorer/model-explorer/tmp/model-explorer-gitupdate.cmake
+work_dir=/localdev/odjuricic/repos/tt-mlir/tools/explorer/model-explorer/src/model-explorer
