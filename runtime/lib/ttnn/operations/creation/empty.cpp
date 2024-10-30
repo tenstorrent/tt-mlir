@@ -35,7 +35,10 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   } else {
     out = ::ttnn::zeros(shape, dtype, layout);
   }
-
-  tensorPool.try_emplace(op->out()->global_id(), out);
+  if (tensorPool.isUserOutput(op->out()->global_id())) {
+    tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
+  } else {
+    tensorPool.insert_or_assign(op->out()->global_id(), out);
+  }
 }
 } // namespace tt::runtime::ttnn::operations::creation

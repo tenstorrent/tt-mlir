@@ -7,112 +7,12 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include <cstdint>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/CommandLine.h>
 
 namespace mlir::tt::ttnn {
-struct LayoutOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>> {
-public:
-  LayoutOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>>(opt) {}
-
-  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<LayoutOverrideParams> &value) {
-    SmallVector<StringRef> opOverrideList;
-    constexpr size_t kMaxGridSize = 2;
-    constexpr size_t kvPairSize = 2;
-    constexpr size_t kMaxLayoutOverrideParams = 3;
-    constexpr size_t iOpName = 0;
-    constexpr size_t iLayoutOverrideParams = 1;
-    constexpr size_t iGrid = 0;
-    constexpr size_t iMemorySpace = 1;
-    constexpr size_t iMemoryLayout = 2;
-    constexpr char opSeparator = ',';
-    constexpr char opNameSeparator = '=';
-    constexpr char paramSepataor = ':';
-    constexpr char gridSeparator = 'x';
-
-    arg.split(opOverrideList, opSeparator);
-    for (const StringRef override : opOverrideList) {
-      SmallVector<StringRef, kvPairSize> opOverrideParts;
-      override.split(opOverrideParts, opNameSeparator);
-      if (opOverrideParts.size() != kvPairSize) {
-        opt.error("Invalid format for override grid sizes: " + override);
-        return true;
-      }
-
-      SmallVector<StringRef, kMaxLayoutOverrideParams> layoutParamParts;
-      // Split into layout parameters.
-      opOverrideParts[iLayoutOverrideParams].split(layoutParamParts,
-                                                   paramSepataor);
-      if (layoutParamParts.size() != kMaxLayoutOverrideParams) {
-        opt.error("Invalid number of layout parameters: " +
-                  std::to_string(layoutParamParts.size()));
-        return true;
-      }
-
-      // Parse grid.
-      SmallVector<int64_t, kMaxGridSize> grid;
-      SmallVector<StringRef, kMaxGridSize> gridParts;
-      layoutParamParts[iGrid].split(gridParts, gridSeparator);
-      for (const StringRef gridPart : gridParts) {
-        int64_t gridValue;
-        if (gridPart.getAsInteger(10 /*Radix*/, gridValue)) {
-          opt.error("Invalid grid size: " + gridPart);
-          return true;
-        }
-        grid.push_back(gridValue);
-      }
-
-      // Parse memory space.
-      std::optional<mlir::tt::MemorySpace> memorySpace =
-          mlir::tt::symbolizeMemorySpace(layoutParamParts[iMemorySpace]);
-      if (!memorySpace.has_value()) {
-        opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
-        return true;
-      }
-
-      // Parse tensor memory layout.
-      std::optional<mlir::tt::TensorMemoryLayout> memoryLayout =
-          mlir::tt::symbolizeTensorMemoryLayout(
-              layoutParamParts[iMemoryLayout]);
-      if (!memoryLayout.has_value()) {
-        opt.error("Invalid tensor memory layout: " +
-                  layoutParamParts[iMemoryLayout]);
-        return true;
-      }
-
-      // Set parsed op overrides.
-      value[opOverrideParts[iOpName]] =
-          LayoutOverrideParams{grid, memorySpace.value(), memoryLayout.value()};
-    }
-    return false;
-  }
-
-  static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<LayoutOverrideParams> &value) {
-    os << "override-output-layout=";
-    size_t count = 0;
-    for (const auto &entry : value) {
-      os << entry.getKey() << "=";
-      const LayoutOverrideParams &params = entry.getValue();
-      // Print grid values
-      for (size_t i = 0; i < params.grid.size(); ++i) {
-        os << params.grid[i];
-        if (i < params.grid.size() - 1) {
-          os << "x";
-        }
-      }
-      // Print memory space and memory layout
-      os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace);
-      os << ":" << mlir::tt::stringifyTensorMemoryLayout(params.memoryLayout);
-      if (++count < value.size()) {
-        os << ",";
-      }
-    }
-    os << "\n";
-  }
-};
-
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct TTIRToTTNNBackendPipelineOptions
@@ -124,6 +24,25 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-optimizer",
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
+
+  // Option to manually insert TTIR_ToLayoutOp for specific op's operand.
+  // The format is a comma separated list of op names and operand index
+  // separated by ':' separator.
+  //
+  // Full Example: "op1=0,op2=0:1"
+  //
+  // This will insert one TTIR_ToLayoutOps responsible for resharding the op1's
+  // first operand and two TTIR_ToLayoutOps responsible for resharding the op2's
+  // first and second operand.
+  //
+  // Note: This option is only valid if optimizerPassEnabled is true.
+  //
+  Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
+      overrideInputLayout{
+          *this, "insert-reshard",
+          llvm::cl::desc(
+              "Manually insert TTIR_ToLayoutOp for specific op's operand."),
+          llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
 
   // Option to override output layout for specific ops.
   // The format is a comma separated list of op names equal to the output layout
@@ -143,17 +62,26 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<LayoutOverrideParams>, LayoutOverrideParser>
+  Option<llvm::StringMap<OutputLayoutOverrideParams>,
+         OutputLayoutOverrideParser>
       overrideOutputLayout{
           *this, "override-output-layout",
           llvm::cl::desc("Override output tensor layout for specific ops."),
-          llvm::cl::init(llvm::StringMap<LayoutOverrideParams>())};
+          llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
 
   // If this option is true, run sharding pass and try to shard ops.
   //
   Option<bool> shardingPassEnabled{
       *this, "sharding-pass-enabled",
       llvm::cl::desc("Enable sharding pass to shard ops."),
+      llvm::cl::init(false)};
+
+  // If this option is true, insert reshard edges
+  //
+  Option<bool> reshardingEnabled{
+      *this, "resharding-enabled",
+      llvm::cl::desc("Resharding pass. Temp disabled till we support all types "
+                     "of shard specs."),
       llvm::cl::init(false)};
 
   // Option to provide a system descriptor flatbuffer file to compile

@@ -79,7 +79,7 @@ bool LegalGridAnalysis::applyOverrides() {
     return false;
   }
 
-  LayoutOverrideParams override = gridOverride->getValue();
+  OutputLayoutOverrideParams override = gridOverride->getValue();
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   tt::LayoutAttr layout = mlir::cast<tt::LayoutAttr>(tensorType.getEncoding());

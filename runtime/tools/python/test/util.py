@@ -25,6 +25,7 @@ BINARY_FILE_PATH = (
 DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN"
 SYSTEM_DESC_FILE_PATH = f"{TT_MLIR_HOME}/ttrt-artifacts/system_desc.ttsys"
 SYSTEM_DESC_DIRECTORY_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN"
+PERF_BINARY_FILE_PATH = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/perf_unit/Output/mnist.mlir.tmp.ttnn"
 
 
 def sub_process_command(test_command):
@@ -42,7 +43,12 @@ def check_results(file_name="results.json"):
         data = json.load(f)
 
     for entry in data:
+        file_path = entry.get("file_path")
+        exception = entry.get("exception")
         if entry.get("result") != "pass":
+            print(f"ERROR: test={file_path} with exception={exception}")
             return 1
+        else:
+            print(f"PASS: test={file_path}")
 
     return 0

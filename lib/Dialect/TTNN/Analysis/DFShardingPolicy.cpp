@@ -12,7 +12,8 @@ bool isCompositeToLayoutOp(mlir::Operation *op) {
   return isa<ttnn::CompositeToLayoutOp>(op);
 }
 
-void DFShardingPolicy::run() {
+void DFShardingPolicy::run(
+    const std::unordered_set<Edge> &overrideReshardEdges) {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
@@ -194,8 +195,8 @@ void DFShardingPolicy::run() {
   // Resolve shard chain configs.
   //
   for (auto &shardChainConfig : *shardChainConfigs) {
-    ShardSolver shardSolver =
-        shardChainConfig.resolve(legalLayouts, usableL1CacheSize);
+    ShardSolver shardSolver = shardChainConfig.resolve(
+        legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
     // TODO(nobradovic)
     // For now dummy fetch first legal(largest grid) for shard spec.

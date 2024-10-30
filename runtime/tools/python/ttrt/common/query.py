@@ -129,6 +129,7 @@ class Query:
                 "log_file": self.logger.file_name,
                 "artifacts": self.artifacts.artifacts_folder_path,
             }
+            self.logging.error(f"ERROR: getting system_desc failed")
             self.results.add_result(test_result)
             self.test_result = "error"
 
@@ -148,6 +149,9 @@ class Query:
                 "artifacts": self.artifacts.artifacts_folder_path,
             }
             self.results.add_result(test_result)
+            self.logging.info(f"PASS: getting system_desc passed")
+        else:
+            self.logging.error(f"FAIL: getting system_desc failed")
 
         self.results.save_results("query_results.json")
 
@@ -172,6 +176,8 @@ class Query:
         self.logging.debug(
             f"----------------------------finished query API----------------------------"
         )
+
+        return self.results.get_result_code(), self.results.get_results()
 
     def get_system_desc_as_dict(self):
         return json.loads(self.system_desc.as_json())

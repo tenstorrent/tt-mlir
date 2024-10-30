@@ -48,6 +48,10 @@ target_link_libraries(TTRuntimeTEST INTERFACE
     GTest::gtest_main
 )
 
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  list(APPEND TTRuntimeTEST TRACY_LIBRARY)
+endif()
+
 function(add_runtime_gtest test_name)
   add_executable(${test_name} ${ARGN})
   set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 20)

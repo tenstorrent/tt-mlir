@@ -19,14 +19,16 @@ enum class ShardingPolicyType {
 struct ShardingAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
+  std::unordered_set<Edge> overrideReshardEdges;
 
   ShardingAnalysisInput() : legalLayouts() {}
 
   ShardingAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
-          &legalLayouts,
-      unsigned usableL1CacheSize)
-      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize) {}
+      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
+      unsigned usableL1CacheSize,
+      const std::unordered_set<Edge> &overrideReshardEdges)
+      : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
+        overrideReshardEdges(overrideReshardEdges) {}
 
   bool operator==(const ShardingAnalysisInput &rhs) const {
     return legalLayouts == rhs.legalLayouts;

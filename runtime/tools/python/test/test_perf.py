@@ -27,7 +27,7 @@ from util import *
 def test_flatbuffer():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
@@ -38,7 +38,7 @@ def test_flatbuffer():
 
 
 def test_flatbuffer_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --log-file {test_flatbuffer_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file {test_flatbuffer_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -46,32 +46,10 @@ def test_flatbuffer_cmd():
     ), f"one of more tests failed in={test_flatbuffer_cmd.__name__}"
 
 
-def test_dir_flatbuffer():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args["binary"] = DIRECTORY_PATH
-    custom_args["--host-only"] = True
-    perf_instance = API.Perf(args=custom_args)
-    perf_instance()
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_dir_flatbuffer.__name__}"
-
-
-def test_dir_flatbuffer_cmd():
-    command = f"ttrt perf {DIRECTORY_PATH} --host-only --log-file {test_dir_flatbuffer_cmd.__name__}_perf.log"
-    sub_process_command(command)
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_dir_flatbuffer_cmd.__name__}"
-
-
 def test_logger():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
@@ -83,29 +61,10 @@ def test_logger():
     ), f"one of more tests failed in={test_logger.__name__}"
 
 
-def test_artifacts():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--host-only"] = True
-    log_file_name = "test.log"
-    custom_logger = Logger(log_file_name)
-    artifacts_folder_path = f"{os.getcwd()}/test-artifacts"
-    custom_artifacts = Artifacts(
-        logger=custom_logger, artifacts_folder_path=artifacts_folder_path
-    )
-    perf_instance = API.Perf(args=custom_args, artifacts=custom_artifacts)
-    perf_instance()
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_artifacts.__name__}"
-
-
 def test_clean_artifacts():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--clean-artifacts"] = True
     perf_instance = API.Perf(args=custom_args)
@@ -117,7 +76,7 @@ def test_clean_artifacts():
 
 
 def test_clean_artifacts_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -128,7 +87,7 @@ def test_clean_artifacts_cmd():
 def test_save_artifacts():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
@@ -141,7 +100,7 @@ def test_save_artifacts():
 
 
 def test_save_artifacts_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -152,7 +111,7 @@ def test_save_artifacts_cmd():
 def test_log_file():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--log-file"] = "test.log"
     perf_instance = API.Perf(args=custom_args)
@@ -164,7 +123,7 @@ def test_log_file():
 
 
 def test_log_file_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --log-file test.log --log-file {test_log_file_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file test.log --log-file {test_log_file_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -175,11 +134,11 @@ def test_log_file_cmd():
 def test_artifact_dir():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
-    custom_args["--artifact-dir"] = f"{os.getcwd()}/test-artifacts"
+    custom_args["--artifact-dir"] = f"{os.getcwd()}/ttrt-artifacts"
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
@@ -189,7 +148,7 @@ def test_artifact_dir():
 
 
 def test_artifact_dir_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/test-artifacts --log-file {test_artifact_dir_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/ttrt-artifacts --log-file {test_artifact_dir_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -200,7 +159,7 @@ def test_artifact_dir_cmd():
 def test_program_index():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--program-index"] = "0"
     perf_instance = API.Perf(args=custom_args)
@@ -212,7 +171,7 @@ def test_program_index():
 
 
 def test_program_index_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --program-index 0 --log-file {test_program_index_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --program-index 0 --log-file {test_program_index_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -223,7 +182,7 @@ def test_program_index_cmd():
 def test_loops():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--loops"] = 1
     perf_instance = API.Perf(args=custom_args)
@@ -235,7 +194,7 @@ def test_loops():
 
 
 def test_loops_cmd():
-    command = f"ttrt perf {BINARY_FILE_PATH} --host-only --loops 1 --log-file {test_loops_cmd.__name__}_perf.log"
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --loops 1 --log-file {test_loops_cmd.__name__}_perf.log --host-only"
     sub_process_command(command)
 
     assert (
@@ -243,13 +202,10 @@ def test_loops_cmd():
     ), f"one of more tests failed in={test_loops_cmd.__name__}"
 
 
-@pytest.mark.skip(
-    "Issue: 762 - Need to support proper reading of device data. Includes fixing perf mode in ttrt"
-)
 def test_device():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = BINARY_FILE_PATH
+    custom_args["binary"] = PERF_BINARY_FILE_PATH
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
@@ -258,13 +214,8 @@ def test_device():
     ), f"one of more tests failed in={test_device.__name__}"
 
 
-@pytest.mark.skip(
-    "Issue: 762 - Need to support proper reading of device data. Includes fixing perf mode in ttrt"
-)
 def test_device_cmd():
-    command = (
-        f"ttrt perf {BINARY_FILE_PATH} --log-file {test_device_cmd.__name__}_perf.log"
-    )
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file {test_device_cmd.__name__}_perf.log"
     sub_process_command(command)
 
     assert (

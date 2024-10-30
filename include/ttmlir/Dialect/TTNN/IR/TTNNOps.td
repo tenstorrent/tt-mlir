@@ -169,6 +169,13 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     }];
 }
 
+def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
+    let summary = "Eltwise cubic root.";
+    let description = [{
+      Eltwise cubic root operation.
+    }];
+}
+
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
@@ -239,20 +246,6 @@ def TTNN_DivOp : TTNN_ElementwiseBinaryOp<"div"> {
     }];
 }
 
-def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
-    let summary = "Eltwise subtract.";
-    let description = [{
-      Eltwise subtract operation.
-    }];
-}
-
-def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
-    let summary = "Eltwise multiply.";
-    let description = [{
-      Eltwise multiply operation.
-    }];
-}
-
 def TTNN_EqualOp : TTNN_ElementwiseBinaryOp<"eq"> {
     let summary = "Eltwise equal to.";
     let description = [{
@@ -318,6 +311,33 @@ def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
         %lhs: [[3, 2, 7], [1, 4, 4]]
         %rhs: [[1, 4, 2], [1, 2, 3]]
         "ttnn.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
+def TTNN_MinimumOp :  TTNN_ElementwiseBinaryOp<"minimum"> {
+    let summary = "Eltwise minimum OP.";
+    let description = [{
+      Calculates minimum of input tensors' values element-wise and stores result
+      in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttnn.minimum"(%lhs, %rhs, %out) -> %out: [[1, 2, 2], [1, 2, 3]]
+    }];
+}
+
+def TTNN_MultiplyOp : TTNN_ElementwiseBinaryOp<"multiply"> {
+    let summary = "Eltwise multiply.";
+    let description = [{
+      Eltwise multiply operation.
+    }];
+}
+
+def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
+    let summary = "Eltwise subtract.";
+    let description = [{
+      Eltwise subtract operation.
     }];
 }
 

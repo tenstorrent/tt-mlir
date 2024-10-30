@@ -297,6 +297,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Abs;
   } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Add;
+  } else if constexpr (std::is_same_v<EltwiseOp, CbrtOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Cbrt;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalAndOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalAnd;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalNotOp>) {
@@ -323,6 +325,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::LessThan;
   } else if constexpr (std::is_same_v<EltwiseOp, MaximumOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Maximum;
+  } else if constexpr (std::is_same_v<EltwiseOp, MinimumOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Minimum;
   } else if constexpr (std::is_same_v<EltwiseOp, ReluOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Relu;
   } else if constexpr (std::is_same_v<EltwiseOp, SqrtOp>) {
@@ -524,6 +528,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
     return createOperation(cache, createEltwiseOp(cache, andOp), debugString);
   }
+  if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
+    return createOperation(cache, createEltwiseOp(cache, cbrtOp), debugString);
+  }
   if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
     return createOperation(cache, createEltwiseOp(cache, notOp), debugString);
   }
@@ -561,6 +568,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
     return createOperation(cache, createEltwiseOp(cache, maximumOp),
+                           debugString);
+  }
+  if (auto minimumOp = dyn_cast<MinimumOp>(op); minimumOp) {
+    return createOperation(cache, createEltwiseOp(cache, minimumOp),
                            debugString);
   }
   if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {

@@ -72,7 +72,9 @@ declare_mlir_python_sources(TTMLIRPythonSources.Passes
 declare_mlir_python_sources(TTMLIRPythonTestInfra.TestInfra
   ROOT_DIR "${TTMLIR_PYTHON_TEST_INFRA_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonTestInfra
-  SOURCES ttir_builder.py
+  SOURCES
+    ttir_builder.py
+    test_utils.py
 )
 
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main

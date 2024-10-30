@@ -121,42 +121,42 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable async mode device execution for TTNN runtime",
+            help="enable async mode device execution for TTNN runtime",
         )
         Run.register_arg(
             name="--disable-ignore-tile-shape",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable ignore tile shape workaround",
+            help="disable ignore tile shape workaround",
         )
         Run.register_arg(
             name="--disable-empty-op-row-major",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable empty op force row major workaround",
+            help="disable empty op force row major workaround",
         )
         Run.register_arg(
             name="--disable-full-op-row-major",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable full op force row major workaround",
+            help="disable full op force row major workaround",
         )
         Run.register_arg(
             name="--disable-maxpool2d-preshard",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable maxpool2d preshard workaround",
+            help="disable maxpool2d preshard workaround",
         )
         Run.register_arg(
             name="--disable-matmul-1d-program-config",
             type=bool,
             default=False,
             choices=[True, False],
-            help="Disable matmul 1d program config workaround",
+            help="disable matmul 1d program config workaround",
         )
         Run.register_arg(
             name="binary",
@@ -235,6 +235,9 @@ class Run:
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 continue
 
@@ -249,6 +252,9 @@ class Run:
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 continue
 
@@ -264,6 +270,9 @@ class Run:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={message}"
+                    )
                     self.results.add_result(test_result)
                     continue
 
@@ -282,6 +291,9 @@ class Run:
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 continue
 
@@ -296,6 +308,9 @@ class Run:
                     "artifacts": self.artifacts.artifacts_folder_path,
                     "program_index": self["--program-index"],
                 }
+                self.logging.warning(
+                    f"SKIP: test={path} was skipped with exception={str(e)}"
+                )
                 self.results.add_result(test_result)
                 continue
 
@@ -311,6 +326,9 @@ class Run:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={message}"
+                    )
                     self.results.add_result(test_result)
                     continue
 
@@ -471,6 +489,9 @@ class Run:
                             "artifacts": self.artifacts.artifacts_folder_path,
                             "program_index": self["--program-index"],
                         }
+                        self.logging.error(
+                            f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
+                        )
                         self.results.add_result(test_result)
                         bin.test_result = "error"
                         continue
@@ -508,6 +529,9 @@ class Run:
                     "program_index": self["--program-index"],
                 }
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
         for bin in self.ttmetal_binaries:
             if bin.test_result == "pass":
@@ -520,6 +544,9 @@ class Run:
                     "program_index": self["--program-index"],
                 }
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
         self.results.save_results("run_results.json")
 
@@ -544,6 +571,8 @@ class Run:
         self.logging.debug(
             f"----------------------------finished run API----------------------------"
         )
+
+        return self.results.get_result_code(), self.results.get_results()
 
     @staticmethod
     def register_arg(name, type, default, choices, help):
