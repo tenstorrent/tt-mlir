@@ -308,8 +308,8 @@ set(init_submodules "TRUE")
 if(init_submodules)
   execute_process(
     COMMAND "/usr/bin/git"
-            --git-dir=.git 
-            submodule update --recursive --init 
+            --git-dir=.git
+            submodule update --recursive --init
     WORKING_DIRECTORY "/localdev/odjuricic/repos/tt-mlir/tools/explorer/model-explorer/src/model-explorer"
     COMMAND_ERROR_IS_FATAL ANY
     ${maybe_show_command}

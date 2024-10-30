@@ -64,8 +64,8 @@ endif()
 set(init_submodules TRUE)
 if(init_submodules)
   execute_process(
-    COMMAND "/usr/bin/git" 
-            submodule update --recursive --init 
+    COMMAND "/usr/bin/git"
+            submodule update --recursive --init
     WORKING_DIRECTORY "/localdev/odjuricic/repos/tt-mlir/tools/explorer/model-explorer/src/model-explorer"
     RESULT_VARIABLE error_code
     ${maybe_show_command}

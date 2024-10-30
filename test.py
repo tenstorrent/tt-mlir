@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
 import ttnn
 
 device_id = 0
@@ -8,7 +11,13 @@ ttnn.SetDefaultDevice(device)
 try:
     tensor = ttnn.zeros((128, 32))
     tensor = ttnn.to_layout(tensor, ttnn.TILE_LAYOUT)
-    tensor = ttnn.to_device(tensor, device, memory_config=ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.DRAM))
+    tensor = ttnn.to_device(
+        tensor,
+        device,
+        memory_config=ttnn.MemoryConfig(
+            ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.DRAM
+        ),
+    )
 
     out_mem_config = ttnn.create_sharded_memory_config(
         shape=(128, 32),
