@@ -11,8 +11,10 @@
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
 #include "operations/deletion/dealloc.h"
-#include "operations/eltwise/binary.h"
-#include "operations/eltwise/unary.h"
+#include "operations/eltwise/binary/binary.h"
+#include "operations/eltwise/binary/binary_composite.h"
+#include "operations/eltwise/unary/unary.h"
+#include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
@@ -29,6 +31,7 @@
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
+
 struct ProgramExecutor {
   ProgramExecutor(const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
@@ -50,7 +53,35 @@ struct ProgramExecutor {
 private:
   ProgramContext context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
+  void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
+
+void ProgramExecutor::runEltwiseOperation(
+    const ::tt::target::ttnn::EltwiseOp *op) {
+  auto runUnaryOp = [&]() {
+    if (operations::unary::composite::isUnaryCompositeOp(op)) {
+      return operations::unary::composite::run(op, context);
+    }
+    return operations::unary::run(op, context);
+  };
+
+  auto runBinaryOp = [&]() {
+    if (operations::binary::composite::isBinaryCompositeOp(op)) {
+      return operations::binary::composite::run(op, context);
+    }
+    return operations::binary::run(op, context);
+  };
+
+  if (operations::unary::isUnaryOp(op)) {
+    return runUnaryOp();
+  }
+
+  if (operations::binary::isBinaryOp(op)) {
+    return runBinaryOp();
+  }
+
+  throw std::invalid_argument("Unsupported Eltwise operation");
+}
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   switch (op->type_type()) {
@@ -80,12 +111,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
     const ::tt::target::ttnn::EltwiseOp *eltwiseOp = op->type_as_EltwiseOp();
-    if (operations::unary::isUnaryOp(eltwiseOp)) {
-      return operations::unary::run(eltwiseOp, context);
-    }
-    LOG_ASSERT(operations::binary::isBinaryOp(eltwiseOp),
-               "Eltwise op should be either unary or binary");
-    return operations::binary::run(eltwiseOp, context);
+    return runEltwiseOperation(eltwiseOp);
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {

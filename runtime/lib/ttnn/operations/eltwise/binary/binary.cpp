@@ -4,25 +4,11 @@
 #include "binary.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/operations/eltwise/binary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 
 namespace tt::runtime::ttnn::operations::binary {
-
-static void
-getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
-                               ProgramTensorPool &tensorPool,
-                               ::ttnn::Tensor **lhs, ::ttnn::Tensor **rhs) {
-  LOG_ASSERT(op->ins()->size() == 2, "Expected 2 inputs");
-  *lhs = &(tensorPool.at(op->ins()->Get(0)->global_id()));
-  *rhs = &(tensorPool.at(op->ins()->Get(1)->global_id()));
-  DEBUG_ASSERT((*lhs)->is_allocated());
-  DEBUG_ASSERT((*rhs)->is_allocated());
-
-  // Switch the order of operands if the second operand requires broadcast
-  if ((*rhs)->volume() < (*lhs)->volume()) {
-    std::swap(*lhs, *rhs);
-  }
-}
 
 static void runEltwiseBinaryOP(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
@@ -45,24 +31,6 @@ static void runEltwiseBinaryOP(
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
-}
-
-static void runEltwiseBinaryCompositeOP(
-    const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const ::ttnn::Tensor &,
-                       const std::optional<::tt::tt_metal::MemoryConfig> &)>
-        ttnnOp) {
-
-  ::ttnn::Tensor *lhs = nullptr;
-  ::ttnn::Tensor *rhs = nullptr;
-  getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
-
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
-
-  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
@@ -116,14 +84,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
     runEltwiseBinaryOP(op, tensorPool, ::ttnn::divide);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Maximum: {
-    runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::maximum);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Minimum: {
-    runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::minimum);
     break;
   }
   default:
