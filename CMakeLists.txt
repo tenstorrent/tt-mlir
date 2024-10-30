@@ -22,6 +22,9 @@ set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
+set(LLVM_REQUIRES_EH ON CACHE BOOL "Require exceptions") # turns on exceptions, LLVM forces them off otherwise. Required for metal. 
+
+
 add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
 
 include(TTMLIRBuildTypes)
