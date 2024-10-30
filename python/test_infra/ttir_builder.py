@@ -59,6 +59,10 @@ class TTIRBuilder:
 
     # ----- Public helpers -----
 
+    @property
+    def goldens(self) -> Dict:
+        return self._goldens
+
     def print_goldens(self) -> None:
         """
         Prints saved operands and their respective goldens in descriptive form
@@ -231,80 +235,194 @@ class TTIRBuilder:
             return op
 
     # ----- TTIR op factories -----
-
-    def add(self, in0: Operand, in1: Operand) -> OpView:
-        """Convenience wrapper constructing `ttir.AddOp`."""
-        assert self.get_shape(in0) == self.get_shape(
-            in1
-        ), "Elementwise `ttir.add` op expects inputs of same shape."
-
+    def eltwise_proxy(
+        self, op_golden_function, op_ttir_function, inputs: List[Operand]
+    ) -> OpView:
         with self._ctx, self._loc:
-            output = self.empty(self.get_shape(in0))
+            output = self.empty(self.get_shape(inputs[0]))
 
-            op = ttir.AddOp(
+            op = op_ttir_function(
                 [self._get_type(output)],
-                [in0, in1],
+                inputs,
                 [output],
                 self._get_operand_constraint_attr(3),
             )
 
-            golden = Golden(
-                torch.add(self._get_golden_tensor(in0), self._get_golden_tensor(in1))
-            )
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
+            goldens = []
+            for input in inputs:
+                goldens.append(self._get_golden_tensor(input))
 
-            return op
-
-    def multiply(self, in0: Operand, in1: Operand) -> OpView:
-        """Convenience wrapper constructing `ttir.MultiplyOp`."""
-        assert self.get_shape(in0) == self.get_shape(
-            in1
-        ), "Elementwise `ttir.multiply` op expects inputs of same shape."
-
-        with self._ctx, self._loc:
-            output = self.empty(self.get_shape(in0))
-
-            op = ttir.MultiplyOp(
-                [self._get_type(output)],
-                [in0, in1],
-                [output],
-                self._get_operand_constraint_attr(3),
-            )
-
-            golden = Golden(
-                torch.multiply(
-                    self._get_golden_tensor(in0), self._get_golden_tensor(in1)
-                )
-            )
+            golden = Golden(op_golden_function(*goldens))
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 
             return op
 
     def exp(self, in0: Operand) -> OpView:
-        """Convenience wrapper constructing `ttir.ExpOp`."""
-        with self._ctx, self._loc:
-            output = self.empty(self.get_shape(in0))
+        return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0])
 
-            op = ttir.ExpOp(
-                [self._get_type(output)],
-                [in0],
-                [output],
-                self._get_operand_constraint_attr(3),
-            )
+    def abs(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.abs, ttir.AbsOp, [in0])
 
-            golden = Golden(torch.exp(self._get_golden_tensor(in0)))
-            self._store_golden(op, golden)
-            self._override_golden(output, golden)
+    def logical_not(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.logical_not, ttir.LogicalNotOp, [in0])
 
-            return op
+    def neg(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.neg, ttir.NegOp, [in0])
+
+    def relu(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.relu, ttir.ReluOp, [in0])
+
+    def sqrt(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.sqrt, ttir.SqrtOp, [in0])
+
+    def rsqrt(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.rsqrt, ttir.RsqrtOp, [in0])
+
+    def sigmoid(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.sigmoid, ttir.SigmoidOp, [in0])
+
+    def reciprocal(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.reciprocal, ttir.ReciprocalOp, [in0])
+
+    def add(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.add, ttir.AddOp, [in0, in1])
+
+    def multiply(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.multiply, ttir.MultiplyOp, [in0, in1])
+
+    def logical_and(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.logical_and, ttir.LogicalAndOp, [in0, in1])
+
+    def logical_or(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.logical_or, ttir.LogicalOrOp, [in0, in1])
+
+    def subtract(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.subtract, ttir.SubtractOp, [in0, in1])
+
+    def eq(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.eq, ttir.EqualOp, [in0, in1])
+
+    def ne(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.ne, ttir.NotEqualOp, [in0, in1])
+
+    def ge(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.ge, ttir.GreaterEqualOp, [in0, in1])
+
+    def gt(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.gt, ttir.GreaterThanOp, [in0, in1])
+
+    def le(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.le, ttir.LessEqualOp, [in0, in1])
+
+    def lt(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.lt, ttir.LessThanOp, [in0, in1])
+
+    def div(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.div, ttir.DivOp, [in0, in1])
+
+    def maximum(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
 
 
 def compile_as_mlir_module(
     *inputs_shapes: Tuple[Shape],
     module_dump: bool = True,
-    golden_dump: bool = False,
+):
+    """
+    Decorator to define a MLIR module specified as a python function.
+
+    It will wrap decorated test function in a MLIR FuncOp wrapped in a MLIR
+    module, and tie arguments of that FuncOp to test function inputs. It will
+    also pass a `TTIRBuilder` object as the last argument of test function.
+
+    Arguments
+    ---------
+    inputs_shapes: Tuple[Shape]
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    module_dump: bool
+        Set to True if printout of generated MLIR module is wished.
+
+    golden_dump: bool
+        Set to True if printout of generated goldens is wished.
+
+    Example
+    -------
+
+    ```python
+        @compile_as_mlir_module((32, 32), (32, 32))
+        def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            return builder.add(in0, in1)
+
+
+        test_add() # NOTE Called without arguments.
+    ```
+
+    which returns
+
+    ```
+        #any = #tt.operand_constraint<...>
+        module {
+            func.func @test_add(
+                %arg0: tensor<32x32xf32>,
+                %arg1: tensor<32x32xf32>
+            ) -> tensor<32x32xf32> {
+                %0 = tensor.empty() : tensor<32x32xf32>
+                %1 = "ttir.add"(%arg0, %arg1, %0) ...
+                return %1 : tensor<32x32xf32>
+            }
+        }
+    ```
+
+    Check out:
+    https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
+    """
+
+    def decorator(test_fn: Callable):
+        # test_fn should be called with no args.
+        def wrapper():
+            ctx = Context()
+            loc = Location.unknown(ctx)
+            # Instantiate builder which is passed as the last argument to
+            # `test_fn` so the user can use it to build ops.
+            builder = TTIRBuilder(ctx, loc)
+
+            with ctx, loc:
+                test_fn_input_types = [
+                    builder.ranked_tensor_type(input_shape)
+                    for input_shape in inputs_shapes
+                ]
+
+                # Wrap everything in a mlir module.
+                module = Module.create()
+
+                with InsertionPoint(module.body):
+                    # Wrap everything in a mlir function.
+                    @func.func(*test_fn_input_types, name=test_fn.__name__)
+                    def decorated_func(*inputs):
+                        # Randomly generate golden tensors for function inputs.
+                        for i in inputs:
+                            builder.generate_and_store_random_golden(i)
+
+                        return test_fn(*inputs, builder=builder)
+
+                if module_dump:
+                    print(module)
+
+                if golden_dump:
+                    builder.print_goldens()
+
+                return module
+
+        return wrapper
+
+    return decorator
+
+
+def compile_as_mlir_module(
+    *inputs_shapes: Tuple[Shape],
+    module_dump: bool = True,
 ):
     """
     Decorator to define a MLIR module specified as a python function.
