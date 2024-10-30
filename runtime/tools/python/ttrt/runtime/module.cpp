@@ -47,6 +47,8 @@ PYBIND11_MODULE(_C, m) {
         "Set the backend device runtime type to match the binary");
   m.def("get_current_system_desc", &tt::runtime::getCurrentSystemDesc,
         "Get the current system descriptor");
+  m.def("register_callback", &tt::runtime::registerCallback,
+        py::arg("callback"), py::arg("golden"), "Register a callback function");
   m.def(
       "create_tensor",
       [](std::uintptr_t ptr, std::vector<std::uint32_t> const &shape,

@@ -25,7 +25,9 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/reduction/reduction.h"
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
@@ -45,6 +47,7 @@ struct ProgramExecutor {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       runOperation(op);
+      tt::runtime::callback();
     }
   }
 

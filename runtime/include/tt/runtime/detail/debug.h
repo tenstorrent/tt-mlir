@@ -13,7 +13,7 @@ struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Env const &
 #else
-  constexpr static Env
+  static Env
 #endif
   get(bool loadKernelsFromDisk = false, bool enableAsyncTTNN = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -28,7 +28,7 @@ struct Env {
   bool enableAsyncTTNN;
 
 private:
-  constexpr Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
+  Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
       : loadKernelsFromDisk(loadKernelsFromDisk),
         enableAsyncTTNN(enableAsyncTTNN) {}
 };

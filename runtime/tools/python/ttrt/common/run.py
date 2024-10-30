@@ -18,6 +18,8 @@ import atexit
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
+import ttrt.common.callback as callback
+from ttrt.common.callback import golden, pdb
 
 
 class Run:
@@ -171,6 +173,13 @@ class Run:
             default="run_results.json",
             choices=None,
             help="test file to save results to",
+        )
+        Run.register_arg(
+            name="--golden",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="run golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="binary",
@@ -360,6 +369,8 @@ class Run:
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
+
+            ttrt.runtime.register_callback(callback, self["--golden"])
 
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]

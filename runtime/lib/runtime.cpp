@@ -45,6 +45,20 @@ void deallocateBuffers(Device device) {
 }
 } // namespace detail
 
+py::module callback_module;
+bool golden = false;
+
+void registerCallback(py::module callback, bool golden) {
+  tt::runtime::callback_module = callback;
+  tt::runtime::golden = golden;
+}
+
+void callback() {
+  if (tt::runtime::golden) {
+    tt::runtime::callback_module.attr("golden")();
+  }
+}
+
 DeviceRuntime getCurrentRuntime() {
 #if !defined(TT_RUNTIME_ENABLE_TTNN)
   LOG_ASSERT(detail::globalCurrentRuntime != DeviceRuntime::TTNN);

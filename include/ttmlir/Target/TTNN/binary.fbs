@@ -1,5 +1,6 @@
 include "Common/types.fbs";
 include "Common/version.fbs";
+include "Common/debug_info.fbs";
 include "program.fbs";
 
 namespace tt.target.ttnn;

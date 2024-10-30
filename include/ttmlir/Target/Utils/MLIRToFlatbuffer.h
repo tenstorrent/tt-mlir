@@ -5,6 +5,7 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
+#include <numeric>
 #include <type_traits>
 
 #include "flatbuffers/flatbuffers.h"
@@ -15,6 +16,30 @@
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt {
+struct GoldenTensor {
+  std::string name;
+  std::vector<int64_t> shape;
+  std::vector<int64_t> strides;
+  ::tt::target::DataType dtype;
+  std::uint8_t *data;
+
+  GoldenTensor(std::string name, std::vector<int64_t> shape,
+               std::vector<int64_t> strides, ::tt::target::DataType dtype,
+               std::uint8_t *data)
+      : name(name), shape(shape), strides(strides), dtype(dtype), data(data) {}
+
+  std::vector<std::uint8_t> convertDataToVector() {
+    std::vector<std::uint8_t> dataVec;
+    int totalDataSize = std::accumulate(this->shape.begin(), this->shape.end(),
+                                        1, std::multiplies<int64_t>()) *
+                        4; // 4 is the size of float32
+    for (int i = 0; i < totalDataSize; i++) {
+      dataVec.push_back(this->data[i]);
+    }
+    return dataVec;
+  }
+};
+
 inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
                                          OOBVal oobVal) {
   switch (oobVal) {

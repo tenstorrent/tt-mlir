@@ -7,9 +7,14 @@
 
 #include <cstdint>
 #include <functional>
+#include <pybind11/embed.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <vector>
 
 #include "tt/runtime/types.h"
+
+namespace py = pybind11;
 
 namespace tt::runtime {
 
@@ -20,6 +25,9 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 namespace detail {
 void deallocateBuffers(Device device);
 } // namespace detail
+
+void callback();
+void registerCallback(py::module callback, bool golden);
 
 DeviceRuntime getCurrentRuntime();
 
