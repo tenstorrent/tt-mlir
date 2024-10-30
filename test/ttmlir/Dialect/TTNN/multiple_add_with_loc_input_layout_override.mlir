@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true sharding-pass-enabled=true resharding-enabled=true insert-reshard=add_0_1_2=0" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true memreconfig-enabled=true insert-reshard=add_0_1_2=0" %s | FileCheck %s
 // UNSUPPORTED: true
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #loc = loc("test_ops.py:17_0_0":0:0)

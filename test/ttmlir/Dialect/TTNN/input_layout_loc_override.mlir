@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --mlir-print-debuginfo --ttir-to-ttnn-backend-pipeline="enable-optimizer=true sharding-pass-enabled=true override-output-layout=matmul_1_in_1_layout=1x1:l1:interleaved" %s | FileCheck %s
+// RUN: ttmlir-opt --mlir-print-debuginfo --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true override-output-layout=matmul_1_in_1_layout=1x1:l1:interleaved" %s | FileCheck %s
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #loc = loc("Matmul":4294967295:0)
 // CHECK-DAG: #[[LOC_MATMUL_IN0:.*]] = loc("matmul_1_in_0_layout"(#loc3))

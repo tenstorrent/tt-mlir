@@ -6,8 +6,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
-#include "ttmlir/Dialect/TTNN/Analysis/ShardingAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -21,7 +21,7 @@ public:
   using impl::TTNNOptimizerBase<TTNNOptimizer>::TTNNOptimizerBase;
   void runOnOperation() final {
     // Generate legal OP configuration candidates.
-    // Perform sharding analysis.
+    // Perform memory layout analysis.
     // Perform final configuration analysis.
     // Apply graph transformations based on analysis results.
     //
@@ -59,21 +59,22 @@ public:
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
-    std::unordered_set<Edge> reshardedEdges;
-    if (shardingPassEnabled) {
+    std::unordered_set<Edge> memReconfigEdges;
+    if (memoryLayoutAnalysisEnabled) {
       // Extract override resharding edges
       //
       std::unordered_set<Edge> overrideReshardEdges;
       extractReshardEdges(moduleOp, overrideReshardEdges);
 
-      // Perform sharding analysis.
+      // Perform memory layout analysis.
       //
-      ShardingAnalysis shardingAnalysis = getAnalysis<ShardingAnalysis>();
-      shardingAnalysis.init(ShardingAnalysisInput(
+      MemoryLayoutAnalysis memoryLayoutAnalysis =
+          getAnalysis<MemoryLayoutAnalysis>();
+      memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
           legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges));
-      legalLayouts = shardingAnalysis.getResult().legalLayouts;
-      opSchedule = shardingAnalysis.getResult().schedule;
-      reshardedEdges = shardingAnalysis.getResult().reshardedEdges;
+      legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
+      opSchedule = memoryLayoutAnalysis.getResult().schedule;
+      memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
     }
 
     // Pick optimal op configuration.
@@ -185,8 +186,8 @@ public:
         }
       });
 
-      if (reshardingEnabled) {
-        processReshardedEdges(reshardedEdges);
+      if (memReconfigEnabled) {
+        processMemReconfigEdges(memReconfigEdges);
       }
 
       // Update the function type to reflect the updated return operation's
@@ -233,10 +234,12 @@ public:
     assert(overrideInputLayout.size() == overrideReshardEdges.size());
   }
 
-  void processReshardedEdges(const std::unordered_set<Edge> &reshardedEdges) {
-    // Insert reshard ops here based on results of sharding analysis.
+  void
+  processMemReconfigEdges(const std::unordered_set<Edge> &memReconfigEdges) {
+    // Insert memory reconfig ops here based on results of memory layout
+    // analysis.
     //
-    for (const Edge &edge : reshardedEdges) {
+    for (const Edge &edge : memReconfigEdges) {
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
@@ -279,10 +282,9 @@ public:
                           consumerOpOutputLayout.getGrid()));
 
         compositeLayoutOp.getResult().setType(newTensorType);
-        compositeLayoutOp.getOperands().back().setType(newTensorType);
       }
-      // TODO (nobradovic): Resharding needs to be reimplemented for TTNN
-      // dialect.
+      // TODO (nobradovic): Memory layout reconfig needs to be reimplemented for
+      // TTNN dialect.
       //   else {
       //     tt::LayoutAttr consumerOpOutputLayout = mlir::cast<tt::LayoutAttr>(
       //         mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())

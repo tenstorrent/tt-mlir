@@ -2,12 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/ShardingAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
 namespace mlir::tt::ttnn {
 
-bool ShardingAnalysis::applyOverrides() {
+bool MemoryLayoutAnalysis::applyOverrides() {
 
   // TODO(nobradovic):
   // Placeholder, no overrides for now.
@@ -33,13 +33,14 @@ filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
   return shardedLayouts;
 }
 
-void ShardingAnalysis::analysisImplementation() {
-  ShardingPolicyType policy = ShardingPolicyType::DFSharding;
+void MemoryLayoutAnalysis::analysisImplementation() {
+  MemoryLayoutAnalysisPolicyType policy =
+      MemoryLayoutAnalysisPolicyType::DFSharding;
 
   switch (policy) {
-  case ShardingPolicyType::DFSharding:
+  case MemoryLayoutAnalysisPolicyType::DFSharding:
     DFShardingPolicy dfShardingPolicy(
-        op, shardChainConfigs, filterShardedOnly(analysisInput.legalLayouts),
+        op, l1ChainConfigs, filterShardedOnly(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     dfShardingPolicy.run(analysisInput.overrideReshardEdges);
     break;
@@ -49,18 +50,18 @@ void ShardingAnalysis::analysisImplementation() {
   //
   analysisResult.legalLayouts = analysisInput.legalLayouts;
 
-  // Override with shard chain configs where applicable.
+  // Override with L1 chain configs where applicable.
   //
-  for (const auto &shardChainConfig : shardChainConfigs) {
-    assert(shardChainConfig.getState() == ShardChainState::Completed);
-    for (const auto &shardSpec : shardChainConfig.getShardSpecs()) {
-      analysisResult.legalLayouts[shardSpec.op] =
-          std::vector<tt::LayoutAttr>{shardSpec.layout};
+  for (const auto &l1ChainConfig : l1ChainConfigs) {
+    assert(l1ChainConfig.getState() == L1ChainState::Completed);
+    for (const auto &opL1MemSpec : l1ChainConfig.getOpL1MemSpecs()) {
+      analysisResult.legalLayouts[opL1MemSpec.op] =
+          std::vector<tt::LayoutAttr>{opL1MemSpec.layout};
     }
 
-    analysisResult.reshardedEdges.insert(
-        shardChainConfig.getReshardedEdges().begin(),
-        shardChainConfig.getReshardedEdges().end());
+    analysisResult.memReconfigEdges.insert(
+        l1ChainConfig.getMemReconfigEdges().begin(),
+        l1ChainConfig.getMemReconfigEdges().end());
   }
 }
 } // namespace mlir::tt::ttnn

@@ -46,8 +46,9 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
-    optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
-    optimizerOptions.reshardingEnabled = options.reshardingEnabled;
+    optimizerOptions.memoryLayoutAnalysisEnabled =
+        options.memoryLayoutAnalysisEnabled;
+    optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
   }

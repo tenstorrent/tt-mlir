@@ -1,8 +1,8 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
         LegalGridAnalysis.cpp
         OpConfigAnalysis.cpp
-        ShardingAnalysis.cpp
-        ShardChainConfig.cpp
+        MemoryLayoutAnalysis.cpp
+        L1ChainConfig.cpp
         DFShardingPolicy.cpp
         ShardSolver.cpp
 
