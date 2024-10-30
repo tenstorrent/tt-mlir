@@ -8,10 +8,6 @@
 
 namespace mlir::tt::ttnn {
 
-bool isCompositeToLayoutOp(mlir::Operation *op) {
-  return isa<ttnn::CompositeToLayoutOp>(op);
-}
-
 void DFShardingPolicy::run(
     const std::unordered_set<Edge> &overrideReshardEdges) {
   rootOp->walk([&](func::FuncOp func) {
@@ -39,7 +35,7 @@ void DFShardingPolicy::run(
       //
       if (l1ChainConfigs->back().isEmpty()) {
         for (auto *op : scheduleableOps) {
-          if (isCompositeToLayoutOp(op)) {
+          if (isa<ttnn::ToLayoutOp>(op)) {
             currentOp = op;
             break;
           }
@@ -57,7 +53,7 @@ void DFShardingPolicy::run(
       // Skip starting sharding chain if currentOp is a memory management op.
       //
       if (l1ChainConfigs->back().isEmpty() &&
-          isCompositeToLayoutOp(currentOp)) {
+          isa<ttnn::ToLayoutOp>(currentOp)) {
         currentOp = nullptr;
         continue;
       }

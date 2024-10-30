@@ -52,7 +52,7 @@ bool cantChangeOutputLayout(Operation *op) {
     return true;
   }
 
-  if (llvm::isa<CompositeToLayoutOp>(op)) {
+  if (llvm::isa<ToLayoutOp>(op)) {
     return true;
   }
 

@@ -9,13 +9,13 @@
 module attributes {tt.device = #device, tt.system_desc = #system_desc} {
   func.func @forward(%arg0: tensor<64x128xf32, #layout>, %arg1: tensor<64x128xf32, #layout>) -> tensor<64x128xf32, #layout> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
-    %1 = "ttnn.composite_to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x128>>>}> : (tensor<64x128xf32, #layout>, !tt.device<#device>) -> tensor<64x128xf32, #layout1>
-    %2 = "ttnn.composite_to_layout"(%arg1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x128>>>}> : (tensor<64x128xf32, #layout>, !tt.device<#device>) -> tensor<64x128xf32, #layout1>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x128>>>}> : (tensor<64x128xf32, #layout>, !tt.device<#device>) -> tensor<64x128xf32, #layout1>
+    %2 = "ttnn.to_layout"(%arg1, %0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x128>>>}> : (tensor<64x128xf32, #layout>, !tt.device<#device>) -> tensor<64x128xf32, #layout1>
     %3 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x128>>>, shape = #ttnn.shape<64x128>}> : (!tt.device<#device>) -> tensor<64x128xf32, #layout2>
     %4 = "ttnn.multiply"(%1, %2, %3) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout1>, tensor<64x128xf32, #layout2>) -> tensor<64x128xf32, #layout2>
     // CHECK: #[[LAYOUT_2:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #dram>, interleaved>
     // CHECK: %{{.+}} = "ttnn.multiply"{{.+}} -> tensor<64x128xf32, #[[LAYOUT_2]]>
-    %5 = "ttnn.composite_to_layout"(%4) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<none>, <system_memory>, <<64x128>>>}> : (tensor<64x128xf32, #layout2>) -> tensor<64x128xf32, #layout>
+    %5 = "ttnn.to_layout"(%4) <{dtype = #tt.supportedDataTypes<f32>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<none>, <system_memory>, <<64x128>>>}> : (tensor<64x128xf32, #layout2>) -> tensor<64x128xf32, #layout>
     return %5 : tensor<64x128xf32, #layout>
   }
 }
