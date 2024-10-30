@@ -95,9 +95,9 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     LLVMSupport
     ${dialect_libs}
     ${conversion_libs}
-    ${extension_libs}
     ${translation_libs}
     TTMLIRStatic
+    ${extension_libs}
 )
 
 set(TTMLIR_PYTHON_SOURCES
