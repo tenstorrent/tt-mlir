@@ -1,3 +1,4 @@
+set(CMAKE_BUILD_TYPE Debug)
 add_mlir_dialect_library(MLIRTTNNDialect
         TTNNDialect.cpp
         TTNNOps.cpp

@@ -1,11 +1,10 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|none|interleaved|single_bank|height_sharded|width_sharded|block_sharded|any_layout|any_device_tile>
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn#any_device_tile = #tt.operand_constraint<dram|l1|tile|none|interleaved|single_bank|height_sharded|width_sharded|block_sharded|any_layout|any_device_tile>
+#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module @jit_convolution {
-  func.func public @test_NCHW_HWIO_to_NHWC_OIHW_conv2d(%arg0: tensor<1x32x128x128xf32>, %arg1: tensor<3x3x32x64xf32>) -> tensor<1x64x128x128xf32> {
+  func.func public @test_NCHW_IOHW_to_NHWC_OIHW_conv2d(%arg0: tensor<1x32x128x128xf32>, %arg1: tensor<64x32x3x3xf32>) -> tensor<1x64x128x128xf32> {
     %0 = tensor.empty() : tensor<1x64x128x128xf32>
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.conv2d"[[C:.*]]
@@ -15,9 +14,9 @@ module @jit_convolution {
         input_batch = 0,
         input_feature = 1,
         input_spatial_dimensions = 2x3,
-        kernel_output_feature = 3,
-        kernel_input_feature = 2,
-        kernel_spatial_dimensions = 0x1,
+        kernel_output_feature = 0,
+        kernel_input_feature = 1,
+        kernel_spatial_dimensions = 2x3,
         output_batch = 0,
         output_feature = 1,
         output_spatial_dimensions = 2x3
@@ -29,7 +28,7 @@ module @jit_convolution {
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
-    }> : (tensor<1x32x128x128xf32>, tensor<3x3x32x64xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
+    }> : (tensor<1x32x128x128xf32>, tensor<64x32x3x3xf32>, tensor<1x64x128x128xf32>) -> tensor<1x64x128x128xf32>
     // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
     // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
     return %1 : tensor<1x64x128x128xf32>
