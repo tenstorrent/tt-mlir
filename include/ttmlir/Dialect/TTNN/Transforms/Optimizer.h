@@ -18,8 +18,8 @@ struct TTNNOptimizerOptions {
       llvm::StringMap<InputLayoutOverrideParams>();
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
       llvm::StringMap<OutputLayoutOverrideParams>();
-  bool shardingPassEnabled = false;
-  bool reshardingEnabled = false;
+  bool memoryLayoutAnalysisEnabled = false;
+  bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
 };
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
@@ -92,8 +92,9 @@ public:
   TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
     overrideInputLayout = std::move(options.overrideInputLayout);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
-    shardingPassEnabled = std::move(options.shardingPassEnabled);
-    reshardingEnabled = std::move(options.reshardingEnabled);
+    memoryLayoutAnalysisEnabled =
+        std::move(options.memoryLayoutAnalysisEnabled);
+    memReconfigEnabled = std::move(options.memReconfigEnabled);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
   }
 
@@ -111,12 +112,14 @@ protected:
           *this, "override-output-layout",
           ::llvm::cl::desc("Override output tensor layout for specific ops."),
           ::llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
-  ::mlir::Pass::Option<bool> shardingPassEnabled{
-      *this, "sharding-pass-enabled", ::llvm::cl::desc("Enable sharding pass."),
+  ::mlir::Pass::Option<bool> memoryLayoutAnalysisEnabled{
+      *this, "memory-layout-analysis-enabled",
+      ::llvm::cl::desc("Enable memory layout optimization."),
       ::llvm::cl::init(false)};
-  ::mlir::Pass::Option<bool> reshardingEnabled{
-      *this, "resharding-enabled",
-      ::llvm::cl::desc("Resharding pass. Temp disabled till we support all "
+  ::mlir::Pass::Option<bool> memReconfigEnabled{
+      *this, "memreconfig-enabled",
+      ::llvm::cl::desc("Memory layout reconfiguration pass. Temp disabled till "
+                       "we support all "
                        "types of shard specs."),
       ::llvm::cl::init(false)};
   ::mlir::Pass::Option<int64_t> maxLegalLayouts{

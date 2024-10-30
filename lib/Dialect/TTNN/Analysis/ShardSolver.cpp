@@ -3,13 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
-#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
-#include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
-#include <algorithm>
-#include <cstdint>
-#include <llvm/ADT/StringMap.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/Location.h>
+#include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
 #include <unordered_set>
@@ -21,7 +15,7 @@ ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 ShardSolver::ShardSolver(
     const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
         &legalLayouts,
-    const std::vector<ShardSpec> &shardSpecs,
+    const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
     const std::unordered_set<Edge> &overrideReshardEdges)
@@ -88,7 +82,7 @@ bool ShardSolver::resolveStep() {
 
     for (Edge edge : operandOpEdges[consumerOp]) {
 
-      bool reshardOnEdge = reshardedEdges.count(edge) > 0;
+      bool reshardOnEdge = memReconfigEdges.count(edge) > 0;
 
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
@@ -200,7 +194,7 @@ void ShardSolver::preprocessFirstOp() {
   Edge shardChainInputEdge =
       Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
 
-  if (reshardedEdges.count(shardChainInputEdge) == 0) {
+  if (memReconfigEdges.count(shardChainInputEdge) == 0) {
     insertReshard(shardChainInputEdge);
   }
 
@@ -249,8 +243,8 @@ void ShardSolver::preprocessFirstOp() {
 void ShardSolver::insertReshard(const Edge &edge) {
   // Same edge should not be resharded twice!
   //
-  assert(reshardedEdges.count(edge) == 0);
-  reshardedEdges.insert(edge);
+  assert(memReconfigEdges.count(edge) == 0);
+  memReconfigEdges.insert(edge);
 }
 
 void ShardSolver::resolve() {
@@ -548,6 +542,6 @@ bool ShardSolver::checkShardCompatible(
 //
 ShardSolverSolution const ShardSolver::finish() {
   assert(selectedOpLayout.size() == shardedOps->size());
-  return ShardSolverSolution(selectedOpLayout, reshardedEdges);
+  return ShardSolverSolution(selectedOpLayout, memReconfigEdges);
 }
 } // namespace mlir::tt::ttnn
