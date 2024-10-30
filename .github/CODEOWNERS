@@ -1,7 +1,7 @@
-*.cmake @nsmithtt
-*.fbs @tapspatel
-*.txt @nsmithtt
-/.github/ @vmilosevic
+*.cmake @nsmithtt @sdjordjevicTT
+*.fbs @tapspatel @nsmithtt
+*.txt @nsmithtt @sdjordjevicTT
+/.github/ @vmilosevic @tapspatel
 /include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT
 /include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
 /include/ttmlir/Dialect/TT/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
@@ -9,6 +9,7 @@
 /include/ttmlir/Dialect/TTKernel/ @nsmithtt @rpavlovicTT @rjakovljevicTT
 /include/ttmlir/Dialect/TTMetal/ @nsmithtt @rpavlovicTT
 /include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @nobradovictt @jserbedzijaTT
+/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT
 /lib/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT
 /lib/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
 /lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
@@ -16,7 +17,8 @@
 /lib/Dialect/TTKernel/ @nsmithtt @rpavlovicTT @rjakovljevicTT
 /lib/Dialect/TTMetal/ @nsmithtt @rpavlovicTT
 /lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @nobradovictt @jserbedzijaTT
-/python/ @nsmithtt
+/lib/Dialect/TTNN/Analysis/ @odjuricicTT
+/python/ @nsmithtt @odjuricicTT @nobradovictt @vprajapati-tt
 /runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
-/runtime/tools/ @tapspatel
+/runtime/tools/ @tapspatel @nsmithtt
 /tools/explorer/ @odjuricicTT @nobradovictt @vprajapati-tt
