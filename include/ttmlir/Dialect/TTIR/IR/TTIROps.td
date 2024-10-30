@@ -420,6 +420,21 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     }];
 }
 
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
+    let summary = "Eltwise remainder.";
+    let description = [{
+      Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
+      result tensor.
+
+      Example:
+
+      // %lhs: [17, -17, 17, -17]
+      // %rhs: [3, 3, -3, -3]
+      %result = "ttir.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
+      // %result: [2, -2, 2, -2]
+    }];
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_DPSOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
 
