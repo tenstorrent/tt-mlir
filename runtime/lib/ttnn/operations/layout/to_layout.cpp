@@ -35,8 +35,8 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
   ::ttnn::Device *device = nullptr;
 
-  if (op->dtype() != ::tt::target::DataType::None) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+  if (op->dtype()) {
+    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
 
   if (op->memcfg()) {

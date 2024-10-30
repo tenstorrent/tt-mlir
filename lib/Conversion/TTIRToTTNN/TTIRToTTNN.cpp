@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -251,7 +252,8 @@ private:
 
     if (newOutputLayoutEnum == ttnn::Layout::Tile) {
       TileType tileType =
-          TileType::get(rewriter.getContext(), {32, 32}, outputDtype);
+          TileType::get(rewriter.getContext(),
+                        {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
       llvm::SmallVector<int64_t> newShardShape =
           tileType.getTiledShape(llvm::SmallVector<int64_t>(
               oldShardShape.begin(), oldShardShape.end()));

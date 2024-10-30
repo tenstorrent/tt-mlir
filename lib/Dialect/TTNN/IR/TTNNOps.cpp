@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -18,9 +19,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
 
 namespace mlir::tt::ttnn {
-
-constexpr int TTNN_TILE_HEIGHT = 32;
-constexpr int TTNN_TILE_WIDTH = 32;
 
 //===----------------------------------------------------------------------===//
 // Conv2dOp
@@ -549,8 +547,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
     }
     if (outputMemoryLayout == ::mlir::tt::TensorMemoryLayout::BlockSharded) {
       // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
-      if (shardShape[0] % TTNN_TILE_HEIGHT != 0 or
-          shardShape[1] % TTNN_TILE_WIDTH != 0) {
+      if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
         return emitOpError(
             "Shard shape must divide tile shape (32, 32) evenly");
       }

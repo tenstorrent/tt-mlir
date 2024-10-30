@@ -145,8 +145,9 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   return ::tt::target::ttnn::CreateToLayoutOp(
       *cache.fbb, input, layout,
       dtype.has_value()
-          ? ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value())
-          : ::tt::target::DataType::None,
+          ? ::flatbuffers::Optional<::tt::target::DataType>(
+                ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
+          : ::flatbuffers::nullopt,
       memoryConfig.has_value()
           ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
           : 0,
