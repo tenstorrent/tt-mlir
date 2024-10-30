@@ -237,6 +237,13 @@ def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
+def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
+    let summary = "Eltwise logarithm.";
+    let description = [{
+      Eltwise logarithm operation.
+    }];
+}
+
 def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{

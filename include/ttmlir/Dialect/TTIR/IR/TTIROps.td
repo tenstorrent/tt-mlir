@@ -274,6 +274,13 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     }];
 }
 
+def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
+    let summary = "Eltwise logarithm op.";
+    let description = [{
+      Eltwise logarithm operation. Calculates log(x) for all elements x in input tensor.
+    }];
+}
+
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise binary op.";
