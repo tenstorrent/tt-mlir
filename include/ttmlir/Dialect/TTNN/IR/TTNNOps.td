@@ -176,24 +176,24 @@ def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
-    let summary = "Eltwise sqrt.";
+def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil.";
     let description = [{
-      Eltwise sqrt operation.
+      Eltwise ceil operation.
     }];
 }
 
-def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
-    let summary = "Eltwise rsqrt.";
+def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
+    let summary = "Eltwise cosine.";
     let description = [{
-      Eltwise rsqrt operation.
+      Eltwise cosine operation.
     }];
 }
 
-def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate.";
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+    let summary = "Eltwise exponential.";
     let description = [{
-      Eltwise negate operation.
+      Eltwise exponential operation.
     }];
 }
 
@@ -201,6 +201,13 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate.";
+    let description = [{
+      Eltwise negate operation.
     }];
 }
 
@@ -218,17 +225,31 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
+    let summary = "Eltwise sine.";
+    let description = [{
+      Eltwise sine operation.
+    }];
+}
+
+def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise sqrt.";
+    let description = [{
+      Eltwise sqrt operation.
+    }];
+}
+
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise rsqrt.";
+    let description = [{
+      Eltwise rsqrt operation.
+    }];
+}
+
 def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
-    }];
-}
-
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
-    let summary = "Eltwise exponential.";
-    let description = [{
-      Eltwise exponential operation.
     }];
 }
 
