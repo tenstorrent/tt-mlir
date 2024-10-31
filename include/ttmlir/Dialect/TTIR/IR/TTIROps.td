@@ -800,6 +800,30 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+}
+
+def TTIR_GatherOp: TTIR_DPSOp<"gather"> {
+    let summary = "Gather operation.";
+    let description = [{
+      Gathers slices from operand tensor from offsets specified in start_indices and produces a result tensor.
+      From StableHLO Gather Op: https://openxla.org/stablehlo/spec#gather
+    }];
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$start_indices,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$offset_dims,
+                         DenseI64ArrayAttr:$collapsed_slice_dims,
+                         DenseI64ArrayAttr:$operand_batching_dims,
+                         DenseI64ArrayAttr:$start_indices_batching_dims,
+                         DenseI64ArrayAttr:$start_index_map,
+                         SI64Attr:$index_vector_dim,
+                         DenseI64ArrayAttr:$slice_sizes,
+                         BoolAttr:$indices_are_sorted,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+    let results = (outs AnyRankedTensor:$result);
+    let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
 }
