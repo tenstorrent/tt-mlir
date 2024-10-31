@@ -17,12 +17,12 @@ struct Env {
 #endif
   get(bool ignoreTileShape = true, bool emptyOpForceRowMajor = true,
       bool fullOpForceRowMajor = true, bool maxpool2dPreshard = true,
-      bool setMatmul1DProgramConfig = true)
+      bool setMatmul1DProgramConfig = true, bool swapBinaryOperands = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true);
+    return Env(true, true, true, true, true, true);
   }
 #endif
   // TODO(bug #272), determine correct layout by tile shape in the future
@@ -45,15 +45,21 @@ struct Env {
   // TODO(bug #891): ttnn::matmul doesn't chose correct program config.
   bool setMatmul1DProgramConfig;
 
+  // TODO(bug #1124): We're currently swapping the operands for binary ops
+  // in runtime if the lhs operand is smaller (and requires broadcast onto the
+  // rhs operand). We should add this check in the compiler.
+  bool swapBinaryOperands;
+
 private:
   constexpr Env(bool ignoreTileShape, bool emptyOpForceRowMajor,
                 bool fullOpForceRowMajor, bool maxpool2dPreshard,
-                bool setMatmul1DProgramConfig)
+                bool setMatmul1DProgramConfig, bool swapBinaryOperands)
       : ignoreTileShape(ignoreTileShape),
         emptyOpForceRowMajor(emptyOpForceRowMajor),
         fullOpForceRowMajor(fullOpForceRowMajor),
         maxpool2dPreshard(maxpool2dPreshard),
-        setMatmul1DProgramConfig(setMatmul1DProgramConfig) {}
+        setMatmul1DProgramConfig(setMatmul1DProgramConfig),
+        swapBinaryOperands(swapBinaryOperands) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -68,6 +74,8 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
      << "maxpool2dPreshard: " << env.maxpool2dPreshard << ",\n";
   os << "\t"
      << "setMatmul1DProgramConfig: " << env.setMatmul1DProgramConfig << "\n";
+  os << "\t"
+     << "swapBinaryOperands: " << env.swapBinaryOperands << "\n";
   os << "}";
   return os;
 }

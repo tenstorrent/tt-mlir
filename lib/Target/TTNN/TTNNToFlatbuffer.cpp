@@ -294,6 +294,9 @@ template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   ::tt::target::ttnn::EltwiseOpType type;
+  ::tt::target::ttnn::EltwiseOpParams paramsType =
+      ::tt::target::ttnn::EltwiseOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
   if constexpr (std::is_same_v<EltwiseOp, AbsOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Abs;
   } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
@@ -360,7 +363,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   return ::tt::target::ttnn::CreateEltwiseOpDirect(
       *cache.fbb, type, &ins,
       cache.at<::tt::target::TensorRef>(
-          getOperandThroughDPSOps(op.getOutputs().front())));
+          getOperandThroughDPSOps(op.getOutputs().front())),
+      paramsType, params);
 }
 
 template <typename ReductionOp>

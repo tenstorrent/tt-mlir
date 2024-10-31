@@ -88,10 +88,15 @@ enum EltwiseOpType: uint32 {
   Cos = 27
 }
 
+union EltwiseOpParams {
+
+}
+
 table EltwiseOp {
   type: EltwiseOpType;
   ins: [tt.target.TensorRef];
   out: tt.target.TensorRef;
+  params: EltwiseOpParams;
 }
 
 enum ReductionOpType: uint32 {
