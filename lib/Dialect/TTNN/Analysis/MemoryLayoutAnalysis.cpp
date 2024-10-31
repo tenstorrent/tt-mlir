@@ -68,7 +68,7 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     L1InterleavedPolicy l1InterleavedPolicy(
         op, l1ChainConfigs, filterL1InterleavedOnly(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
-    l1InterleavedPolicy.run();
+    l1InterleavedPolicy.run(analysisInput.overrideReshardEdges);
     break;
   }
   }

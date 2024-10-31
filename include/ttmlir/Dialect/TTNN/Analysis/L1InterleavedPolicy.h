@@ -7,17 +7,11 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
 
 namespace mlir::tt::ttnn {
 
-class L1InterleavedPolicy {
-private:
-  Operation *rootOp;
-  std::vector<L1ChainConfig> *l1ChainConfigs;
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
-  llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
-  unsigned usableL1CacheSize = 0;
-
+class L1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
   L1InterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
@@ -25,11 +19,10 @@ public:
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
-      : rootOp(rootOp), l1ChainConfigs(&l1ChainConfigs),
-        legalLayouts(legalLayouts), schedule(&schedule),
-        usableL1CacheSize(usableL1CacheSize) {}
+      : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalLayouts,
+                                   schedule, usableL1CacheSize) {}
 
-  void run();
+  void run(const std::unordered_set<Edge> &overrideReshardEdges) final;
 };
 
 } // namespace mlir::tt::ttnn

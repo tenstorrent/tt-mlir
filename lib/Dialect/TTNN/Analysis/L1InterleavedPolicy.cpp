@@ -5,11 +5,11 @@
 #include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Scheduler/Scheduler.h"
-#include <llvm/Support/raw_ostream.h>
 
 namespace mlir::tt::ttnn {
 
-void L1InterleavedPolicy::run() {
+void L1InterleavedPolicy::run(
+    const std::unordered_set<Edge> &overrideReshardEdges) {
   rootOp->walk([&](func::FuncOp func) {
     mlir::tt::scheduler::Scheduler scheduler(&func);
     llvm::SmallVector<mlir::Operation *> scheduleableOps;
