@@ -18,14 +18,16 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
 
   // default params for embedding op
   std::optional<int> padToken = std::nullopt;
-  ::tt::tt_metal::Layout layout = ::ttnn::ROW_MAJOR_LAYOUT;
+  ::tt::tt_metal::Layout layout = utils::isTilized(op->out())
+                                      ? ::ttnn::TILE_LAYOUT
+                                      : ::ttnn::ROW_MAJOR_LAYOUT;
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
-  ::ttnn::DataType outputDataType = utils::getDataType(op->output());
+  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::ttnn::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->output());
+      utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::embedding(input, weight, padToken, layout, embeddingsType,
                         outputDataType, outputMemoryConfig);
-  tensorPool.insert_or_assign(op->output()->global_id(), out);
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::embedding

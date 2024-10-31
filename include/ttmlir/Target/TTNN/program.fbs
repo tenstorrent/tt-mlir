@@ -119,7 +119,7 @@ table ReductionOp {
 table EmbeddingOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
-  output: tt.target.TensorRef;
+  out: tt.target.TensorRef;
 }
 
 table SoftmaxOp {

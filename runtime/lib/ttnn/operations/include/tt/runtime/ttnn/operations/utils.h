@@ -17,6 +17,8 @@ bool isOnHost(const ::ttnn::Tensor &tensor);
 
 bool isOnDevice(const ::ttnn::Tensor &tensor);
 
+bool isTilized(const ::tt::target::TensorRef *tensorRef);
+
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef);
 
 ::tt::target::MemorySpace

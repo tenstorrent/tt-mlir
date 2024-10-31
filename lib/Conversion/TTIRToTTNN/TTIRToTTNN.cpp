@@ -212,7 +212,7 @@ private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
-          isa<ttir::SliceOp>(user)) {
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user)) {
         return true;
       }
     }
@@ -317,7 +317,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight());
+        adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
 
     return success();
   }
