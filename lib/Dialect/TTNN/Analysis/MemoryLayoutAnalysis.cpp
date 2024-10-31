@@ -8,24 +8,6 @@
 
 namespace mlir::tt::ttnn {
 
-::llvm::StringRef
-stringifyMemoryLayoutAnalysisPolicyType(MemoryLayoutAnalysisPolicyType policy) {
-  switch (policy) {
-  case MemoryLayoutAnalysisPolicyType::DFSharding:
-    return "DFSharding";
-  case MemoryLayoutAnalysisPolicyType::L1Interleaved:
-    return "L1Interleaved";
-  }
-  return "";
-}
-
-MemoryLayoutAnalysisPolicyType
-symbolizeMemoryLayoutAnalysisPolicyType(::llvm::StringRef policy) {
-  return llvm::StringSwitch<MemoryLayoutAnalysisPolicyType>(policy)
-      .Case("DFSharding", MemoryLayoutAnalysisPolicyType::DFSharding)
-      .Case("L1Interleaved", MemoryLayoutAnalysisPolicyType::L1Interleaved);
-}
-
 bool MemoryLayoutAnalysis::applyOverrides() {
 
   // TODO(nobradovic):

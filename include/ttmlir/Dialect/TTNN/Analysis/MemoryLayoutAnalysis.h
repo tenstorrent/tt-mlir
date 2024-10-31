@@ -6,19 +6,12 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 
 namespace mlir::tt::ttnn {
-
-enum class MemoryLayoutAnalysisPolicyType { DFSharding, L1Interleaved };
-
-::llvm::StringRef
-stringifyMemoryLayoutAnalysisPolicyType(MemoryLayoutAnalysisPolicyType policy);
-
-MemoryLayoutAnalysisPolicyType
-symbolizeMemoryLayoutAnalysisPolicyType(::llvm::StringRef policy);
 
 struct MemoryLayoutAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
@@ -32,7 +25,8 @@ struct MemoryLayoutAnalysisInput {
       const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
           &legalLayouts,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges, MemoryLayoutAnalysisPolicyType policy)
+      const std::unordered_set<Edge> &overrideReshardEdges,
+      MemoryLayoutAnalysisPolicyType policy)
       : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
         overrideReshardEdges(overrideReshardEdges), policy(policy) {}
 

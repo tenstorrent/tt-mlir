@@ -32,7 +32,7 @@ void L1InterleavedPolicy::run() {
       if (legalLayouts.lookup(currentOp).size() > 0) {
         selectedOpLayout[currentOp] = legalLayouts.lookup(currentOp).front();
 
-        // Add currentOp to shard chain config.
+        // Add currentOp to l1 chain config.
         //
         OpL1MemSpec shardSpec;
         shardSpec.op = currentOp;
@@ -53,7 +53,7 @@ void L1InterleavedPolicy::run() {
     //
     (*schedule)[func] = scheduler.getSchedule();
 
-    // Resolve shard chain configs.
+    // Resolve l1 chain configs.
     //
     for (auto &l1ChainConfig : *l1ChainConfigs) {
       l1ChainConfig.build();

@@ -6,32 +6,10 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "mlir/Pass/PassOptions.h"
+#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
-#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 
 namespace mlir::tt::ttnn {
-
-struct MemoryLayoutAnalysisPolicyTypeParser
-    : public llvm::cl::parser<MemoryLayoutAnalysisPolicyType> {
-public:
-  MemoryLayoutAnalysisPolicyTypeParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<MemoryLayoutAnalysisPolicyType>(opt) {}
-
-  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             MemoryLayoutAnalysisPolicyType &value) {
-    MemoryLayoutAnalysisPolicyType policy =
-        symbolizeMemoryLayoutAnalysisPolicyType(arg);
-    value = policy;
-    return true;
-  }
-
-  static void print(llvm::raw_ostream &os,
-                    const MemoryLayoutAnalysisPolicyType &value) {
-    os << "memory-layout-analysis-policy="
-       << stringifyMemoryLayoutAnalysisPolicyType(value);
-    os << "\n";
-  }
-};
 
 // Options for the TTIR to TTNN backend pipeline.
 //
