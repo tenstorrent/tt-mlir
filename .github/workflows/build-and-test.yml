@@ -404,3 +404,69 @@ jobs:
       run: |
         source env/activate
         pytest -ssv runtime/tools/python/test/test_perf.py
+
+  build-and-test-explorer:
+    needs: build-image
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
+        ]
+
+    name: Build and test tt-explorer
+    runs-on: ${{ matrix.build.runs-on }}
+
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
+
+    steps:
+
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+        -B ${{ steps.strings.outputs.build-output-dir }} \
+        -DCMAKE_CXX_COMPILER=clang++-17 \
+        -DCMAKE_C_COMPILER=clang-17 \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
+        -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
+        -DTTMLIR_ENABLE_STABLEHLO=OFF \
+        -S ${{ steps.strings.outputs.work-dir }}
+
+    - name: Build tt-explorer
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
+
+    - name: Run tt-explorer tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest tools/explorer/test/run_tests.py
