@@ -72,6 +72,7 @@ table ArangeOp {
 }
 
 enum EltwiseOpType: uint32 {
+<<<<<<< HEAD
   Add,
   Multiply,
   Subtract,

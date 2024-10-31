@@ -300,7 +300,7 @@ def TTIR_LogitOp: TTIR_ElementwiseUnaryOp<"logit"> {
 }
 
 def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
-    let summary = "Eltwise logistic op.";
+    let summary = "Eltwise tan op.";
     let description = [{
       Eltwise tan operation.
     }];
@@ -375,8 +375,10 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
+    let summary = "Eltwise logarithm op.";
     let summary = "Eltwise log op.";
     let description = [{
+      Eltwise logarithm operation. Calculates log(x) for all elements x in input tensor.
       Eltwise log operation.
     }];
 }

@@ -124,22 +124,19 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sign: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sign);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sign);
+    break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Logistic: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
+  case ::tt::target::ttnn::EltwiseOpType::Logit: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Tan: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::tan);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::tan);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Tanh: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::tanh);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::Log: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::log);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::tanh);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
