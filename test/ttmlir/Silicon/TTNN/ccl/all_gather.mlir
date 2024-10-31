@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=4,1,1" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// UNSUPPORTED: true
+// XFAIL: true
 // REQUIRES: multi-chip
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>

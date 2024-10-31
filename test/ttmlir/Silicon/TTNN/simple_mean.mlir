@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// UNSUPPORTED: true
 #any_device = #tt.operand_constraint<dram|l1|tile|any_device|any_device_tile>
 module {
   func.func @forward(%arg0: tensor<512x1024xbf16>) -> tensor<512x32xbf16> {

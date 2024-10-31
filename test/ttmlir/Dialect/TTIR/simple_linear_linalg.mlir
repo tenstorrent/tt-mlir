@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
-// UNSUPPORTED: true
+// XFAIL: true
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #map1 = affine_map<(d0, d1) -> (d1, d0)>
 #map2 = affine_map<(d0, d1) -> (d1)>

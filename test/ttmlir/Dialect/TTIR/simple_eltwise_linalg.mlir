@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
-// UNSUPPORTED: true
+// XFAIL: true
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module attributes {torch.debug_module_name = "_lambda"} {
   ml_program.global private mutable @global_seed(dense<0> : tensor<i64>) : tensor<i64>

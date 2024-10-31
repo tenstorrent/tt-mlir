@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --convert-tosa-to-ttir %s | FileCheck %s
-// UNSUPPORTED: true
+// XFAIL: true
 module attributes {torch.debug_module_name = "GraphModule"} {
   func.func @forward(%arg0: tensor<128x64xf32>, %arg1: tensor<128xf32>, %arg2: tensor<32x64xf32>) -> (tensor<32x128xf32>, tensor<32x64xf32>) {
     %0 = "tosa.const"() <{value = dense<[1, 0]> : tensor<2xi32>}> : () -> tensor<2xi32>

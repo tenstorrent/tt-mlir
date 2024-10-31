@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttir-load-system-desc --ttir-layout --convert-ttir-to-ttnn %s | FileCheck %s
-// UNSUPPORTED: true
+// XFAIL: true
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
   func.func @forward(%arg0: tensor<1x32xf32>, %arg1: tensor<512x128xf32>) -> tensor<1x32x128xf32> {
