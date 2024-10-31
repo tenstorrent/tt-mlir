@@ -1855,7 +1855,8 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                ttmetal::TTIRToTTMetalDispatchRewriter,
                ttmetal::TTIRToTTMetalAllocRewriter,
                ttmetal::TTIRToTTMetalDeallocRewriter,
-               ttmetal::TTIRToTTMetalFillRewriter>(ctx);
+               ttmetal::TTIRToTTMetalFillRewriter,
+               ttmetal::TTIRToTTMetalMatmulRewriter>(ctx);
 }
 
 } // namespace mlir::tt

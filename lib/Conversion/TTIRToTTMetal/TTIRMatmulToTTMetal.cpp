@@ -54,7 +54,33 @@ public:
          outputTensor.getShape()[outputTensorRank - 2] % TILE_HEIGHT != 0)) {
       return failure();
     }
-    
+
+    llvm::errs() << "MatmulOp matched\n";
+
+    auto outputTensorLayout = mlir::cast<LayoutAttr>(outputTensor.getEncoding());
+    auto outputTensorGrid = outputTensorLayout.getGrid().getShape();
+
+    llvm::SmallVector<Attribute> coreRanges;
+    for (uint32_t i = 0; i < outputTensorGrid[0]; i++) {
+      for (uint32_t j = 0; j < outputTensorGrid[1]; j++) {
+        // auto grid = rewriter.getAttr<GridAttr>(llvm::ArrayRef<int64_t>{i, j},
+        //                                        llvm::ArrayRef<int64_t>{1, 1});
+        coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
+                                 llvm::ArrayRef<int64_t>{i, j},
+                                 llvm::ArrayRef<int64_t>{1, 1}));
+      }
+    }
+
+    SmallVector<Value> operands = {op.getA(), op.getB()};
+    SmallVector<Value> outputs = {op.getOutput()};
+    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+        op.getLoc(), op->getResults().getTypes(), operands, outputs,
+        rewriter.getArrayAttr(coreRanges),
+        rewriter.getArrayAttr({}), coreRanges.size());
+    // TODO(jdesousa): Generate kernel configs 
+    // TODO(jdesousa): Generate core ranges
+
+    rewriter.replaceOp(op, metalDispatch);
     return success();
   }
 };
