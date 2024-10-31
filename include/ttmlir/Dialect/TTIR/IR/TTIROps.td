@@ -716,7 +716,7 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
-def TTIR_MatmulOp : TTIR_DPSOp<"matmul", [TTIR_GenericRegionOpInterface]> {
+def TTIR_MatmulOp : TTIR_DPSOp<"matmul"/*, [TTIR_GenericRegionOpInterface]*/> {
     let summary = "Matrix multiply operation.";
     let description = [{
       Matrix multiply operation.
