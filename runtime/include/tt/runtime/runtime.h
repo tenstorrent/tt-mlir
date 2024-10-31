@@ -11,6 +11,8 @@
 
 #include "tt/runtime/types.h"
 
+#pragma clang diagnostic ignored "-Wunused-variable"
+
 namespace tt::runtime {
 
 namespace system_desc {

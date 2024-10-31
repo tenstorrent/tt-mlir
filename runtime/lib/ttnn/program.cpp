@@ -25,6 +25,9 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include <exception>
+#include <sstream>
+#include <stdexcept>
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
@@ -33,10 +36,22 @@ struct ProgramExecutor {
       : context(ProgramContext(liveTensors, meshDevice)) {}
 
   void execute(const ::tt::target::ttnn::Program *program) {
+    int idx = 0;
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
-      runOperation(op);
+
+      try {
+        runOperation(op);
+      } catch (const std::exception &ex) {
+        std::stringstream ss;
+        ss << "Failed on op " << std::to_string(idx) << "( "
+           << op->debug_info()->c_str() << " ) "
+           << " because of: " << ex.what();
+        throw std::runtime_error(ss.str());
+      }
+
+      ++idx;
     }
   }
 
@@ -87,6 +102,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }
+
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
     return operations::embedding::run(op->type_as_EmbeddingOp(), context);
   }

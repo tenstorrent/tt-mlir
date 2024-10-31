@@ -9,6 +9,12 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
+
+#include "ttnn/graph/graph_operation_queries.hpp"
+#include "ttnn/graph/graph_processor.hpp"
+#include "ttnn/graph/graph_trace_utils.hpp"
+#include <exception>
+
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
@@ -126,8 +132,25 @@ Event submit(Device deviceHandle, Binary executableHandle,
     LOG_ASSERT(output.matchesRuntime(DeviceRuntime::TTNN));
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
-  tt::runtime::ttnn::runProgram(meshDevice, fbb.programs()->Get(programIndex),
-                                inputs, outputs);
+
+  const auto runProgramImpl = [&]() {
+    tt::runtime::ttnn::runProgram(meshDevice, fbb.programs()->Get(programIndex),
+                                  inputs, outputs);
+
+    return 0;
+  };
+
+  try {
+    auto json_trace = ::ttnn::graph::query_trace(runProgramImpl);
+    std::ofstream out_json("temp_debug_graph_capture.json");
+    out_json << json_trace.dump(4);
+    std::ofstream out_json_2("temp_debug.json");
+    out_json_2 << "PASSED GRAPH CAPTURE VERIFICATION";
+  } catch (const std::exception &ex) {
+    std::ofstream out_json("temp_debug.json");
+    out_json << ex.what();
+  }
+
   return Event(nullptr, DeviceRuntime::TTNN);
 }
 

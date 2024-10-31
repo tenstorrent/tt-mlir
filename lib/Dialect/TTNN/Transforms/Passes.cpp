@@ -8,6 +8,12 @@
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
+#include <llvm/Support/raw_ostream.h>
+#include <system_error>
+
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -93,6 +99,27 @@ public:
         }
       });
     });
+    // std::string tmp_name = std::tmpnam(nullptr);
+    {
+      std::cout << "THIS IS MLIR OUTPUT:" << std::endl;
+      std::error_code ec;
+      auto fs = llvm::raw_fd_stream("temp_debug.mlir", ec);
+      module.print(fs);
+      std::cout << "THIS IS THE END OF MLIR OUTPUT" << std::endl;
+    }
+
+    {
+      std::cout << "EXECUTING FLAT BUFFER COMMAND" << std::endl;
+      system("./build/bin/ttmlir-translate --ttnn-to-flatbuffer "
+             "temp_debug.mlir -o temp_debug.ttnn");
+      std::cout << "FINISHED FLAT BUFFER DUMP" << std::endl;
+    }
+
+    {
+      std::cout << "RUNNING RUNTIME" << std::endl;
+      system("ttrt run temp_debug.ttnn");
+      std::cout << "FINISHED RUNNING RUNTIME" << std::endl;
+    }
   }
 };
 
