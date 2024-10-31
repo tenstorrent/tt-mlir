@@ -61,13 +61,27 @@ public:
     auto outputTensorGrid = outputTensorLayout.getGrid().getShape();
 
     llvm::SmallVector<Attribute> coreRanges;
+    // Push back core range for compute kernel (all compute cores share)
+    coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
+        llvm::ArrayRef<int64_t>{0, 0}, llvm::ArrayRef<int64_t>{outputTensorGrid[0], outputTensorGrid[1]}));
+    auto tensixAttr = rewriter.getAttr<ttkernel::TensixConfigAttr>(
+        ttkernel::MathFidelity::HiFi4, false, false);
+    SmallVector<Attribute> kernelConfigs = {tensixAttr};
+    // Push back core ranges for reader kernels (each core has two different reader kernels, push each core range twice)
     for (uint32_t i = 0; i < outputTensorGrid[0]; i++) {
       for (uint32_t j = 0; j < outputTensorGrid[1]; j++) {
-        // auto grid = rewriter.getAttr<GridAttr>(llvm::ArrayRef<int64_t>{i, j},
-        //                                        llvm::ArrayRef<int64_t>{1, 1});
         coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
                                  llvm::ArrayRef<int64_t>{i, j},
                                  llvm::ArrayRef<int64_t>{1, 1}));
+        coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
+            llvm::ArrayRef<int64_t>{i, j}, llvm::ArrayRef<int64_t>{1, 1}));
+        auto noc0Attr = rewriter.getAttr<ttkernel::NocConfigAttr>(
+            ttkernel::NocIndex::Noc0);
+        auto noc1Attr = rewriter.getAttr<ttkernel::NocConfigAttr>(
+            ttkernel::NocIndex::Noc1);
+
+        kernelConfigs.push_back(noc0Attr);
+        kernelConfigs.push_back(noc1Attr);
       }
     }
 
@@ -76,9 +90,8 @@ public:
     auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
         op.getLoc(), op->getResults().getTypes(), operands, outputs,
         rewriter.getArrayAttr(coreRanges),
-        rewriter.getArrayAttr({}), coreRanges.size());
+        rewriter.getArrayAttr(kernelConfigs), coreRanges.size());
     // TODO(jdesousa): Generate kernel configs 
-    // TODO(jdesousa): Generate core ranges
 
     rewriter.replaceOp(op, metalDispatch);
     return success();
