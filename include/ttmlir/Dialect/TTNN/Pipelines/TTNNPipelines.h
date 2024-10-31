@@ -31,17 +31,17 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Full Example: "op1=0,op2=0:1"
   //
-  // This will insert one TTIR_ToLayoutOps responsible for resharding the op1's
-  // first operand and two TTIR_ToLayoutOps responsible for resharding the op2's
-  // first and second operand.
+  // This will insert one memory reconfig op responsible for resharding the
+  // op1's first operand and two memory reconfig ops responsible for resharding
+  // the op2's first and second operand.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
   Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
       overrideInputLayout{
-          *this, "insert-reshard",
+          *this, "insert-memreconfig",
           llvm::cl::desc(
-              "Manually insert TTIR_ToLayoutOp for specific op's operand."),
+              "Manually insert memory reconfig op for specific op's operand."),
           llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
 
   // Option to override output layout for specific ops.

@@ -102,9 +102,9 @@ protected:
   ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
                        mlir::tt::InputLayoutOverrideParser>
       overrideInputLayout{
-          *this, "insert-reshard",
+          *this, "insert-memreconfig",
           ::llvm::cl::desc(
-              "Manually insert reshard for specific op's operand."),
+              "Manually insert memory reconfig op for specific op's operand."),
           ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
                        mlir::tt::OutputLayoutOverrideParser>

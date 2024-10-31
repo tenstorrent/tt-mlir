@@ -35,7 +35,7 @@ void DFShardingPolicy::run(
       //
       if (l1ChainConfigs->back().isEmpty()) {
         for (auto *op : scheduleableOps) {
-          if (isa<ttnn::ToLayoutOp>(op)) {
+          if (isa<ToLayoutOp>(op)) {
             currentOp = op;
             break;
           }
@@ -52,8 +52,7 @@ void DFShardingPolicy::run(
 
       // Skip starting sharding chain if currentOp is a memory management op.
       //
-      if (l1ChainConfigs->back().isEmpty() &&
-          isa<ttnn::ToLayoutOp>(currentOp)) {
+      if (l1ChainConfigs->back().isEmpty() && isa<ToLayoutOp>(currentOp)) {
         currentOp = nullptr;
         continue;
       }

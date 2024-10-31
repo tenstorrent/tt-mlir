@@ -115,6 +115,12 @@ public:
           return;
         }
 
+        // Skip empty ops. Handled via DPS op output operand update.
+        //
+        if (isa<EmptyOp>(op)) {
+          return;
+        }
+
         if (!isa<RankedTensorType>(op->getResult(0).getType())) {
           return;
         }
@@ -149,7 +155,7 @@ public:
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+            emptyOp.setMemoryConfigAttr(MemoryConfigAttr::get(
                 op->getContext(),
                 TensorMemoryLayoutAttr::get(op->getContext(),
                                             tensorMemoryLayout),
@@ -158,29 +164,6 @@ public:
                     op->getContext(),
                     ShapeAttr::get(op->getContext(),
                                    ttLayoutAttr.getMemref().getShape()))));
-          }
-          // TODO (nobradovic): Other memory management ops after lowering to
-          // TTNN will need to be special handled as well. Depends on ttnn
-          // layout attr refactor and lowering.
-          //
-          else if (isa<ttnn::ToLayoutOp>(op)) {
-            BufferType bufferType =
-                utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-            TensorMemoryLayout tensorMemoryLayout =
-                utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
-            // Update the device op with the new tensor type.
-            //
-            ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-            toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-                op->getContext(),
-                ttnn::TensorMemoryLayoutAttr::get(op->getContext(),
-                                                  tensorMemoryLayout),
-                ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
-                ttnn::ShardSpecAttr::get(
-                    op->getContext(),
-                    ttnn::ShapeAttr::get(
-                        op->getContext(),
-                        ttLayoutAttr.getMemref().getShape()))));
           }
         }
       });
@@ -233,6 +216,19 @@ public:
     assert(overrideInputLayout.size() == overrideReshardEdges.size());
   }
 
+  mlir::TypedValue<mlir::tt::DeviceType>
+  getDeviceOpValue(Operation *contextOp) {
+    Block *block = contextOp->getBlock();
+    mlir::TypedValue<mlir::tt::DeviceType> deviceOpResult;
+    for (auto &op : block->getOperations()) {
+      if (GetDeviceOp deviceOp = dyn_cast<GetDeviceOp>(op)) {
+        deviceOpResult = deviceOp.getResult();
+        break;
+      }
+    }
+    return deviceOpResult;
+  }
+
   void
   processMemReconfigEdges(const std::unordered_set<Edge> &memReconfigEdges) {
     // Insert memory reconfig ops here based on results of memory layout
@@ -242,86 +238,75 @@ public:
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
+      tt::LayoutAttr consumerOpOutputLayout = mlir::cast<tt::LayoutAttr>(
+          mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
+              .getEncoding());
+
+      RankedTensorType producerOpTensorType =
+          mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+      llvm::ArrayRef<int64_t> producerOpTensorShape =
+          producerOpTensorType.getShape();
+      tt::LayoutAttr producerOpLayout =
+          mlir::cast<tt::LayoutAttr>(producerOpTensorType.getEncoding());
+
+      // TODO(nobradovic): Match memory space and layout of consumer op.
+      // This actually needs to be properly resolved based on op type, output
+      // layout and other inputs.
+      //
+      RankedTensorType newTensorType = RankedTensorType::get(
+          producerOpTensorShape, producerOpTensorType.getElementType(),
+          producerOpLayout
+              .withElementType(consumerOp->getContext(),
+                               consumerOpOutputLayout.getElementType())
+              .withMemorySpace(consumerOp->getContext(),
+                               consumerOpOutputLayout.getMemorySpace())
+              .withMemoryLayout(consumerOp->getContext(),
+                                consumerOpOutputLayout.getMemLayout())
+              .withGrid(consumerOp->getContext(), producerOpTensorType,
+                        consumerOpOutputLayout.getGrid()));
+
+      BufferType outputBufferType =
+          utils::toTTNNBufferType(consumerOpOutputLayout.getMemorySpace());
+      TensorMemoryLayout outputTensorMemoryLayout =
+          utils::toTTNNTensorMemoryLayout(
+              consumerOpOutputLayout.getMemLayout());
+      MemRefType outputMemref = consumerOpOutputLayout.getMemref();
+
+      MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
+          consumerOp->getContext(),
+          TensorMemoryLayoutAttr::get(consumerOp->getContext(),
+                                      outputTensorMemoryLayout),
+          BufferTypeAttr::get(consumerOp->getContext(), outputBufferType),
+          ShardSpecAttr::get(consumerOp->getContext(),
+                             ShapeAttr::get(consumerOp->getContext(),
+                                            outputMemref.getShape())));
+
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
       // toLayoutOp, insert a toLayoutOp in between producerOp
       // and consumerOp.
       //
-      if (isa<ttnn::ToLayoutOp>(producerOp)) {
-        ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(producerOp);
-        tt::LayoutAttr consumerOpOutputLayout = mlir::cast<tt::LayoutAttr>(
-            mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
-                .getEncoding());
-
-        RankedTensorType toLayoutOpTensorType =
-            mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
-        llvm::ArrayRef<int64_t> toLayoutOpTensorShape =
-            toLayoutOpTensorType.getShape();
-        tt::LayoutAttr toLayoutOpLayout =
-            mlir::cast<tt::LayoutAttr>(toLayoutOpTensorType.getEncoding());
-
-        // TODO(nobradovic): Match memory space and layout of consumer op. This
-        // actually needs to be properly resolved based on op type, output
-        // layout and other inputs.
-        //
-        RankedTensorType newTensorType = RankedTensorType::get(
-            toLayoutOpTensorShape, toLayoutOpTensorType.getElementType(),
-            toLayoutOpLayout
-                .withElementType(toLayoutOp->getContext(),
-                                 consumerOpOutputLayout.getElementType())
-                .withMemorySpace(toLayoutOp.getContext(),
-                                 consumerOpOutputLayout.getMemorySpace())
-                .withMemoryLayout(toLayoutOp.getContext(),
-                                  consumerOpOutputLayout.getMemLayout())
-                .withGrid(toLayoutOp.getContext(), toLayoutOpTensorType,
-                          consumerOpOutputLayout.getGrid()));
-
+      if (isa<ToLayoutOp>(producerOp)) {
+        ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
+        toLayoutOp.setMemoryConfigAttr(outputMemConfigAttr);
         toLayoutOp.getResult().setType(newTensorType);
+      } else {
+        OpBuilder builder(consumerOp);
+
+        DataTypeAttr outputDataType =
+            DataTypeAttr::get(consumerOp->getContext(),
+                              utils::getDataTypeFromMemRef(outputMemref));
+        Layout outputLayoutEnum = utils::getLayoutFromMemRef(outputMemref);
+        LayoutAttr outputLayout =
+            LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
+        Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
+            consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
+            outputLayout, outputDataType, outputMemConfigAttr,
+            getDeviceOpValue(consumerOp));
+
+        consumerOp->setOperand(edge.operandIndex,
+                               memoryReconfigOp->getResult(0));
       }
-      // TODO (nobradovic): Memory layout reconfig needs to be reimplemented for
-      // TTNN dialect.
-      //   else {
-      //     tt::LayoutAttr consumerOpOutputLayout = mlir::cast<tt::LayoutAttr>(
-      //         mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
-      //             .getEncoding());
-
-      //     RankedTensorType producerOpTensorType =
-      //         mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
-      //     llvm::ArrayRef<int64_t> producerOpTensorShape =
-      //         producerOpTensorType.getShape();
-      //     tt::LayoutAttr producerOpLayout =
-      //         mlir::cast<tt::LayoutAttr>(producerOpTensorType.getEncoding());
-
-      //     // TODO(nobradovic): Match memory space and layout of consumer op.
-      //     This
-      //     // actually needs to be properly resolved based on op type, output
-      //     // layout and other inputs.
-      //     //
-      //     RankedTensorType newTensorType = RankedTensorType::get(
-      //         producerOpTensorShape, producerOpTensorType.getElementType(),
-      //         producerOpLayout
-      //             .withElementType(consumerOp->getContext(),
-      //                              consumerOpOutputLayout.getElementType())
-      //             .withMemorySpace(consumerOp->getContext(),
-      //                              consumerOpOutputLayout.getMemorySpace())
-      //             .withMemoryLayout(consumerOp->getContext(),
-      //                               consumerOpOutputLayout.getMemLayout())
-      //             .withGrid(consumerOp->getContext(), producerOpTensorType,
-      //                       consumerOpOutputLayout.getGrid()));
-
-      // OpBuilder builder(consumerOp);
-
-      // mlir::tensor::EmptyOp emptyOp = builder.create<tensor::EmptyOp>(
-      //     consumerOp->getLoc(), producerOpTensorShape,
-      //     producerOpTensorType.getElementType(),
-      //     mlir::cast<LayoutAttr>(newTensorType.getEncoding()));
-
-      // Operation *toLayoutOp = builder.create<ttir::ToLayoutOp>(
-      //     consumerOp->getLoc(), newTensorType, producerOp->getResult(0),
-      //     emptyOp);
-
-      // consumerOp->setOperand(edge.operandIndex, toLayoutOp->getResult(0));
-      //   }
     }
   }
 };
