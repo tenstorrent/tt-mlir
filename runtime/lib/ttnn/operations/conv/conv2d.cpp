@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
@@ -26,6 +27,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
+  ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       std::get<0>(::ttnn::operations::conv::conv2d::conv2d<::ttnn::Device>(
           input, weight, &device, op->in_channels(), op->out_channels(),
@@ -34,7 +36,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
           {op->stride_height(), op->stride_width()},
           {op->padding_height(), op->padding_width()},
           {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
-          config));
+          config, outMemConfig));
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::conv

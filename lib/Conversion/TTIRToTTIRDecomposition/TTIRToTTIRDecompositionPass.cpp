@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -35,8 +36,18 @@ struct TTIRToTTIRDecompositionPass
   void runOnOperation() final {
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
+    target.addLegalDialect<mlir::func::FuncDialect>(); // we wish to keep
+                                                       // func.func and
+                                                       // func.call as legal ops
+    target.addLegalDialect<BuiltinDialect>(); // This contains the "module" op
+                                              // which is necesarry
 
+    target.addLegalOp<tensor::EmptyOp>(); // DPS operands are create with
+                                          // tensor::EmptyOp
+
+    // These are the ops we intend to remove entirely with this pass
     target.addIllegalOp<ttir::IndexOp>();
+    target.addIllegalOp<ttir::ConvolutionOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

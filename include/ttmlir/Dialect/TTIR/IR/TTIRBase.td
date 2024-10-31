@@ -21,7 +21,7 @@ def TTIR_Dialect : Dialect {
         or dialects that are actually supported by a consuming backend.
     }];
     let cppNamespace = "::mlir::tt::ttir";
-
+    let useDefaultAttributePrinterParser = 1;
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
       "::mlir::func::FuncDialect",
