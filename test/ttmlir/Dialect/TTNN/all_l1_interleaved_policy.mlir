@@ -17,30 +17,30 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
     // CHECK: #[[LAYOUT_6:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x12xbf16, #l1_>, interleaved>
     // CHECK: #[[LAYOUT_7:.*]] = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x4xbf16, #l1_>, interleaved>
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
-    %1 = "ttnn.composite_to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<64x128xbf16, #layout>, !tt.device<#device>) -> tensor<64x128xbf16, #layout5>
-    %2 = "ttnn.composite_to_layout"(%arg1, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<128x96xbf16, #layout1>, !tt.device<#device>) -> tensor<128x96xbf16, #layout5>
+    %1 = "ttnn.to_layout"(%arg0, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<64x128xbf16, #layout>, !tt.device<#device>) -> tensor<64x128xbf16, #layout5>
+    %2 = "ttnn.to_layout"(%arg1, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<128x96xbf16, #layout1>, !tt.device<#device>) -> tensor<128x96xbf16, #layout5>
     %3 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x96>>>, shape = #ttnn.shape<64x96>}> : (!tt.device<#device>) -> tensor<64x96xbf16, #layout6>
     // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<64x96xbf16, #[[LAYOUT_6]]>
     %4 = "ttnn.matmul"(%1, %2, %3) : (tensor<64x128xbf16, #layout5>, tensor<128x96xbf16, #layout5>, tensor<64x96xbf16, #layout6>) -> tensor<64x96xbf16, #layout6>
-    %5 = "ttnn.composite_to_layout"(%arg2, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<64x96xbf16, #layout2>, !tt.device<#device>) -> tensor<64x96xbf16, #layout5>
+    %5 = "ttnn.to_layout"(%arg2, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<64x96xbf16, #layout2>, !tt.device<#device>) -> tensor<64x96xbf16, #layout5>
     %6 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x96>>>, shape = #ttnn.shape<64x96>}> : (!tt.device<#device>) -> tensor<64x96xbf16, #layout6>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<64x96xbf16, #[[LAYOUT_6]]>
     %7 = "ttnn.add"(%4, %5, %6) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x96xbf16, #layout6>, tensor<64x96xbf16, #layout5>, tensor<64x96xbf16, #layout6>) -> tensor<64x96xbf16, #layout6>
     %8 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x96>>>, shape = #ttnn.shape<64x96>}> : (!tt.device<#device>) -> tensor<64x96xbf16, #layout6>
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x96xbf16, #[[LAYOUT_6]]>
     %9 = "ttnn.relu"(%7, %8) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x96xbf16, #layout6>, tensor<64x96xbf16, #layout6>) -> tensor<64x96xbf16, #layout6>
-    %10 = "ttnn.composite_to_layout"(%arg3, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<96x32xbf16, #layout3>, !tt.device<#device>) -> tensor<96x32xbf16, #layout5>
+    %10 = "ttnn.to_layout"(%arg3, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<96x32xbf16, #layout3>, !tt.device<#device>) -> tensor<96x32xbf16, #layout5>
     %11 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x32>>>, shape = #ttnn.shape<64x32>}> : (!tt.device<#device>) -> tensor<64x32xbf16, #layout7>
     // CHECK: %{{.*}} = "ttnn.matmul"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_7]]>
     %12 = "ttnn.matmul"(%9, %10, %11) : (tensor<64x96xbf16, #layout6>, tensor<96x32xbf16, #layout5>, tensor<64x32xbf16, #layout7>) -> tensor<64x32xbf16, #layout7>
-    %13 = "ttnn.composite_to_layout"(%arg4, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<64x32xbf16, #layout4>, !tt.device<#device>) -> tensor<64x32xbf16, #layout5>
+    %13 = "ttnn.to_layout"(%arg4, %0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<1x1>>>}> : (tensor<64x32xbf16, #layout4>, !tt.device<#device>) -> tensor<64x32xbf16, #layout5>
     %14 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x32>>>, shape = #ttnn.shape<64x32>}> : (!tt.device<#device>) -> tensor<64x32xbf16, #layout7>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_7]]>
     %15 = "ttnn.add"(%12, %13, %14) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x32xbf16, #layout7>, tensor<64x32xbf16, #layout5>, tensor<64x32xbf16, #layout7>) -> tensor<64x32xbf16, #layout7>
     %16 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, <dram>, <<64x32>>>, shape = #ttnn.shape<64x32>}> : (!tt.device<#device>) -> tensor<64x32xbf16, #layout7>
     // CHECK: %{{.*}} = "ttnn.relu"{{.*}} -> tensor<64x32xbf16, #[[LAYOUT_7]]>
     %17 = "ttnn.relu"(%15, %16) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x32xbf16, #layout7>, tensor<64x32xbf16, #layout7>) -> tensor<64x32xbf16, #layout7>
-    %18 = "ttnn.composite_to_layout"(%17) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<none>, <system_memory>, <<64x32>>>}> : (tensor<64x32xbf16, #layout7>) -> tensor<64x32xbf16, #layout4>
+    %18 = "ttnn.to_layout"(%17) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<none>, <system_memory>, <<64x32>>>}> : (tensor<64x32xbf16, #layout7>) -> tensor<64x32xbf16, #layout4>
     return %18 : tensor<64x32xbf16, #layout4>
   }
 }
