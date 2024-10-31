@@ -14,10 +14,10 @@ def TTNNDeallocate: Pass<"ttnn-deallocate", "::mlir::ModuleOp"> {
   }];
 }
 
-def TTNNDecomposeCompositeLayouts: Pass<"ttnn-decompose-composite-layouts", "::mlir::ModuleOp"> {
-  let summary = "Decompose composite layout ops to according memory ops.";
+def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
+  let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{
-    This pass decomposes composite layouts to memory ops (e.g. toDevice, toMemoryConfig etc.).
+    This pass decomposes ToLayoutOps to memory ops (e.g. toDevice, toMemoryConfig etc.).
   }];
 }
 

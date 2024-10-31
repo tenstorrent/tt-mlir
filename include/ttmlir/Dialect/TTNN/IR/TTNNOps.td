@@ -27,22 +27,6 @@ def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let results = (outs TT_Device:$device);
 }
 
-def TTNN_CompositeToLayoutOp : TTNN_Op<"composite_to_layout"> {
-  let summary = "Composite toLayout op.";
-  let description = [{
-      This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
-      to perform optimizations, and later broken down into specific memory/layout operations (toDevice, toMemoryConfig, toLayout etc.).
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       TTNN_LayoutAttr:$layout,
-                       TT_DataTypeAttr:$dtype,
-                       TTNN_MemoryConfigAttr:$memory_config,
-                       Optional<TT_Device>:$device);
-
-  let results = (outs AnyRankedTensor:$result);
-}
-
 def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let summary = "ToMemoryConfig op.";
     let description = [{
@@ -65,10 +49,10 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let summary = "ToLayout op.";
     let description = [{
-      This op converts the layout of the input tensor based on the given layout.
-      It handles:
-        - ROW_MAJOR to TILE
-        - TILE to ROW_MAJOR
+      This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
+      to perform optimizations, and later broken down into specific memory/layout operations (toDevice, toMemoryConfig etc.).
+      Currently in the TTNN backend, we use this op solely for tilize/untilize, therefore marking all other attrs as optional.
+      Once ttnn::to_layout supports other attrs, we can remove the optional tag.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -176,24 +160,24 @@ def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
-    let summary = "Eltwise sqrt.";
+def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil.";
     let description = [{
-      Eltwise sqrt operation.
+      Eltwise ceil operation.
     }];
 }
 
-def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
-    let summary = "Eltwise rsqrt.";
+def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
+    let summary = "Eltwise cosine.";
     let description = [{
-      Eltwise rsqrt operation.
+      Eltwise cosine operation.
     }];
 }
 
-def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate.";
+def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
+    let summary = "Eltwise exponential.";
     let description = [{
-      Eltwise negate operation.
+      Eltwise exponential operation.
     }];
 }
 
@@ -201,6 +185,13 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate.";
+    let description = [{
+      Eltwise negate operation.
     }];
 }
 
@@ -218,17 +209,31 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
+    let summary = "Eltwise sine.";
+    let description = [{
+      Eltwise sine operation.
+    }];
+}
+
+def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise sqrt.";
+    let description = [{
+      Eltwise sqrt operation.
+    }];
+}
+
+def TTNN_RsqrtOp : TTNN_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise rsqrt.";
+    let description = [{
+      Eltwise rsqrt operation.
+    }];
+}
+
 def TTNN_SigmoidOp : TTNN_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
-    }];
-}
-
-def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
-    let summary = "Eltwise exponential.";
-    let description = [{
-      Eltwise exponential operation.
     }];
 }
 

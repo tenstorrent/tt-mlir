@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -199,7 +200,7 @@ public:
             op.getContext(), ttnn::ShapeAttr::get(rewriter.getContext(),
                                                   outputMemref.getShape())));
 
-    rewriter.replaceOpWithNewOp<ttnn::CompositeToLayoutOp>(
+    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
         outputLayout, outputDataType, outputMemConfigAttr,
         isOutputOnHost ? nullptr : getOrInsertDevice(rewriter, op));
@@ -210,7 +211,8 @@ public:
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user)) {
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
+          isa<ttir::SliceOp>(user)) {
         return true;
       }
     }
@@ -232,7 +234,7 @@ private:
 
     if (newOutputLayoutEnum == ttnn::Layout::RowMajor) {
       // Set shard shape to match convention of row major layout
-      auto tileType = mlir::cast<TileType>(oldOutput.getElementType());
+      auto tileType = mlir::cast<TileType>(oldOutputMemref.getElementType());
       llvm::SmallVector<int64_t> newShardShape(oldShardShape.begin(),
                                                oldShardShape.end());
       newShardShape[shardShapeSize - 2] =
@@ -251,7 +253,8 @@ private:
 
     if (newOutputLayoutEnum == ttnn::Layout::Tile) {
       TileType tileType =
-          TileType::get(rewriter.getContext(), {32, 32}, outputDtype);
+          TileType::get(rewriter.getContext(),
+                        {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
       llvm::SmallVector<int64_t> newShardShape =
           tileType.getTiledShape(llvm::SmallVector<int64_t>(
               oldShardShape.begin(), oldShardShape.end()));
@@ -829,6 +832,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
            ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
+           ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
+           ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
+           ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,

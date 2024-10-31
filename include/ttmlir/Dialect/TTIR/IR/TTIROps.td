@@ -196,32 +196,17 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-
-def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
-    let summary = "Eltwise cast op.";
+def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil op.";
     let description = [{
-      Eltwise cast operation.
+      Eltwise ceil operation.
     }];
 }
 
-def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
-    let summary = "Eltwise square root.";
+def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
+    let summary = "Eltwise cosine op.";
     let description = [{
-      Eltwise square root operation.
-    }];
-}
-
-def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
-    let summary = "Eltwise reciprocal square root.";
-    let description = [{
-      Eltwise reciprocal square root operation.
-    }];
-}
-
-def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate op.";
-    let description = [{
-      Eltwise negate operation.
+      Eltwise cosine operation.
     }];
 }
 
@@ -229,6 +214,13 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate op.";
+    let description = [{
+      Eltwise negate operation.
     }];
 }
 
@@ -246,10 +238,38 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise reciprocal square root.";
+    let description = [{
+      Eltwise reciprocal square root operation.
+    }];
+}
+
 def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
+    let summary = "Eltwise sine.";
+    let description = [{
+      Eltwise sine operation.
+    }];
+}
+
+def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise square root.";
+    let description = [{
+      Eltwise square root operation.
+    }];
+}
+
+def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
+    let summary = "Eltwise cast op.";
+    let description = [{
+      Eltwise cast operation.
     }];
 }
 
@@ -633,8 +653,9 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
-      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
-      indices for each dimension.
+      Extract a sub-tensor (slice) from the input tensor across one or more dimensions.
+      The `begins`, `ends`, and `step` attributes specify the start, stop, and step indices
+      for each dimension of the tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -642,6 +663,31 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_IndexOp: TTIR_DPSOp<"index"> {
+    let summary = "Index op.";
+    let description = [{
+      Extract a sub-tensor (slice) from the input tensor along a specified dimension.
+      The `begin`, `end`, and `step` attributes define the start, stop, and step indices for the
+      selected dimension (`dim`) of the tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32Attr:$dim,
+                         I32Attr:$begin,
+                         I32Attr:$end,
+                         I32Attr:$step,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
