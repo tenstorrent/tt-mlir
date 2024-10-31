@@ -160,6 +160,13 @@ def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
+def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil.";
+    let description = [{
+      Eltwise ceil operation.
+    }];
+}
+
 def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
     let summary = "Eltwise sign operation.";
     let description = [{

@@ -204,6 +204,13 @@ def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
     }];
 }
 
+def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
+    let summary = "Eltwise cosine op.";
+    let description = [{
+      Eltwise cosine operation.
+    }];
+}
+
 def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
     let summary = "Eltwise sign operation.";
     let description = [{
