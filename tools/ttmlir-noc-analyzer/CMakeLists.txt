@@ -6,7 +6,8 @@ set(LIBS ${dialect_libs} ${conversion_libs} MLIROptLib MLIRTargetCpp TTMLIRStati
 set(SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ttmlir-noc-analyzer.cpp ${CMAKE_CURRENT_SOURCE_DIR}/noc-analytical-model.cpp)
 set(HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/noc-analytical-model.hpp)
 
-add_executable(ttmlir-noc-analyzer ${HEADERS} ${SOURCES})
+add_llvm_executable(ttmlir-noc-analyzer ${HEADERS} ${SOURCES})
+#add_executable(ttmlir-noc-analyzer ${HEADERS} ${SOURCES})
 
 llvm_update_compile_flags(ttmlir-noc-analyzer)
 target_link_libraries(ttmlir-noc-analyzer PRIVATE ${LIBS})

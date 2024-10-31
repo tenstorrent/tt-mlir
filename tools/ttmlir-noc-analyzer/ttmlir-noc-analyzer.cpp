@@ -6,11 +6,11 @@
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 #include "llvm/Support/SourceMgr.h"
+#include <fstream>
 #include <iostream>
+#include <jsoncpp/json/json.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/IR/BuiltinOps.h>
-#include <jsoncpp/json/json.h>
-#include <fstream>
 
 namespace analyzer {
 mlir::LogicalResult load(const std::string &filename,
@@ -73,10 +73,10 @@ struct NocTx {
     os << "Issue Duration: " << tx.total_issue_latency.duration << std::endl;
 
     os << "Round Trip Start: " << tx.round_trip_latency.start_cycle
-        << std::endl;
+       << std::endl;
     os << "Round Trip End: " << tx.round_trip_latency.end_cycle << std::endl;
     os << "Round Trip Duration: " << tx.round_trip_latency.duration
-        << std::endl;
+       << std::endl;
 
     os << "Wait Start: " << tx.wait.start_cycle << std::endl;
     os << "Wait End: " << tx.wait.end_cycle << std::endl;
@@ -92,7 +92,8 @@ struct NocTx {
   }
 };
 
-std::vector<CoreCoord> core_range_to_coords(mlir::tt::ttmetal::CoreRangeAttr core_range) {
+std::vector<CoreCoord>
+core_range_to_coords(mlir::tt::ttmetal::CoreRangeAttr core_range) {
   std::vector<CoreCoord> cores;
 
   int64_t x = core_range.getOffset()[0];
@@ -100,7 +101,7 @@ std::vector<CoreCoord> core_range_to_coords(mlir::tt::ttmetal::CoreRangeAttr cor
 
   for (int i = 0; i < core_range.getSize()[0]; i++) {
     for (int j = 0; j < core_range.getSize()[1]; j++) {
-      cores.push_back(CoreCoord {x+i, y+j});
+      cores.push_back(CoreCoord{x + i, y + j});
     }
   }
 
@@ -135,7 +136,7 @@ void analyze_operation(mlir::Operation *op) {
     for (mlir::Region &region : op->getRegions()) {
       for (mlir::Block &block : region.getBlocks()) {
         std::vector<NocTx> range_read_txs;
-        std::vector<NocTx> range_write_txs; 
+        std::vector<NocTx> range_write_txs;
         for (mlir::Operation &inner_op : block.getOperations()) {
           if (llvm::isa<mlir::tt::ttkernel::NocAsyncReadOp>(inner_op) ||
               llvm::isa<mlir::tt::ttkernel::NocAsyncWriteOp>(inner_op)) {
@@ -143,9 +144,12 @@ void analyze_operation(mlir::Operation *op) {
             auto constOp = mlir::dyn_cast<mlir::arith::ConstantOp>(
                 operand.getDefiningOp());
             auto constAttr = constOp.getValue();
-            auto buffer_size = mlir::dyn_cast<mlir::IntegerAttr>(constAttr).getInt();
+            auto buffer_size =
+                mlir::dyn_cast<mlir::IntegerAttr>(constAttr).getInt();
             auto &queue_ref =
-                llvm::isa<mlir::tt::ttkernel::NocAsyncReadOp>(inner_op) ? range_read_txs : range_write_txs;
+                llvm::isa<mlir::tt::ttkernel::NocAsyncReadOp>(inner_op)
+                    ? range_read_txs
+                    : range_write_txs;
             NocTx tx = {};
             tx.buffer_size = buffer_size;
             queue_ref.push_back(tx);
@@ -155,20 +159,20 @@ void analyze_operation(mlir::Operation *op) {
             mlir::dyn_cast<mlir::tt::ttmetal::CoreRangeAttr>(
                 core_ranges[region_num]));
         for (CoreCoord &core : cores) {
-            if (!read_txs.count(core)) {
-              read_txs[core] = std::vector<NocTx>();
-            }
-            read_txs.at(core).insert(read_txs.at(core).end(),
-                                     range_read_txs.begin(),
-                                     range_read_txs.end());
+          if (!read_txs.count(core)) {
+            read_txs[core] = std::vector<NocTx>();
+          }
+          read_txs.at(core).insert(read_txs.at(core).end(),
+                                   range_read_txs.begin(),
+                                   range_read_txs.end());
 
-            if (!write_txs.count(core)) {
-              write_txs[core] = std::vector<NocTx>();
-            }
+          if (!write_txs.count(core)) {
+            write_txs[core] = std::vector<NocTx>();
+          }
 
-            write_txs.at(core).insert(write_txs.at(core).end(),
-                                      range_write_txs.begin(),
-                                      range_write_txs.end());
+          write_txs.at(core).insert(write_txs.at(core).end(),
+                                    range_write_txs.begin(),
+                                    range_write_txs.end());
         }
       }
       region_num++;
@@ -178,14 +182,14 @@ void analyze_operation(mlir::Operation *op) {
 
 void assign_step_durations(std::vector<NocTx> &txs, int read) {
   for (NocTx &tx : txs) {
-    auto analysis =
-        read
-            ? analyzer::model::get_read_latency(analyzer::model::noc_params, tx.buffer_size)
-            : analyzer::model::get_write_latency(analyzer::model::noc_params,tx.buffer_size);
+    auto analysis = read ? analyzer::model::get_read_latency(
+                               analyzer::model::noc_params, tx.buffer_size)
+                         : analyzer::model::get_write_latency(
+                               analyzer::model::noc_params, tx.buffer_size);
 
     tx.total_issue_latency.duration = std::get<0>(analysis);
     tx.round_trip_latency.duration = std::get<1>(analysis);
-    tx.flit_latency.duration = std::get<2>(analysis);    
+    tx.flit_latency.duration = std::get<2>(analysis);
   }
 }
 
@@ -197,24 +201,30 @@ void timeline_read_txs(std::vector<NocTx> &txs) {
       tx.total_issue_latency.end_cycle = tx.total_issue_latency.duration;
 
       tx.round_trip_latency.start_cycle = tx.total_issue_latency.end_cycle;
-      tx.round_trip_latency.end_cycle = tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
+      tx.round_trip_latency.end_cycle =
+          tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
 
       tx.wait.start_cycle = tx.round_trip_latency.end_cycle;
       tx.wait.end_cycle = tx.wait.start_cycle;
       tx.wait.duration = 0;
-      
+
       tx.flit_latency.start_cycle = tx.round_trip_latency.end_cycle;
-      tx.flit_latency.end_cycle = tx.flit_latency.start_cycle + tx.flit_latency.duration;
+      tx.flit_latency.end_cycle =
+          tx.flit_latency.start_cycle + tx.flit_latency.duration;
     } else {
       NocTx &prev_tx = txs.at(i - 1);
-      tx.total_issue_latency.start_cycle = prev_tx.total_issue_latency.end_cycle;
-      tx.total_issue_latency.end_cycle = tx.total_issue_latency.start_cycle + tx.total_issue_latency.duration;
+      tx.total_issue_latency.start_cycle =
+          prev_tx.total_issue_latency.end_cycle;
+      tx.total_issue_latency.end_cycle =
+          tx.total_issue_latency.start_cycle + tx.total_issue_latency.duration;
 
       tx.round_trip_latency.start_cycle = tx.total_issue_latency.end_cycle;
-      tx.round_trip_latency.end_cycle = tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
+      tx.round_trip_latency.end_cycle =
+          tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
 
       if (tx.round_trip_latency.end_cycle < prev_tx.flit_latency.end_cycle) {
-        tx.wait.duration = prev_tx.flit_latency.end_cycle - tx.round_trip_latency.end_cycle;
+        tx.wait.duration =
+            prev_tx.flit_latency.end_cycle - tx.round_trip_latency.end_cycle;
         tx.wait.start_cycle = tx.round_trip_latency.end_cycle;
         tx.wait.end_cycle = tx.wait.start_cycle + tx.wait.duration;
       } else {
@@ -224,7 +234,8 @@ void timeline_read_txs(std::vector<NocTx> &txs) {
       }
 
       tx.flit_latency.start_cycle = tx.wait.end_cycle;
-      tx.flit_latency.end_cycle = tx.flit_latency.start_cycle + tx.flit_latency.duration;
+      tx.flit_latency.end_cycle =
+          tx.flit_latency.start_cycle + tx.flit_latency.duration;
     }
   }
 }
@@ -241,17 +252,22 @@ void timeline_write_txs(std::vector<NocTx> &txs) {
       tx.wait.duration = 0;
 
       tx.flit_latency.start_cycle = tx.total_issue_latency.end_cycle;
-      tx.flit_latency.end_cycle = tx.flit_latency.start_cycle + tx.flit_latency.duration;
+      tx.flit_latency.end_cycle =
+          tx.flit_latency.start_cycle + tx.flit_latency.duration;
 
       tx.round_trip_latency.start_cycle = tx.flit_latency.end_cycle;
-      tx.round_trip_latency.end_cycle = tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
+      tx.round_trip_latency.end_cycle =
+          tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
     } else {
       NocTx &prev_tx = txs.at(i - 1);
-      tx.total_issue_latency.start_cycle = prev_tx.total_issue_latency.end_cycle;
-      tx.total_issue_latency.end_cycle = tx.total_issue_latency.start_cycle + tx.total_issue_latency.duration;
+      tx.total_issue_latency.start_cycle =
+          prev_tx.total_issue_latency.end_cycle;
+      tx.total_issue_latency.end_cycle =
+          tx.total_issue_latency.start_cycle + tx.total_issue_latency.duration;
 
       if (tx.total_issue_latency.end_cycle < prev_tx.flit_latency.end_cycle) {
-        tx.wait.duration = prev_tx.flit_latency.end_cycle - tx.total_issue_latency.end_cycle;
+        tx.wait.duration =
+            prev_tx.flit_latency.end_cycle - tx.total_issue_latency.end_cycle;
         tx.wait.start_cycle = tx.total_issue_latency.end_cycle;
         tx.wait.end_cycle = tx.wait.start_cycle + tx.wait.duration;
       } else {
@@ -261,10 +277,12 @@ void timeline_write_txs(std::vector<NocTx> &txs) {
       }
 
       tx.flit_latency.start_cycle = tx.wait.end_cycle;
-      tx.flit_latency.end_cycle = tx.flit_latency.start_cycle + tx.flit_latency.duration;
+      tx.flit_latency.end_cycle =
+          tx.flit_latency.start_cycle + tx.flit_latency.duration;
 
       tx.round_trip_latency.start_cycle = tx.flit_latency.end_cycle;
-      tx.round_trip_latency.end_cycle = tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
+      tx.round_trip_latency.end_cycle =
+          tx.round_trip_latency.start_cycle + tx.round_trip_latency.duration;
     }
   }
 }
@@ -287,7 +305,8 @@ void export_json(std::map<CoreCoord, std::vector<NocTx>> &read_txs,
       Json::Value tx_json = tx_to_json(core.second.at(i));
       core_json[std::to_string(i)] = tx_json;
     }
-    std::string core_coord_str = std::to_string(core.first.x) + "," + std::to_string(core.first.y);
+    std::string core_coord_str =
+        std::to_string(core.first.x) + "," + std::to_string(core.first.y);
     root["read"][core_coord_str] = core_json;
   }
 
@@ -310,25 +329,32 @@ void export_json(std::map<CoreCoord, std::vector<NocTx>> &read_txs,
 
 } // namespace analyzer
 
-
-int main() {
+int main(int argc, char **argv) {
   mlir::MLIRContext context = mlir::MLIRContext();
   context.loadDialect<mlir::tt::ttmetal::TTMetalDialect>();
   context.loadDialect<mlir::tt::ttkernel::TTKernelDialect>();
 
+  if (argc < 2) {
+    std::cout << "E: Expected input MLIR file as first positional cmd arg i.e. "
+                 "ttmlir-noc-analyzer <INPUT_FILE> \n";
+  }
+  std::string input_filename(argv[1]);
+  std::cout << "I: Reading " << input_filename << "\n";
+
   auto root = std::make_shared<mlir::ModuleOp>();
-  mlir::LogicalResult status = analyzer::load(
-      "ttm_simple_reduce.mlir", root, context);
+  mlir::LogicalResult status = analyzer::load(input_filename, root, context);
 
   if (status.failed()) {
     exit(1);
   }
-  std::cout << "STARTING WALK" << std::endl;
+  llvm::outs() << "I: Successfully loaded MLIR\n";
+
   root->walk<mlir::WalkOrder::PreOrder>(analyzer::analyze_operation);
   for (auto &core_coord : analyzer::read_txs) {
     analyzer::assign_step_durations(core_coord.second, 1);
     analyzer::timeline_read_txs(core_coord.second);
-    llvm::outs() << "READ on CORE: (" << core_coord.first.x << "," << core_coord.first.y << ")\n";
+    llvm::outs() << "READ on CORE: (" << core_coord.first.x << ","
+                 << core_coord.first.y << ")\n";
     analyzer::print_txs(core_coord.second);
   }
   for (auto &core_coord : analyzer::write_txs) {
@@ -340,6 +366,4 @@ int main() {
   }
 
   analyzer::export_json(analyzer::read_txs, analyzer::write_txs);
-
-  std::cout << "FINISHED WALK" << std::endl;
 }
