@@ -286,6 +286,13 @@ jobs:
         name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
         path: ${{ matrix.build.name }}_results.json
 
+    - name: Show Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
+      with:
+        report_paths: ttrt_report.xml
+        check_name: TTRT ${{ matrix.build.runs-on }} ${{ matrix.build.name }} Tests
+
   run-ttrt-tests:
 
     timeout-minutes: 30

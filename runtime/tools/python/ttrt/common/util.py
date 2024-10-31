@@ -673,6 +673,41 @@ class Results:
 
         self.logging.info(f"results saved to={file_name}")
 
+        # count total tests, skips and failures
+        with open(file_name, "r") as file:
+            data = json.load(file)
+
+        import xml.etree.ElementTree as ET
+
+        total_tests = len(data)
+        failures = sum(1 for item in data if item.get("result", "") != "pass")
+        skipped = sum(1 for item in data if item.get("result", "") == "skipped")
+
+        testsuites = ET.Element("testsuites")
+        testsuites.set("name", "TTRT")
+        testsuites.set("tests", str(total_tests))
+        testsuites.set("failures", str(failures))
+        testsuites.set("skipped", str(skipped))
+
+        testsuite = ET.SubElement(testsuites, "testsuite")
+        testsuite.set("name", "TTRT")
+        testsuite.set("tests", str(total_tests))
+        testsuite.set("failures", str(failures))
+        testsuite.set("skipped", str(skipped))
+
+        for item in data:
+            testcase = ET.SubElement(testsuite, "testcase")
+            testcase.set("name", item.get("file_path", ""))
+            testcase.set("file_path", item.get("file_path", ""))
+            testcase.set("result", item.get("result", ""))
+            testcase.set("exception", item.get("exception", ""))
+            testcase.set("log_file", item.get("log_file", ""))
+            testcase.set("artifacts", item.get("artifacts", ""))
+
+        tree = ET.ElementTree(testsuites)
+        xml_file_path = "ttrt_report.xml"
+        tree.write(xml_file_path, encoding="utf-8", xml_declaration=True)
+
     def get_result_code(self):
         for entry in self.results:
             if entry.get("result") != "pass":
