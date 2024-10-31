@@ -269,3 +269,15 @@ func.func @test_where(%arg0: tensor<13x37xf32>, %arg1: tensor<13x37xf32>) -> ten
   // CHECK: %{{[0-9]+}} = "ttnn.where"(%[[VAL1]], %{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
   return %3 : tensor<13x37xf32>
 }
+
+func.func @gelu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: "ttnn.empty"
+  // CHECK-SAME: tensor<64x128xf32,
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: "ttnn.gelu"
+  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: tensor<64x128xf32,
+  %1 = "ttir.gelu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}

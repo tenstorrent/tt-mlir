@@ -98,6 +98,7 @@ enum EltwiseOpType: uint32 {
   IsFinite = 33,
   Floor = 34,
   Where = 35,
+  Gelu = 36,
 }
 
 union EltwiseOpParams {
