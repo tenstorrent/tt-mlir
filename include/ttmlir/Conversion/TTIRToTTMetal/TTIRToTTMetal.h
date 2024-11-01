@@ -10,6 +10,10 @@
 
 namespace mlir::tt {
 
+namespace ttmetal {
+    uint64_t lookupAddress(Value value);
+} // namespace ttmetal
+
 void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter &typeConverter);

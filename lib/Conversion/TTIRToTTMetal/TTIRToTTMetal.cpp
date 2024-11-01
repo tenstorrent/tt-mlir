@@ -58,7 +58,7 @@ namespace mlir::tt::ttmetal {
 //
 // This routine is used to lookup the address of tensors for address generation
 // and for CB creation.
-static uint64_t lookupAddress(Value value) {
+uint64_t lookupAddress(Value value) {
   auto blockArg = mlir::dyn_cast<BlockArgument>(value);
   if (blockArg) {
     auto *funcOp = blockArg.getOwner()->getParentOp();
