@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRTTNNDialect
         TTNNDialect.cpp
         TTNNOps.cpp
+        TTNNOpsBackendInterfaces.cpp
         TTNNOpsTypes.cpp
 
         ADDITIONAL_HEADER_DIRS

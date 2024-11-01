@@ -10,6 +10,7 @@ include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNOpsBackendInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -107,7 +108,7 @@ class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments])> {
+    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTNNOpBackendInterface])> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs);
@@ -202,7 +203,9 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     }];
 }
 
-def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
+      [DeclareOpInterfaceMethods<TTNNOpBackendInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      > {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
