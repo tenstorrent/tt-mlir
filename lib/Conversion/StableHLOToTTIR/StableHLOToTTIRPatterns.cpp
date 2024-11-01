@@ -243,14 +243,48 @@ public:
       return legalityResult;
     }
 
+    ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
+        adaptor.getDotDimensionNumbers();
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
+
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
+    // How to calculate lhsTensor and rhsTensor shapes?
+    tensor::EmptyOp lhsTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    tensor::EmptyOp rhsTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    mlir::tt::ttir::TransposeOp transposedLhs =
+        rewriter.create<mlir::tt::ttir::TransposeOp>(
+            srcOp.getLoc(),
+            getTypeConverter()->convertType(lhsTensor.getType()),
+            adaptor.getLhs(), Value(lhsTensor),
+            dimensions.getLhsBatchingDimensions()[0],
+            dimensions.getLhsContractingDimensions()[0],
+            rewriter.getArrayAttr(
+                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                       rewriter.getAttr<OperandConstraintAttr>(
+                                           OperandConstraint::AnyDeviceTile))));
+
+    mlir::tt::ttir::TransposeOp transposedRhs =
+        rewriter.create<mlir::tt::ttir::TransposeOp>(
+            srcOp.getLoc(),
+            getTypeConverter()->convertType(rhsTensor.getType()),
+            adaptor.getRhs(), Value(rhsTensor),
+            dimensions.getRhsBatchingDimensions()[0],
+            dimensions.getRhsContractingDimensions()[0],
+            rewriter.getArrayAttr(
+                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                       rewriter.getAttr<OperandConstraintAttr>(
+                                           OperandConstraint::AnyDeviceTile))));
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getLhs(), adaptor.getRhs(), Value(outputTensor),
+        transposedLhs, transposedRhs, Value(outputTensor),
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -271,26 +305,6 @@ private:
         dimensions.getRhsContractingDimensions().empty()) {
       return rewriter.notifyMatchFailure(srcOp,
                                          "Contracting dimension is missing.");
-    }
-
-    if (dimensions.getLhsContractingDimensions()[0] != 1) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
-    }
-
-    if (dimensions.getRhsContractingDimensions()[0] != 0) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
-    }
-
-    if (!dimensions.getLhsBatchingDimensions().empty()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
-    }
-
-    if (!dimensions.getRhsBatchingDimensions().empty()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
     }
 
     return success();
