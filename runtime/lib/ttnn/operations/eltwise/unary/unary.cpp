@@ -86,10 +86,12 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
+
   case ::tt::target::ttnn::EltwiseOpType::Sin: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::sin);
     break;
   }
+
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
     break;
