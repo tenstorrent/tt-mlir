@@ -405,7 +405,7 @@ jobs:
         pytest -ssv runtime/tools/python/test/test_perf.py
 
   build-and-test-explorer:
-    needs: build-image
+    needs: docker-ci-image
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -418,7 +418,7 @@ jobs:
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
-      image: ${{ needs.build-image.outputs.docker-image }}
+      image: ${{ needs.docker-ci-image.outputs.image }}
 
     steps:
 
