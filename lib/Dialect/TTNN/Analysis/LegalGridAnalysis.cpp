@@ -12,16 +12,11 @@ namespace mlir::tt::ttnn {
 bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
 
-  // This block is a placeholder for the actual call to the TTNN op interface.
+  if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(op)) {
+    return backend.isOpLegal(layout);
+  }
 
-  // if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(op)) {
-  //   llvm::outs() << op->getName() << "=" << layout << "\n";
-  //   llvm::outs() << "\t[Perf] = " << backend.getOpPerfCycles(layout) << "\n";
-  //   llvm::outs() << "\t[L1] = " << backend.getOpL1Usage(layout) << "\n";
-  //   llvm::outs() << "\t[Legal] = " << backend.isOpLegal(layout) << "\n";
-  // }
-
-  return true;
+  return false;
 }
 
 bool tensor_shape_compatible_with_shard(Operation *op, tt::LayoutAttr layout) {
