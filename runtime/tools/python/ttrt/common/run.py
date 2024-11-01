@@ -166,6 +166,13 @@ class Run:
             help="disable swap binary operands workaround",
         )
         Run.register_arg(
+            name="--result-file",
+            type=str,
+            default="run_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -556,7 +563,7 @@ class Run:
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
 
-        self.results.save_results("run_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing run API")
 

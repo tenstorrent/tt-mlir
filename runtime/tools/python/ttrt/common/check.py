@@ -61,6 +61,13 @@ class Check:
             help="system desc to check against",
         )
         Check.register_arg(
+            name="--result-file",
+            type=str,
+            default="check_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
+        Check.register_arg(
             name="binary",
             type=str,
             default="",
@@ -261,7 +268,7 @@ class Check:
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin)
 
-        self.results.save_results("check_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing check API")
 
