@@ -8,21 +8,20 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Traits.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -570,33 +569,31 @@ public:
 };
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+static ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
+                                       PatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
+
+  std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+  return rewriter.create<ttnn::ReshapeOp>(
+      input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
+}
+
+static ttnn::ReshapeOp generateNHWFlatten(Value input,
+                                          PatternRewriter &rewriter) {
+  std::vector<int64_t> shape =
+      mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
+
+  assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
+
+  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
+                                   shape[3]};
+  return generateReshape(input, newShape, rewriter);
+}
+
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
-
-  ttnn::ReshapeOp generateReshape(ttir::Conv2dOp op, Value input,
-                                  ArrayRef<int64_t> newShape,
-                                  PatternRewriter &rewriter) const {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
-
-    std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-    return rewriter.create<ttnn::ReshapeOp>(
-        input.getLoc(), outputType, input,
-        rewriter.getI32ArrayAttr(newShapeI32));
-  }
-
-  ttnn::ReshapeOp generateNHWFlatten(ttir::Conv2dOp op, Value input,
-                                     PatternRewriter &rewriter) const {
-    std::vector<int64_t> shape =
-        mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
-
-    assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
-
-    std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
-                                     shape[3]};
-    return generateReshape(op, input, newShape, rewriter);
-  }
 
   LogicalResult
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
@@ -652,7 +649,7 @@ public:
 
     std::vector<int64_t> flattenedInputShape = {
         1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]};
-    Value flattenedInput = generateNHWFlatten(op, adaptor.getInput(), rewriter);
+    Value flattenedInput = generateNHWFlatten(adaptor.getInput(), rewriter);
 
     std::vector<int64_t> flattenedOutputShape = {
         1, 1, output_shape[0] * output_shape[1] * output_shape[2],
@@ -677,7 +674,7 @@ public:
         stride_height, stride_width, padding_height, padding_width,
         dilation_height, dilation_width, groups);
 
-    Value output = generateReshape(op, new_conv, output_shape, rewriter);
+    Value output = generateReshape(new_conv, output_shape, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
@@ -709,22 +706,43 @@ public:
     auto channels =
         rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
 
-    assert(adaptor.getOriginalHeight().has_value() &&
-           "ttir::MaxPool2dOp must have original_height set before translating "
-           "to TTNN dialect.");
-    assert(adaptor.getOriginalWidth().has_value() &&
-           "ttir::MaxPool2dOp must have original_width set before translating "
-           "to TTNN dialect.");
+    Value flattenedInput = generateNHWFlatten(adaptor.getInput(), rewriter);
 
-    rewriter.replaceOpWithNewOp<ttnn::MaxPool2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), device, batch_size,
-        adaptor.getOriginalHeightAttr(), adaptor.getOriginalWidthAttr(),
+    auto output_ty =
+        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+
+    std::vector<int64_t> flattenedOutputShape = {
+        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
+        output_shape[3]};
+
+    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+
+    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
+    // attribute determination
+    auto poolDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
+        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
+        output_ty.getElementType());
+
+    // Must set the type to the output type to maintain the layout attributes
+    poolDPSOutput.getResult().setType(output_ty);
+
+    auto new_pool = rewriter.create<ttnn::MaxPool2dOp>(
+        op.getLoc(), output_ty, flattenedInput, poolDPSOutput, device,
+        batch_size,
+        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 3]),
+        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 2]),
         channels, adaptor.getKernelHeightAttr(), adaptor.getKernelWidthAttr(),
         adaptor.getStrideHeightAttr(), adaptor.getStrideWidthAttr(),
         adaptor.getDilationHeightAttr(), adaptor.getDilationWidthAttr(),
         adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
         adaptor.getPaddingRightAttr());
+
+    Value output = generateReshape(new_pool, output_shape, rewriter);
+
+    rewriter.replaceOp(op, output);
+
     return success();
   }
 };

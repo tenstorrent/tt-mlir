@@ -727,6 +727,33 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
     }];
 }
 
+def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
+  let summary = "General pooling op";
+  let description = [{
+    General pooling op
+  }];
+
+  let arguments = (ins
+    Variadic<AnyRankedTensor>:$inputs,
+    Variadic<AnyRankedTensor>:$outputs,
+    TTIR_PoolingMethodAttr:$pooling_method,
+    DenseI64ArrayAttr:$window_dimensions,
+
+    // Default stride of 1 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$window_strides,
+    // Default dilation of 1 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$base_dilations,
+    // Default dilation of 1 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$window_dilations,
+    // Default padding of 0 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size() * 2, 0)">:$padding,
+    TT_OperandConstraintArrayAttr:$operand_constraints
+  );
+
+  let results = (outs Variadic<AnyRankedTensor>);
+
+  let hasVerifier = 1;
+}
 
 def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
@@ -747,9 +774,7 @@ def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom,
-                         TT_OperandConstraintArrayAttr:$operand_constraints,
-                         OptionalAttr<SI32Attr>:$original_height,
-                         OptionalAttr<SI32Attr>:$original_width);
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
 

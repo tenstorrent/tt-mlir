@@ -151,6 +151,46 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// PoolingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
+
+  uint32_t inputRank =
+      mlir::cast<RankedTensorType>(getInputs()[0].getType()).getRank();
+
+  for (auto input : getInputs()) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    if (inputType.getRank() != inputRank) {
+      return emitOpError("All input tensors must have the same rank");
+    }
+  }
+
+  if (getWindowStrides().size() != inputRank) {
+    return emitOpError("Window strides must have the same number of elements "
+                       "as the rank of the input tensor");
+  }
+
+  if (getWindowDilations().size() != inputRank) {
+    return emitOpError("Window dilations must have the same number of elements "
+                       "as the rank of the input tensor");
+  }
+
+  if (getWindowDimensions().size() != inputRank) {
+    return emitOpError(
+        "Window dimensions must have the same number of elements "
+        "as the rank of the input tensor");
+  }
+
+  if (getPadding().size() != 2 * inputRank) {
+    return emitOpError("Padding must have the same number of elements as twice "
+                       "the rank of the input tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 
@@ -163,20 +203,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return emitOpError()
            << "Input tensor rank must be 4. Recieved input with rank "
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
-  }
-
-  if (getOriginalHeight().has_value() != getOriginalWidth().has_value()) {
-    std::string with_value =
-        getOriginalHeight().has_value() ? "original_height" : "original_width";
-    return emitOpError()
-           << "If providing the original height and width as attributes, both "
-              "original_height and original_width must be set. However, only "
-           << with_value << " was provided.";
-  }
-
-  if (getOriginalHeight().has_value() && getOriginalWidth().has_value()) {
-    inputShape[1] = getOriginalHeight().value();
-    inputShape[2] = getOriginalWidth().value();
   }
 
   if (getKernelHeight() > inputShape[1]) {
