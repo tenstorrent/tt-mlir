@@ -37,6 +37,44 @@
 }
 
 //===----------------------------------------------------------------------===//
+// GetDimensionSizeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::OpFoldResult
+mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getOperand().getType());
+
+  int64_t dimensionIndex = getDimension();
+
+  if (dimensionIndex >=
+      static_cast<int64_t>(inputTensorType.getShape().size())) {
+    return nullptr;
+  };
+
+  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+
+  mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(getType());
+
+  return mlir::DenseElementsAttr::get<int>(valueType, dimSize);
+}
+
+::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getOperand().getType());
+
+  int64_t dimensionIndex = getDimension();
+
+  if (dimensionIndex >=
+      static_cast<int64_t>(inputTensorType.getShape().size())) {
+    return failure();
+  };
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 

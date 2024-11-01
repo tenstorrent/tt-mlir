@@ -98,6 +98,9 @@ def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
                        I32Attr:$dimension);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let hasFolder = 1;
+  let hasVerifier = 1;
 }
 
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {

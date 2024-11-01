@@ -307,12 +307,6 @@ public:
   matchAndRewrite(mlir::stablehlo::GetDimensionSizeOp srcOp,
                   mlir::stablehlo::GetDimensionSizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    LogicalResult legalityResult = checkBasicLegality(srcOp, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
     IntegerType intType = IntegerType::get(getContext(), 32);
     RankedTensorType outputType = RankedTensorType::get({1}, intType);
     mlir::OpBuilder builder(getContext());
@@ -321,21 +315,6 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::GetDimensionSizeOp>(
         srcOp, outputType, srcOp.getOperand(), dimension_attr);
-
-    return success();
-  }
-
-private:
-  LogicalResult checkBasicLegality(mlir::stablehlo::GetDimensionSizeOp &srcOp,
-                                   ConversionPatternRewriter &rewriter) const {
-    if (srcOp.getOperand().getType().getShape().empty() &&
-        !srcOp.getOperand().getType().getElementType().isIntOrFloat()) {
-      return rewriter.notifyMatchFailure(srcOp, "Unsupported element type.");
-    }
-    if (!mlir::cast<RankedTensorType>(srcOp.getOperand().getType())) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Unsupported first operator type.");
-    }
 
     return success();
   }

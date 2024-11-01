@@ -406,9 +406,8 @@ public:
   }
 };
 
-class GetDimensionSizeToConstantConversionPattern : 
-    public OpConversionPattern<ttir::GetDimensionSizeOp>
-{
+class GetDimensionSizeToConstantConversionPattern
+    : public OpConversionPattern<ttir::GetDimensionSizeOp> {
 public:
   using OpConversionPattern<ttir::GetDimensionSizeOp>::OpConversionPattern;
 
@@ -416,41 +415,20 @@ public:
   matchAndRewrite(ttir::GetDimensionSizeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    LogicalResult legalityResult = checkBasicLegality(op, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
     const RankedTensorType inputTensorType =
         mlir::cast<RankedTensorType>(op.getOperand().getType());
 
     int64_t dimensionIndex = op.getDimension();
 
-    if (dimensionIndex >=
-        static_cast<int64_t>(inputTensorType.getShape().size())) {
-      return failure();
-    };
     int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
 
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(op.getType());
 
-    mlir::ElementsAttr valueAttr = mlir::DenseElementsAttr::get<int>(valueType, dimSize);
+    mlir::ElementsAttr valueAttr =
+        mlir::DenseElementsAttr::get<int>(valueType, dimSize);
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, valueType, valueAttr);
-
-    return success();
-  }
-
-private:
-  LogicalResult checkBasicLegality(::ttir::GetDimensionSizeOp &op,
-                                   ConversionPatternRewriter &rewriter) const {
-    if (op.getOperand().getType().getShape().empty() &&
-        !op.getOperand().getType().getElementType().isIntOrFloat()) {
-      return rewriter.notifyMatchFailure(op, "Unsupported element type.");
-    }
-    if (!mlir::cast<RankedTensorType>(op.getOperand().getType())) {
-      return rewriter.notifyMatchFailure(op,
-                                         "Unsupported first operator type.");
-    }
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, valueType,
+                                                            valueAttr);
 
     return success();
   }
