@@ -33,6 +33,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryCompositeOP(op, tensorPool, ::ttnn::cbrt);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Log1p: {
+    runEltwiseUnaryCompositeOP(op, tensorPool, ::ttnn::log1p);
+    break;
+  }
   default:
     throw std::invalid_argument(
         "Unsupported Eltwise Binary Composite operation");

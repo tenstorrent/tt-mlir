@@ -6,9 +6,7 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
-#include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 #include "ttnn/operations/copy.hpp"
-
 
 namespace tt::runtime::ttnn::operations::unary {
 
@@ -94,11 +92,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
 
-  case ::tt::target::ttnn::EltwiseOpType::Log1p: {
-    runEltwiseUnaryCompositeOP(op, tensorPool, ::ttnn::log1p);
-    break;
-  }
-  
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
     break;
