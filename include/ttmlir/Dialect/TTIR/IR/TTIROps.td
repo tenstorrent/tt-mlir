@@ -7,6 +7,7 @@
 
 include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
+include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.td"
 include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
@@ -196,32 +197,17 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-
-def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
-    let summary = "Eltwise cast op.";
+def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil"> {
+    let summary = "Eltwise ceil op.";
     let description = [{
-      Eltwise cast operation.
+      Eltwise ceil operation.
     }];
 }
 
-def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
-    let summary = "Eltwise square root.";
+def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
+    let summary = "Eltwise cosine op.";
     let description = [{
-      Eltwise square root operation.
-    }];
-}
-
-def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
-    let summary = "Eltwise reciprocal square root.";
-    let description = [{
-      Eltwise reciprocal square root operation.
-    }];
-}
-
-def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
-    let summary = "Eltwise negate op.";
-    let description = [{
-      Eltwise negate operation.
+      Eltwise cosine operation.
     }];
 }
 
@@ -229,6 +215,13 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
+    let summary = "Eltwise negate op.";
+    let description = [{
+      Eltwise negate operation.
     }];
 }
 
@@ -246,10 +239,45 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu"> {
     }];
 }
 
+def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
+    let summary = "Eltwise reciprocal square root.";
+    let description = [{
+      Eltwise reciprocal square root operation.
+    }];
+}
+
 def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
+    let summary = "Eltwise sine.";
+    let description = [{
+      Eltwise sine operation.
+    }];
+}
+
+def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
+    let summary = "Eltwise square root.";
+    let description = [{
+      Eltwise square root operation.
+    }];
+}
+
+def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
+    let summary = "Eltwise cast op.";
+    let description = [{
+      Eltwise cast operation.
+    }];
+}
+
+def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
+    let summary = "Eltwise logarithm op.";
+    let description = [{
+      Eltwise logarithm operation. Calculates log(x) for all elements x in input tensor.
     }];
 }
 
@@ -578,6 +606,45 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
+  let summary = "Generalized convolution op.";
+  let description = [{
+    Applies a convolution of the rhs with the lhs.
+
+    This operation captures convolutions of all dimensionality as well
+    as deconvolution/conv transpose.
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$input,
+    AnyRankedTensor:$weight,
+    Optional<AnyRankedTensor>:$bias,
+    AnyRankedTensor:$output,
+    // Default value: one for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$window_strides,
+    // Default value: two zeros for each of the spatial dimension.
+    DefaultValuedOptionalAttr<I64ElementsAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size()*2, 0)">:$padding,
+    // Default value: one for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$input_dilation,
+    // Default value: one for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$weight_dilation,
+    // Default value: false for each of the spatial dimension.
+    DefaultValuedOptionalAttr<DenseBoolArrayAttr, "SmallVector<bool>(getConvolutionLayout().getInputSpatialDimensions().size(), false)">:$window_reversal,
+    TTIR_ConvolutionLayoutAttr:$convolution_layout,
+    ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
+    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count,
+    TT_OperandConstraintArrayAttr:$operand_constraints
+  );
+
+  let results = (outs AnyRankedTensor);
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
+
 def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
@@ -633,8 +700,9 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
-      Extract a portion of a tensor based on the specified start (`begins`), stop (`ends`), and step
-      indices for each dimension.
+      Extract a sub-tensor (slice) from the input tensor across one or more dimensions.
+      The `begins`, `ends`, and `step` attributes specify the start, stop, and step indices
+      for each dimension of the tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -642,6 +710,31 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_IndexOp: TTIR_DPSOp<"index"> {
+    let summary = "Index op.";
+    let description = [{
+      Extract a sub-tensor (slice) from the input tensor along a specified dimension.
+      The `begin`, `end`, and `step` attributes define the start, stop, and step indices for the
+      selected dimension (`dim`) of the tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I32Attr:$dim,
+                         I32Attr:$begin,
+                         I32Attr:$end,
+                         I32Attr:$step,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);

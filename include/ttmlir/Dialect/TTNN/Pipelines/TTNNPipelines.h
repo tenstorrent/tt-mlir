@@ -31,17 +31,17 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   // Full Example: "op1=0,op2=0:1"
   //
-  // This will insert one TTIR_ToLayoutOps responsible for resharding the op1's
-  // first operand and two TTIR_ToLayoutOps responsible for resharding the op2's
-  // first and second operand.
+  // This will insert one memory reconfig op responsible for resharding the
+  // op1's first operand and two memory reconfig ops responsible for resharding
+  // the op2's first and second operand.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
   Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
       overrideInputLayout{
-          *this, "insert-reshard",
+          *this, "insert-memreconfig",
           llvm::cl::desc(
-              "Manually insert TTIR_ToLayoutOp for specific op's operand."),
+              "Manually insert memory reconfig op for specific op's operand."),
           llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
 
   // Option to override output layout for specific ops.
@@ -69,18 +69,19 @@ struct TTIRToTTNNBackendPipelineOptions
           llvm::cl::desc("Override output tensor layout for specific ops."),
           llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
 
-  // If this option is true, run sharding pass and try to shard ops.
+  // If this option is true, run memory layout analysis.
   //
-  Option<bool> shardingPassEnabled{
-      *this, "sharding-pass-enabled",
-      llvm::cl::desc("Enable sharding pass to shard ops."),
+  Option<bool> memoryLayoutAnalysisEnabled{
+      *this, "memory-layout-analysis-enabled",
+      llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
 
-  // If this option is true, insert reshard edges
+  // If this option is true, insert memory reconfiguration ops.
   //
-  Option<bool> reshardingEnabled{
-      *this, "resharding-enabled",
-      llvm::cl::desc("Resharding pass. Temp disabled till we support all types "
+  Option<bool> memReconfigEnabled{
+      *this, "memreconfig-enabled",
+      llvm::cl::desc("Memory layout reconfiguration pass. Temp disabled till "
+                     "we support all types "
                      "of shard specs."),
       llvm::cl::init(false)};
 

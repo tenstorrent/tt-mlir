@@ -145,8 +145,9 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   return ::tt::target::ttnn::CreateToLayoutOp(
       *cache.fbb, input, layout,
       dtype.has_value()
-          ? ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value())
-          : ::tt::target::DataType::None,
+          ? ::flatbuffers::Optional<::tt::target::DataType>(
+                ::tt::mlir::ttnn::utils::toTargetDataType(dtype.value()))
+          : ::flatbuffers::nullopt,
       memoryConfig.has_value()
           ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
           : 0,
@@ -293,6 +294,9 @@ template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   ::tt::target::ttnn::EltwiseOpType type;
+  ::tt::target::ttnn::EltwiseOpParams paramsType =
+      ::tt::target::ttnn::EltwiseOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
   if constexpr (std::is_same_v<EltwiseOp, AbsOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Abs;
   } else if constexpr (std::is_same_v<EltwiseOp, AddOp>) {
@@ -341,6 +345,14 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
   } else if constexpr (std::is_same_v<EltwiseOp, ExpOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Exp;
+  } else if constexpr (std::is_same_v<EltwiseOp, CeilOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Ceil;
+  } else if constexpr (std::is_same_v<EltwiseOp, CosOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Cos;
+  } else if constexpr (std::is_same_v<EltwiseOp, SinOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Sin;
+  } else if constexpr (std::is_same_v<EltwiseOp, LogOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Log;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -353,7 +365,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   return ::tt::target::ttnn::CreateEltwiseOpDirect(
       *cache.fbb, type, &ins,
       cache.at<::tt::target::TensorRef>(
-          getOperandThroughDPSOps(op.getOutputs().front())));
+          getOperandThroughDPSOps(op.getOutputs().front())),
+      paramsType, params);
 }
 
 template <typename ReductionOp>
@@ -586,6 +599,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
     return createOperation(cache, createEltwiseOp(cache, expOp), debugString);
   }
+  if (auto logOp = dyn_cast<LogOp>(op); logOp) {
+    return createOperation(cache, createEltwiseOp(cache, logOp), debugString);
+  }
   if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
     return createOperation(cache, createEltwiseOp(cache, sigmoidOp),
                            debugString);
@@ -645,6 +661,15 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
     return createOperation(cache, createDeallocOp(cache, deallocOp),
                            debugString);
+  }
+  if (auto ceilOp = dyn_cast<CeilOp>(op); ceilOp) {
+    return createOperation(cache, createEltwiseOp(cache, ceilOp), debugString);
+  }
+  if (auto cosOp = dyn_cast<CosOp>(op); cosOp) {
+    return createOperation(cache, createEltwiseOp(cache, cosOp), debugString);
+  }
+  if (auto sinOp = dyn_cast<SinOp>(op); sinOp) {
+    return createOperation(cache, createEltwiseOp(cache, sinOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

@@ -88,7 +88,7 @@ module attributes {} {
 // -----
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
-  func.func @slice_negative_invalid_begin_positive(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
+  func.func @slice_negative_invalid_begin_negative(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
     // CHECK: error: 'ttir.slice' op Invalid begin index for dimension 2. Expected value in range [-128, 128), got -129. Input shape: (10, 3, 128, 64)
     %1 = "ttir.slice"(%arg0, %0) <{begins = [0: i32, 0: i32, -129: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, 64: i32], step = [3: i32, 3: i32, 8: i32, 4: i32], operand_constraints = [#any_device_tile, #any_device_tile]}> : (tensor<10x3x128x64xbf16>, tensor<4x1x16x8xbf16>) -> tensor<4x1x16x8xbf16>
@@ -108,7 +108,7 @@ module attributes {} {
   }
 }
 
-// Verify that the parsing fails if the end value exceeds positive limit
+// Verify that the parsing fails if the end value exceeds negative limit
 // -----
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {

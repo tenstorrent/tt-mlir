@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -199,7 +200,7 @@ public:
             op.getContext(), ttnn::ShapeAttr::get(rewriter.getContext(),
                                                   outputMemref.getShape())));
 
-    rewriter.replaceOpWithNewOp<ttnn::CompositeToLayoutOp>(
+    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
         outputLayout, outputDataType, outputMemConfigAttr,
         isOutputOnHost ? nullptr : getOrInsertDevice(rewriter, op));
@@ -210,7 +211,8 @@ public:
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user)) {
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
+          isa<ttir::SliceOp>(user)) {
         return true;
       }
     }
@@ -232,7 +234,7 @@ private:
 
     if (newOutputLayoutEnum == ttnn::Layout::RowMajor) {
       // Set shard shape to match convention of row major layout
-      auto tileType = mlir::cast<TileType>(oldOutput.getElementType());
+      auto tileType = mlir::cast<TileType>(oldOutputMemref.getElementType());
       llvm::SmallVector<int64_t> newShardShape(oldShardShape.begin(),
                                                oldShardShape.end());
       newShardShape[shardShapeSize - 2] =
@@ -251,7 +253,8 @@ private:
 
     if (newOutputLayoutEnum == ttnn::Layout::Tile) {
       TileType tileType =
-          TileType::get(rewriter.getContext(), {32, 32}, outputDtype);
+          TileType::get(rewriter.getContext(),
+                        {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
       llvm::SmallVector<int64_t> newShardShape =
           tileType.getTiledShape(llvm::SmallVector<int64_t>(
               oldShardShape.begin(), oldShardShape.end()));
@@ -557,6 +560,30 @@ class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
 
+  ttnn::ReshapeOp generateReshape(ttir::Conv2dOp op, Value input,
+                                  ArrayRef<int64_t> newShape,
+                                  PatternRewriter &rewriter) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
+
+    std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+    return rewriter.create<ttnn::ReshapeOp>(
+        input.getLoc(), outputType, input,
+        rewriter.getI32ArrayAttr(newShapeI32));
+  }
+
+  ttnn::ReshapeOp generateNHWFlatten(ttir::Conv2dOp op, Value input,
+                                     PatternRewriter &rewriter) const {
+    std::vector<int64_t> shape =
+        mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
+
+    assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
+
+    std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
+                                     shape[3]};
+    return generateReshape(op, input, newShape, rewriter);
+  }
+
   LogicalResult
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -608,13 +635,37 @@ public:
     auto dilation_width =
         rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
     auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
-    rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getOutput(), device, in_channels, out_channels, batch_size,
-        input_height, input_width, kernel_height, kernel_width, stride_height,
-        stride_width, padding_height, padding_width, dilation_height,
-        dilation_width, groups);
+
+    std::vector<int64_t> flattenedInputShape = {
+        1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]};
+    Value flattenedInput = generateNHWFlatten(op, adaptor.getInput(), rewriter);
+
+    std::vector<int64_t> flattenedOutputShape = {
+        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
+        output_shape[3]};
+
+    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+
+    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
+    // attribute determination
+    auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
+        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
+        output_ty.getElementType());
+
+    // Must set the type to the output type to maintain the layout attributes
+    convDPSOutput.getResult().setType(output_ty);
+
+    ttnn::Conv2dOp new_conv = rewriter.create<ttnn::Conv2dOp>(
+        op.getLoc(), output_ty, flattenedInput, adaptor.getWeight(),
+        adaptor.getBias(), convDPSOutput, device, in_channels, out_channels,
+        batch_size, input_height, input_width, kernel_height, kernel_width,
+        stride_height, stride_width, padding_height, padding_width,
+        dilation_height, dilation_width, groups);
+
+    Value output = generateReshape(op, new_conv, output_shape, rewriter);
+
+    rewriter.replaceOp(op, output);
     return success();
   }
 };
@@ -828,7 +879,11 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
            ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
            ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
+           ElementwiseOpConversionPattern<ttir::LogOp, ttnn::LogOp>,
            ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
+           ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
+           ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
+           ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,

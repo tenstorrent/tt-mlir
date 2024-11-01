@@ -8,16 +8,12 @@
 
 namespace mlir::tt::ttnn {
 
-bool isCompositeToLayoutOp(mlir::Operation *op) {
-  return isa<ttnn::CompositeToLayoutOp>(op);
-}
-
 void DFShardingPolicy::run(
     const std::unordered_set<Edge> &overrideReshardEdges) {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    shardChainConfigs->push_back(ShardChainConfig());
+    l1ChainConfigs->push_back(L1ChainConfig());
     llvm::SmallVector<mlir::Operation *> scheduleableOps;
     Operation *currentOp = nullptr;
 
@@ -37,9 +33,9 @@ void DFShardingPolicy::run(
       // example we have a space in DRAM to perform this?(system->dram, double
       // check this)
       //
-      if (shardChainConfigs->back().isEmpty()) {
+      if (l1ChainConfigs->back().isEmpty()) {
         for (auto *op : scheduleableOps) {
-          if (isCompositeToLayoutOp(op)) {
+          if (isa<ToLayoutOp>(op)) {
             currentOp = op;
             break;
           }
@@ -56,8 +52,7 @@ void DFShardingPolicy::run(
 
       // Skip starting sharding chain if currentOp is a memory management op.
       //
-      if (shardChainConfigs->back().isEmpty() &&
-          isCompositeToLayoutOp(currentOp)) {
+      if (l1ChainConfigs->back().isEmpty() && isa<ToLayoutOp>(currentOp)) {
         currentOp = nullptr;
         continue;
       }
@@ -129,7 +124,7 @@ void DFShardingPolicy::run(
               // can fit into L1 with its first input sharded.
               //
               bool firstInputL1UsageValid = true;
-              if (shardChainConfigs->back().isEmpty()) {
+              if (l1ChainConfigs->back().isEmpty()) {
                 RankedTensorType firstOpInputTensorType =
                     mlir::cast<RankedTensorType>(currentOp->getOperand(0)
                                                      .getDefiningOp()
@@ -161,14 +156,14 @@ void DFShardingPolicy::run(
               if (firstInputL1UsageValid) {
                 // Add to shard chain config.
                 //
-                ShardSpec shardSpec;
+                OpL1MemSpec shardSpec;
                 shardSpec.op = currentOp;
 
                 // Hardcoded tensor split factor for now, until pipeline OP
                 // support is added.
                 //
                 shardSpec.tensorSplitFactor = 1;
-                shardChainConfigs->back().addShardSpec(std::move(shardSpec));
+                l1ChainConfigs->back().addOpL1MemSpec(std::move(shardSpec));
                 currentOp = nextOp;
                 continue;
               }
@@ -179,37 +174,37 @@ void DFShardingPolicy::run(
         currentOp = nullptr;
       }
 
-      if (!shardChainConfigs->back().isEmpty()) {
-        shardChainConfigs->back().build();
-        shardChainConfigs->push_back(ShardChainConfig());
+      if (!l1ChainConfigs->back().isEmpty()) {
+        l1ChainConfigs->back().build();
+        l1ChainConfigs->push_back(L1ChainConfig());
       }
     }
 
     (*schedule)[func] = scheduler.getSchedule();
   });
 
-  if (shardChainConfigs->back().isEmpty()) {
-    shardChainConfigs->pop_back();
+  if (l1ChainConfigs->back().isEmpty()) {
+    l1ChainConfigs->pop_back();
   }
 
   // Resolve shard chain configs.
   //
-  for (auto &shardChainConfig : *shardChainConfigs) {
-    ShardSolver shardSolver = shardChainConfig.resolve(
+  for (auto &l1ChainConfig : *l1ChainConfigs) {
+    ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
     // TODO(nobradovic)
     // For now dummy fetch first legal(largest grid) for shard spec.
     //
-    for (const auto &shardSpec : shardChainConfig.getShardSpecs()) {
+    for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
       Operation *op = shardSpec.op;
       auto validLayouts = shardSolver.at(op);
       shardSolver.set(op, *validLayouts.begin());
     }
 
     ShardSolverSolution resolvedShardSolution = shardSolver.finish();
-    shardChainConfig.complete(resolvedShardSolution.selectedOpLayout,
-                              resolvedShardSolution.reshardedEdges);
+    l1ChainConfig.complete(resolvedShardSolution.selectedOpLayout,
+                           resolvedShardSolution.memReconfigEdges);
   }
 }
 

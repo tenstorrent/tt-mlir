@@ -11,13 +11,17 @@
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
 
+namespace mlir::tt::ttnn {
+void registerTTNNToFlatbuffer();
+} // namespace mlir::tt::ttnn
+
 namespace mlir::ttmlir::python {
 
 void populatePassesModule(py::module &m) {
   // When populating passes, need to first register them
 
   mlir::tt::registerAllPasses();
-  mlir::registerAllTranslations();
+  mlir::tt::ttnn::registerTTNNToFlatbuffer();
 
   m.def(
       "ttnn_pipeline_ttir_passes",

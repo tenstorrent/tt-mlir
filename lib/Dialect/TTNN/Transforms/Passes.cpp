@@ -11,7 +11,7 @@
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
-#define GEN_PASS_DEF_TTNNDECOMPOSECOMPOSITELAYOUTS
+#define GEN_PASS_DEF_TTNNDECOMPOSELAYOUTS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -98,13 +98,12 @@ public:
   }
 };
 
-class TTNNDecomposeCompositeLayouts
-    : public impl::TTNNDecomposeCompositeLayoutsBase<
-          TTNNDecomposeCompositeLayouts> {
+class TTNNDecomposeLayouts
+    : public impl::TTNNDecomposeLayoutsBase<TTNNDecomposeLayouts> {
 
 public:
-  using impl::TTNNDecomposeCompositeLayoutsBase<
-      TTNNDecomposeCompositeLayouts>::TTNNDecomposeCompositeLayoutsBase;
+  using impl::TTNNDecomposeLayoutsBase<
+      TTNNDecomposeLayouts>::TTNNDecomposeLayoutsBase;
 
   void runOnOperation() final {
     ModuleOp module = getOperation();
@@ -113,14 +112,14 @@ public:
     module->walk([&](func::FuncOp func) {
       assert(func.getBody().hasOneBlock());
       func->walk([&](Operation *op) {
-        if (!isa<ttnn::CompositeToLayoutOp>(op)) {
+        if (!isa<ttnn::ToLayoutOp>(op)) {
           return;
         }
         opsToReplace.push_back(op);
       });
     });
     for (Operation *op : opsToReplace) {
-      this->createLayoutConversionOps(mlir::cast<ttnn::CompositeToLayoutOp>(op),
+      this->createLayoutConversionOps(mlir::cast<ttnn::ToLayoutOp>(op),
                                       rewriter);
       rewriter.eraseOp(op);
     }
@@ -164,11 +163,14 @@ private:
 
     void print() const {
       llvm::errs() << "OpsToCreate{ \n"
-                   << "\t" << "CreateToDeviceOp: " << createToDeviceOp << "\n"
-                   << "\t" << "CreateFromDeviceOp: " << createFromDeviceOp
-                   << "\n"
-                   << "\t" << "CreateToLayoutOp: " << createToLayoutOp << "\n"
-                   << "\t" << "CreateTypecastOp: " << createTypecastOp << "\n"
+                   << "\t"
+                   << "CreateToDeviceOp: " << createToDeviceOp << "\n"
+                   << "\t"
+                   << "CreateFromDeviceOp: " << createFromDeviceOp << "\n"
+                   << "\t"
+                   << "CreateToLayoutOp: " << createToLayoutOp << "\n"
+                   << "\t"
+                   << "CreateTypecastOp: " << createTypecastOp << "\n"
                    << "\t"
                    << "CreateToMemoryConfigOp: " << createToMemoryConfigOp
                    << "\n"
@@ -208,13 +210,15 @@ private:
   }
 
   std::pair<LayoutInfo, LayoutInfo>
-  getInputOutputLayouts(ttnn::CompositeToLayoutOp op) const {
+  getInputOutputLayouts(ttnn::ToLayoutOp op) const {
     LayoutInfo input, output;
 
     auto inputLayoutAttr =
         mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
     auto inputMemref = inputLayoutAttr.getMemref();
-    MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig();
+
+    assert(op.getMemoryConfig().has_value());
+    MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
 
     input.bufferType =
         ttnn::utils::toTTNNBufferType(inputLayoutAttr.getMemorySpace());
@@ -224,7 +228,8 @@ private:
     output.layoutEnum = op.getLayout();
 
     input.dataType = ttnn::utils::getDataTypeFromMemRef(inputMemref);
-    output.dataType = op.getDtype();
+    assert(op.getDtype().has_value());
+    output.dataType = op.getDtype().value();
 
     input.tensorMemoryLayout =
         ttnn::utils::toTTNNTensorMemoryLayout(inputLayoutAttr.getMemLayout());
@@ -273,13 +278,13 @@ private:
     return opsToCreate;
   }
 
-  bool isCreationValid(ttnn::CompositeToLayoutOp op, const LayoutInfo &input,
+  bool isCreationValid(ttnn::ToLayoutOp op, const LayoutInfo &input,
                        const LayoutInfo &output,
                        const OpsToCreate &opsToCreate) const {
 
     if (not opsToCreate.createSomeOp()) {
       op->emitError(
-          "Redundant ttnn::CompositeToLayoutOp - no ttnn layout ops "
+          "Redundant ttnn::ToLayoutOp - no ttnn layout ops "
           "needed, this may be due to the forcing of tile/row major layouts.");
       return false;
     }
@@ -311,7 +316,7 @@ private:
   /* Helper functions to create ttnn layout ops */
 
   template <typename OpType, typename... Args>
-  mlir::Value createOp(ttnn::CompositeToLayoutOp op, IRRewriter &rewriter,
+  mlir::Value createOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                        mlir::Value currentInput, Args... args) const {
 
     rewriter.setInsertionPoint(op);
@@ -319,7 +324,7 @@ private:
                                    args...);
   }
 
-  mlir::Value createToDeviceOpIfNeeded(ttnn::CompositeToLayoutOp op,
+  mlir::Value createToDeviceOpIfNeeded(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -333,7 +338,7 @@ private:
   }
 
   // FromDeviceOp
-  mlir::Value createFromDeviceOpIfNeeded(ttnn::CompositeToLayoutOp op,
+  mlir::Value createFromDeviceOpIfNeeded(ttnn::ToLayoutOp op,
                                          IRRewriter &rewriter,
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info,
@@ -344,7 +349,7 @@ private:
     return this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
   }
 
-  mlir::Value createToLayoutOpIfNeeded(ttnn::CompositeToLayoutOp op,
+  mlir::Value createToLayoutOpIfNeeded(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -358,7 +363,7 @@ private:
         /*memory_config*/ nullptr, /*device*/ nullptr);
   }
 
-  mlir::Value createTypecastOpIfNeeded(ttnn::CompositeToLayoutOp op,
+  mlir::Value createTypecastOpIfNeeded(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -371,7 +376,7 @@ private:
                                             dtypeAttr);
   }
 
-  mlir::Value createToMemoryConfigOpIfNeeded(ttnn::CompositeToLayoutOp op,
+  mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,
                                              IRRewriter &rewriter,
                                              mlir::Value currentInput,
                                              const OpCreationInfo &info) const {
@@ -387,7 +392,7 @@ private:
   /* Functions that create ops based on the layouts of the input output tensors
    */
 
-  void handleHostInputNoLayoutNoTypecast(ttnn::CompositeToLayoutOp op,
+  void handleHostInputNoLayoutNoTypecast(ttnn::ToLayoutOp op,
                                          IRRewriter &rewriter,
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info) const {
@@ -401,7 +406,7 @@ private:
     op.getResult().replaceAllUsesWith(currentInput);
   }
 
-  void handleHostInputLayoutNoTypecast(ttnn::CompositeToLayoutOp op,
+  void handleHostInputLayoutNoTypecast(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -450,7 +455,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleHostInputNoLayoutTypecast(ttnn::CompositeToLayoutOp op,
+  void handleHostInputNoLayoutTypecast(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -486,8 +491,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleHostInputLayoutTypecast(ttnn::CompositeToLayoutOp op,
-                                     IRRewriter &rewriter,
+  void handleHostInputLayoutTypecast(ttnn::ToLayoutOp op, IRRewriter &rewriter,
                                      mlir::Value currentInput,
                                      const OpCreationInfo &info) const {
     const LayoutInfo &input = info.input;
@@ -557,7 +561,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleHostInputLayoutConversion(ttnn::CompositeToLayoutOp op,
+  void handleHostInputLayoutConversion(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -578,7 +582,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleDeviceInputNoLayoutNoTypecast(ttnn::CompositeToLayoutOp op,
+  void handleDeviceInputNoLayoutNoTypecast(ttnn::ToLayoutOp op,
                                            IRRewriter &rewriter,
                                            mlir::Value currentInput,
                                            const OpCreationInfo &info) const {
@@ -592,7 +596,7 @@ private:
     op.getResult().replaceAllUsesWith(currentInput);
   }
 
-  void handleDeviceInputLayoutNoTypecast(ttnn::CompositeToLayoutOp op,
+  void handleDeviceInputLayoutNoTypecast(ttnn::ToLayoutOp op,
                                          IRRewriter &rewriter,
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info) const {
@@ -682,7 +686,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleDeviceInputNoLayoutTypecast(ttnn::CompositeToLayoutOp op,
+  void handleDeviceInputNoLayoutTypecast(ttnn::ToLayoutOp op,
                                          IRRewriter &rewriter,
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info) const {
@@ -735,7 +739,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleDeviceInputLayoutTypecast(ttnn::CompositeToLayoutOp op,
+  void handleDeviceInputLayoutTypecast(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
                                        const OpCreationInfo &info) const {
@@ -831,7 +835,7 @@ private:
     llvm_unreachable("Unreachable code path");
   }
 
-  void handleDeviceInputLayoutConversion(ttnn::CompositeToLayoutOp op,
+  void handleDeviceInputLayoutConversion(ttnn::ToLayoutOp op,
                                          IRRewriter &rewriter,
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info) const {
@@ -864,7 +868,7 @@ private:
    *   sizeof(uint32_t). For now, we will always untilize on host. We rarely
    * need device to device untilize, so the perf hit should be acceptable.
    */
-  void createLayoutConversionOps(ttnn::CompositeToLayoutOp op,
+  void createLayoutConversionOps(ttnn::ToLayoutOp op,
                                  IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
     OpsToCreate opsToCreate = determineRequiredOps(input, output);

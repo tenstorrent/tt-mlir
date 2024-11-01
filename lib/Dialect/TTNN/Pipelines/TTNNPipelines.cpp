@@ -21,6 +21,8 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
 
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
   pm.addPass(mlir::createInlinerPass());
@@ -46,8 +48,9 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOptimizerOptions optimizerOptions;
     optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
-    optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
-    optimizerOptions.reshardingEnabled = options.reshardingEnabled;
+    optimizerOptions.memoryLayoutAnalysisEnabled =
+        options.memoryLayoutAnalysisEnabled;
+    optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
     optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
     pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
   }
@@ -63,7 +66,7 @@ void createTTNNPipelineLoweringPasses(
 
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(createTTNNDecomposeCompositeLayouts());
+  pm.addPass(createTTNNDecomposeLayouts());
 }
 
 void createTTNNPipelineDeallocPass(

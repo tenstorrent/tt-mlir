@@ -14,10 +14,6 @@ add_mlir_public_c_api_library(TTMLIRCAPI
   MLIRIR
   MLIRCAPITransforms
   MLIRSupport
-  MLIRTTDialect
-  MLIRTTIRDialect
-  MLIRTTKernelDialect
-  MLIRTTNNDialect
-  MLIRTTIRTransforms
-  MLIRTTNNAnalysis
+  MLIRTargetCpp
+  TTMLIRStatic
 )

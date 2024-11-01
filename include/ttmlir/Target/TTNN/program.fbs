@@ -18,7 +18,7 @@ table ToMemoryConfigOp {
 table ToLayoutOp {
   in: tt.target.TensorRef;
   layout: tt.target.TensorLayout;
-  dtype: tt.target.DataType;
+  dtype: tt.target.DataType = null;
   memcfg: tt.target.MemoryConfigDesc;
   device: tt.target.DeviceRef;
   out: tt.target.TensorRef;
@@ -83,12 +83,21 @@ enum EltwiseOpType: uint32 {
   LogicalNot = 22,
   Cbrt = 23,
   Minimum = 24,
+  Ceil = 25,
+  Sin = 26,
+  Cos = 27,
+  Log = 28
+}
+
+union EltwiseOpParams {
+
 }
 
 table EltwiseOp {
   type: EltwiseOpType;
   ins: [tt.target.TensorRef];
   out: tt.target.TensorRef;
+  params: EltwiseOpParams;
 }
 
 enum ReductionOpType: uint32 {

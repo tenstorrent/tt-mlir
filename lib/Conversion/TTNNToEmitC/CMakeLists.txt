@@ -14,4 +14,5 @@ add_mlir_library(TTMLIRTTNNToEmitC
   MLIRSCFToEmitC
   MLIREmitCDialect
   MLIRFuncTransforms
+  MLIRTargetCpp
 )

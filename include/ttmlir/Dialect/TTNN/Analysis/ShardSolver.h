@@ -16,18 +16,23 @@
 
 namespace mlir::tt::ttnn {
 
-struct ShardSpec;
+struct OpL1MemSpec;
 
 struct ShardSolverSolution {
   llvm::DenseMap<Operation *, tt::LayoutAttr> selectedOpLayout;
-  std::unordered_set<Edge> reshardedEdges;
+  std::unordered_set<Edge> memReconfigEdges;
 
   ShardSolverSolution(
       const llvm::DenseMap<Operation *, tt::LayoutAttr> &selectedOpLayout,
-      const std::unordered_set<Edge> &reshardedEdges)
-      : selectedOpLayout(selectedOpLayout), reshardedEdges(reshardedEdges) {}
+      const std::unordered_set<Edge> &memReconfigEdges)
+      : selectedOpLayout(selectedOpLayout), memReconfigEdges(memReconfigEdges) {
+  }
 };
 
+// Reconcile adjacent shard specs by using constraints on top of legal layouts.
+// Generate reshard specs where needed.
+// Provides a valid solution to the shard chain.
+//
 class ShardSolver {
 private:
   static constexpr size_t kNumBitsetBits = 64;
@@ -278,7 +283,7 @@ private:
 public:
   ShardSolver(
       const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
-      const std::vector<ShardSpec> &shardSpecs,
+      const std::vector<OpL1MemSpec> &shardSpecs,
       const llvm::DenseSet<Operation *> &shardedOps,
       const unsigned usableL1CacheSize,
       const std::unordered_set<Edge> &overrideReshardEdges);
@@ -287,7 +292,7 @@ public:
 
 private:
   const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> *legalLayouts;
-  const std::vector<ShardSpec> *shardSpecs;
+  const std::vector<OpL1MemSpec> *shardSpecs;
   const llvm::DenseSet<Operation *> *shardedOps;
   unsigned usableL1CacheSize;
   DeviceAttr deviceAttr;
@@ -300,7 +305,7 @@ private:
   std::unordered_map<Operation *, BitsetId> bitsetIds;
 
   llvm::DenseMap<Operation *, tt::LayoutAttr> selectedOpLayout;
-  std::unordered_set<Edge> reshardedEdges;
+  std::unordered_set<Edge> memReconfigEdges;
 };
 
 } // namespace mlir::tt::ttnn

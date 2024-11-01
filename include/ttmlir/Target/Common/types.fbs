@@ -17,19 +17,18 @@ enum Arch: uint {
 }
 
 enum DataType: uint16 {
-  None = 0,
-  Float32 = 1,
-  Float16 = 2,
-  BFloat16 = 3,
-  BFP_Float8 = 4,
-  BFP_BFloat8 = 5,
-  BFP_Float4 = 6,
-  BFP_BFloat4 = 7,
-  BFP_Float2 = 8,
-  BFP_BFloat2 = 9,
-  UInt32 = 10,
-  UInt16 = 11,
-  UInt8 = 12,
+  Float32 = 0,
+  Float16 = 1,
+  BFloat16 = 2,
+  BFP_Float8 = 3,
+  BFP_BFloat8 = 4,
+  BFP_Float4 = 5,
+  BFP_BFloat4 = 6,
+  BFP_Float2 = 7,
+  BFP_BFloat2 = 8,
+  UInt32 = 9,
+  UInt16 = 10,
+  UInt8 = 11,
 }
 
 enum OOBVal: ushort {

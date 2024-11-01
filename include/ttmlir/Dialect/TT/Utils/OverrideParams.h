@@ -63,7 +63,7 @@ public:
 
   static void print(llvm::raw_ostream &os,
                     const llvm::StringMap<InputLayoutOverrideParams> &value) {
-    os << "insert-reshard=";
+    os << "insert-memreconfig=";
     size_t count = 0;
     for (const auto &entry : value) {
       os << entry.getKey() << "=";

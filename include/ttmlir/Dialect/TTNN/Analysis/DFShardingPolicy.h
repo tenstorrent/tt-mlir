@@ -6,9 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_DFSHARDINGPOLICY_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
-#include "ttmlir/Dialect/TTNN/Analysis/ShardChainConfig.h"
-#include <unordered_set>
+#include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 
 namespace mlir::tt::ttnn {
 
@@ -18,19 +16,19 @@ namespace mlir::tt::ttnn {
 class DFShardingPolicy {
 private:
   Operation *rootOp;
-  std::vector<ShardChainConfig> *shardChainConfigs;
+  std::vector<L1ChainConfig> *l1ChainConfigs;
   llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
   unsigned usableL1CacheSize = 0;
 
 public:
   DFShardingPolicy(
-      Operation *rootOp, std::vector<ShardChainConfig> &shardChainConfigs,
+      Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
-      : rootOp(rootOp), shardChainConfigs(&shardChainConfigs),
+      : rootOp(rootOp), l1ChainConfigs(&l1ChainConfigs),
         legalLayouts(legalLayouts), schedule(&schedule),
         usableL1CacheSize(usableL1CacheSize) {}
 
