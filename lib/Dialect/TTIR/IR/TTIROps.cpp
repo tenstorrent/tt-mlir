@@ -36,26 +36,6 @@
   return getValueAttr();
 }
 
-::mlir::OpFoldResult mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
-    const RankedTensorType inputTensorType =
-        mlir::cast<RankedTensorType>(getOperand().getType());
-
-    int64_t dimensionIndex = getDimension();
-
-    if (dimensionIndex >=
-        static_cast<int64_t>(inputTensorType.getShape().size())) {
-      return nullptr;
-    }
-
-    int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
-    auto tensorShape = mlir::RankedTensorType::get({1}, mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Unsigned));
-
-    auto attr = mlir::DenseElementsAttr::get(tensorShape, {dimSize});
-
-    return attr;
- 
-}
-
 //===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//

@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -41,6 +42,7 @@ struct ConvertTTIRToTTNNPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
+    populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns, typeConverter);
     populateTTIRToTTNNPatterns(&getContext(), patterns, typeConverter);
 
     // Apply full conversion
