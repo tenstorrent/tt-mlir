@@ -183,3 +183,11 @@ func.func @typecast(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
   %1 = "ttir.typecast"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
   return %1 : tensor<64x128xbf16>
 }
+
+func.func @log(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: %[[C:.*]] = "ttnn.log"[[C:.*]]
+  %1 = "ttir.log"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
