@@ -244,6 +244,8 @@ jobs:
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --force-reinstall
+        pip install -r runtime/tools/python/requirements.txt
+        pip freeze | grep torch
 
     - name: Generate system descriptor
       shell: bash
@@ -354,6 +356,8 @@ jobs:
         pip show ttrt && pip uninstall -y ttrt
         pip install ttrt-${{ env.version }}*.whl --force-reinstall
         pip install pytest
+        pip install -r runtime/tools/python/requirements.txt
+        pip freeze | grep torch
 
     - name: Generate system descriptor
       shell: bash
