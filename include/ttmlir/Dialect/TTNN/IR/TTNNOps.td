@@ -256,6 +256,17 @@ def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p"> {
       }];
 }
 
+def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
+  let description = [{
+    Performs element-wise exponential minus one operation on `operand` tensor
+    and stores the result in the output tensor.
+
+    Example:
+        %a: [[0, 1], [0, 0]]
+        "ttnn.exmp1"(%a, %out) -> %out: [[0, 1.71828], [0, 0]]
+  }];
+}
+
 def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{

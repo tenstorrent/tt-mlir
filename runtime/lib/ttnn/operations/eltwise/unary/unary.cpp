@@ -104,6 +104,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::log);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Expm1: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::expm1);
+    break;
+  }
   default:
     throw std::invalid_argument("Unsupported unary operation");
   }

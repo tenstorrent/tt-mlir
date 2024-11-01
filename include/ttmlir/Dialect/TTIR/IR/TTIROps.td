@@ -293,6 +293,17 @@ def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
       }];
 }
 
+def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
+  let description = [{
+    Performs element-wise exponential minus one operation on `operand` tensor
+    and stores the result in the output tensor.
+
+    Example:
+        %a: [[0, 1], [0, 0]]
+        "ttir.exmp1"(%a, %out) -> %out: [[0, 1.71828], [0, 0]]
+  }];
+}
+
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise binary op.";
