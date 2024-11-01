@@ -16,7 +16,11 @@ void L1InterleavedPolicy::run(
     Operation *currentOp = nullptr;
     llvm::DenseMap<Operation *, tt::LayoutAttr> selectedOpLayout;
 
-    // TODO(fbajraktari): Algo
+    // TODO(fbajraktari):
+    // This is V0 implementation of L1 interleaved policy. In the current
+    // implementation we have a single L1ChainCofig per FuncOp. This implies
+    // that in case of DRAM spil we will have a disconnected chain of L1 ops.
+    // This will be fixed in V1.
     //
     l1ChainConfigs->push_back(L1ChainConfig());
     while (scheduler.hasUnscheduledOps()) {
