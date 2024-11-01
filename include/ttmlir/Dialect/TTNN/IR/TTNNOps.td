@@ -395,6 +395,13 @@ def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or"> {
     }];
 }
 
+def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
+    let summary = "Eltwise logical xor.";
+    let description = [{
+      Eltwise logical xor operation.
+    }];
+}
+
 def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum OP.";
     let description = [{

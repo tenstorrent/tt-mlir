@@ -451,6 +451,13 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or"> {
     }];
 }
 
+def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
+    let summary = "Eltwise logical xor.";
+    let description = [{
+      Eltwise logical xor operation.
+    }];
+}
+
 def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum OP.";
     let description = [{

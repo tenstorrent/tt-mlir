@@ -1114,6 +1114,9 @@ void addLogicalOpConversionPattern(MLIRContext *ctx,
                                                              ctx);
   patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
       mlir::stablehlo::OrOp, mlir::tt::ttir::LogicalOrOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpLogicalOpConversionPattern<
+      mlir::stablehlo::XorOp, mlir::tt::ttir::LogicalXorOp>>(typeConverter,
+                                                             ctx);
 }
 
 void addSliceOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
