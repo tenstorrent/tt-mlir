@@ -88,6 +88,7 @@ enum EltwiseOpType: uint32 {
   Cos = 27,
   Log = 28,
   Log1p = 29,
+  Expm1 = 30
 }
 
 union EltwiseOpParams {
