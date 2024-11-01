@@ -75,6 +75,21 @@ public:
     computeBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
   }
 
+  void generateReaderBlocks(ttmetal::DispatchOp &metalDispatch, PatternRewriter &rewriter, SmallVector<ttkernel::CBType, 3> &cbs) const {
+    // generate 4 reader blocks, block 0 is the compute block, blocks 1-4 are the reader blocks
+    for (int i = 1; i < 5; i++) {
+      Block *readerBlock = rewriter.createBlock(&metalDispatch.getRegion(i));
+      OpBuilder readerBuilder(readerBlock, readerBlock->begin());
+
+      readerBlock->addArgument(cbs[0], metalDispatch.getLoc());
+      readerBlock->addArgument(cbs[1], metalDispatch.getLoc());
+
+      readerBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
+    }
+
+    // TODO(jdesousa) add semaphore generation here
+  }
+
   LogicalResult matchAndRewrite(ttir::MatmulOp op, PatternRewriter &rewriter) const final {
     RankedTensorType tensorA = op.getA().getType();
     RankedTensorType tensorB = op.getB().getType();
@@ -148,7 +163,7 @@ public:
     SmallVector<ttkernel::CBType, 3> cbTypes = {in0CBTy, in1CBTy, out0CBTy};
 
     generateComputeBlock(metalDispatch, rewriter, cbTypes);
-
+    generateReaderBlocks(metalDispatch, rewriter, cbTypes);
     rewriter.replaceOp(op, metalDispatch);
     return success();
   }
