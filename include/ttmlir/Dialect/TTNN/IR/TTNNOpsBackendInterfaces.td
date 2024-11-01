@@ -20,7 +20,7 @@ def TTNNOpBackendInterface : OpInterface<"TTNNOpBackend"> {
             }],
             /*retTy=*/"size_t",
             /*methodName=*/"getOpPerfCycles",
-            /*args=*/(ins), // TBD
+            /*args=*/(ins "const tt::LayoutAttr&":$output_layout), // Subject to change
             /*methodBody=*/"",
             /*defaultImplementation=*/"return std::numeric_limits<size_t>::max();"
         >,
@@ -30,7 +30,7 @@ def TTNNOpBackendInterface : OpInterface<"TTNNOpBackend"> {
             }],
             /*retTy=*/"size_t",
             /*methodName=*/"getOpL1Usage",
-            /*args=*/(ins), // TBD
+            /*args=*/(ins "const tt::LayoutAttr&":$output_layout), // Subject to change
             /*methodBody=*/"",
             /*defaultImplementation=*/"return 0;"
         >,
@@ -40,7 +40,7 @@ def TTNNOpBackendInterface : OpInterface<"TTNNOpBackend"> {
             }],
             /*retTy=*/"bool",
             /*methodName=*/"isOpLegal",
-            /*args=*/(ins), // TBD
+            /*args=*/(ins "const tt::LayoutAttr&":$output_layout), // Subject to change
             /*methodBody=*/"",
             /*defaultImplementation=*/"return true;"
         >,

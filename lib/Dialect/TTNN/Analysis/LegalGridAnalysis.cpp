@@ -16,9 +16,9 @@ bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
 
   // if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(op)) {
   //   llvm::outs() << op->getName() << "=" << layout << "\n";
-  //   llvm::outs() << "\t[Perf] = " << backend.getOpPerfCycles() << "\n";
-  //   llvm::outs() << "\t[L1] = " << backend.getOpL1Usage() << "\n";
-  //   llvm::outs() << "\t[Legal] = " << backend.isOpLegal() << "\n";
+  //   llvm::outs() << "\t[Perf] = " << backend.getOpPerfCycles(layout) << "\n";
+  //   llvm::outs() << "\t[L1] = " << backend.getOpL1Usage(layout) << "\n";
+  //   llvm::outs() << "\t[Legal] = " << backend.isOpLegal(layout) << "\n";
   // }
 
   return true;

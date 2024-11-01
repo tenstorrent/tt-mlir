@@ -13,17 +13,17 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 // // Relu backend interface
-size_t ReluOp::getOpPerfCycles() {
+size_t ReluOp::getOpPerfCycles(const tt::LayoutAttr &output_layout) {
   // Implement a custom estimate for relu op cycles.
   return 5;
 }
 
-size_t ReluOp::getOpL1Usage() {
+size_t ReluOp::getOpL1Usage(const tt::LayoutAttr &output_layout) {
   // Implement a custom estimate for relu op L1 usage.
   return 10;
 }
 
-bool ReluOp::isOpLegal() {
+bool ReluOp::isOpLegal(const tt::LayoutAttr &output_layout) {
   // Implement a custom check for relu op legality.
   return true;
 }
