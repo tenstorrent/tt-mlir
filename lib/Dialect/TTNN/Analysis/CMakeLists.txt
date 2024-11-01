@@ -13,7 +13,9 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         MLIRTTNNOpsIncGen
         MLIRTTNNPassesIncGen
         MLIRTTOpsIncGen
+        MLIRTTNNOpsBackendInterfaces
 
         LINK_LIBS
         MLIRScheduler
+        MLIRTTNNOpsBackendInterfaces
         )

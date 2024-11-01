@@ -33,6 +33,8 @@ add_dependencies(TTMLIR
     ${TTMLIR_LIBS}
     ${TTNN_RUNTIME_LIBS}
     ${TTNN_LIBS}
+
+    # MLIRTTNNOpsBackendInterfaces
 )
 
 target_link_libraries(TTMLIR PRIVATE
@@ -49,6 +51,8 @@ target_link_libraries(TTMLIR PRIVATE
     ${TTNN_LIBS}
 
     flatbuffers
+
+    # MLIRTTNNOpsBackendInterfaces
 )
 
 target_link_directories(TTMLIR PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)

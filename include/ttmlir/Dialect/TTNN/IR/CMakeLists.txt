@@ -2,11 +2,6 @@ add_mlir_dialect(TTNNOps ttnn)
 add_mlir_doc(TTNNBase TTNNDialect src/autogen/md/Dialect/ -gen-dialect-doc)
 add_mlir_doc(TTNNOps TTNNOp src/autogen/md/Dialect/ -gen-op-doc)
 
-set(LLVM_TARGET_DEFINITIONS TTNNOpsBackendInterfaces.td)
-mlir_tablegen(TTNNOpsBackendInterfaces.h.inc -gen-op-interface-decls)
-mlir_tablegen(TTNNOpsBackendInterfaces.cpp.inc -gen-op-interface-defs)
-add_public_tablegen_target(MLIRTTNNOpsBackendInterfacesIncGen)
-add_dependencies(mlir-headers MLIRTTNNOpsBackendInterfacesIncGen)
 
 set(LLVM_TARGET_DEFINITIONS TTNNOpsEnums.td)
 mlir_tablegen(TTNNOpsEnums.h.inc -gen-enum-decls)
