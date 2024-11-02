@@ -6,7 +6,7 @@ on:
   issue_comment:
     types: [created]
 
-env:    
+env:
   GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
 
 jobs:
