@@ -10,9 +10,11 @@
 #include <string_view>
 #include <vector>
 
-#include "tt/runtime/utils.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/Common/system_desc_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
+#pragma clang diagnostic pop
 
 namespace tt::runtime {
 

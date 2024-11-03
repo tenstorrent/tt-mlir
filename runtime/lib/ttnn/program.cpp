@@ -32,7 +32,8 @@
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
-struct ProgramExecutor {
+class ProgramExecutor {
+public:
   ProgramExecutor(const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
                   const std::unordered_set<uint32_t> &programOutputs,
