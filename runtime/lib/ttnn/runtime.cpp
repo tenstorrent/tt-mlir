@@ -12,32 +12,59 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
+using ::tt::tt_metal::BorrowedStorage;
+using ::tt::tt_metal::DistributedTensorConfig;
+using ::tt::tt_metal::MultiDeviceHostStorage;
+using ::tt::tt_metal::OwnedBuffer;
+using ::tt::tt_metal::OwnedStorage;
+using ::tt::tt_metal::raise_unsupported_storage;
+using ::tt::tt_metal::ShardTensor;
 
-template <typename T>
-static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements) {
-  return BorrowedStorage(
-      borrowed_buffer::Buffer<T>(static_cast<T *>(ptr), numElements), [] {},
-      [] {});
+template <typename StorageType, typename ElementType>
+static StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
+  if constexpr (std::is_same_v<StorageType, BorrowedStorage>) {
+    return BorrowedStorage(
+        ::tt::tt_metal::borrowed_buffer::Buffer<ElementType>(ptr, numElements),
+        [] {}, [] {});
+  } else if constexpr (std::is_same_v<StorageType, OwnedStorage>) {
+    auto data = std::vector<ElementType>(ptr, ptr + numElements);
+    auto buffer = ::tt::tt_metal::owned_buffer::create(std::move(data));
+    return OwnedStorage(std::move(buffer));
+  } else {
+    raise_unsupported_storage<StorageType>();
+  }
 }
 
-static BorrowedStorage createStorage(void *ptr, std::uint32_t numElements,
-                                     ::tt::target::DataType dataType) {
+template <typename StorageType>
+static StorageType createStorage(void *ptr, std::uint32_t numElements,
+                                 ::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
-    return createStorage<float>(ptr, numElements);
-  // case ::tt::target::DataType::Float16:
-  //   return createStorage<float16>(ptr, numElements);
+    return createStorage<StorageType>(static_cast<float *>(ptr), numElements);
   case ::tt::target::DataType::BFloat16:
-    return createStorage<bfloat16>(ptr, numElements);
+    return createStorage<StorageType>(static_cast<bfloat16 *>(ptr),
+                                      numElements);
   case ::tt::target::DataType::UInt32:
-    return createStorage<std::uint32_t>(ptr, numElements);
+    return createStorage<StorageType>(static_cast<uint32_t *>(ptr),
+                                      numElements);
   case ::tt::target::DataType::UInt16:
-    return createStorage<std::uint16_t>(ptr, numElements);
-  // case ::tt::target::DataType::UInt8:
-  //   return createStorage<std::uint8_t>(ptr, numElements);
+    return createStorage<StorageType>(static_cast<uint16_t *>(ptr),
+                                      numElements);
   default:
     throw std::runtime_error("Unsupported data type");
   }
+}
+
+static Tensor createOwnedTensor(std::shared_ptr<void> data,
+                                std::vector<std::uint32_t> const &shape,
+                                std::vector<std::uint32_t> const &stride,
+                                std::uint32_t itemsize,
+                                ::tt::target::DataType dataType) {
+  std::uint32_t numElements = shape[0] * stride[0];
+  auto tensor = std::make_shared<::ttnn::Tensor>(
+      createStorage<OwnedStorage>(data.get(), numElements, dataType), shape,
+      utils::toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
+  return Tensor(tensor, data, DeviceRuntime::TTNN);
 }
 
 Tensor createTensor(std::shared_ptr<void> data,
@@ -46,9 +73,42 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::uint32_t itemsize, ::tt::target::DataType dataType) {
   std::uint32_t numElements = shape[0] * stride[0];
   auto tensor = std::make_shared<::ttnn::Tensor>(
-      createStorage(data.get(), numElements, dataType), shape,
+      createStorage<BorrowedStorage>(data.get(), numElements, dataType), shape,
       utils::toTTNNDataType(dataType), ::ttnn::Layout::ROW_MAJOR);
   return Tensor(tensor, data, DeviceRuntime::TTNN);
+}
+
+Tensor createTensor(std::vector<std::shared_ptr<void>> data,
+                    std::vector<std::uint32_t> const &shape,
+                    std::vector<std::uint32_t> const &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType,
+                    ::tt::target::DistrbutedTensorConfig strategy) {
+  std::vector<Tensor> tensorShards;
+  for (auto &dataShard : data) {
+    tensorShards.push_back(
+        createOwnedTensor(dataShard, shape, stride, itemsize, dataType));
+  }
+  std::vector<OwnedBuffer> hostOwnedBuffers;
+  std::vector<::ttnn::Shape> hostOwnedShapes;
+  for (const auto &shard : tensorShards) {
+    const ::ttnn::Tensor &nnTensor =
+        shard.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    hostOwnedBuffers.push_back(
+        std::get<OwnedStorage>(nnTensor.get_storage()).buffer);
+    hostOwnedShapes.push_back(nnTensor.shape());
+  }
+  // TODO (Jackson): Update me, convert from
+  // ::tt::target::DistrbutedTensorConfig
+  DistributedTensorConfig distributedTensorConfig = ShardTensor(0);
+  auto storage = MultiDeviceHostStorage(
+      distributedTensorConfig, std::move(hostOwnedBuffers), hostOwnedShapes);
+  const ::ttnn::Tensor &firstShard =
+      tensorShards.at(0).as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  auto tensor = std::make_shared<::ttnn::Tensor>(
+      std::move(storage), firstShard.get_legacy_shape(), firstShard.get_dtype(),
+      ::ttnn::Layout::ROW_MAJOR, firstShard.get_tile());
+  return Tensor(tensor, ::tt::runtime::utils::unsafe_borrow_shared(&data),
+                DeviceRuntime::TTNN);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {

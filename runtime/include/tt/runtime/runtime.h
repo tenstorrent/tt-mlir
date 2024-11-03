@@ -36,9 +36,23 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType);
 
+Tensor createTensor(std::vector<std::shared_ptr<void>> data,
+                    std::vector<std::uint32_t> const &shape,
+                    std::vector<std::uint32_t> const &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType,
+                    ::tt::target::DistrbutedTensorConfig strategy);
+
 inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
   return createTensor(data, desc.shape, desc.stride, desc.itemsize,
                       desc.dataType);
+}
+
+inline Tensor createTensor(std::vector<std::shared_ptr<void>> data,
+                           TensorDesc const &desc) {
+  // TODO (Jackson): Update me, convert from add strategy to tensor descriptor
+  return createTensor(data, desc.shape, desc.stride, desc.itemsize,
+                      desc.dataType,
+                      ::tt::target::DistrbutedTensorConfig::ShardTensor);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);

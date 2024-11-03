@@ -74,6 +74,14 @@ enum BufferType: ushort {
   Trace = 4,
 }
 
+enum DistrbutedTensorConfig: ushort {
+  None = 0,
+  ReplicateTensor = 1,
+  ShardTensor = 2,
+  ShardTensor2D = 3,
+  AllGatherTensor = 4
+}
+
 // TODO (#620): Add other fields like core_ranges, shard orientation etc.
 table ShardSpec {
   shard_shape: [int64];

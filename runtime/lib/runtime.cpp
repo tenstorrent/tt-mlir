@@ -124,6 +124,29 @@ Tensor createTensor(std::shared_ptr<void> data,
   throw std::runtime_error("runtime is not enabled");
 }
 
+Tensor createTensor(std::vector<std::shared_ptr<void>> data,
+                    std::vector<std::uint32_t> const &shape,
+                    std::vector<std::uint32_t> const &stride,
+                    std::uint32_t itemsize, ::tt::target::DataType dataType,
+                    ::tt::target::DistrbutedTensorConfig strategy) {
+  LOG_ASSERT(not shape.empty());
+  LOG_ASSERT(not stride.empty());
+  LOG_ASSERT(itemsize > 0);
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::createTensor(data, shape, stride, itemsize,
+                                             dataType, strategy);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    throw std::runtime_error("Not implemented");
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
 tt::target::DataType getTensorDataType(Tensor tensor) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
