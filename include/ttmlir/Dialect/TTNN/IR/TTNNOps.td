@@ -390,6 +390,21 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
     }];
 }
 
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
+    let summary = "Eltwise remainder.";
+    let description = [{
+      Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
+      result tensor.
+
+      Example:
+
+      // %lhs: [17, -17, 17, -17]
+      // %rhs: [3, 3, -3, -3]
+      %result = "ttnn.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
+      // %result: [2, -2, 2, -2]
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{

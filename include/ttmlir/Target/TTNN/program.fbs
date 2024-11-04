@@ -89,7 +89,8 @@ enum EltwiseOpType: uint32 {
   Log = 28,
   Log1p = 29,
   Expm1 = 30,
-  Sign = 31
+  Sign = 31,
+  Remainder = 32
 }
 
 union EltwiseOpParams {
