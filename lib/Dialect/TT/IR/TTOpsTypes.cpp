@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
 #include <fstream>
+#include <mlir/IR/BuiltinTypes.h>
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -23,6 +25,16 @@ using namespace mlir::tt;
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
+
+unsigned mlir::tt::ChipDescAttr::getGlobalL1RegionSize() const {
+  // 4KB is the default size for the global L1 region.
+  constexpr uint32_t kGlobalL1RegionSize = 1 << 12;
+  return kGlobalL1RegionSize;
+}
+
+unsigned mlir::tt::ChipDescAttr::getGlobalL1RegionAddress() const {
+  return getL1Size() - getGlobalL1RegionSize();
+}
 
 mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {

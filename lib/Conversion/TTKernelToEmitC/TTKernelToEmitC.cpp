@@ -20,11 +20,13 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <string>
 
 using namespace mlir;
 using namespace tt;
@@ -118,6 +120,44 @@ public:
       auto cbOpaqueType = Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
       return emitc::LValueType::get(cbOpaqueType);
     });
+    addConversion([ctx](mlir::tt::ttkernel::L1AddrType type) -> Type {
+      return Builder(ctx).getI32Type();
+    });
+    addConversion(
+        [ctx](mlir::tt::ttkernel::L1AddrPtrType type) -> emitc::PointerType {
+          return emitc::PointerType::get(
+              emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
+        });
+  }
+};
+
+class TTKernelStoreToL1OpToEmitCOpRewriter
+    : public OpConversionPattern<ttkernel::StoreToL1Op> {
+
+public:
+  TTKernelStoreToL1OpToEmitCOpRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<ttkernel::StoreToL1Op>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(ttkernel::StoreToL1Op op,
+                  ttkernel::StoreToL1Op::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+        op->getLoc(),
+        mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType())
+            .getPointee(),
+        adaptor.getL1Ptr(), adaptor.getOffset());
+
+    // Cast rhs to volatile tt_l1_ptr uint32_t to match the pointed type.
+    // This is because assignment requires the types to match. This compiles
+    // in metal, but it looks ugly.
+    auto casted = rewriter.create<emitc::CastOp>(
+        op->getLoc(),
+        emitc::OpaqueType::get(op.getContext(), "volatile tt_l1_ptr uint32_t"),
+        adaptor.getValue());
+    rewriter.replaceOpWithNewOp<emitc::AssignOp>(op, subscriptOp, casted);
+    return success();
   }
 };
 
@@ -182,14 +222,15 @@ template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTMetalToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
   TTMetalToEmitCOpaqueRewriter(TTKernelToEmitCTypeConverter &typeConverter,
-                               MLIRContext *ctx)
-      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+                               MLIRContext *ctx, std::string opName = "")
+      : OpConversionPattern<SourceOp>(typeConverter, ctx), opName(opName) {}
 
   StringRef getOpName(SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::BuiltinOp>) {
       return op.getOp();
     }
-    auto name = op.getOperation()->getName().getStringRef();
+    auto name =
+        opName.empty() ? op.getOperation()->getName().getStringRef() : opName;
     if (name.starts_with("ttkernel.")) {
       return name.drop_front(9);
     }
@@ -254,6 +295,28 @@ public:
 
     return success();
   }
+
+private:
+  std::string opName;
+};
+
+class TTKernelMacroOpToEmitCOpRewriter
+    : public OpConversionPattern<ttkernel::MacroOp> {
+public:
+  TTKernelMacroOpToEmitCOpRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                                   MLIRContext *ctx)
+      : OpConversionPattern<ttkernel::MacroOp>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(ttkernel::MacroOp op, ttkernel::MacroOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
+        op, op->getResultTypes(),
+        emitc::OpaqueAttr::get(op->getContext(), adaptor.getName()));
+
+    return success();
+  }
 };
 
 class ConvertTTKernelToEmitCPass
@@ -311,6 +374,7 @@ public:
 
       patterns
           .add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
+               TTKernelMacroOpToEmitCOpRewriter,
                TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
@@ -338,14 +402,26 @@ public:
                TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,
+               TTMetalToEmitCOpaqueRewriter<
+                   ttkernel::NocAsyncReadOnePacketSetStateOp>,
+               TTMetalToEmitCOpaqueRewriter<
+                   ttkernel::NocAsyncReadOnePacketWithStateOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
-               TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>>(
+               TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>>(
               typeConverter, funcOp.getContext());
+
+      patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(
+          typeConverter, funcOp.getContext(), "get_noc_addr");
+
+      patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
+                                                         funcOp.getContext());
 
       if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
         signalPassFailure();

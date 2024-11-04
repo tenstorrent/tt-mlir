@@ -108,7 +108,8 @@ public:
     memorySpaceInfo.resize(getMaxEnumValForMemorySpace() + 1llu);
     memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceL1)] =
         SimpleAllocator::MemorySpaceInfo(chipDesc.getL1UnreservedBase(),
-                                         chipDesc.getL1Size(),
+                                         chipDesc.getL1Size() -
+                                             chipDesc.getGlobalL1RegionSize(),
                                          chipDesc.getNocL1AddressAlignBytes());
     memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceDRAM)] =
         SimpleAllocator::MemorySpaceInfo(

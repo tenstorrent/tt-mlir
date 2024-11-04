@@ -81,14 +81,16 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
                           "uint64_t":$address,
                           "MemRefType":$memref,
                           "uint64_t":$page_size,
-                          "uint64_t":$num_buffers);
-    let assemblyFormat = "`<` $port`,` $address`,` $memref`,` $page_size`,` $num_buffers `>`";
+                          "uint64_t":$num_buffers,
+                          "bool":$is_internal);
+    let assemblyFormat = "`<` $port`,` $address`,` $memref`,` $page_size`,` $num_buffers`,` $is_internal `>`";
 
     let extraClassDeclaration = [{
         static CBType get(::mlir::MLIRContext *context,
                               CBPort port,
                               uint64_t address,
-                              MemRefType memref) {
+                              MemRefType memref,
+                              bool is_internal = false) {
           uint64_t numBuffers = 1;
           uint64_t pageSize = 0;
           if (::mlir::isa<::mlir::tt::TileType>(memref.getElementType())) {
@@ -96,7 +98,7 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
           } else {
             pageSize = memref.getShape().back() * (memref.getElementType().getIntOrFloatBitWidth() / 8);
           }
-          return CBType::get(context, port, address, memref, pageSize, numBuffers);
+          return CBType::get(context, port, address, memref, pageSize, numBuffers, is_internal);
         }
 
         ::llvm::ArrayRef<int64_t> getShape() const {
@@ -122,6 +124,16 @@ def TTKernel_ReduceTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceType, "r
 
 def TTKernel_ReduceDimAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceDim, "reduce_dim"> {
   let assemblyFormat = "`<` $value `>`";
+}
+
+def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
+    let summary = "TTKernel l1 address";
+    let description = "L1 address type in TTKernel dialect";
+}
+
+def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
+    let summary = "TTKernel l1 address pointer";
+    let description = "L1 pointer address type in TTKernel dialect";
 }
 
 #endif

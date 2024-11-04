@@ -433,13 +433,23 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block"> {
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_GetNocAddrXYOp : TTKernel_Op<"get_noc_addr_xy"> {
+    let summary = "GetNocAddrXY";
+    let description = [{
+      GetNocAddr api including core coordinates
+    }];
+
+    let arguments = (ins I32:$x, I32:$y, I32:$l1Address);
+    let results = (outs TTKernel_NocAddr:$nocAddr);
+}
+
 def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let summary = "GetNocAddr";
     let description = [{
       GetNocAddr
     }];
 
-    let arguments = (ins I32:$x, I32:$y, I32:$l1Address);
+    let arguments = (ins I32:$l1Address);
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
@@ -450,6 +460,24 @@ def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
     }];
 
     let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$dstLocalL1Addr, I32:$size);
+}
+
+def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
+    let summary = "NocAsyncReadOnePacketSetState";
+    let description = [{
+      NocAsyncReadOnePacketSetState
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$size);
+}
+
+def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_packet_with_state"> {
+    let summary = "NocAsyncReadOnePacketWithState";
+    let description = [{
+      NocAsyncReadOnePacketWithState
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr);
 }
 
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier"> {
@@ -506,6 +534,47 @@ def TTKernel_UnreachableOp : TTKernel_Op<"unreachable", [Pure, ReturnLike, Termi
     let description = [{
       Unreachable operation
     }];
+}
+
+def TTKernel_MacroOp : TTKernel_Op<"macro"> {
+    let summary = "Macro op.";
+    let description = [{
+      Macro operation to mimic C++ macros
+    }];
+
+    let arguments = (ins FlatSymbolRefAttr:$name);
+
+    let results = (outs I32:$result);
+}
+
+def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
+    let summary = "GetWritePtr";
+    let description = [{
+      GetWritePtr operation
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+    let results = (outs I32:$writePtr);
+}
+
+def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
+    let summary = "CastToL1Ptr";
+    let description = [{
+      Cast specified addr to L1 pointer.
+    }];
+
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
+
+    let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
+}
+
+def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
+    let summary = "StoreToL1";
+    let description = [{
+      Store value to L1.
+    }];
+
+    let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 }
 
 #endif
