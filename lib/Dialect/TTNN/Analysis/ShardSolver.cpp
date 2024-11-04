@@ -543,7 +543,17 @@ bool ShardSolver::checkShardCompatible(
   bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <
                       tensorL1UsageCap * usableL1CacheSize;
 
-  return l1UsageValid;
+  if (!l1UsageValid) {
+    return false;
+  }
+
+  // Shard compat assumption. Try to keep same shard layout.
+  //
+  if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
+    return false;
+  }
+
+  return true;
 }
 
 // Returns ShardSolverSolution.

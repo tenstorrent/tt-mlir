@@ -192,18 +192,38 @@ void DFShardingPolicy::run() {
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
-    // TODO(nobradovic)
-    // For now dummy fetch first legal(largest grid) for shard spec.
-    //
-    for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
-      Operation *op = shardSpec.op;
-      auto validLayouts = shardSolver.at(op);
-      shardSolver.set(op, *validLayouts.begin());
-    }
+    pickOpShardLayouts(shardSolver, l1ChainConfig);
 
     ShardSolverSolution resolvedShardSolution = shardSolver.finish();
     l1ChainConfig.complete(resolvedShardSolution.selectedOpLayout,
                            resolvedShardSolution.memReconfigEdges);
+  }
+}
+
+void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
+                                          const L1ChainConfig &l1ChainConfig) {
+  // TODO(nobradovic)
+  // Simple picker for now, choose the highest grid size for each op, prefer
+  // width and height sharding over block sharding.
+  //
+  for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
+    Operation *op = shardSpec.op;
+    ShardSolver::RemainingLayoutAttrs validLayouts = shardSolver.at(op);
+    const tt::LayoutAttr *selectedLayout = &(*validLayouts.begin());
+    for (const tt::LayoutAttr &layout : validLayouts) {
+
+      if (layout.getGrid().getNumUsedCores() >
+          selectedLayout->getGrid().getNumUsedCores()) {
+        selectedLayout = &layout;
+      } else if (layout.getGrid().getNumUsedCores() ==
+                 selectedLayout->getGrid().getNumUsedCores()) {
+        if (layout.getMemLayout() != tt::TensorMemoryLayout::BlockSharded) {
+          selectedLayout = &layout;
+        }
+      }
+    }
+
+    shardSolver.set(op, *selectedLayout);
   }
 }
 
