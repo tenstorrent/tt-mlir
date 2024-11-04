@@ -333,6 +333,21 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
                         kHostAllocatedSize));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
+createOp(FlatbufferObjectCache &cache, LinearOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
+  auto in1 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
+  auto bias = op.getODSOperands(2).empty()
+                  ? flatbuffers::Offset<::tt::target::TensorRef>()
+                  : cache.at<::tt::target::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, in0, in1, bias, output);
+}
+
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(FlatbufferObjectCache &cache, MatmulOp op) {
@@ -800,6 +815,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
     return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
                            debugString);
+  }
+  if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
+    return createOperation(cache, createOp(cache, linearOp), debugString);
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString);

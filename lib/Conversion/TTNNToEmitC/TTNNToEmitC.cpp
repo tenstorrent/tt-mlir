@@ -725,7 +725,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Matmul ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::LinearOp>,
+               DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
 
   // Reduction ops
   //

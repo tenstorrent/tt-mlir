@@ -10,6 +10,7 @@
 
 namespace tt::runtime::ttnn::operations::matmul {
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context);
+void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::matmul
 
 #endif

@@ -636,6 +636,34 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
+def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
+    let summary = "Linear transformation of inputs.";
+
+    let description = [{
+      Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
+
+      Example:
+        // %a = [[1., 2.]], [2., 1.]]
+        // %b = [[0., 1.], [1., 0.]]
+        // %bias = [[1.]]
+        "ttnn.linear"(%a, %b, %bias, %result) : (tensor<2x2xf16>, tensor<2x2xf16>, tensor<1xf16>, tensor<2x2xf16>) -> tensor<2x2xf16>
+        // %result = [[3., 2.], [2., 3.]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,

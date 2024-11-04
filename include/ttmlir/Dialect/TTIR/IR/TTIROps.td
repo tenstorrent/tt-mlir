@@ -1091,6 +1091,34 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     }];
 }
 
+def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
+    let summary = "Linear transformation of inputs.";
+    let description = [{
+      Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32xbf16>
+        %b = tensor.empty() : () -> tensor<32x128xbf16>
+        %bias = tensor.empty() : () -> tensor<128xbf16>
+        %output = tensor.empty() : () -> tensor<10x64x128xbf16>
+        %0 = "ttir.linear"(%a, %b, %bias, %output) : (tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>, tensor<10x64x128xbf16>) -> tensor<10x64x128xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";
