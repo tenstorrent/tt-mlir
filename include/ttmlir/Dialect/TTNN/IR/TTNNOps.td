@@ -439,16 +439,21 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
-def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 
     let hasVerifier = 1;
 }
