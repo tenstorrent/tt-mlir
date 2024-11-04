@@ -9,3 +9,4 @@ third_party/tt-metal
 ttrt-artifacts/*
 query_results.json
 run_results.json
+ttrt_report.xml
