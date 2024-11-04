@@ -394,6 +394,7 @@
 // IndexOp
 //===----------------------------------------------------------------------===//
 
+// ANCHOR: adding_an_op_index_ttir
 // IndexOp verification
 ::mlir::LogicalResult mlir::tt::ttir::IndexOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
@@ -499,6 +500,7 @@
 
   return success();
 }
+// ANCHOR: adding_an_op_index_ttir
 
 //===----------------------------------------------------------------------===//
 // SqueezeOp

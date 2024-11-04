@@ -785,6 +785,7 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
+// ANCHOR: adding_an_op_index_ttir
 def TTIR_IndexOp: TTIR_DPSOp<"index"> {
     let summary = "Index op.";
     let description = [{
@@ -809,6 +810,7 @@ def TTIR_IndexOp: TTIR_DPSOp<"index"> {
 
     let hasVerifier = 1;
 }
+// ANCHOR: adding_an_op_index_ttir
 
 def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
     let summary = "Squeeze op.";
