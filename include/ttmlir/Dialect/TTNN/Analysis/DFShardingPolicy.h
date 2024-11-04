@@ -15,6 +15,9 @@ namespace mlir::tt::ttnn {
 // Schedule is also produced as a side effect of sharding.
 //
 class DFShardingPolicy : public MemoryLayoutAnalysisPolicy {
+private:
+  std::unordered_set<Edge> overrideReshardEdges;
+
 public:
   DFShardingPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
@@ -23,9 +26,14 @@ public:
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalLayouts,
-                                   schedule, usableL1CacheSize) {}
+                                   schedule, usableL1CacheSize),
+        overrideReshardEdges() {}
 
-  void run(const std::unordered_set<Edge> &overrideReshardEdges) final;
+  void run() final;
+
+  void setOverrideReshardEdges(const std::unordered_set<Edge> &reshardEdges) {
+    overrideReshardEdges = reshardEdges;
+  }
 };
 
 } // namespace mlir::tt::ttnn

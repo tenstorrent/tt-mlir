@@ -22,7 +22,7 @@ public:
       : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalLayouts,
                                    schedule, usableL1CacheSize) {}
 
-  void run(const std::unordered_set<Edge> &overrideReshardEdges) final;
+  void run() final;
 };
 
 } // namespace mlir::tt::ttnn
