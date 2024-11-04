@@ -167,6 +167,18 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
     }];
 }
 
+def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
+    let description = [{
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttnn.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
+    }];
+}
+
 def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     let summary = "Eltwise cosine.";
     let description = [{
@@ -202,7 +214,9 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     }];
 }
 
-def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
+      [DeclareOpInterfaceMethods<TTNNOpBackendInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      > {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.

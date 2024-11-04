@@ -15,7 +15,7 @@ module @jit_concat attributes {} {
     dimension = 0 : i64
     } : (tensor<3x2xi64>, tensor<1x2xi64>) -> tensor<4x2xi64>
     // CHECK: %[[C:.*]] = tensor.empty[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttir.concat"(%arg0, %arg1, %0) <{dim = 0 : si32, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<3x2xi64>, tensor<1x2xi64>, tensor<4x2xi64>) -> tensor<4x2xi64>
+    // CHECK: %[[C:.*]] = "ttir.concat"(%arg0, %arg1, %0) <{dim = 0 : si32, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<3x2xi32>, tensor<1x2xi32>, tensor<4x2xi32>) -> tensor<4x2xi32>
     return %0 : tensor<4x2xi64>
   }
 
@@ -42,7 +42,7 @@ module @jit_concat attributes {} {
       dimension = 1 : i64
     } : (tensor<256x512xi64>, tensor<256x256xi64>) -> tensor<256x768xi64>
     // CHECK: %[[C:.*]] = tensor.empty[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttir.concat"(%arg0, %arg1, %0) <{dim = 1 : si32, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<256x512xi64>, tensor<256x256xi64>, tensor<256x768xi64>) -> tensor<256x768xi64>
+    // CHECK: %[[C:.*]] = "ttir.concat"(%arg0, %arg1, %0) <{dim = 1 : si32, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<256x512xi32>, tensor<256x256xi32>, tensor<256x768xi32>) -> tensor<256x768xi32>
     return %0 : tensor<256x768xi64>
   }
 

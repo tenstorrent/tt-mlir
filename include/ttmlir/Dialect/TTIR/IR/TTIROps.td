@@ -211,6 +211,18 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
+    let description = [{
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
+    }];
+}
+
 def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
