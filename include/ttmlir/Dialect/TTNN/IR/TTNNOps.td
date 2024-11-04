@@ -214,7 +214,9 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     }];
 }
 
-def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
+      [DeclareOpInterfaceMethods<TTNNOpBackendInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      > {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
