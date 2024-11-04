@@ -165,6 +165,30 @@ public:
                     ShapeAttr::get(op->getContext(),
                                    ttLayoutAttr.getMemref().getShape()))));
           }
+          // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
+          // MemoryConfigAttr with layout attribute of its output tensor. This
+          // redundant info should be removed or made consistent as part of temp
+          // ToLayoutOp decomposition pass.
+          //
+          else if (isa<ttnn::ToLayoutOp>(op)) {
+            BufferType bufferType =
+                utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
+            TensorMemoryLayout tensorMemoryLayout =
+                utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+            // Update the device op with the new tensor type.
+            //
+            ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
+            toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
+                op->getContext(),
+                ttnn::TensorMemoryLayoutAttr::get(op->getContext(),
+                                                  tensorMemoryLayout),
+                ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
+                ttnn::ShardSpecAttr::get(
+                    op->getContext(),
+                    ttnn::ShapeAttr::get(
+                        op->getContext(),
+                        ttLayoutAttr.getMemref().getShape()))));
+          }
         }
       });
 
