@@ -14,14 +14,6 @@ class TTIRToTTMetalMatmulRewriter : public OpRewritePattern<ttir::MatmulOp> {
 public:
   using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
 
-  // Region generaterReaderDispatchRegion(ttir::MatmulOp op, PatternRewriter &rewriter) const {
-  //   ttkernel::TilizeInitOp tilize_init = rewriter.create<ttkernel::TilizeInitOp>(op.getLoc());
-  //   ttkernel::TilizeBlockOp tilize_block = rewriter.create<ttkernel::TilizeBlockOp>(op.getLoc());
-  //   // ...
-  //   Block *readerBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
-  //   OpBuilder readerBuilder(tensixBlock, tensixBlock->begin());
-  // }
-
   std::pair<SmallVector<Attribute, 5>, SmallVector<Attribute, 5>> generate2DMMAttributes(ArrayRef<int64_t> &gridShape, PatternRewriter &rewriter) const {
     SmallVector<Attribute, 5> coreRanges;
     SmallVector<Attribute, 5> kernelConfigs;
@@ -49,14 +41,14 @@ public:
     // in0 receivers
     coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
         llvm::ArrayRef<int64_t>{1, 0},
-        llvm::ArrayRef<int64_t>{gridShape[0] - 1, 1}));
+        llvm::ArrayRef<int64_t>{gridShape[0] - 1, gridShape[1]}));
     kernelConfigs.push_back(rewriter.getAttr<ttkernel::NocConfigAttr>(
         ttkernel::NocIndex::Noc0));
 
     // in1 receivers/writers
     coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
         llvm::ArrayRef<int64_t>{0, 1},
-        llvm::ArrayRef<int64_t>{1, gridShape[1] - 1}));
+        llvm::ArrayRef<int64_t>{gridShape[0], gridShape[1] - 1}));
     kernelConfigs.push_back(
         rewriter.getAttr<ttkernel::NocConfigAttr>(ttkernel::NocIndex::Noc1));
 
@@ -72,11 +64,15 @@ public:
     computeBlock->addArgument(cbs[1], metalDispatch.getLoc());
     computeBlock->addArgument(cbs[2], metalDispatch.getLoc());
 
+    // kernel here
+
     computeBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
   }
 
   void generateReaderBlocks(ttmetal::DispatchOp &metalDispatch, PatternRewriter &rewriter, SmallVector<ttkernel::CBType, 3> &cbs) const {
-    // generate 4 reader blocks, block 0 is the compute block, blocks 1-4 are the reader blocks
+    // generate 4 reader blocks, block 0 is the compute block, blocks 1-4 are
+    // the reader blocks
+    // TODO(jdesousa) add semaphore generation here
     for (int i = 1; i < 5; i++) {
       Block *readerBlock = rewriter.createBlock(&metalDispatch.getRegion(i));
       OpBuilder readerBuilder(readerBlock, readerBlock->begin());
@@ -84,10 +80,10 @@ public:
       readerBlock->addArgument(cbs[0], metalDispatch.getLoc());
       readerBlock->addArgument(cbs[1], metalDispatch.getLoc());
 
+      // kernels for each block here (use createDataMovementThread / buildNocAsyncTx, etc. (TTIRToTTMetal.cpp))
+
       readerBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
     }
-
-    // TODO(jdesousa) add semaphore generation here
   }
 
   LogicalResult matchAndRewrite(ttir::MatmulOp op, PatternRewriter &rewriter) const final {
