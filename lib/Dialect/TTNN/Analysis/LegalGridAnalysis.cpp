@@ -16,6 +16,7 @@ bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
     return backend.isOpLegal(layout);
   }
 
+  assert(false && "Op is not a TTNN op.");
   return false;
 }
 
