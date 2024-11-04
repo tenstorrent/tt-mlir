@@ -15,6 +15,24 @@ jobs:
   macos-build:
     uses: ./.github/workflows/macos-build.yml
     secrets: inherit
-  build-and-test:
+  build-ci-image:
+    uses: ./.github/workflows/build-image.yml
+    secrets: inherit
+  build-ird-debug-image:
+    needs: build-ci-image
+    uses: ./.github/workflows/build-image.yml
+    secrets: inherit
+    with:
+      config: 'debug'
+  build-and-test-debug:
+    needs: build-ci-image
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+    with:
+      config: 'Debug'
+  build-and-test-release:
+    needs: build-ci-image
+    uses: ./.github/workflows/build-and-test.yml
+    secrets: inherit
+    with:
+      config: 'Release'
