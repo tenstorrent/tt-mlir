@@ -30,10 +30,6 @@ struct StableHLOToTTIRPipelineOptions
       // This pass will convert stablehlo.composite ops into func.call ops so
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
-  Option<bool> sparseConstantPropagationEnabled{
-      *this, "enable-sparse-constant-propagation",
-      llvm::cl::desc("Enable --sccp optimization pass."),
-      llvm::cl::init(false)};
 };
 
 void createStableHLOToTTIRPipeline(
