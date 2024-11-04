@@ -8,8 +8,7 @@
 
 namespace mlir::tt::ttnn {
 
-void L1InterleavedPolicy::run(
-    const std::unordered_set<Edge> &overrideReshardEdges) {
+void L1InterleavedPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
     mlir::tt::scheduler::Scheduler scheduler(&func);
     llvm::SmallVector<mlir::Operation *> scheduleableOps;
@@ -19,7 +18,7 @@ void L1InterleavedPolicy::run(
     // TODO(fbajraktari):
     // This is V0 implementation of L1 interleaved policy. In the current
     // implementation we have a single L1ChainCofig per FuncOp. This implies
-    // that in case of DRAM spil we will have a disconnected chain of L1 ops.
+    // that in case of DRAM spill we will have a disconnected chain of L1 ops.
     // This will be fixed in V1.
     //
     l1ChainConfigs->push_back(L1ChainConfig());

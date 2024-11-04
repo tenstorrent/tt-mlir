@@ -31,7 +31,7 @@ public:
         legalLayouts(legalLayouts), schedule(&schedule),
         usableL1CacheSize(usableL1CacheSize) {}
 
-  virtual void run(const std::unordered_set<Edge> &overrideReshardEdges) = 0;
+  virtual void run() = 0;
 };
 
 } // namespace mlir::tt::ttnn
