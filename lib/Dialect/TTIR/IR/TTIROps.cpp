@@ -40,6 +40,7 @@
 // GetDimensionSizeOp
 //===----------------------------------------------------------------------===//
 
+// GetDimensionSizeOp folder
 ::mlir::OpFoldResult
 mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
@@ -60,6 +61,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   return mlir::DenseElementsAttr::get<int>(valueType, dimSize);
 }
 
+// GetDimensionSizeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
   const RankedTensorType inputTensorType =
       mlir::cast<RankedTensorType>(getOperand().getType());
