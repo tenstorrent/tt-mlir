@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Target/Common/Target.h"
 
 namespace tt::runtime::utils {
 
