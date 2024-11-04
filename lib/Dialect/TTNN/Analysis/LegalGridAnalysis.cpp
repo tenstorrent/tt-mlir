@@ -11,7 +11,6 @@ namespace mlir::tt::ttnn {
 
 bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
-
   return true;
 }
 
