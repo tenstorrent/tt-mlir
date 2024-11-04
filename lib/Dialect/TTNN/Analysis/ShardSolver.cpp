@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
 #include <unordered_set>
@@ -502,6 +503,13 @@ bool ShardSolver::checkShardCompatible(
 
   // TEMP : Dummy mock implementation, will be replaced.
   //
+
+  if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(consumerOp)) {
+    if (false ==
+        backend.isOpLegal(std::vector{producerLayout}, consumerLayout)) {
+      return false;
+    }
+  }
 
   // May need to fetch other inputs for consumerOp(weights/join node).
   //

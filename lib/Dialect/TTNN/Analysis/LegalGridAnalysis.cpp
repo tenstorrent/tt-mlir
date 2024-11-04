@@ -12,12 +12,7 @@ namespace mlir::tt::ttnn {
 bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
 
-  if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(op)) {
-    return backend.isOpLegal(layout);
-  }
-
-  assert(false && "Op is not a TTNN op.");
-  return false;
+  return true;
 }
 
 bool tensor_shape_compatible_with_shard(Operation *op, tt::LayoutAttr layout) {
