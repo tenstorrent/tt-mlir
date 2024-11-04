@@ -10,7 +10,6 @@ include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNBase.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.td"
-include "ttmlir/Dialect/TTNN/IR/TTNNOpsBackendInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -108,7 +107,7 @@ class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTNNOpBackendInterface])> {
+    TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments])> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs);
