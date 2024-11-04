@@ -62,6 +62,14 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::cos);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Floor: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::floor);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::IsFinite: {
+    runEltwiseUnaryOP(op, tensorPool, ::ttnn::isfinite);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseOpType::LogicalNot: {
     runEltwiseUnaryOP(op, tensorPool, ::ttnn::logical_not);
     break;

@@ -211,15 +211,17 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
-def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
-    let summary = "Eltwise sign operation.";
+def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
+    let summary = "Eltwise floor op.";
     let description = [{
-      Returns the sign of the `operand` element-wise and produces a `result`
-      tensor.
+      Eltwise floor operation.
+    }];
+}
 
-      Example:
-        %a: [[3, -2, 0], [1, -4, 4]]
-        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
+def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Eltwise isfinite op.";
+    let description = [{
+      Eltwise isfinite operation.
     }];
 }
 
@@ -262,6 +264,18 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
+    let description = [{
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
     }];
 }
 
