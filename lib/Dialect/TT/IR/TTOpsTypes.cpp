@@ -579,11 +579,20 @@ bool LayoutAttr::hasShardedTensorMemoryLayout() const {
           getMemLayout() == TensorMemoryLayout::BlockSharded);
 }
 
+bool LayoutAttr::hasInterleavedTensorMemoryLayout() const {
+  return (getMemLayout() == TensorMemoryLayout::Interleaved);
+}
+
 bool LayoutAttr::hasShardedL1TensorMemoryLayout() const {
   return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
          (getMemLayout() == TensorMemoryLayout::HeightSharded or
           getMemLayout() == TensorMemoryLayout::WidthSharded or
           getMemLayout() == TensorMemoryLayout::BlockSharded);
+}
+
+bool LayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
+  return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
+         (getMemLayout() == TensorMemoryLayout::Interleaved);
 }
 
 bool LayoutAttr::isTiled() const {

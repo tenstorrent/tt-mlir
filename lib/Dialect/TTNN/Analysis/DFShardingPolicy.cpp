@@ -8,8 +8,7 @@
 
 namespace mlir::tt::ttnn {
 
-void DFShardingPolicy::run(
-    const std::unordered_set<Edge> &overrideReshardEdges) {
+void DFShardingPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
