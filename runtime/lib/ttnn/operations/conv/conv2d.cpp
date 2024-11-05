@@ -15,7 +15,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   // TODO (jnie): Update this once we support multi device tensors
   // Investigate how to handle multi device in conv2d
   ::ttnn::Device &device =
-      context.getDeviceFromView(op->device()->global_id(), 0);
+      context.getDeviceFromSubMesh(op->device()->global_id(), 0);
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   DEBUG_ASSERT(input.is_allocated());

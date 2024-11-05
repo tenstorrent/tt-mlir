@@ -21,14 +21,15 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
     layout = ::ttnn::Layout::ROW_MAJOR;
   }
 
-  ::ttnn::Shape shape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
+  ::ttnn::Shape shape(::tt::tt_metal::LegacyShape(
       ::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->out()->desc()->shape())));
+
   ::ttnn::Tensor out;
-  if (not utils::inSystemMemory(op->out())) {
+  if (op->device()) {
     // TODO (jnie): Update this once we support multi device tensors
     ::ttnn::Device &device =
-        context.getDeviceFromView(op->device()->global_id(), 0);
+        context.getDeviceFromSubMesh(op->device()->global_id(), 0);
     ::ttnn::MemoryConfig memoryConfig =
         utils::createMemoryConfig(op->memcfg(), op->out());
     out = ::ttnn::empty(shape, dtype, layout, &device, memoryConfig);

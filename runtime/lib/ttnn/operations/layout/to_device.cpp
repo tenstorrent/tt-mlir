@@ -13,7 +13,7 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   // TODO (jnie): Update this once we support multi device tensors
   ::ttnn::Device &device =
-      context.getDeviceFromView(op->device()->global_id(), 0);
+      context.getDeviceFromSubMesh(op->device()->global_id(), 0);
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(inputTensor.is_allocated());
   LOG_ASSERT(utils::isOnHost(inputTensor),

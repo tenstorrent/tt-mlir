@@ -45,7 +45,7 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   // TODO (jnie): Update this once we support multi device tensors
   // Investigate how to handle multi device in maxpool2d
   ::ttnn::Device &device =
-      context.getDeviceFromView(op->device()->global_id(), 0);
+      context.getDeviceFromSubMesh(op->device()->global_id(), 0);
   const ::ttnn::operations::pool::MaxPool2DOp operation =
       ::ttnn::operations::pool::MaxPool2DOp();
 

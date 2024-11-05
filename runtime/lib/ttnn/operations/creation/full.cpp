@@ -40,7 +40,7 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
   if (not utils::inSystemMemory(op->out())) {
     // TODO (jnie): Update this once we support multi device tensors
     ::ttnn::Device &device =
-        context.getDeviceFromView(op->device()->global_id(), 0);
+        context.getDeviceFromSubMesh(op->device()->global_id(), 0);
     outputDevice = std::make_optional(std::ref(device));
     outputMemoryConfig =
         std::make_optional(utils::createMemoryConfig(op->out()));

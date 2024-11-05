@@ -78,11 +78,12 @@ Tensor createTensor(std::shared_ptr<void> data,
   return Tensor(tensor, data, DeviceRuntime::TTNN);
 }
 
-Tensor createTensor(std::vector<std::shared_ptr<void>> data,
-                    std::vector<std::uint32_t> const &shape,
-                    std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType,
-                    ::tt::target::DistrbutedTensorConfig strategy) {
+Tensor
+createTensor(std::vector<std::shared_ptr<void>> data,
+             std::vector<std::uint32_t> const &shape,
+             std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+             ::tt::target::DataType dataType,
+             const std::unordered_map<std::string, std::string> &metadata) {
   std::vector<Tensor> tensorShards;
   for (auto &dataShard : data) {
     tensorShards.push_back(
@@ -97,9 +98,8 @@ Tensor createTensor(std::vector<std::shared_ptr<void>> data,
         std::get<OwnedStorage>(nnTensor.get_storage()).buffer);
     hostOwnedShapes.push_back(nnTensor.shape());
   }
-  // TODO (Jackson): Update me, convert from
-  // ::tt::target::DistrbutedTensorConfig
-  DistributedTensorConfig distributedTensorConfig = ShardTensor(0);
+  DistributedTensorConfig distributedTensorConfig =
+      ::tt::tt_metal::get_distributed_tensor_config(metadata);
   auto storage = MultiDeviceHostStorage(
       distributedTensorConfig, std::move(hostOwnedBuffers), hostOwnedShapes);
   const ::ttnn::Tensor &firstShard =

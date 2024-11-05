@@ -45,7 +45,7 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   }
 
   if (op->device()) {
-    device = &context.getDeviceFromView(op->device()->global_id(), 0);
+    device = &context.getDeviceFromSubMesh(op->device()->global_id(), 0);
   }
 
   ::ttnn::Tensor out =
