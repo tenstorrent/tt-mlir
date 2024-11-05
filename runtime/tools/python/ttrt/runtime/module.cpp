@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/utils.h"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>

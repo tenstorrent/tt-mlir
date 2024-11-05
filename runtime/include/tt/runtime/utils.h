@@ -7,7 +7,10 @@
 
 #include <memory>
 
-#include "ttmlir/Target/Common/Target.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/Common/types_generated.h"
+#pragma clang diagnostic pop
 
 namespace tt::runtime::utils {
 

@@ -146,6 +146,17 @@ public:
     return *subMesh.get_device_index(deviceIndex);
   }
 
+  std::variant<std::reference_wrapper<::ttnn::Device>,
+               std::reference_wrapper<::ttnn::MeshDevice>>
+  getDeviceOrMesh(uint32_t globalId) {
+    assert(subMeshes.contains(globalId));
+    auto &subMesh = *subMeshes.at(globalId);
+    if (subMesh.num_devices() == 1) {
+      return std::ref(getDeviceIndexFromSubMesh(globalId, 0));
+    }
+    return std::ref(subMesh);
+  }
+
   //
   // Tensor Pool Operations
   //

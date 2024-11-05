@@ -15,12 +15,15 @@ namespace tt::runtime::ttnn::operations::utils {
 bool isOnHost(const ::ttnn::Tensor &tensor) {
   // Currently only supports borrowed or owned host storage
   return tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED or
-         tensor.storage_type() == ::tt::tt_metal::StorageType::OWNED;
+         tensor.storage_type() == ::tt::tt_metal::StorageType::OWNED or
+         tensor.storage_type() ==
+             ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST;
 }
 
 bool isOnDevice(const ::ttnn::Tensor &tensor) {
   // Currently only supports single device storage
-  return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
+  return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE or
+         tensor.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE;
 }
 
 bool isTilized(const ::tt::target::TensorRef *tensorRef) {

@@ -10,24 +10,27 @@
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
+  LOG_ASSERT(op->device(), "ToDeviceOp must have a device");
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  // TODO (jnie): Update this once we support multi device tensors
-  ::ttnn::Device &device =
-      context.getDeviceFromSubMesh(op->device()->global_id(), 0);
   const ::ttnn::Tensor &inputTensor = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(inputTensor.is_allocated());
-  LOG_ASSERT(utils::isOnHost(inputTensor),
-             "Calling ttnn::to_device on a device tensor");
-
+  DEBUG_ASSERT(utils::isOnHost(inputTensor),
+               "Calling ttnn::to_device on a device tensor");
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
   if (op->memcfg()) {
     memoryConfig =
         std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
   }
-
-  ::ttnn::Tensor out = ::ttnn::to_device(inputTensor, &device, memoryConfig);
-
+  std::variant<std::reference_wrapper<::ttnn::Device>,
+               std::reference_wrapper<::ttnn::MeshDevice>>
+      deviceOrMesh = context.getDeviceOrMesh(op->device()->global_id());
+  ::ttnn::Tensor out = std::visit(
+      [&](auto &&deviceOrMesh) -> ::ttnn::Tensor {
+        return ::ttnn::to_device(inputTensor, &(deviceOrMesh.get()),
+                                 memoryConfig);
+      },
+      deviceOrMesh);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
