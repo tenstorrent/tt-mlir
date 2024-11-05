@@ -32,7 +32,8 @@ void L1InterleavedPolicy::run() {
     llvm::DenseMap<Operation *, tt::LayoutAttr> selectedOpLayout;
     Operation *currentOp = nullptr;
 
-    // TODO(fbajraktari):
+    // TODO(fbajraktari): Add algorithm description. Currently, the algorithm
+    // is the same as for DFSharding policy, but works only for L1 interleaved.
     //
     l1ChainConfigs->push_back(L1ChainConfig());
     while (scheduler.hasUnscheduledOps()) {
