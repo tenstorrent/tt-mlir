@@ -43,6 +43,15 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
          targetMemorySpace == ::tt::target::MemorySpace::SystemMMIO;
 }
 
+void updateTensorPool(ProgramTensorPool &tensorPool,
+                      const ::ttnn::Tensor &tensor, uint32_t outputGlobalId) {
+  if (tensorPool.isUserOutput(outputGlobalId)) {
+    tensorPool.copyTensorToUserOutput(outputGlobalId, tensor);
+  } else {
+    tensorPool.insert_or_assign(outputGlobalId, tensor);
+  }
+}
+
 ::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef) {
   return ::tt::runtime::ttnn::utils::toTTNNDataType(
       tensorRef->desc()->layout()->memory_desc()->data_type());

@@ -24,13 +24,13 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   }
   std::variant<std::reference_wrapper<::ttnn::Device>,
                std::reference_wrapper<::ttnn::MeshDevice>>
-      deviceOrMesh = context.getDeviceOrMesh(op->device()->global_id());
+      targetDevice = context.getTargetDevice(op->device()->global_id());
   ::ttnn::Tensor out = std::visit(
-      [&](auto &&deviceOrMesh) -> ::ttnn::Tensor {
-        return ::ttnn::to_device(inputTensor, &(deviceOrMesh.get()),
+      [&](auto &&targetDevice) -> ::ttnn::Tensor {
+        return ::ttnn::to_device(inputTensor, &(targetDevice.get()),
                                  memoryConfig);
       },
-      deviceOrMesh);
+      targetDevice);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 

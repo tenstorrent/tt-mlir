@@ -48,10 +48,6 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
   ::ttnn::Tensor out =
       ::ttnn::full(shape, fillValue, outputDataType, outputLayout, outputDevice,
                    outputMemoryConfig);
-  if (tensorPool.isUserOutput(op->out()->global_id())) {
-    tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
-  } else {
-    tensorPool.insert_or_assign(op->out()->global_id(), out);
-  }
+  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
 }
 } // namespace tt::runtime::ttnn::operations::creation

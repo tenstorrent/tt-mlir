@@ -49,8 +49,8 @@ struct ProgramTensorPool {
     return liveTensors.erase(globalId);
   }
 
-  void copyTensorToUserOutput(const ::ttnn::Tensor &srcTensor,
-                              std::uint32_t outputGlobalId) {
+  void copyTensorToUserOutput(std::uint32_t outputGlobalId,
+                              const ::ttnn::Tensor &srcTensor) {
     assert(liveTensors.contains(outputGlobalId));
     assert(isUserOutput(outputGlobalId));
     ::ttnn::Tensor &outputTensor = *liveTensors.at(outputGlobalId);
@@ -116,43 +116,41 @@ public:
   //
   // Sub Mesh Operations
   //
-  void addSubMesh(uint32_t globalId,
+  void addSubMesh(uint32_t meshId,
                   std::shared_ptr<::ttnn::MeshDevice> subMesh) {
-    auto [it, inserted] = subMeshes.try_emplace(globalId, subMesh);
+    auto [it, inserted] = subMeshes.try_emplace(meshId, subMesh);
     assert(inserted && "Submesh already exists");
   }
 
-  ::ttnn::MeshDevice &getSubMesh(uint32_t globalId) {
-    assert(subMeshes.contains(globalId));
-    return *subMeshes.at(globalId);
+  ::ttnn::MeshDevice &getSubMesh(uint32_t meshId) {
+    assert(subMeshes.contains(meshId));
+    return *subMeshes.at(meshId);
   }
 
-  size_t subMeshSize(uint32_t globalId) const {
-    assert(subMeshes.contains(globalId));
-    return subMeshes.at(globalId)->num_devices();
+  size_t subMeshSize(uint32_t meshId) const {
+    assert(subMeshes.contains(meshId));
+    return subMeshes.at(meshId)->num_devices();
   }
 
-  ::ttnn::Device &getDeviceFromSubMesh(uint32_t globalId,
-                                       int physicalDeviceId) {
-    assert(subMeshes.contains(globalId));
-    auto &subMesh = *subMeshes.at(globalId);
+  ::ttnn::Device &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId) {
+    assert(subMeshes.contains(meshId));
+    auto &subMesh = *subMeshes.at(meshId);
     return *subMesh.get_device(physicalDeviceId);
   }
 
-  ::ttnn::Device &getDeviceIndexFromSubMesh(uint32_t globalId,
-                                            int deviceIndex) {
-    assert(subMeshes.contains(globalId));
-    auto &subMesh = *subMeshes.at(globalId);
+  ::ttnn::Device &getDeviceIndexFromSubMesh(uint32_t meshId, int deviceIndex) {
+    assert(subMeshes.contains(meshId));
+    auto &subMesh = *subMeshes.at(meshId);
     return *subMesh.get_device_index(deviceIndex);
   }
 
   std::variant<std::reference_wrapper<::ttnn::Device>,
                std::reference_wrapper<::ttnn::MeshDevice>>
-  getDeviceOrMesh(uint32_t globalId) {
-    assert(subMeshes.contains(globalId));
-    auto &subMesh = *subMeshes.at(globalId);
+  getTargetDevice(uint32_t meshId) {
+    assert(subMeshes.contains(meshId));
+    auto &subMesh = *subMeshes.at(meshId);
     if (subMesh.num_devices() == 1) {
-      return std::ref(getDeviceIndexFromSubMesh(globalId, 0));
+      return std::ref(getDeviceIndexFromSubMesh(meshId, 0));
     }
     return std::ref(subMesh);
   }
@@ -170,7 +168,7 @@ private:
   ::ttnn::MeshDevice *parentMesh = nullptr;
 
   // Contains subMeshes of the parentMesh that are used by the program
-  // Will be populated by get_device ops
+  // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
 };
 } // namespace tt::runtime::ttnn

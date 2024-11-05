@@ -7,7 +7,6 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
-
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::FromDeviceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -17,11 +16,6 @@ void run(const ::tt::target::ttnn::FromDeviceOp *op, ProgramContext &context) {
              "Calling ttnn::from_device on a host tensor");
 
   ::ttnn::Tensor out = ::ttnn::from_device(inputTensor);
-
-  if (tensorPool.isUserOutput(op->out()->global_id())) {
-    tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
-  } else {
-    tensorPool.insert_or_assign(op->out()->global_id(), out);
-  }
+  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
 }
 } // namespace tt::runtime::ttnn::operations::layout

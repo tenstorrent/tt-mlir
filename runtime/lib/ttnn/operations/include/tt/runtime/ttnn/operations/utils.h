@@ -21,6 +21,9 @@ bool isTilized(const ::tt::target::TensorRef *tensorRef);
 
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef);
 
+void updateTensorPool(ProgramTensorPool &tensorPool,
+                      const ::ttnn::Tensor &tensor, uint32_t outputGlobalId);
+
 ::tt::target::MemorySpace
 getMemorySpace(const ::tt::target::TensorRef *tensorRef);
 
