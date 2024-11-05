@@ -145,8 +145,10 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
         op->getLoc(),
-        mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType())
-            .getPointee(),
+        emitc::LValueType::get(
+            op.getContext(),
+            mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType())
+                .getPointee()),
         adaptor.getL1Ptr(), adaptor.getOffset());
 
     // Cast rhs to volatile tt_l1_ptr uint32_t to match the pointed type.

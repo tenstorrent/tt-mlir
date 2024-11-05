@@ -1194,8 +1194,6 @@ public:
     assert(mlir::isa<ttir::YieldOp>(*users.begin()));
     assert(computeBlock->getNumArguments() > numDPSInputs);
 
-    llvm::errs() << "lowering block, numDPSInputs: " << numDPSInputs << "\n";
-
     auto outputMemref = mlir::cast<ttkernel::CBType>(
                             computeBlock->getArgument(numDPSInputs).getType())
                             .getMemref()
@@ -1220,10 +1218,6 @@ public:
     OpBuilder builder(computeBlock, computeBlock->begin());
     Operation &arithOrMathOp = operations.front();
     auto cbOperands = computeBlock->getArguments();
-
-    for (auto operand : cbOperands) {
-      llvm::errs() << "operand: " << operand << "\n";
-    }
 
     buildInitSection(arithOrMathOp, builder, cbOperands, kernelReduceDim,
                      numDPSInputs);
