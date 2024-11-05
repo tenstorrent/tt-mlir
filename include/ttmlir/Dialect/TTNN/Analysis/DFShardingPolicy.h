@@ -17,6 +17,8 @@ namespace mlir::tt::ttnn {
 class DFShardingPolicy : public MemoryLayoutAnalysisPolicy {
 private:
   std::unordered_set<Edge> overrideReshardEdges;
+  void pickOpShardLayouts(ShardSolver &shardSolver,
+                          const L1ChainConfig &l1ChainConfig);
 
 public:
   DFShardingPolicy(

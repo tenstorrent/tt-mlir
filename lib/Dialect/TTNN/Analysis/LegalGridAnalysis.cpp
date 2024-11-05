@@ -165,7 +165,7 @@ void LegalGridAnalysis::analysisImplementation() {
   // Height Sharded
   // TODO(odjuricic): Missing affine mapping to actual grid. Need to check with
   // runtime implementation on what to produce here.
-  for (auto height = 2; height <= numCores; ++height) {
+  for (auto height = 1; height <= numCores; ++height) {
     shardedResults.push_back(
         shardedBase
             .withGrid(op->getContext(), tensorType,
@@ -175,7 +175,7 @@ void LegalGridAnalysis::analysisImplementation() {
   }
 
   // Width Sharded
-  for (auto width = 2; width <= numCores; ++width) {
+  for (auto width = 1; width <= numCores; ++width) {
     shardedResults.push_back(
         shardedBase
             .withGrid(op->getContext(), tensorType,
@@ -196,8 +196,8 @@ void LegalGridAnalysis::analysisImplementation() {
   // Pick top largest sharded grids.
   std::sort(shardedResults.begin(), shardedResults.end(),
             [](tt::LayoutAttr a, tt::LayoutAttr b) {
-              return a.getGrid().getShape()[0] * a.getGrid().getShape()[1] >
-                     b.getGrid().getShape()[0] * b.getGrid().getShape()[1];
+              return a.getGrid().getNumUsedCores() >
+                     b.getGrid().getNumUsedCores();
             });
 
   analysisResult.insert(
