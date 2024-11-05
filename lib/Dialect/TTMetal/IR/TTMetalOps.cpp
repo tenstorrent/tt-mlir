@@ -89,8 +89,9 @@ namespace mlir::tt::ttmetal {
   // Assert block inputs are CBs
   for (auto &region : getRegions()) {
     for (auto arg : region.getArguments()) {
-      if (not mlir::isa<ttkernel::CBType>(arg.getType())) {
-        return emitOpError("Block inputs must be CBType");
+      if (!(mlir::isa<ttkernel::CBType>(arg.getType()) ||
+            mlir::isa<ttkernel::SemaphoreType>(arg.getType()))) {
+        return emitOpError("Block inputs must be CBType or SemType");
       }
     }
   }

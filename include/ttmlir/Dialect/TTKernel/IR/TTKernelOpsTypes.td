@@ -104,9 +104,26 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
+def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
+  let summary = "TTKernel semaphore";
+  let description = "Semaphore type in TTKernel dialect";
+  let parameters = (ins "uint32_t":$initial_value);
+  let assemblyFormat = "`<` $initial_value `>`";
+}
+
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
     let summary = "TTKernel noc address";
     let description = "Noc address type in TTKernel dialect";
+}
+
+def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
+    let summary = "TTKernel l1 address";
+    let description = "L1 address type in TTKernel dialect";
+}
+
+def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
+    let summary = "TTKernel l1 address pointer";
+    let description = "L1 pointer address type in TTKernel dialect";
 }
 
 def TTKernel_ThreadTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ThreadType, "thread"> {
