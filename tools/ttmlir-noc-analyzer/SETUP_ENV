@@ -1,0 +1,5 @@
+export TTMLIR_TOOLCHAIN_DIR=/localdev/bgrady/tt-mlir/ttmlir-build/
+source env/activate
+
+export TTMLIR_BIN_PATH="$PWD/build/bin/"
+PATH=$PATH:$TTMLIR_BIN_PATH
