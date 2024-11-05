@@ -26,6 +26,8 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#define NOC_PERF
+
 using namespace mlir;
 using namespace tt;
 
@@ -248,6 +250,24 @@ public:
       resultTypes.push_back(ct);
     }
 
+    #ifdef NOC_PERF
+    if (llvm::isa<ttkernel::NocAsyncReadOp>(op) 
+        || llvm::isa<ttkernel::NocAsyncWriteOp>(op) 
+        || llvm::isa<ttkernel::NocAsyncReadBarrierOp>(op) 
+        || llvm::isa<ttkernel::NocAsyncWriteBarrierOp>(op)) {
+      auto loc = op.getLoc();
+      rewriter.create<emitc::VerbatimOp>(loc, "{DeviceZoneScopedN(\"" + getOpName(op).str() + "\");");
+      rewriter.create<emitc::CallOpaqueOp>(
+          loc, resultTypes, getOpName(op), nullptr, getTemplateArgs(op),
+          adaptor.getOperands());
+      auto closingOp = rewriter.create<emitc::VerbatimOp>(loc, "}");
+
+      rewriter.replaceOp(op, closingOp);
+
+      return success();
+    }
+    #endif
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultTypes, getOpName(op), nullptr, getTemplateArgs(op),
         adaptor.getOperands());
@@ -371,7 +391,9 @@ public:
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
     if (kernelConfig.getThreadType() == ttkernel::ThreadType::Noc) {
-
+      // #ifdef NOC_PERF
+      // builder->create<emitc::IncludeOp>(loc, "kernel_profiler.hpp", false);
+      // #endif
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
