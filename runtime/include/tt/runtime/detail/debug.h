@@ -6,6 +6,10 @@
 #define TT_RUNTIME_DETAIL_DEBUG_H
 
 #include <ostream>
+#include <pybind11/embed.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+namespace py = pybind11;
 
 namespace tt::runtime::debug {
 
@@ -13,7 +17,7 @@ struct Env {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Env const &
 #else
-  constexpr static Env
+  static Env
 #endif
   get(bool loadKernelsFromDisk = false, bool enableAsyncTTNN = false)
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
@@ -26,9 +30,19 @@ struct Env {
 
   bool loadKernelsFromDisk;
   bool enableAsyncTTNN;
+  static py::module callback_module;
+  static std::string callback_name;
+
+  static void register_callback(py::module callback_module,
+                                std::string callback_name) {
+    callback_module = callback_module;
+    callback_name = callback_name;
+  }
+
+  static void callback() { callback_module.attr(callback_name)(); }
 
 private:
-  constexpr Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
+  Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
       : loadKernelsFromDisk(loadKernelsFromDisk),
         enableAsyncTTNN(enableAsyncTTNN) {}
 };

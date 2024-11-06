@@ -1,3 +1,6 @@
+find_package(Python3 COMPONENTS Development REQUIRED)
+find_package(pybind11 REQUIRED)
+
 if (TTMLIR_ENABLE_RUNTIME)
   if (TT_RUNTIME_ENABLE_TTNN)
     add_subdirectory(ttnn)
@@ -22,6 +25,7 @@ target_include_directories(TTBinary
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+    ${Python3_INCLUDE_DIRS}
 )
 add_dependencies(TTBinary FBS_GENERATION)
 
@@ -47,6 +51,11 @@ target_include_directories(TTRuntime
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
+
+target_include_directories(TTRuntimeTTNN PUBLIC )
+target_link_libraries(TTRuntimeTTNN PUBLIC $ENV{TTMLIR_PYTHON_VERSION} pybind11::pybind11 pybind11::embed)
+target_include_directories(TTRuntimeTTMetal PUBLIC )
+target_link_libraries(TTRuntimeTTMetal PUBLIC $ENV{TTMLIR_PYTHON_VERSION} pybind11::pybind11 pybind11::embed)
 
 target_link_libraries(TTRuntime
   PRIVATE
