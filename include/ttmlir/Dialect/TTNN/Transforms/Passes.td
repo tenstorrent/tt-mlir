@@ -21,4 +21,11 @@ def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNValidateGraphCapture: Pass<"ttnn-validate-graph-capture", "::mlir::ModuleOp"> {
+  let summary = "Validate op graph with graph capture.";
+  let description = [{
+    This pass validates that the produced TTNN op graph is valid using graph capture.
+  }];
+}
+
 #endif

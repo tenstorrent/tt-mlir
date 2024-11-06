@@ -173,6 +173,13 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
+            name="--use-graph-capture",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="use graph capture to simulate workload run",
+        )
+        Run.register_arg(
             name="binary",
             type=str,
             default="",
@@ -450,6 +457,7 @@ class Run:
                                     program_index,
                                     total_inputs[loop],
                                     total_outputs[loop],
+                                    self["--use-graph-capture"],
                                 )
 
                                 self.logging.debug(

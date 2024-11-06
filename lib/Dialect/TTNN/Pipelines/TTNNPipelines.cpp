@@ -74,6 +74,11 @@ void createTTNNPipelineDeallocPass(
   pm.addPass(createTTNNDeallocate());
 }
 
+void createTTNNPipelineValidateGraphCapturePass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNValidateGraphCapture());
+}
+
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
                                             std::string options) {
   auto optionsStruct =
@@ -109,6 +114,13 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
+void createTTNNPipelineValidateGraphCapturePassFromString(OpPassManager &pm,
+                                                          std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineValidateGraphCapturePass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
@@ -116,6 +128,10 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineAnalysisPasses(pm, options);
   createTTNNPipelineLayoutDecompositionPass(pm, options);
   createTTNNPipelineDeallocPass(pm, options);
+
+  if (options.graphCaptureValidationEnabled) {
+    createTTNNPipelineValidateGraphCapturePass(pm, options);
+  }
 }
 
 //===----------------------------------------------------------------------===//

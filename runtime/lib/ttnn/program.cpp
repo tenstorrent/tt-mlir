@@ -28,11 +28,16 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttnn/graph/graph_processor.hpp"
+#include <exception>
+#include <memory>
+#include <optional>
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
-struct ProgramExecutor {
+class ProgramExecutor {
+public:
   ProgramExecutor(const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
                   const std::unordered_set<uint32_t> &programOutputs,
@@ -40,7 +45,9 @@ struct ProgramExecutor {
       : context(ProgramContext(liveTensors, programInputs, programOutputs,
                                meshDevice)) {}
 
-  void execute(const ::tt::target::ttnn::Program *program) {
+  virtual ~ProgramExecutor() = default;
+
+  virtual void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
@@ -50,10 +57,47 @@ struct ProgramExecutor {
 
   ProgramContext &getContext() { return context; }
 
-private:
+protected:
   ProgramContext context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
+};
+
+class GraphCaptureProgramExecutor : public ProgramExecutor {
+public:
+  using ProgramExecutor::ProgramExecutor;
+
+  void execute(const ::tt::target::ttnn::Program *program) override {
+    const auto execute_impl = [&]() {
+      unsigned int opIndex = 0;
+      for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+        LOG_DEBUG(LogType::LogRuntimeTTNN,
+                  "Executing operation: ", op->debug_info()->c_str());
+
+        try {
+          runOperation(op);
+        } catch (const std::exception &ex) {
+          // TODO(mbezulj): Replace opIndex with loc attribute of the operation
+          // which failed (loc attribute needs to be propagated to the flat
+          // buffer).
+          std::stringstream ss;
+          ss << "Failed on op " << std::to_string(opIndex) << "( "
+             << op->debug_info()->c_str() << " ) "
+             << " because of: " << ex.what();
+          throw std::runtime_error(ss.str());
+        }
+
+        ++opIndex;
+      }
+
+      return std::nullopt;
+    };
+
+    ::ttnn::graph::GraphProcessor::begin_graph_capture(
+        tt::tt_metal::IGraphProcessor::RunMode::NO_DISPATCH);
+    execute_impl();
+    ::ttnn::graph::GraphProcessor::GraphProcessor::end_graph_capture();
+  }
 };
 
 void ProgramExecutor::runEltwiseOperation(
@@ -176,10 +220,25 @@ static bool handleNopProgram(::tt::target::ttnn::Program const *program,
   return isNop;
 }
 
+std::unique_ptr<ProgramExecutor>
+makeProgramExecutor(const TensorMap &liveTensors,
+                    const std::unordered_set<uint32_t> &programInputs,
+                    const std::unordered_set<uint32_t> &programOutputs,
+                    ::ttnn::MeshDevice *meshDevice, bool useGraphCapture) {
+  if (useGraphCapture) {
+    return std::make_unique<GraphCaptureProgramExecutor>(
+        liveTensors, programInputs, programOutputs, meshDevice);
+  }
+
+  return std::make_unique<ProgramExecutor>(liveTensors, programInputs,
+                                           programOutputs, meshDevice);
+}
+
 void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs) {
+                std::vector<::ttnn::Tensor *> const &outputs,
+                bool useGraphCapture) {
   if (handleNopProgram(program, inputs, outputs)) {
     return;
   }
@@ -205,9 +264,9 @@ void runProgram(::ttnn::MeshDevice &meshDevice,
     LOG_ASSERT(inserted, "Duplicate output tensor");
     programOutputs.emplace(output->global_id());
   }
-  ProgramExecutor executor(liveTensors, programInputs, programOutputs,
-                           &meshDevice);
-  executor.execute(program);
+  std::unique_ptr<ProgramExecutor> executor = makeProgramExecutor(
+      liveTensors, programInputs, programOutputs, &meshDevice, useGraphCapture);
+  executor->execute(program);
 }
 
 } // namespace tt::runtime::ttnn

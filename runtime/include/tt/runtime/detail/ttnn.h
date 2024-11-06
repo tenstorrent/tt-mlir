@@ -98,14 +98,15 @@ void deallocateBuffers(Device device);
 
 Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
+             std::vector<Tensor> const &outputs, bool useGraphCapture);
 
 void wait(Event event);
 
 void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs);
+                std::vector<::ttnn::Tensor *> const &outputs,
+                bool useGraphCapture);
 
 } // namespace tt::runtime::ttnn
 

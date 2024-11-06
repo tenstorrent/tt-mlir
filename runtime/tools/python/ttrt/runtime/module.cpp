@@ -66,7 +66,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
-        py::arg("outputs"), "Submit a binary for execution");
+        py::arg("outputs"), py::arg("use_graph_capture"),
+        "Submit a binary for execution");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
 
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
