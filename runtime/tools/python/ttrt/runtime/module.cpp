@@ -59,6 +59,24 @@ PYBIND11_MODULE(_C, m) {
             shape, stride, itemsize, dataType);
       },
       "Create a tensor with borrowed memory");
+  m.def(
+      "create_multi_device_tensor",
+      [](std::vector<std::uintptr_t> &ptrs,
+         std::vector<std::uint32_t> const &shape,
+         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType,
+         std::unordered_map<std::string, std::string> const &strategy) {
+        std::vector<std::shared_ptr<void>> data;
+        data.resize(ptrs.size());
+        std::transform(ptrs.begin(), ptrs.end(), data.begin(),
+                       [](std::uintptr_t ptr) {
+                         return ::tt::runtime::utils::unsafe_borrow_shared(
+                             reinterpret_cast<void *>(ptr));
+                       });
+        return tt::runtime::createTensor(data, shape, stride, itemsize,
+                                         dataType, strategy);
+      },
+      "Create a multi-device host tensor with owned memory");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),

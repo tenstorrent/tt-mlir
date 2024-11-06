@@ -82,18 +82,18 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
              std::vector<std::uint32_t> const &shape,
              std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
              ::tt::target::DataType dataType,
-             std::unordered_map<std::string, std::string> const &metadata) {
+             std::unordered_map<std::string, std::string> const &stratagy) {
   std::vector<::ttnn::Tensor> tensorShards;
   for (auto &dataShard : data) {
     tensorShards.push_back(
         createOwnedTensor(dataShard, shape, stride, itemsize, dataType));
   }
-  DistributedTensorConfig strategy =
-      ::tt::tt_metal::get_distributed_tensor_config(metadata);
+  DistributedTensorConfig distributionStrategy =
+      ::tt::tt_metal::get_distributed_tensor_config(stratagy);
   std::shared_ptr<::ttnn::Tensor> tensor = std::make_shared<::ttnn::Tensor>(
       ::ttnn::distributed::api::create_multi_device_tensor(
           tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
-          strategy));
+          distributionStrategy));
   std::shared_ptr<std::vector<std::shared_ptr<void>>> borrowedData =
       std::make_shared<std::vector<std::shared_ptr<void>>>(data);
   return Tensor(tensor, borrowedData, DeviceRuntime::TTNN);
