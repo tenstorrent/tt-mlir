@@ -78,10 +78,8 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<bool> memReconfigEnabled{
       *this, "memreconfig-enabled",
-      llvm::cl::desc("Memory layout reconfiguration pass. Temp disabled till "
-                     "we support all types "
-                     "of shard specs."),
-      llvm::cl::init(false)};
+      llvm::cl::desc("Memory layout reconfiguration pass."),
+      llvm::cl::init(true)};
 
   // Specify policy for memory layout analysis.
   //

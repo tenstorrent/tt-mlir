@@ -289,6 +289,7 @@ public:
       const std::unordered_set<Edge> &overrideReshardEdges);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, tt::LayoutAttr const &layout);
+  static bool supportsInterleavedInputShardedOutput(Operation *op);
 
 private:
   const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> *legalLayouts;
