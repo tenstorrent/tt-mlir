@@ -1550,7 +1550,7 @@ public:
       ttmetal::DispatchOp &metalDispatch,
       ArrayRef<Type> rewrittenBlockArgumentTypes) const {
 
-    // TODO(radenko) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
+    // TODO(1159) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
     // (& other data movement logic) into common place
     int dmThreadIdx = 1;
     assert(!streamedOperands.empty());
@@ -1717,6 +1717,17 @@ public:
                op.getIndexingMaps(), op.getInputs().size());
 
     addSyncronizationForDataMovement(op, tensixBlock, streamedOperands);
+
+    // Regions for dispatch op are allocated up-front, but some of them may be
+    // empty at the end of lowering due to no data movement requirements. Insert
+    // return op in those regions.
+    for (Region &reg : metalDispatch->getRegions()) {
+      if (reg.empty()) {
+        auto &block = reg.emplaceBlock();
+        OpBuilder builder = OpBuilder::atBlockEnd(&block);
+        builder.create<ttkernel::ReturnOp>(op.getLoc());
+      }
+    }
 
     rewriter.replaceOp(op, metalDispatch);
 
