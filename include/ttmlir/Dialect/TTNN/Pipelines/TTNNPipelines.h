@@ -8,10 +8,6 @@
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
-#include <cstdint>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/CommandLine.h>
 
 namespace mlir::tt::ttnn {
 
