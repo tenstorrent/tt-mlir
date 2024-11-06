@@ -34,4 +34,10 @@ def TT_Dialect : Dialect {
 class TT_Op<string mnemonic, list<Trait> traits = []> :
         Op<TT_Dialect, mnemonic, traits>;
 
+//===----------------------------------------------------------------------===//
+// Aux TT definitions.
+//===----------------------------------------------------------------------===//
+
+def TT_Bool : TypeAlias<I1, "Alias for boolean which is a 1-bit integer">;
+
 #endif

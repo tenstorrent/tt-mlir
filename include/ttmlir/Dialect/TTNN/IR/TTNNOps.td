@@ -17,6 +17,17 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
+//===----------------------------------------------------------------------===//
+// TTNN top level ops.
+//===----------------------------------------------------------------------===//
+
+class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+    }];
+}
+
 def TTNN_GetDeviceOp : TTNN_Op<"get_device"> {
     let summary = "Get Device op.";
     let description = [{
@@ -98,13 +109,37 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_IfOp : TTNN_Op<"if"> {
+    let summary = "if-then-else operation";
+    let description = [{
+        Produces the output from executing exactly one branch from `then_branch` or
+        `else_branch` depending on the value of bool `condition`.
 
-class TTNN_NamedDPSOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, !listconcat(traits, [DestinationStyleOpInterface])> {
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+        Always has exactly one region for `then_branch` and one for `else_branch`,
+        like torch and stablehlo do (which is different than scf implementation which
+        has optional `else_branch` region). Region blocks don't take any args.
+
+        Example:
+        %result = "ttnn.if"(%condition) ({
+            %result_then_branch = ...
+            "return"(%result_then_branch) : (tensor<i32>) -> ()
+        }, {
+            %result_else_branch = ...
+            "return"(%result_else_branch) : (tensor<i32>) -> ()
+        }) : (tensor<i1>) -> tensor<i32>
     }];
+
+    let arguments = (ins TT_Bool:$condition);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let regions = (region SizedRegion<1>:$then_branch,
+                          SizedRegion<1>:$else_branch);
+
+    let hasVerifier = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// TTNN named DPS ops.
+//===----------------------------------------------------------------------===//
 
 class TTNN_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTNN_NamedDPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments])> {

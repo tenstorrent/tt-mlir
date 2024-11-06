@@ -149,6 +149,34 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
     let arguments = (ins AnyRankedTensor:$result);
 }
 
+def TTIR_IfOp : TTIR_Op<"if"> {
+    let summary = "if-then-else operation";
+    let description = [{
+        Produces the output from executing exactly one branch from `then_branch` or
+        `else_branch` depending on the value of bool `condition`.
+
+        Always has exactly one region for `then_branch` and one for `else_branch`,
+        like torch and stablehlo do (which is different than scf implementation which
+        has optional `else_branch` region). Region blocks don't take any args.
+
+        Example:
+        %result = "ttir.if"(%condition) ({
+            %result_then_branch = ...
+            "return"(%result_then_branch) : (tensor<i32>) -> ()
+        }, {
+            %result_else_branch = ...
+            "return"(%result_else_branch) : (tensor<i32>) -> ()
+        }) : (tensor<i1>) -> tensor<i32>
+    }];
+
+    let arguments = (ins TT_Bool:$condition);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let regions = (region SizedRegion<1>:$then_branch,
+                          SizedRegion<1>:$else_branch);
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//

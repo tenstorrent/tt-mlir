@@ -27,6 +27,8 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
+namespace mlir::tt::ttir {
+
 //===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
@@ -1055,3 +1057,46 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
   // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "max");
 }
+
+//===----------------------------------------------------------------------===//
+// IfOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::IfOp::verify() {
+  auto &then_branch = getThenBranch();
+  auto &else_branch = getElseBranch();
+
+  // Ensure that the `then_branch` and `else_branch` regions are non-empty.
+  if (then_branch.empty()) {
+    return emitOpError("then_branch region cannot be empty");
+  }
+
+  if (else_branch.empty()) {
+    return emitOpError("else_branch region cannot be empty");
+  }
+
+  // Ensure that the blocks in `thenBranch` and `elseBranch` have no arguments.
+  auto &then_blocks = then_branch.getBlocks();
+  if (then_blocks.size() > 1) {
+    return emitOpError("then_branch can have only one region block");
+  }
+
+  auto &then_block = *then_blocks.begin();
+  if (!then_block.getArguments().empty()) {
+    return emitOpError("then_block block should have no arguments");
+  }
+
+  auto &else_blocks = else_branch.getBlocks();
+  if (else_blocks.size() > 1) {
+    return emitOpError("else_branch can have only one region block");
+  }
+
+  auto &else_block = *else_blocks.begin();
+  if (!else_block.getArguments().empty()) {
+    return emitOpError("else_block block should have no arguments");
+  }
+
+  return success();
+}
+
+} // namespace mlir::tt::ttir

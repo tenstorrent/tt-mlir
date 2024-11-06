@@ -269,6 +269,33 @@ private:
   }
 };
 
+class IfOpConversionPattern : public OpConversionPattern<ttir::IfOp> {
+public:
+  using OpConversionPattern<ttir::IfOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::IfOp op, ttir::IfOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::IfOp>(
+        op, resultTypes, adaptor.getCondition());
+
+    // Simply clone the regions (no need for argument mapping since blocks don't
+    // accept any args).
+    rewriter.cloneRegionBefore(op.getThenBranch(), newOp.getThenBranch(),
+                               newOp.getThenBranch().begin());
+    rewriter.cloneRegionBefore(op.getElseBranch(), newOp.getElseBranch(),
+                               newOp.getElseBranch().begin());
+
+    return success();
+  }
+};
+
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -857,6 +884,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns
       .add<TensorEmptyConversionPattern,
            ToLayoutOpConversionPattern,
+           IfOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
