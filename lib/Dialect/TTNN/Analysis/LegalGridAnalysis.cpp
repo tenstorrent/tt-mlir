@@ -6,6 +6,8 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn {
 
@@ -84,12 +86,21 @@ bool LegalGridAnalysis::applyOverrides() {
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   tt::LayoutAttr layout = mlir::cast<tt::LayoutAttr>(tensorType.getEncoding());
 
+  GridAttr grid =
+      GridAttr::get(op->getContext(), ArrayRef<int64_t>(override.grid));
+
+  // Create element type for the new layout.
+  Type elementType =
+      utils::createRowMajorTypeFromDtype(op->getContext(), override.dataType);
+  if (override.memoryLayout == Layout::Tile) {
+    elementType = TileType::get(op->getContext(), elementType);
+  }
+
   analysisResult.push_back(
-      layout.withMemorySpace(op->getContext(), override.memorySpace)
-          .withMemoryLayout(op->getContext(), override.memoryLayout)
-          .withGrid(op->getContext(), tensorType,
-                    GridAttr::get(op->getContext(),
-                                  ArrayRef<int64_t>(override.grid))));
+      layout.withGrid(op->getContext(), tensorType, grid)
+          .withMemorySpace(op->getContext(), override.memorySpace)
+          .withMemoryLayout(op->getContext(), override.tensorMemoryLayout)
+          .withElementType(op->getContext(), elementType));
 
   return true;
 }

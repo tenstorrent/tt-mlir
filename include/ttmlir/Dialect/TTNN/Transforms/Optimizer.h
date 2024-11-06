@@ -103,14 +103,14 @@ public:
 
 protected:
   ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
-                       mlir::tt::InputLayoutOverrideParser>
+                       mlir::tt::ttnn::InputLayoutOverrideParser>
       overrideInputLayout{
           *this, "insert-memreconfig",
           ::llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
           ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
   ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
-                       mlir::tt::OutputLayoutOverrideParser>
+                       mlir::tt::ttnn::OutputLayoutOverrideParser>
       overrideOutputLayout{
           *this, "override-output-layout",
           ::llvm::cl::desc("Override output tensor layout for specific ops."),

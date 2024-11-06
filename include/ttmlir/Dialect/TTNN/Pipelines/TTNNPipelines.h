@@ -7,7 +7,7 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
 namespace mlir::tt::ttnn {
 
@@ -46,17 +46,19 @@ struct TTIRToTTNNBackendPipelineOptions
   // The format is a comma separated list of op names equal to the output layout
   // params separated by ":"
   //
-  // op_name=grid_size:memory_space:tensor_memory_layout
+  // op_name=grid_size:memory_space:tensor_memory_layout:memory_layout:data_type
   //
   // * grid_size=2x2
   // * memory_space: system, mmio, dram or l1
   // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
   //   width_sharded or block_sharded
+  // * memory_layout: row_major or tile
+  // * data_type: f32, f16, bf16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
+  //   bfp_bf2, u32, u16, u8
   //
-  // Full Example: "op1=2x2:dram:interleaved,op2=4x4:l1:block_sharded"
+  // Full Example:
+  // "op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16"
   //
-  // This will set the output layout for op1 to grid 2x2,dram,interleaved and
-  // op2 4x4,l1,block_sharded.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
