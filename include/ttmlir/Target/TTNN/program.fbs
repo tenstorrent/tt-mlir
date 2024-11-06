@@ -49,13 +49,15 @@ table EmptyOp {
   num_shards: uint32;
   device: tt.target.DeviceRef;         // optional
   memcfg: tt.target.MemoryConfigDesc;  // optional
-  strategy: tt.target.DistributionStrategy; // optional
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 
 table FullOp {
   device: tt.target.DeviceRef;
   fill_value: float;
+  num_shards: uint32;
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 

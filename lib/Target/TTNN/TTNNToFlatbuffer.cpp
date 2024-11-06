@@ -245,8 +245,16 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
+  uint32_t numShards = 1;
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
+      numShards, strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }
