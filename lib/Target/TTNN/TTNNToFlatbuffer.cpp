@@ -208,6 +208,13 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
 
+  uint32_t numShards = 1;
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   auto output = getOperandThroughDPSOps(op.getResult());
 
   // If the device is not set, we create on host
@@ -215,7 +222,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   if (!op.getDevice()) {
     return ::tt::target::ttnn::CreateEmptyOp(
         *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-        /* device */ 0, /* memcfg */ 0,
+        numShards, /* device */ 0, /* memcfg */ 0, strategy,
         cache.getOrCreate(output, tensorValueToFlatbuffer,
                           kHostAllocatedAddress, kHostAllocatedSize));
   }
@@ -227,7 +234,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-      cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+      numShards, cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+      strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }

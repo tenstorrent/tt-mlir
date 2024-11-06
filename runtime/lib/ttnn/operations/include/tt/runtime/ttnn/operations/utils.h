@@ -43,5 +43,8 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
 createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
                    const ::tt::target::TensorRef *tensorRef);
 
+::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
+    const ::tt::target::DistributionStrategy *strategy);
+
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

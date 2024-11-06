@@ -427,12 +427,15 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
   ::tt::target::DistributedTensorConfig distributionType =
       ::tt::target::DistributedTensorConfig::NONE;
   ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   return ::tt::target::CreateLayoutDescDirect(
       *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
       &coreRangeSet,
       cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
                         layoutAttr.getMemLayout()),
-      distributionType, distribution);
+      strategy);
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>

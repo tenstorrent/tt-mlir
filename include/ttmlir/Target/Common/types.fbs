@@ -108,6 +108,10 @@ union DistributedTensorConfig {
   AllGatherTensor
 }
 
+table DistributionStrategy {
+  strategy: DistributedTensorConfig;
+}
+
 table MemoryDesc {
   shape: [int];
   tile_shape: Dim2d;
@@ -122,7 +126,7 @@ table LayoutDesc {
   oob_val: OOBVal;
   core_range_set: [Dim2dRange];
   memory_desc: MemoryDesc;
-  strategy: DistributedTensorConfig;
+  strategy: DistributionStrategy;
 }
 
 table TensorDesc {
