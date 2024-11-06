@@ -503,9 +503,10 @@ public:
 
     if (valueAttr.isSplat()) {
       Value device = getOrInsertDevice(rewriter, op);
-      float fillValue = valueAttr.getElementType().isInteger()
-                            ? static_cast<float>(valueAttr.getSplatValue<int>())
-                            : valueAttr.getSplatValue<float>();
+      float fillValue =
+          valueAttr.getElementType().isInteger()
+              ? getIntegerValue(valueAttr)
+              : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
       if (fillValue == 0) {
         rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
             op, this->getTypeConverter()->convertType(op.getType()), device);
@@ -535,6 +536,23 @@ private:
     }
 
     return success();
+  }
+
+  float getIntegerValue(mlir::ElementsAttr valueAttr) const {
+    size_t bitWidth = valueAttr.getElementType().getIntOrFloatBitWidth();
+    switch (bitWidth) {
+    case 1:
+      return static_cast<float>(valueAttr.getSplatValue<bool>());
+    case 8:
+      return static_cast<float>(valueAttr.getSplatValue<int8_t>());
+    case 16:
+      return static_cast<float>(valueAttr.getSplatValue<int16_t>());
+    case 32:
+      return static_cast<float>(valueAttr.getSplatValue<int>());
+    case 64:
+      return static_cast<float>(valueAttr.getSplatValue<int64_t>());
+    }
+    assert(false && "Unsupported integer type.");
   }
 };
 
