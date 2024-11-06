@@ -1,5 +1,6 @@
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
+include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/nlohmann_json/include)
 
 add_subdirectory(CAPI)
 add_subdirectory(Conversion)

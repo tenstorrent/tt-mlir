@@ -8,10 +8,23 @@
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <algorithm>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "nlohmann/json.hpp"
+#pragma clang diagnostic pop
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+
+#include <iostream>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNDECOMPOSELAYOUTS
+#define GEN_PASS_DEF_TTNNVALIDATEGRAPHCAPTURE
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -98,6 +111,66 @@ public:
   }
 };
 
+class TTNNValidateGraphCapture
+    : public impl::TTNNValidateGraphCaptureBase<TTNNValidateGraphCapture> {
+
+public:
+  using impl::TTNNValidateGraphCaptureBase<
+      TTNNValidateGraphCapture>::TTNNValidateGraphCaptureBase;
+
+  void runOnOperation() final {
+    const std::filesystem::path tmpDirPath =
+        std::filesystem::temp_directory_path();
+
+    const std::string mlirFilePath = tmpDirPath / "module.mlir";
+    const std::string flatBufferFilePath = tmpDirPath / "module.ttnn";
+    const std::string outReportPath = tmpDirPath / "module_graph_capture.json";
+
+    outputTTNNIRFile(mlirFilePath);
+    outputFlatBufferFile(mlirFilePath, flatBufferFilePath);
+    runGraphCapture(flatBufferFilePath, outReportPath);
+
+    if (!isValidGraphCaptureReport(outReportPath)) {
+      // TODO (nobradovic/odjuricic): Handle recompile.
+    }
+  }
+
+  void outputTTNNIRFile(const std::string &mlirFilePath) {
+    ModuleOp module = getOperation();
+    std::error_code _ec;
+    auto fs = llvm::raw_fd_stream(mlirFilePath, _ec);
+    module.print(fs);
+  }
+
+  void outputFlatBufferFile(const std::string &mlirFilePath,
+                            const std::string &flatBufferFilePath) {
+    const std::string cmd =
+        "./build/bin/ttmlir-translate --ttnn-to-flatbuffer " + mlirFilePath +
+        " -o " + flatBufferFilePath;
+
+    system(cmd.c_str());
+  }
+
+  void runGraphCapture(const std::string &flatBufferFilePath,
+                       const std::string &outReportFilePath) {
+    // TODO(mbezulj): Add required env variable to be able to run graph capture
+    // with mockup device and without kernel compilation.
+    const std::string cmd = "ttrt run " + flatBufferFilePath +
+                            " --use-graph-capture --result-file " +
+                            outReportFilePath;
+    system(cmd.c_str());
+  }
+
+  bool isValidGraphCaptureReport(const std::string &outReportPath) {
+    std::ifstream reportFile(outReportPath);
+    nlohmann::json jsonData = nlohmann::json::parse(reportFile);
+
+    return std::all_of(jsonData.begin(), jsonData.end(), [](auto &jsonElement) {
+      return jsonElement["result"] == "pass";
+    });
+  }
+};
+
 class TTNNDecomposeLayouts
     : public impl::TTNNDecomposeLayoutsBase<TTNNDecomposeLayouts> {
 
@@ -163,14 +236,11 @@ private:
 
     void print() const {
       llvm::errs() << "OpsToCreate{ \n"
-                   << "\t"
-                   << "CreateToDeviceOp: " << createToDeviceOp << "\n"
-                   << "\t"
-                   << "CreateFromDeviceOp: " << createFromDeviceOp << "\n"
-                   << "\t"
-                   << "CreateToLayoutOp: " << createToLayoutOp << "\n"
-                   << "\t"
-                   << "CreateTypecastOp: " << createTypecastOp << "\n"
+                   << "\t" << "CreateToDeviceOp: " << createToDeviceOp << "\n"
+                   << "\t" << "CreateFromDeviceOp: " << createFromDeviceOp
+                   << "\n"
+                   << "\t" << "CreateToLayoutOp: " << createToLayoutOp << "\n"
+                   << "\t" << "CreateTypecastOp: " << createTypecastOp << "\n"
                    << "\t"
                    << "CreateToMemoryConfigOp: " << createToMemoryConfigOp
                    << "\n"

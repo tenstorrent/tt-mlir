@@ -4,6 +4,7 @@ project(ttmlir-toolchain LANGUAGES CXX C)
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
 set(LLVM_PROJECT_VERSION "e813750354bbc08551cf23ff559a54b4a9ea1f29")
 set(STABLEHLO_VERSION "d40285ef3db0687e3f1e2bb0d716d748485a9739")
+set(NLOHMANN_JSON_VERSION "9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03")
 
 include(ExternalProject)
 
@@ -73,6 +74,15 @@ ExternalProject_Add(stablehlo
    PREFIX ${TTMLIR_TOOLCHAIN_DIR}
    GIT_REPOSITORY https://github.com/openxla/stablehlo.git
    GIT_TAG ${STABLEHLO_VERSION}
+   CONFIGURE_COMMAND ""
+   BUILD_COMMAND ""
+   INSTALL_COMMAND ""
+)
+
+ExternalProject_Add(nlohmann_json
+   PREFIX ${TTMLIR_TOOLCHAIN_DIR}
+   GIT_REPOSITORY https://github.com/nlohmann/json.git
+   GIT_TAG ${NLOHMANN_JSON_VERSION}
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""

@@ -163,7 +163,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             std::vector<Tensor> const &outputHandles, bool useGraphCapture) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
@@ -180,7 +180,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
   tt::runtime::ttnn::runProgram(meshDevice, fbb.programs()->Get(programIndex),
-                                inputs, outputs);
+                                inputs, outputs, useGraphCapture);
   return Event(nullptr, DeviceRuntime::TTNN);
 }
 

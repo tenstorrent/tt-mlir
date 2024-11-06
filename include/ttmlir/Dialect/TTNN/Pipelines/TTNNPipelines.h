@@ -110,6 +110,14 @@ struct TTIRToTTNNBackendPipelineOptions
 
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  // If this option is true, run the entire graph with graph capture to validate
+  // it.
+  //
+  Option<bool> graphCaptureValidationEnabled{
+      *this, "graph-capture-validation-enabled",
+      llvm::cl::desc("Enable TTNN graph validation using graph capture."),
+      llvm::cl::init(false)};
 };
 
 void createTTNNPipelineTTIRPasses(
@@ -127,6 +135,9 @@ void createTTNNPipelineLayoutDecompositionPass(
 void createTTNNPipelineDeallocPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
+void createTTNNPipelineValidateGraphCapturePass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
                                             std::string options);
 
@@ -141,6 +152,9 @@ void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
 
 void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
                                              std::string options);
+
+void createTTNNPipelineValidateGraphCapturePassFromString(OpPassManager &pm,
+                                                          std::string options);
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
