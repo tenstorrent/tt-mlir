@@ -14,8 +14,6 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   // TODO (jnie): Update this once we support multi device tensors
   // Investigate how to handle multi device in conv2d
-  ::ttnn::Device &device =
-      context.getDeviceFromSubMesh(op->device()->global_id(), 0);
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   DEBUG_ASSERT(input.is_allocated());
@@ -28,15 +26,22 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
   ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
-  ::ttnn::Tensor out =
-      std::get<0>(::ttnn::operations::conv::conv2d::conv2d<::ttnn::Device>(
-          input, weight, &device, op->in_channels(), op->out_channels(),
-          op->batch_size(), op->input_height(), op->input_width(),
-          {op->kernel_height(), op->kernel_width()},
-          {op->stride_height(), op->stride_width()},
-          {op->padding_height(), op->padding_width()},
-          {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
-          config, outMemConfig));
+  std::variant<std::reference_wrapper<::ttnn::Device>,
+               std::reference_wrapper<::ttnn::MeshDevice>>
+      targetDevice = context.getTargetDevice(op->device()->global_id());
+  ::ttnn::Tensor out = std::visit(
+      [&](auto &&targetDevice) -> ::ttnn::Tensor {
+        return std::get<0>(::ttnn::operations::conv::conv2d::conv2d(
+            input, weight, &(targetDevice.get()), op->in_channels(),
+            op->out_channels(), op->batch_size(), op->input_height(),
+            op->input_width(), {op->kernel_height(), op->kernel_width()},
+            {op->stride_height(), op->stride_width()},
+            {op->padding_height(), op->padding_width()},
+            {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
+            config, outMemConfig));
+      },
+      targetDevice);
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::conv

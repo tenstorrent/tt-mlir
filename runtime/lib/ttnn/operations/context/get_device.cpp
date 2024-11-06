@@ -43,12 +43,12 @@ createSubMesh(::ttnn::MeshDevice &parentMesh,
 void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
   ::ttnn::MeshDevice &meshDevice = context.getParentMesh();
   const ::tt::target::Dim2d *subMeshShape = op->mesh();
-  LOG_ASSERT(
-      subMeshShape->y() == 1,
-      "Expected mesh row = 1 for get device op, got: ", subMeshShape->y());
   const ::flatbuffers::Vector<uint32_t> *deviceIds = op->chip_ids();
   std::unordered_set<uint32_t> desiredDeviceIds(deviceIds->begin(),
                                                 deviceIds->end());
+  LOG_ASSERT(
+      subMeshShape->y() == 1,
+      "Expected mesh row = 1 for get device op, got: ", subMeshShape->y());
   LOG_ASSERT(desiredDeviceIds.size() == deviceIds->size(),
              "Duplicate device ids in get device op");
   std::shared_ptr<::ttnn::MeshDevice> subMesh =
