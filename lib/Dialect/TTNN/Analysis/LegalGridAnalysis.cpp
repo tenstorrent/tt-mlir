@@ -196,8 +196,7 @@ void LegalGridAnalysis::analysisImplementation() {
   // Pick top largest sharded grids.
   std::sort(shardedResults.begin(), shardedResults.end(),
             [](tt::LayoutAttr a, tt::LayoutAttr b) {
-              return a.getGrid().getNumUsedCores() >
-                     b.getGrid().getNumUsedCores();
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
             });
 
   analysisResult.insert(

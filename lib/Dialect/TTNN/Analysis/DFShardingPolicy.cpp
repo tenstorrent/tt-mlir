@@ -115,15 +115,19 @@ void DFShardingPolicy::run() {
 
             if (l1UsageValid) {
               // TODO(nobradovic)
-              // It seems that bunch of TTNN ops have constraints which prevent
+              // It seems that some TTNN ops have constraints which prevent
               // them from being sharded if both inputs are interleaved,
               // so proposal for now is starting a shard chain
-              // with reshard op(at later phase only when necessary based on op
-              // type) For this reason we also need to validate that currentOp
-              // can fit into L1 with its first input sharded.
+              // with reshard op. For this reason we also need to validate that
+              // currentOp can fit into L1 with its first input sharded.
               //
               bool firstInputL1UsageValid = true;
-              if (l1ChainConfigs->back().isEmpty()) {
+              if (l1ChainConfigs->back().isEmpty() &&
+                  (!ShardSolver::supportsInterleavedInputShardedOutput(
+                       currentOp) ||
+                   overrideReshardEdges.count(
+                       Edge(currentOp->getOperand(0).getDefiningOp(), currentOp,
+                            0)) > 0)) {
                 RankedTensorType firstOpInputTensorType =
                     mlir::cast<RankedTensorType>(currentOp->getOperand(0)
                                                      .getDefiningOp()
@@ -212,11 +216,11 @@ void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
     const tt::LayoutAttr *selectedLayout = &(*validLayouts.begin());
     for (const tt::LayoutAttr &layout : validLayouts) {
 
-      if (layout.getGrid().getNumUsedCores() >
-          selectedLayout->getGrid().getNumUsedCores()) {
+      if (layout.getGrid().getGridVolume() >
+          selectedLayout->getGrid().getGridVolume()) {
         selectedLayout = &layout;
-      } else if (layout.getGrid().getNumUsedCores() ==
-                 selectedLayout->getGrid().getNumUsedCores()) {
+      } else if (layout.getGrid().getGridVolume() ==
+                 selectedLayout->getGrid().getGridVolume()) {
         if (layout.getMemLayout() != tt::TensorMemoryLayout::BlockSharded) {
           selectedLayout = &layout;
         }

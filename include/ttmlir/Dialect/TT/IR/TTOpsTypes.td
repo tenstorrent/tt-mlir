@@ -49,17 +49,17 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
         return GridAttr::get(context, SmallVector<std::int64_t>(rank, 1));
       }
 
-      uint64_t mutable cNumUsedCores = 0;
-      uint64_t getNumUsedCores() const {
-        if (cNumUsedCores != 0) {
-          return cNumUsedCores;
+      uint64_t mutable cGridVolume = 0;
+      uint64_t getGridVolume() const {
+        if (cGridVolume != 0) {
+          return cGridVolume;
         }
 
-        cNumUsedCores = 1;
+        cGridVolume = 1;
         for (int64_t dim : getShape()) {
-          cNumUsedCores *= dim;
+          cGridVolume *= dim;
         }
-        return cNumUsedCores;
+        return cGridVolume;
       }
   }];
 }
