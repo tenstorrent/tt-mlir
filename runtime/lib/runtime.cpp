@@ -125,11 +125,11 @@ Tensor createTensor(std::shared_ptr<void> data,
 }
 
 Tensor
-createTensor(std::vector<std::shared_ptr<void>> data,
+createTensor(std::vector<std::shared_ptr<void>> &data,
              std::vector<std::uint32_t> const &shape,
              std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
              ::tt::target::DataType dataType,
-             const std::unordered_map<std::string, std::string> &metadata) {
+             std::unordered_map<std::string, std::string> const &metadata) {
   LOG_ASSERT(not shape.empty());
   LOG_ASSERT(not stride.empty());
   LOG_ASSERT(itemsize > 0);
