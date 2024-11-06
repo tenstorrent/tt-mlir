@@ -1,0 +1,45 @@
+name: Update Project Last Updated Date on Issue Update or comment
+
+on:
+  issues:
+    types: [edited, opened]
+  issue_comment:
+    types: [created]
+
+env:
+  GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
+
+jobs:
+  update_project_date:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Issue ID
+        id: get_issue_id
+        run: |
+          issue_number=${{ github.event.issue.number }}
+          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.ISSUE_TOKEN }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+          issue_id=$(echo "$issue_details" | jq -r '.node_id')
+          echo "issue_id=$issue_id" >> $GITHUB_ENV
+
+      - name: Get Item ID for Issue
+        id: get_item_by_issue_id
+        run: |
+          ITEM_ID=$(curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+               -H "Content-Type: application/json" \
+               -d '{
+                 "query": "query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { items(first: 100) { nodes { id content { ... on Issue { id } } } } } } }",
+                 "variables": {
+                   "projectId": "'"${{ secrets.TT_FORGE_PROJECT_ID }}"'"
+                 }
+               }' \
+               https://api.github.com/graphql | jq -r '.data.node.items.nodes[] | select(.content.id=="'"${{ env.issue_id }}"'") | .id')
+          echo "ITEM_ID=$ITEM_ID" >> $GITHUB_ENV
+
+      - name: Update Project Field
+        run: |
+          current_date=$(date +%Y-%m-%d)
+          curl -H "Authorization: Bearer ${{ secrets.ISSUE_TOKEN }}" \
+               -H "Content-Type: application/json" \
+               -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ secrets.TT_FORGE_PROJECT_ID }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ secrets.TT_FORGE_PROJECT_LAST_UPDATED_ID }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
+               -X POST \
+               "https://api.github.com/graphql"
