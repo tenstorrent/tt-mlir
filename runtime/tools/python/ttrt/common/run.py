@@ -403,7 +403,10 @@ class Run:
                             program.populate_outputs(
                                 Run.TorchInitializer.get_initilizer("zeros")
                             )
-
+                            strategy = {
+                                "strategy": "replicate",
+                                "replication_factor": f"{2}",
+                            }
                             total_inputs = []
                             total_outputs = []
                             for loop in range(self["--loops"]):
@@ -415,12 +418,13 @@ class Run:
                                 outputs = []
                                 for i in program.input_tensors:
                                     inputs.append(
-                                        ttrt.runtime.create_tensor(
-                                            i.data_ptr(),
+                                        ttrt.runtime.create_multi_device_tensor(
+                                            [i.data_ptr(), i.data_ptr()],
                                             list(i.shape),
                                             list(i.stride()),
                                             i.element_size(),
                                             Binary.Program.to_data_type(i.dtype),
+                                            strategy,
                                         )
                                     )
 

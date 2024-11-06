@@ -25,6 +25,10 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   std::variant<std::reference_wrapper<::ttnn::Device>,
                std::reference_wrapper<::ttnn::MeshDevice>>
       targetDevice = context.getTargetDevice(op->device()->global_id());
+  std::cout
+      << std::holds_alternative<std::reference_wrapper<::ttnn::MeshDevice>>(
+             targetDevice)
+      << std::endl;
   ::ttnn::Tensor out = std::visit(
       [&](auto &&targetDevice) -> ::ttnn::Tensor {
         return ::ttnn::to_device(inputTensor, &(targetDevice.get()),

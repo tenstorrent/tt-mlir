@@ -22,6 +22,8 @@ calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
     for (size_t col = 0; col < parentMesh.num_cols(); col++) {
       const ::ttnn::Device *currDevice = parentMesh.get_device(row, col);
       if (desiredDeviceIds.contains(currDevice->id())) {
+        std::cout << "Found desired device at row: " << row << " col: " << col
+                  << std::endl;
         return MeshOffset(row, col);
       }
     }
@@ -53,6 +55,8 @@ void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
              "Duplicate device ids in get device op");
   std::shared_ptr<::ttnn::MeshDevice> subMesh =
       createSubMesh(meshDevice, desiredDeviceIds, subMeshShape);
+
+  std::cout << "Submesh num devices: " << subMesh->num_devices() << std::endl;
   context.addSubMesh(op->out()->global_id(), subMesh);
 }
 } // namespace tt::runtime::ttnn::operations::context

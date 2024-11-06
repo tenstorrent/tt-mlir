@@ -33,6 +33,7 @@
 
 #include <cassert>
 #include <fstream>
+#include <iostream>
 #include <optional>
 
 namespace mlir::tt::ttnn {
@@ -106,7 +107,8 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
     assert(meshShape[1] == 1 && "expected non-batch dim to be 1");
     assert(meshShape[2] == 1 && "expected non-batch dim to be 1");
   }
-  ::tt::target::Dim2d mesh(1, meshVolume);
+  auto opMeshShape = op.getMeshShape();
+  ::tt::target::Dim2d mesh(opMeshShape->getY(), opMeshShape->getX());
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
@@ -208,10 +210,11 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
 
-  uint32_t numShards = 1;
+  uint32_t numShards = 2;
   ::tt::target::DistributedTensorConfig distributionType =
-      ::tt::target::DistributedTensorConfig::NONE;
-  ::flatbuffers::Offset<void> distribution = 0;
+      ::tt::target::DistributedTensorConfig::ReplicateTensor;
+  ::flatbuffers::Offset<void> distribution =
+      ::tt::target::CreateReplicateTensor(*cache.fbb, numShards).Union();
   flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
       ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
                                                distribution);
@@ -245,7 +248,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
-  uint32_t numShards = 1;
+  uint32_t numShards = 2;
   ::tt::target::DistributedTensorConfig distributionType =
       ::tt::target::DistributedTensorConfig::NONE;
   ::flatbuffers::Offset<void> distribution = 0;

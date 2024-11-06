@@ -45,8 +45,15 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
 
 void updateTensorPool(ProgramTensorPool &tensorPool,
                       const ::ttnn::Tensor &tensor, uint32_t outputGlobalId) {
+
+  LOG_INFO("tensor storage: ", static_cast<uint32_t>(tensor.storage_type()));
+  LOG_INFO(
+      "tensor distributed config is replicate: ",
+      std::holds_alternative<::tt::tt_metal::ReplicateTensor>(
+          ::ttnn::distributed::api::get_distributed_tensor_config_from_tensor(
+              tensor)));
   if (tensorPool.isUserOutput(outputGlobalId)) {
-    tensorPool.copyTensorToUserOutput(outputGlobalId, tensor);
+    return;
   } else {
     tensorPool.insert_or_assign(outputGlobalId, tensor);
   }
