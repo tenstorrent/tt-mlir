@@ -19,6 +19,8 @@ struct TTNNOptimizerOptions {
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout =
       llvm::StringMap<OutputLayoutOverrideParams>();
   bool memoryLayoutAnalysisEnabled = false;
+  MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =
+      MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
 };
@@ -95,6 +97,7 @@ public:
     memoryLayoutAnalysisEnabled =
         std::move(options.memoryLayoutAnalysisEnabled);
     memReconfigEnabled = std::move(options.memReconfigEnabled);
+    memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
   }
 
@@ -118,10 +121,14 @@ protected:
       ::llvm::cl::init(false)};
   ::mlir::Pass::Option<bool> memReconfigEnabled{
       *this, "memreconfig-enabled",
-      ::llvm::cl::desc("Memory layout reconfiguration pass. Temp disabled till "
-                       "we support all "
-                       "types of shard specs."),
-      ::llvm::cl::init(false)};
+      ::llvm::cl::desc("Memory layout reconfiguration pass."),
+      ::llvm::cl::init(true)};
+  ::mlir::Pass::Option<mlir::tt::MemoryLayoutAnalysisPolicyType,
+                       mlir::tt::MemoryLayoutAnalysisPolicyTypeParser>
+      memoryLayoutAnalysisPolicy{
+          *this, "memory-layout-analysis-policy",
+          llvm::cl::desc("Specify policy for memory layout analysis."),
+          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
   ::mlir::Pass::Option<int64_t> maxLegalLayouts{
       *this, "max-legal-layouts",
       ::llvm::cl::desc(

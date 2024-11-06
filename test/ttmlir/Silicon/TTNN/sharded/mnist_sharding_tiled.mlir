@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true override-output-layout=matmul_1=1x8:l1:width_sharded:row_major:f32,add_2=1x8:l1:width_sharded:row_major:f32,relu_3=1x8:l1:width_sharded:row_major:f32,matmul_5=1x1:l1:width_sharded:row_major:f32,add_6=1x1:l1:width_sharded:row_major:f32,softmax_7=1x1:l1:width_sharded:row_major:f32" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>

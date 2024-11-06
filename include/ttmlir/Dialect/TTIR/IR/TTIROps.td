@@ -211,15 +211,17 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
-def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
-    let summary = "Eltwise sign operation.";
+def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
+    let summary = "Eltwise floor op.";
     let description = [{
-      Returns the sign of the `operand` element-wise and produces a `result`
-      tensor.
+      Eltwise floor operation.
+    }];
+}
 
-      Example:
-        %a: [[3, -2, 0], [1, -4, 4]]
-        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
+def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Eltwise isfinite op.";
+    let description = [{
+      Eltwise isfinite operation.
     }];
 }
 
@@ -262,6 +264,18 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
+    let description = [{
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
     }];
 }
 
@@ -417,6 +431,21 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
+    }];
+}
+
+def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
+    let summary = "Eltwise remainder.";
+    let description = [{
+      Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
+      result tensor.
+
+      Example:
+
+      // %lhs: [17, -17, 17, -17]
+      // %rhs: [3, 3, -3, -3]
+      %result = "ttir.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
+      // %result: [2, -2, 2, -2]
     }];
 }
 

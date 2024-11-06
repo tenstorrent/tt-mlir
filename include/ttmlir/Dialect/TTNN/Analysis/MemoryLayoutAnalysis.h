@@ -6,20 +6,18 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
 
 namespace mlir::tt::ttnn {
 
-enum class MemoryLayoutAnalysisPolicyType {
-  DFSharding,
-};
-
 struct MemoryLayoutAnalysisInput {
   llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
   std::unordered_set<Edge> overrideReshardEdges;
+  MemoryLayoutAnalysisPolicyType policy;
 
   MemoryLayoutAnalysisInput() : legalLayouts() {}
 
@@ -27,9 +25,10 @@ struct MemoryLayoutAnalysisInput {
       const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
           &legalLayouts,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges)
+      const std::unordered_set<Edge> &overrideReshardEdges,
+      MemoryLayoutAnalysisPolicyType policy)
       : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges) {}
+        overrideReshardEdges(overrideReshardEdges), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
     return legalLayouts == rhs.legalLayouts;

@@ -42,6 +42,30 @@ func.func @div(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<6
   return %1 : tensor<64x128xf32>
 }
 
+func.func @floor(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: %{{[0-9]+}} = "ttnn.empty"
+  // CHECK-SAME: [[TENSOR:tensor<64x128xf32,]]
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: %{{[0-9]+}} = "ttnn.floor"
+  // CHECK-SAME: [[TENSOR]]
+  // CHECK-SAME: [[TENSOR]]
+  // CHECK-SAME: -> [[TENSOR]]
+  %1 = "ttir.floor"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @is_finite(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
+  // CHECK: %[[C:.*]] = "ttnn.empty"
+  // CHECK-SAME: [[TENSOR:tensor<64x128xbf16,]]
+  %0 = tensor.empty() : tensor<64x128xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.isfinite"
+  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: [[TENSOR]]
+  // CHECK-SAME: -> [[TENSOR]]
+  %1 = "ttir.isfinite"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  return %1 : tensor<64x128xbf16>
+}
+
 func.func @minimum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: %[[C:.*]] = "ttnn.empty"
   // CHECK-SAME: [[TENSOR:tensor<64x128xf32,]]
@@ -217,4 +241,13 @@ func.func @sign(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: %{{[0-9]+}} = "ttnn.sign"(%{{[0-9]+}}, [[VAL0]]) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<[[TENSOR_SHAPE]]x{{.*}}, {{.*}}>, tensor<[[TENSOR_SHAPE]]x{{.*}}, {{.*}}) -> tensor<[[TENSOR_SHAPE]]x{{.*}}, {{.*}}>
   return %1 : tensor<64x128xf32>
   // CHECK: return %{{[0-9]+}} : tensor<[[TENSOR_SHAPE]]xf32, {{.*}}>
+}
+
+func.func @remainder(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %0 = tensor.empty() : tensor<32x32xf32>
+  // CHECK: %[[EMPTY:.*]] = "ttnn.empty"{{.*}} -> tensor<32x32xf32, {{.*}}
+  %1 = "ttir.remainder"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  // CHECK: %[[REM:[0-9]+]] = "ttnn.remainder"({{.*}}, {{.*}}, %[[EMPTY]]){{.*}} -> tensor<32x32xf32, {{.*}}
+  return %1 : tensor<32x32xf32>
+  // CHECK: return {{.*}} : tensor<32x32xf32, {{.*}}
 }

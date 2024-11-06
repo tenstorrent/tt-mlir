@@ -23,6 +23,12 @@ bool isOnDevice(const ::ttnn::Tensor &tensor) {
   return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
 }
 
+bool isTilized(const ::tt::target::TensorRef *tensorRef) {
+  const ::tt::target::Dim2d *tileShape =
+      tensorRef->desc()->layout()->memory_desc()->tile_shape();
+  return tileShape->x() == 32 and tileShape->y() == 32;
+}
+
 ::tt::target::MemorySpace
 getMemorySpace(const ::tt::target::TensorRef *tensorRef) {
   return tensorRef->desc()->layout()->memory_desc()->memory_space();

@@ -73,7 +73,8 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges));
+          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges,
+          memoryLayoutAnalysisPolicy));
       legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;

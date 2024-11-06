@@ -59,6 +59,7 @@ struct ConvertArithToStableHLOPass
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
+    target.addLegalOp<mlir::func::CallOp>();
 
     // For now keep the same type assuming StableHLO ops operate on builtin
     // tensor.

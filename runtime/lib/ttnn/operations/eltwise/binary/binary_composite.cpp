@@ -38,6 +38,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::minimum);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Remainder: {
+    runEltwiseBinaryCompositeOP(op, tensorPool, ::ttnn::remainder);
+    break;
+  }
   default:
     throw std::invalid_argument(
         "Unsupported Eltwise Binary Composite operation");

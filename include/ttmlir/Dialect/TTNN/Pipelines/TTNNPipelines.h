@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "mlir/Pass/PassOptions.h"
+#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include <cstdint>
 #include <llvm/ADT/SmallVector.h>
@@ -13,6 +14,7 @@
 #include <llvm/Support/CommandLine.h>
 
 namespace mlir::tt::ttnn {
+
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct TTIRToTTNNBackendPipelineOptions
@@ -82,10 +84,16 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<bool> memReconfigEnabled{
       *this, "memreconfig-enabled",
-      llvm::cl::desc("Memory layout reconfiguration pass. Temp disabled till "
-                     "we support all types "
-                     "of shard specs."),
-      llvm::cl::init(false)};
+      llvm::cl::desc("Memory layout reconfiguration pass."),
+      llvm::cl::init(true)};
+
+  // Specify policy for memory layout analysis.
+  //
+  Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
+      memoryLayoutAnalysisPolicy{
+          *this, "memory-layout-analysis-policy",
+          llvm::cl::desc("Specify policy for memory layout analysis."),
+          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
   // Option to provide a system descriptor flatbuffer file to compile
   // against.

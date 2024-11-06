@@ -51,6 +51,10 @@ public:
       if (type.getElementTypeBitWidth() == 1) {
         elementType = BFloat16Type::get(elementType.getContext());
         changed = true;
+      } else if (type.getElementTypeBitWidth() == 64 &&
+                 isa<IntegerType>(type.getElementType())) {
+        elementType = IntegerType::get(elementType.getContext(), 32);
+        changed = true;
       }
       // Create shape of 1-D tensor in case of scalar input.
       if (shape.size() == 0) {
@@ -75,6 +79,7 @@ struct ConvertStableHLOToTTIRPass
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalOp<mlir::func::FuncOp>();
     target.addLegalOp<mlir::func::ReturnOp>();
+    target.addLegalOp<mlir::func::CallOp>();
 
     // For now keep the same type assuming StableHLO ops operate on builtin
     // tensor.

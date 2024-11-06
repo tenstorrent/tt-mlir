@@ -2,16 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <algorithm>
 #include <vector>
 
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
-#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 
-#include "mlir/Dialect/Traits.h"
+#include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+
+#include <llvm/ADT/APFloat.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -19,13 +24,7 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Support/LogicalResult.h>
-
 #include <stablehlo/dialect/StablehloOps.h>
-
-#include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -315,12 +314,7 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    // Scalar tensors are not supported by TTIR so we have to convert them to
-    // 1-D tensors.
-    mlir::ElementsAttr valueAttr =
-        srcOp.getValue().getShapedType().getShape().empty()
-            ? convertTo1DTensor(srcOp.getValue())
-            : srcOp.getValue();
+    mlir::ElementsAttr valueAttr = getValueAttr(srcOp.getValue());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(srcOp, outputType,
                                                             valueAttr);
@@ -338,13 +332,50 @@ private:
     return success();
   }
 
-  mlir::ElementsAttr convertTo1DTensor(mlir::ElementsAttr valueAttr) const {
+  // Rebuilding value of constant op for following cases.
+  // 1. Scalar values: TTNN does not support scalar types. So they are converted
+  //    1-D tensors.
+  // 2. Boolean tensor: TTNN does not support boolean data. So they are
+  //    converted to bfloat16 tensors.
+  // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
+  //    converted to 32 bit tensor.
+  mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
+    Type elementType = valueAttr.getElementType();
+    size_t bitWidth = elementType.getIntOrFloatBitWidth();
+    bool isTensor = !valueAttr.getShapedType().getShape().empty();
+    bool isIntTensor = isTensor && isa<IntegerType>(elementType) &&
+                       bitWidth != 1 && bitWidth != 64;
+    bool isFloatTensor = isTensor && isa<FloatType>(elementType);
+
+    if (isTensor && (isIntTensor || isFloatTensor)) {
+      return valueAttr;
+    }
+
     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
         getTypeConverter()->convertType(valueAttr.getShapedType()));
-    if (valueAttr.getElementType().isInteger()) {
-      return mlir::DenseElementsAttr::get<int>(valueType,
-                                               valueAttr.getSplatValue<int>());
-    } else {
+    if (isa<IntegerType>(elementType)) {
+      switch (bitWidth) {
+      case 1: {
+        return rebuildValueAttr<bool>(valueAttr, 1);
+      }
+      case 8: {
+        return rebuildValueAttr<int8_t>(valueAttr, 8);
+      }
+      case 16: {
+        return rebuildValueAttr<int16_t>(valueAttr, 16);
+      }
+      case 32: {
+        return rebuildValueAttr<int32_t>(valueAttr, 32);
+      }
+      case 64: {
+        return rebuildValueAttr<int64_t>(valueAttr, 32);
+      }
+      default: {
+        assert(false && "Unsupported integer type.");
+      }
+      }
+    }
+    if (isa<FloatType>(elementType)) {
       // In case of float values llvm has a bug where not all float types are
       // supported for iterating in DenseElementsAttr, so we have to use a
       // different constructor.
@@ -353,6 +384,35 @@ private:
           valueAttr.getValues<mlir::APFloat>().end());
       return mlir::DenseElementsAttr::get(valueType, floatValues);
     }
+    assert(false && "Unsupported data type.");
+  }
+
+  // Extract the values (using the given ElementType) and create new data
+  // structure. This is used to convert scalars (of type boolean, int8, int16,
+  // int32, and int64) and tensors (of type boolean and int64).
+  template <typename ElementType>
+  mlir::ElementsAttr rebuildValueAttr(mlir::ElementsAttr valueAttr,
+                                      size_t bitWidth) const {
+    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(
+        getTypeConverter()->convertType(valueAttr.getShapedType()));
+
+    // Create data structure for boolean type with bfloat16.
+    if (bitWidth == 1) {
+      std::vector<mlir::APFloat> booleanValue = {};
+      for (ElementType value : valueAttr.getValues<ElementType>()) {
+        mlir::APFloat input(mlir::APFloat::BFloat(), value);
+        booleanValue.emplace_back(input);
+      }
+      return mlir::DenseElementsAttr::get(valueType, booleanValue);
+    }
+
+    // Create data structure for other types.
+    std::vector<mlir::APInt> IntegerValue = {};
+    for (ElementType value : valueAttr.getValues<ElementType>()) {
+      mlir::APInt input(bitWidth, value);
+      IntegerValue.emplace_back(input);
+    }
+    return mlir::DenseElementsAttr::get(valueType, IntegerValue);
   }
 };
 
@@ -852,6 +912,11 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::ExpOp, mlir::tt::ttir::ExpOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::FloorOp, mlir::tt::ttir::FloorOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::IsFiniteOp, mlir::tt::ttir::IsFiniteOp>>(typeConverter,
+                                                                ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::NegOp, mlir::tt::ttir::NegOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::RsqrtOp, mlir::tt::ttir::RsqrtOp>>(typeConverter, ctx);
@@ -884,6 +949,8 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SubtractOp, mlir::tt::ttir::SubtractOp>>(typeConverter,
                                                                 ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::RemOp, mlir::tt::ttir::RemainderOp>>(typeConverter, ctx);
 }
 
 void addReduceOpsConversionPatterns(MLIRContext *ctx,
