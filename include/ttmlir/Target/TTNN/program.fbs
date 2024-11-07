@@ -93,6 +93,7 @@ enum EltwiseOpType: uint32 {
   Remainder = 32,
   IsFinite = 33,
   Floor = 34,
+  If = 35
 }
 
 union EltwiseOpParams {

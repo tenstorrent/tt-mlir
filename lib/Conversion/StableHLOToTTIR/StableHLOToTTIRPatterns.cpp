@@ -10,6 +10,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 
+#include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -894,10 +895,23 @@ public:
   }
 };
 
+class StableHLOToTTIRIfOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::IfOp> {
+
+  using OpConversionPattern<mlir::stablehlo::SliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::SliceOp srcOp,
+                  mlir::stablehlo::SliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
-
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::AbsOp, mlir::tt::ttir::AbsOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
@@ -1036,6 +1050,11 @@ void addSliceOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<StableHLOToTTIRSliceOpConversionPattern>(typeConverter, ctx);
 }
 
+void addIfOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                              TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRIfOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1057,6 +1076,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addLogicalOpConversionPattern(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
+  addIfOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
