@@ -556,6 +556,14 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
                               ::tt::target::ttnn::EltwiseOpWithFloatParams>(
             cache, op)
             .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, LogitOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Logistic;
+  } else if constexpr (std::is_same_v<EltwiseOp, TanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Tan;
+  } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Tanh;
+  } else if constexpr (std::is_same_v<EltwiseOp, LogOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Log;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -958,6 +966,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
     return createOperation(cache, createOp(cache, arangeOp), debugString,
                            locInfo);
+  }
+  if (auto logitOp = dyn_cast<LogitOp>(op); logitOp) {
+    return createOperation(cache, createEltwiseOp(cache, logitOp), debugString);
+  }
+  if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
+    return createOperation(cache, createEltwiseOp(cache, tanOp), debugString);
+  }
+  if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
+    return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString);
+  }
+  if (auto logOp = dyn_cast<LogOp>(op); logOp) {
+    return createOperation(cache, createEltwiseOp(cache, logOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

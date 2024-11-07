@@ -112,7 +112,10 @@ enum EltwiseOpType: uint32 {
   LogicalXor,
   Clamp,
   LeakyRelu,
-  Scatter
+  Scatter,
+  Logistic,
+  Tan,
+  Tanh
 }
 
 table ClampOpParams {

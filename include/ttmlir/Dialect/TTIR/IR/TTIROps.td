@@ -292,6 +292,27 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTIR_LogitOp: TTIR_ElementwiseUnaryOp<"logit"> {
+    let summary = "Eltwise logistic op.";
+    let description = [{
+      Eltwise logistic operation.
+    }];
+}
+
+def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise logistic op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
 def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -354,9 +375,9 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
-    let summary = "Eltwise logarithm op.";
+    let summary = "Eltwise log op.";
     let description = [{
-      Eltwise logarithm operation. Calculates log(x) for all elements x in input tensor.
+      Eltwise log operation.
     }];
 }
 
