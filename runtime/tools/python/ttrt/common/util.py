@@ -17,6 +17,7 @@ from pkg_resources import get_distribution
 import shutil
 
 import ttrt.binary
+from ttrt.common.callback import add_global_golden
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -528,6 +529,9 @@ class GoldenMap:
 
     def add_golden(self, element):
         self.golden_map[element.tensor_id] = element
+
+        if not element.tensor_id.startswith("input"):
+            add_global_golden(element)
 
     def get_golden(self, tensor_id):
         return self.golden_map[tensor_id]

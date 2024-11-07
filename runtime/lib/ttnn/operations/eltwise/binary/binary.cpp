@@ -4,6 +4,7 @@
 #include "binary.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/ttnn/operations/eltwise/binary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
@@ -32,6 +33,7 @@ static void runEltwiseBinaryOP(
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tt::runtime::callback();
 }
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {

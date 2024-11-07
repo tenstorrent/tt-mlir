@@ -4,6 +4,7 @@
 #include "unary.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/runtime.h"
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttnn/operations/copy.hpp"
@@ -26,6 +27,7 @@ static void runEltwiseUnaryOP(
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  tt::runtime::callback();
 }
 
 static void runEltwiseUnaryWithFastAndApproximateModeOP(

@@ -47,7 +47,6 @@ struct ProgramExecutor {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       runOperation(op);
-      tt::runtime::callback();
     }
   }
 
