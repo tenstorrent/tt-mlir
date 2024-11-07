@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, tt, func, tensor
+from ttmlir.passes import create_golden_tensor, DataType
 import torch
 
 # Alias for operands of ops which can be either BlockArguments, Values, or other
@@ -57,11 +58,21 @@ class TTIRBuilder:
         # graph.
         self._goldens: Dict[Operand, Golden] = {}
 
+        # global ID of operations
+        self._global_id = -1
+
+        # id to golden map
+        self.id_golden_map = {}
+
     # ----- Public helpers -----
 
     @property
     def goldens(self) -> Dict:
         return self._goldens
+
+    def get_next_global_id(self) -> int:
+        self._global_id += 1
+        return self._global_id
 
     def print_goldens(self) -> None:
         """
@@ -82,15 +93,39 @@ class TTIRBuilder:
         """Retrieves shape of operand which is expected to be a shaped type."""
         return self._get_type(input).shape
 
-    def generate_and_store_random_golden(self, operand: Operand) -> None:
+    def generate_and_store_random_golden(self, operand: Operand) -> Golden:
         """
         Generates random tensor of `operand`s shape, assigns it to a golden,
         and maps `operand` to that golden.
+
+        Returns generated golden.
         """
         seed = self._get_seed()
         random_tensor = self._generate_random_tensor(self.get_shape(operand), seed)
         golden = Golden(random_tensor, seed)
         self._store_golden(operand, golden)
+        return golden
+
+    def generate_input_golden(self, operand: Operand, index: int) -> None:
+        """
+        Generates random tensor of `input`s shape, assigns it to a golden,
+        and maps `input` to that golden.
+        """
+        self.id_golden_map[f"input_{index}"] = self.generate_and_store_random_golden(
+            operand
+        )
+
+    def get_golden_map(self) -> Dict:
+        golden_info = {}
+        for name, golden_tensor in self.id_golden_map.items():
+            golden_info[name] = create_golden_tensor(
+                name,
+                list(golden_tensor.tensor.shape),
+                list(golden_tensor.tensor.stride()),
+                DataType.Float32,
+                golden_tensor.tensor.data_ptr(),
+            )
+        return golden_info
 
     # ----- Private helpers -----
 
@@ -236,16 +271,22 @@ class TTIRBuilder:
 
     # ----- TTIR op factories -----
     def eltwise_proxy(
-        self, op_golden_function, op_ttir_function, inputs: List[Operand]
+        self,
+        op_golden_function: Callable,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
     ) -> OpView:
         with self._ctx, self._loc:
             output = self.empty(self.get_shape(inputs[0]))
+
+            id = self.get_next_global_id()
 
             op = op_ttir_function(
                 [self._get_type(output)],
                 inputs,
                 [output],
                 self._get_operand_constraint_attr(3),
+                loc=Location.name(str(id)),
             )
 
             goldens = []
@@ -253,6 +294,7 @@ class TTIRBuilder:
                 goldens.append(self._get_golden_tensor(input))
 
             golden = Golden(op_golden_function(*goldens))
+            self.id_golden_map[str(id)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 
@@ -323,193 +365,3 @@ class TTIRBuilder:
 
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
-
-
-def compile_as_mlir_module(
-    *inputs_shapes: Tuple[Shape],
-    module_dump: bool = True,
-):
-    """
-    Decorator to define a MLIR module specified as a python function.
-
-    It will wrap decorated test function in a MLIR FuncOp wrapped in a MLIR
-    module, and tie arguments of that FuncOp to test function inputs. It will
-    also pass a `TTIRBuilder` object as the last argument of test function.
-
-    Arguments
-    ---------
-    inputs_shapes: Tuple[Shape]
-        Shapes of the respective ranked tensor inputs of the test function.
-
-    module_dump: bool
-        Set to True if printout of generated MLIR module is wished.
-
-    golden_dump: bool
-        Set to True if printout of generated goldens is wished.
-
-    Example
-    -------
-
-    ```python
-        @compile_as_mlir_module((32, 32), (32, 32))
-        def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            return builder.add(in0, in1)
-
-
-        test_add() # NOTE Called without arguments.
-    ```
-
-    which returns
-
-    ```
-        #any = #tt.operand_constraint<...>
-        module {
-            func.func @test_add(
-                %arg0: tensor<32x32xf32>,
-                %arg1: tensor<32x32xf32>
-            ) -> tensor<32x32xf32> {
-                %0 = tensor.empty() : tensor<32x32xf32>
-                %1 = "ttir.add"(%arg0, %arg1, %0) ...
-                return %1 : tensor<32x32xf32>
-            }
-        }
-    ```
-
-    Check out:
-    https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
-    """
-
-    def decorator(test_fn: Callable):
-        # test_fn should be called with no args.
-        def wrapper():
-            ctx = Context()
-            loc = Location.unknown(ctx)
-            # Instantiate builder which is passed as the last argument to
-            # `test_fn` so the user can use it to build ops.
-            builder = TTIRBuilder(ctx, loc)
-
-            with ctx, loc:
-                test_fn_input_types = [
-                    builder.ranked_tensor_type(input_shape)
-                    for input_shape in inputs_shapes
-                ]
-
-                # Wrap everything in a mlir module.
-                module = Module.create()
-
-                with InsertionPoint(module.body):
-                    # Wrap everything in a mlir function.
-                    @func.func(*test_fn_input_types, name=test_fn.__name__)
-                    def decorated_func(*inputs):
-                        # Randomly generate golden tensors for function inputs.
-                        for i in inputs:
-                            builder.generate_and_store_random_golden(i)
-
-                        return test_fn(*inputs, builder=builder)
-
-                if module_dump:
-                    print(module)
-
-                if golden_dump:
-                    builder.print_goldens()
-
-                return module
-
-        return wrapper
-
-    return decorator
-
-
-def compile_as_mlir_module(
-    *inputs_shapes: Tuple[Shape],
-    module_dump: bool = True,
-):
-    """
-    Decorator to define a MLIR module specified as a python function.
-
-    It will wrap decorated test function in a MLIR FuncOp wrapped in a MLIR
-    module, and tie arguments of that FuncOp to test function inputs. It will
-    also pass a `TTIRBuilder` object as the last argument of test function.
-
-    Arguments
-    ---------
-    inputs_shapes: Tuple[Shape]
-        Shapes of the respective ranked tensor inputs of the test function.
-
-    module_dump: bool
-        Set to True if printout of generated MLIR module is wished.
-
-    golden_dump: bool
-        Set to True if printout of generated goldens is wished.
-
-    Example
-    -------
-
-    ```python
-        @compile_as_mlir_module((32, 32), (32, 32))
-        def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            return builder.add(in0, in1)
-
-
-        test_add() # NOTE Called without arguments.
-    ```
-
-    which returns
-
-    ```
-        #any = #tt.operand_constraint<...>
-        module {
-            func.func @test_add(
-                %arg0: tensor<32x32xf32>,
-                %arg1: tensor<32x32xf32>
-            ) -> tensor<32x32xf32> {
-                %0 = tensor.empty() : tensor<32x32xf32>
-                %1 = "ttir.add"(%arg0, %arg1, %0) ...
-                return %1 : tensor<32x32xf32>
-            }
-        }
-    ```
-
-    Check out:
-    https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
-    """
-
-    def decorator(test_fn: Callable):
-        # test_fn should be called with no args.
-        def wrapper():
-            ctx = Context()
-            loc = Location.unknown(ctx)
-            # Instantiate builder which is passed as the last argument to
-            # `test_fn` so the user can use it to build ops.
-            builder = TTIRBuilder(ctx, loc)
-
-            with ctx, loc:
-                test_fn_input_types = [
-                    builder.ranked_tensor_type(input_shape)
-                    for input_shape in inputs_shapes
-                ]
-
-                # Wrap everything in a mlir module.
-                module = Module.create()
-
-                with InsertionPoint(module.body):
-                    # Wrap everything in a mlir function.
-                    @func.func(*test_fn_input_types, name=test_fn.__name__)
-                    def decorated_func(*inputs):
-                        # Randomly generate golden tensors for function inputs.
-                        for i in inputs:
-                            builder.generate_and_store_random_golden(i)
-
-                        return test_fn(*inputs, builder=builder)
-
-                if module_dump:
-                    print(module)
-
-                if golden_dump:
-                    builder.print_goldens()
-
-                return module
-
-        return wrapper
-
-    return decorator

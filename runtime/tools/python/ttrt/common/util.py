@@ -522,11 +522,28 @@ class Flatbuffer:
         return Flatbuffer.ttsys_file_extension
 
 
+class Golden:
+    def __init__(self, tensor_id, tensor_shape, tensor_stride, tensor_data):
+        self.tensor_id = tensor_id
+        self.tensor_shape = tensor_shape
+        self.tensor_stride = tensor_stride
+        self.tensor_data = tensor_data
+
+    def get_golden_tensor(self):
+        tensor_byte_data = bytes(self.tensor_data)
+        float_data = np.frombuffer(tensor_byte_data, dtype=np.float32)
+        golden_tensor = torch.tensor(float_data, dtype=torch.float32).reshape(
+            self.tensor_shape
+        )
+        return golden_tensor
+
+
 class Binary(Flatbuffer):
     def __init__(self, logger, file_manager, file_path, capsule=None):
         super().__init__(logger, file_manager, file_path, capsule=capsule)
 
         import ttrt.binary
+        import torch
 
         if not capsule:
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
@@ -539,6 +556,20 @@ class Binary(Flatbuffer):
         for i in range(len(self.fbb_dict["programs"])):
             program = Binary.Program(i, self.fbb_dict["programs"][i])
             self.programs.append(program)
+
+            # populate golden tensors if they exist
+            if "debug_info" in self.fbb_dict["programs"][i]:
+                golden_info_list = self.fbb_dict["programs"][i]["debug_info"][
+                    "golden_info"
+                ]["golden_map"]
+
+                for golden_tensor_dict in golden_info_list:
+                    Golden(
+                        golden_tensor_dict["key"],
+                        golden_tensor_dict["value"]["shape"],
+                        golden_tensor_dict["value"]["stride"],
+                        golden_tensor_dict["value"]["data"],
+                    )
 
     def check_system_desc(self, query):
         import ttrt.binary

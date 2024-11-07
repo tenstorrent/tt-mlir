@@ -18,7 +18,9 @@ namespace mlir::tt::ttmetal {
 void registerTTMetalToFlatbuffer() {
   TranslateFromMLIRRegistration reg(
       "ttmetal-to-flatbuffer", "translate ttmetal dialect to flatbuffer",
-      translateTTMetalToFlatbuffer /* function */,
+      [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
+        return translateTTMetalToFlatbuffer(op, os, {});
+      },
       [](DialectRegistry &registry) {
         registry.insert<mlir::tt::TTDialect, mlir::tt::ttmetal::TTMetalDialect,
                         mlir::tt::ttkernel::TTKernelDialect,
