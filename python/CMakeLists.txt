@@ -26,7 +26,7 @@ declare_mlir_dialect_python_bindings(
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTBinding.td
   GEN_ENUM_BINDINGS ON
-  GEN_ENUM_TD_FILE dialects/TTEnumBinding.td
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTEnumBinding.td
   SOURCES dialects/tt.py
   DIALECT_NAME tt
 )
@@ -52,7 +52,7 @@ declare_mlir_dialect_python_bindings(
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTNNBinding.td
   GEN_ENUM_BINDINGS ON
-  GEN_ENUM_TD_FILE dialects/TTNNEnumBinding.td
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTNNEnumBinding.td
   SOURCES dialects/ttnn.py
   DIALECT_NAME ttnn
 )
