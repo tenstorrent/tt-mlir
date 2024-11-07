@@ -100,34 +100,5 @@ void populateTTNNModule(py::module &m) {
                   })
       .def_property_readonly("y", &tt::ttnn::MeshShapeAttr::getY)
       .def_property_readonly("x", &tt::ttnn::MeshShapeAttr::getX);
-
-  py::enum_<tt::ttnn::Layout>(m, "Layout")
-      .value("RowMajor", tt::ttnn::Layout::RowMajor)
-      .value("Tile", tt::ttnn::Layout::Tile)
-      .value("Invalid", tt::ttnn::Layout::Invalid)
-      .def_property_readonly("stringify", [](tt::ttnn::Layout layout) {
-        return mlir::tt::ttnn::stringifyLayout(layout).str();
-      });
-
-  py::enum_<tt::ttnn::TensorMemoryLayout>(m, "TensorMemoryLayout")
-      .value("Interleaved", tt::ttnn::TensorMemoryLayout::Interleaved)
-      .value("SingleBank", tt::ttnn::TensorMemoryLayout::SingleBank)
-      .value("HeightSharded", tt::ttnn::TensorMemoryLayout::HeightSharded)
-      .value("WidthSharded", tt::ttnn::TensorMemoryLayout::WidthSharded)
-      .value("BlockSharded", tt::ttnn::TensorMemoryLayout::BlockSharded)
-      .def_property_readonly(
-          "stringify", [](tt::ttnn::TensorMemoryLayout layout) {
-            return mlir::tt::ttnn::stringifyTensorMemoryLayout(layout).str();
-          });
-
-  py::enum_<tt::ttnn::BufferType>(m, "BufferType")
-      .value("DRAM", tt::ttnn::BufferType::DRAM)
-      .value("L1", tt::ttnn::BufferType::L1)
-      .value("SystemMemory", tt::ttnn::BufferType::SystemMemory)
-      .value("L1Small", tt::ttnn::BufferType::L1Small)
-      .value("Trace", tt::ttnn::BufferType::Trace)
-      .def_property_readonly("stringify", [](tt::ttnn::BufferType bufferType) {
-        return mlir::tt::ttnn::stringifyBufferType(bufferType).str();
-      });
 }
 } // namespace mlir::ttmlir::python
