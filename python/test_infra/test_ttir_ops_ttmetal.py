@@ -5,7 +5,6 @@
 # RUN: %python %s
 
 import inspect
-import os
 
 from ttmlir.test_utils import (
     compile_as_mlir_module,
@@ -14,41 +13,30 @@ from ttmlir.test_utils import (
 )
 from ttmlir.ttir_builder import Operand, TTIRBuilder
 
-system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
-
 
 @ttmetal_to_flatbuffer(output_file_name="test_exp.ttm")
-@ttir_to_ttmetal(
-    output_file_name="test_exp.mlir", system_desc_path=f"{system_desc_path}"
-)
+@ttir_to_ttmetal(output_file_name="test_exp.mlir")
 @compile_as_mlir_module((128, 128))
 def test_exp_ttmetal(in0: Operand, builder: TTIRBuilder):
     return builder.exp(in0)
 
 
 @ttmetal_to_flatbuffer(output_file_name="test_add.ttm")
-@ttir_to_ttmetal(
-    output_file_name="test_add.mlir", system_desc_path=f"{system_desc_path}"
-)
+@ttir_to_ttmetal(output_file_name="test_add.mlir")
 @compile_as_mlir_module((64, 128), (64, 128))
 def test_add_ttmetal(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.add(in0, in1)
 
 
 @ttmetal_to_flatbuffer(output_file_name="test_multiply.ttm")
-@ttir_to_ttmetal(
-    output_file_name="test_multiply.mlir", system_desc_path=f"{system_desc_path}"
-)
+@ttir_to_ttmetal(output_file_name="test_multiply.mlir")
 @compile_as_mlir_module((64, 64), (64, 64))
 def test_multiply_ttmetal(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.multiply(in0, in1)
 
 
 @ttmetal_to_flatbuffer(output_file_name="test_arbitrary_op_chain.ttm")
-@ttir_to_ttmetal(
-    output_file_name="test_arbitrary_op_chain.mlir",
-    system_desc_path=f"{system_desc_path}",
-)
+@ttir_to_ttmetal(output_file_name="test_arbitrary_op_chain.mlir")
 @compile_as_mlir_module((32, 32), (32, 32), (32, 32))
 def test_arbitrary_op_chain_ttmetal(
     in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
