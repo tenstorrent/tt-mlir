@@ -694,7 +694,9 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::SinOp>,
                DefaultOpConversionPattern<ttnn::CosOp>,
                DefaultOpConversionPattern<ttnn::Expm1Op>,
-               DefaultOpConversionPattern<ttnn::LogOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::LogOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseNotOp>>(typeConverter,
+                                                               ctx);
 
   // Eltwise binary ops
   //
@@ -713,8 +715,11 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::MaximumOp>,
                DefaultOpConversionPattern<ttnn::MinimumOp>,
                DefaultOpConversionPattern<ttnn::DivOp>,
-               DefaultOpConversionPattern<ttnn::RemainderOp>>(typeConverter,
-                                                              ctx);
+               DefaultOpConversionPattern<ttnn::RemainderOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseAndOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseOrOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseXorOp>>(typeConverter,
+                                                               ctx);
 
   // Tensor manipulation ops
   //

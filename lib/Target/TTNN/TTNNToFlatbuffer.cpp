@@ -490,6 +490,14 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalOr;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalXorOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalXor;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseAndOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseAnd;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseOrOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseOr;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseXorOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseXor;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseNotOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseNot;
   } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
   } else if constexpr (std::is_same_v<EltwiseOp, NegOp>) {
@@ -753,6 +761,22 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto xorOp = dyn_cast<LogicalXorOp>(op); xorOp) {
     return createOperation(cache, createEltwiseOp(cache, xorOp), debugString);
+  }
+  if (auto bitwiseAndOp = dyn_cast<BitwiseAndOp>(op); bitwiseAndOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseAndOp),
+                           debugString);
+  }
+  if (auto bitwiseOrOp = dyn_cast<BitwiseOrOp>(op); bitwiseOrOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseOrOp),
+                           debugString);
+  }
+  if (auto bitwiseXorOp = dyn_cast<BitwiseXorOp>(op); bitwiseXorOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseXorOp),
+                           debugString);
+  }
+  if (auto bitwiseNotOp = dyn_cast<BitwiseNotOp>(op); bitwiseNotOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseNotOp),
+                           debugString);
   }
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
     return createOperation(cache, createEltwiseOp(cache, multiplyOp),
