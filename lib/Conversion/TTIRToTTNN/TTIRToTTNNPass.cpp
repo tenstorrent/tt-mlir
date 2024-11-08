@@ -42,8 +42,6 @@ struct ConvertTTIRToTTNNPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
-                                            typeConverter);
     populateTTIRToTTNNPatterns(&getContext(), patterns, typeConverter);
 
     // Apply full conversion
