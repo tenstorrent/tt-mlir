@@ -34,7 +34,7 @@ def get_next_golden():
 
 
 def golden():
-    print("right now golden doesn't do anything")
+    print("executing golden comparision")
 
     golden_index = get_next_golden()
     golden_torch_tensor = GOLDENS[golden_index]

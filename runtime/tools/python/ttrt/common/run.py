@@ -370,8 +370,6 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            ttrt.runtime.register_callback(callback, self["--golden"])
-
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
@@ -393,6 +391,8 @@ class Run:
 
             try:
                 for bin in binaries:
+                    ttrt.runtime.register_callback(golden)
+
                     try:
                         self.logging.info(f"evaluating binary={bin.file_path}")
 
@@ -521,6 +521,8 @@ class Run:
                         self.results.add_result(test_result)
                         bin.test_result = "error"
                         continue
+
+                    ttrt.runtime.unregister_callback()
             finally:
                 ttrt.runtime.close_device(device)
 

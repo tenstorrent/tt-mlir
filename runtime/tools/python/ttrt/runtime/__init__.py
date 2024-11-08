@@ -14,6 +14,7 @@ try:
         set_compatible_runtime,
         get_current_system_desc,
         register_callback,
+        unregister_callback,
         open_device,
         close_device,
         submit,

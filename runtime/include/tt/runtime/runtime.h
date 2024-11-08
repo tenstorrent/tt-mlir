@@ -26,8 +26,9 @@ namespace detail {
 void deallocateBuffers(Device device);
 } // namespace detail
 
+void registerCallback(std::function<void()> callback);
+void unregisterCallback();
 void callback();
-void registerCallback(py::module callback, bool golden);
 
 DeviceRuntime getCurrentRuntime();
 

@@ -28,7 +28,7 @@ struct Env {
   bool enableAsyncTTNN;
 
 private:
-  Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
+  constexpr Env(bool loadKernelsFromDisk, bool enableAsyncTTNN)
       : loadKernelsFromDisk(loadKernelsFromDisk),
         enableAsyncTTNN(enableAsyncTTNN) {}
 };

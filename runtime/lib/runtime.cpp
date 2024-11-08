@@ -45,17 +45,15 @@ void deallocateBuffers(Device device) {
 }
 } // namespace detail
 
-py::module callback_module;
-bool golden = false;
+std::function<void()> _callback;
 
-void registerCallback(py::module callback, bool golden) {
-  tt::runtime::callback_module = callback;
-  tt::runtime::golden = golden;
-}
+void registerCallback(std::function<void()> callback) { _callback = callback; }
+
+void unregisterCallback() { _callback = nullptr; }
 
 void callback() {
-  if (tt::runtime::golden) {
-    tt::runtime::callback_module.attr("golden")();
+  if (_callback) {
+    _callback();
   }
 }
 
