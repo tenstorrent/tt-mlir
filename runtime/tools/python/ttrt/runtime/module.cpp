@@ -9,6 +9,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
+#include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -20,7 +21,14 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Device>(m, "Device")
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
-  py::class_<tt::runtime::Tensor>(m, "Tensor");
+  py::class_<tt::runtime::Tensor>(m, "Tensor")
+      .def("get_data", &tt::runtime::Tensor::getData);
+  py::class_<tt::runtime::OpContext>(m, "OpContext")
+      .def("get_op_output_tensor", &tt::runtime::OpContext::getOpOutputTensor)
+      .def("get_op_debug_str", &tt::runtime::OpContext::getOpDebugString);
+  py::class_<tt::runtime::CallbackContext>(m, "CallbackContext")
+      .def("get_debug_info_golden",
+           &tt::runtime::CallbackContext::getDebugInfoGolden);
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)
@@ -85,7 +93,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
-        py::arg("outputs"), "Submit a binary for execution");
+        py::arg("outputs"), py::arg("goldens"),
+        "Submit a binary for execution");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
 
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
@@ -93,6 +102,26 @@ PYBIND11_MODULE(_C, m) {
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
+        return os.str();
+      });
+
+  py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
+      .def_static(
+          "get",
+          [](py::function func) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            tt::runtime::debug::Hooks::get(
+                [func](std::optional<tt::runtime::CallbackContext> context,
+                       std::optional<tt::runtime::OpContext> opContext) {
+                  func(context, opContext);
+                });
+#else
+            tt::runtime::debug::Hooks::get();
+#endif
+          })
+      .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
+        std::stringstream os;
+        os << hooks;
         return os.str();
       });
 

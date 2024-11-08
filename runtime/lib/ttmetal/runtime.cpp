@@ -39,8 +39,10 @@ Tensor createTensor(std::shared_ptr<void> data,
   desc.itemsize = itemsize;
   desc.dataType = dataType;
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  return Tensor(static_pointer_cast<void>(tensor), data,
-                DeviceRuntime::TTMetal);
+  std::uint32_t volume = std::accumulate(shape.begin(), shape.end(), 1,
+                                         std::multiplies<std::uint32_t>());
+  return Tensor(static_pointer_cast<void>(tensor), data, DeviceRuntime::TTMetal,
+                volume);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {
@@ -169,7 +171,8 @@ Events maybeCopyHostOutputs(::tt::tt_metal::Device *device,
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             std::vector<Tensor> const &outputHandles,
+             std::unordered_map<std::string, Tensor> const &goldenHandles) {
   ::tt::target::metal::TTMetalBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::metal::Program const *program =
       fbb.programs()->Get(programIndex);

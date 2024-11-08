@@ -120,9 +120,24 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
+  int volume;
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
-         DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
+         DeviceRuntime runtime, int volume)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        volume(volume) {}
+
+  std::vector<float> getData();
+};
+
+struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  Tensor getDebugInfoGolden(std::string loc);
+};
+
+struct OpContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  Tensor getOpOutputTensor(CallbackContext context);
+  std::string getOpDebugString();
 };
 
 } // namespace tt::runtime
