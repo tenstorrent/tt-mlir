@@ -5,6 +5,8 @@
 #ifndef TT_RUNTIME_DETAIL_DEBUG_H
 #define TT_RUNTIME_DETAIL_DEBUG_H
 
+#include <functional>
+#include <optional>
 #include <ostream>
 
 namespace tt::runtime::debug {
@@ -37,6 +39,49 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
   os << "debug::Env{\n"
      << "\t" << "loadKernelsFromDisk: " << env.loadKernelsFromDisk << ",\n"
      << "\t" << "enableAsyncTTNN: " << env.enableAsyncTTNN << "\n"
+     << "}";
+  return os;
+}
+
+struct Hooks {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  static Hooks const &
+  get(std::optional<std::function<void(std::optional<const void *>,
+                                       std::optional<const void *>)>>
+          operatorCallback = std::nullopt);
+#else
+  constexpr static Hooks get() { return Hooks(); }
+#endif
+
+  std::optional<std::function<void(std::optional<const void *>,
+                                   std::optional<const void *>)>>
+  getOperatorCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return operatorCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
+private:
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  Hooks(std::optional<std::function<void(std::optional<const void *>,
+                                         std::optional<const void *>)>>
+            operatorCallback)
+      : operatorCallback(operatorCallback) {}
+
+  std::optional<std::function<void(std::optional<const void *>,
+                                   std::optional<const void *>)>>
+      operatorCallback;
+#else
+  constexpr Hooks() = default;
+#endif
+};
+
+inline std::ostream &operator<<(std::ostream &os, Hooks const &hooks) {
+  os << "debug::Hooks{\n"
+     << "\t"
+     << "operatorCallback: " << bool(hooks.getOperatorCallback()) << ",\n"
      << "}";
   return os;
 }

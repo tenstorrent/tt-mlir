@@ -9,6 +9,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
+#include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -77,6 +78,10 @@ PYBIND11_MODULE(_C, m) {
                                          dataType, strategy);
       },
       "Create a multi-device host tensor with owned memory");
+  m.def("get_op_output_tensor", &tt::runtime::getOpOutputTensor,
+        "Get the output tensor of an operation");
+  m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
+        "Get the debug string of an operation");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
@@ -93,6 +98,21 @@ PYBIND11_MODULE(_C, m) {
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
+        return os.str();
+      });
+
+  py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
+      .def_static("get",
+                  [](py::function func) {
+                    tt::runtime::debug::Hooks::get(
+                        [func](std::optional<const void *> context,
+                               std::optional<const void *> opContext) {
+                          func(context, opContext);
+                        });
+                  })
+      .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
+        std::stringstream os;
+        os << hooks;
         return os.str();
       });
 

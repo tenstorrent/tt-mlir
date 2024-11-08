@@ -25,6 +25,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/reduction/reduction.h"
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -46,6 +47,10 @@ public:
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       runOperation(op);
+      if (auto callback = debug::Hooks::get().getOperatorCallback(); callback) {
+        (*callback)(static_cast<const void *>(&context),
+                    static_cast<const void *>(op));
+      }
     }
   }
 
@@ -111,8 +116,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::creation::run(op->type_as_FullOp(), context);
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
-    const ::tt::target::ttnn::EltwiseOp *eltwiseOp = op->type_as_EltwiseOp();
-    return runEltwiseOperation(eltwiseOp);
+    return runEltwiseOperation(op->type_as_EltwiseOp());
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {

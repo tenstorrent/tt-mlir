@@ -10,6 +10,7 @@
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/types.h"
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -244,5 +245,134 @@ void wait(Event event) {
 #endif
   throw std::runtime_error("runtime is not enabled");
 }
+
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+std::vector<float> getOpOutputTensor(const void *context,
+                                     const void *opContext) {
+  auto *contextPtr = static_cast<const ttnn::ProgramContext *>(context);
+  auto *opContextPtr =
+      static_cast<const ::tt::target::ttnn::Operation *>(opContext);
+  const ::ttnn::Tensor *outPtr = nullptr;
+  const ttnn::ProgramTensorPool &tensorPool = contextPtr->getTensorPool();
+  std::uint32_t globalId;
+
+  switch (opContextPtr->type_type()) {
+  case ::tt::target::ttnn::OpType::GetDeviceOp: {
+    globalId = opContextPtr->type_as_GetDeviceOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
+    globalId = opContextPtr->type_as_ToMemoryConfigOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToLayoutOp: {
+    globalId = opContextPtr->type_as_ToLayoutOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TypecastOp: {
+    globalId = opContextPtr->type_as_TypecastOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDeviceOp: {
+    globalId = opContextPtr->type_as_ToDeviceOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FromDeviceOp: {
+    globalId = opContextPtr->type_as_FromDeviceOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmptyOp: {
+    globalId = opContextPtr->type_as_EmptyOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FullOp: {
+    globalId = opContextPtr->type_as_FullOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EltwiseOp: {
+    globalId = opContextPtr->type_as_EltwiseOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MatmulOp: {
+    globalId = opContextPtr->type_as_MatmulOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReductionOp: {
+    globalId = opContextPtr->type_as_ReductionOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingOp: {
+    globalId = opContextPtr->type_as_EmbeddingOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxOp: {
+    globalId = opContextPtr->type_as_SoftmaxOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TransposeOp: {
+    globalId = opContextPtr->type_as_TransposeOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ConcatOp: {
+    globalId = opContextPtr->type_as_ConcatOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ReshapeOp: {
+    globalId = opContextPtr->type_as_ReshapeOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceOp: {
+    globalId = opContextPtr->type_as_SliceOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv2dOp: {
+    globalId = opContextPtr->type_as_Conv2dOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DeallocOp: {
+    LOG_WARNING("getting output tensor for DeallocOp is not supported");
+    return {};
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dOp: {
+    globalId = opContextPtr->type_as_MaxPool2dOp()->out()->global_id();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherOp: {
+    globalId = opContextPtr->type_as_AllGatherOp()->out()->global_id();
+    break;
+  }
+  default: {
+    throw std::runtime_error("Unsupported operation type");
+  }
+  }
+
+  if (tensorPool.contains(globalId)) {
+    outPtr = &tensorPool.at(globalId);
+  } else {
+    LOG_WARNING("Output tensor not found in tensor pool");
+    return {};
+  }
+  ::ttnn::Tensor hostTensor = ::ttnn::from_device(*outPtr);
+  ::ttnn::Tensor outCopy =
+      ::ttnn::to_layout(hostTensor, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
+                        std::nullopt, static_cast<::ttnn::Device *>(nullptr));
+  std::uint32_t outCopySize = outCopy.volume() * outCopy.element_size();
+  void *src = ::tt::tt_metal::get_raw_host_data_ptr(outCopy);
+  void *dst = malloc(outCopySize);
+  std::memcpy(dst, src, outCopySize);
+  std::vector<float> outVec(static_cast<float *>(dst),
+                            static_cast<float *>(dst) + outCopy.volume());
+
+  return outVec;
+}
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+std::string getOpDebugString(const void *context, const void *opContext) {
+  auto *opContextPtr =
+      static_cast<const ::tt::target::ttnn::Operation *>(opContext);
+  return std::string(opContextPtr->debug_info()->c_str());
+}
+#endif
 
 } // namespace tt::runtime
