@@ -35,13 +35,6 @@ class Perf:
             help="clean all artifacts from previous runs",
         )
         Perf.register_arg(
-            name="--save-artifacts",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="save all artifacts during run",
-        )
-        Perf.register_arg(
             name="--log-file",
             type=str,
             default="",
@@ -448,19 +441,19 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
-                    if self["--save-artifacts"]:
-                        self.file_manager.copy_file(perf_folder_path, tracy_file_path)
-                        self.file_manager.copy_file(
-                            perf_folder_path, tracy_ops_times_file_path
-                        )
-                        self.file_manager.copy_file(
-                            perf_folder_path, tracy_ops_data_file_path
-                        )
+                    self.artifacts.save_binary(bin, self.query)
+                    self.file_manager.copy_file(perf_folder_path, tracy_file_path)
+                    self.file_manager.copy_file(
+                        perf_folder_path, tracy_ops_times_file_path
+                    )
+                    self.file_manager.copy_file(
+                        perf_folder_path, tracy_ops_data_file_path
+                    )
 
-                        if not self["--host-only"]:
-                            self.file_manager.copy_file(
-                                perf_folder_path, profiler_device_side_log_path
-                            )
+                    if not self["--host-only"]:
+                        self.file_manager.copy_file(
+                            perf_folder_path, profiler_device_side_log_path
+                        )
 
                     process_ops(None, None, False)
                     self.file_manager.copy_file(
@@ -506,13 +499,6 @@ class Perf:
 
     def postprocess(self):
         self.logging.debug(f"------postprocessing perf API")
-
-        if self["--save-artifacts"]:
-            for bin in self.ttnn_binaries:
-                self.artifacts.save_binary(bin, self.query)
-
-            for bin in self.ttmetal_binaries:
-                self.artifacts.save_binary(bin, self.query)
 
         for bin in self.ttnn_binaries:
             if bin.test_result == "pass":
