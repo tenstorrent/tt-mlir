@@ -12,6 +12,7 @@
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/Common/debug_info_generated.h"
 #include "ttmlir/Target/Common/system_desc_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #pragma clang diagnostic pop
@@ -108,6 +109,7 @@ struct Binary : public Flatbuffer {
 
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
+  const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
@@ -120,9 +122,18 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
+
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
+};
+
+struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
+struct OpContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
 } // namespace tt::runtime

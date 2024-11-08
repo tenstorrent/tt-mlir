@@ -58,7 +58,7 @@ ttrt query --save-artifacts
 4. Use ttmlir-opt tool in compiler to feed system descriptor. See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
 ```bash
 ./build/bin/ttmlir-opt --ttir-load-system-desc="path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
-or (pip path directly into ttir-to-ttnn-backend-pipeline)
+or (pipe path directly into ttir-to-ttnn-backend-pipeline)
 ./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/path/to/system_desc.ttsys" test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
 ```
 5. Use ttmlir-translate tool in compiler to generate the flatbuffer executable. See the [ttmlir-translate](./ttmlir-translate.md) documentation for more information on how to generate flatbuffer files.
