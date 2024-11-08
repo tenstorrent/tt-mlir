@@ -22,7 +22,7 @@ static void runEltwiseTernaryWhereOp(
   getEltwiseTernaryOpInputTensors(op, tensorPool, &first, &second, &third);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*first, *second, *third, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);

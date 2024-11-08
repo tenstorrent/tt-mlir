@@ -31,6 +31,7 @@ os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
+enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 configure_workarounds_runtime = os.environ.get("TT_RUNTIME_WORKAROUNDS", "OFF") == "ON"
@@ -64,7 +65,15 @@ install_requires += ["pybind11"]
 linklibs = ["TTBinary"]
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
-    linklibs += ["TTRuntimeTTNN", "TTRuntimeTTNNOps", ":_ttnn.so"]
+    linklibs += [
+        "TTRuntimeTTNN",
+        "TTRuntimeTTNNOps",
+        "TTRuntimeTTNNHelpers",
+        ":_ttnn.so",
+    ]
+
+if enable_ttnn and enable_runtime_tests:
+    linklibs += ["TTRuntimeTTNNTestHelpers"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
@@ -237,6 +246,7 @@ if enable_runtime:
                 f"{ttmlir_build_dir}/runtime/lib/ttnn",
                 f"{ttmlir_build_dir}/runtime/lib/ttnn/operations",
                 f"{ttmlir_build_dir}/runtime/lib/ttmetal",
+                f"{ttmlir_build_dir}/runtime/test",
                 f"{toolchain}/lib",
                 f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
                 f"{metaldir}/lib",
@@ -248,6 +258,7 @@ if enable_runtime:
                     "TT_RUNTIME_WORKAROUNDS",
                     "1" if configure_workarounds_runtime else "0",
                 ),
+                ("TTMLIR_ENABLE_RUNTIME_TESTS", "1" if enable_runtime_tests else "0"),
             ],
         )
     )

@@ -437,6 +437,12 @@ jobs:
         source env/activate
         pytest -ssv runtime/tools/python/test/test_perf.py
 
+    - name: ttrt api tests
+      shell: bash
+      run: |
+        source env/activate
+        pytest -ssv runtime/tools/python/test/test_runtime_api.py
+
   build-and-test-explorer:
     needs: build-image
     timeout-minutes: 60

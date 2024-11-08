@@ -57,7 +57,7 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
     out = ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
                             static_cast<::ttnn::Device *>(nullptr));
   }
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout
