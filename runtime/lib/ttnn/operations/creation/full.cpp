@@ -26,7 +26,7 @@ struct FullTensorConfig {
         fillValue(op->fill_value()), numShards(op->num_shards()),
         strategy(op->strategy()) {
 
-    layout = utils::inferLayoutFromTileShape(op->out());
+    layout = ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
     // TODO(bug #272), determine correct layout by tile shape in the future
     // currently tile shape is not set correctly, so as a workaround, hardcode
@@ -42,8 +42,7 @@ struct FullTensorConfig {
     }
 
     if (!utils::inSystemMemory(op->out())) {
-      memoryConfig =
-          ::tt::runtime::ttnn::operations::utils::createMemoryConfig(op->out());
+      memoryConfig = ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
     }
     validate();
   }

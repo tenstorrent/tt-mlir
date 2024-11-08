@@ -13,6 +13,24 @@ using TensorMap = std::unordered_map<uint32_t, ::ttnn::Tensor *>;
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::Device>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
 
+struct LayoutDesc {
+  ::ttnn::BufferType bufferType;
+  ::ttnn::Layout layout;
+  ::ttnn::DataType dataType;
+  std::optional<::ttnn::MemoryConfig> memoryConfig;
+
+  LayoutDesc(const ::ttnn::BufferType &bufferType, const ::ttnn::Layout &layout,
+             const ::ttnn::DataType &dataType,
+             const std::optional<::ttnn::MemoryConfig> &memoryConfig)
+      : bufferType(bufferType), layout(layout), dataType(dataType),
+        memoryConfig(memoryConfig) {}
+
+  bool isOnHost() const {
+    return bufferType == ::ttnn::BufferType::SYSTEM_MEMORY;
+  }
+  bool isOnDevice() const { return !isOnHost(); }
+};
+
 class ProgramTensorPool {
 public:
   ProgramTensorPool(const TensorMap &liveTensors,

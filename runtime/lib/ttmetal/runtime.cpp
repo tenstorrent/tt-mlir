@@ -24,7 +24,7 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
       ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           binary.handle.get());
   if (not isTTMetal) {
-    throw std::runtime_error("Unsupported binary format");
+    LOG_FATAL("Unsupported binary format");
   }
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
@@ -56,7 +56,7 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   }
   if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
           metalTensor)) {
-    throw std::runtime_error("Datatype mapping from buffer not supported yet.");
+    LOG_FATAL("Datatype mapping from buffer not supported yet.");
   }
   LOG_ASSERT(false, "Unsupported tensor type");
   return ::tt::target::DataType::Float32;
@@ -117,7 +117,7 @@ prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
           metalTensor)) {
     std::shared_ptr<::tt::tt_metal::Buffer> buffer =
         std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
-    throw std::runtime_error("Input from buffer not supported yet");
+    LOG_FATAL("Input from buffer not supported yet");
   }
   LOG_ASSERT(false, "Unsupported tensor type");
   return std::make_pair(nullptr, nullptr);

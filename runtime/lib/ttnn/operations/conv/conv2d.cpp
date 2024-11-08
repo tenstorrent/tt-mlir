@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
 
@@ -23,7 +24,8 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
-  ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
+  ::ttnn::MemoryConfig outMemConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());
   ::ttnn::Tensor out = std::visit(

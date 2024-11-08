@@ -137,7 +137,7 @@ void CQExecutor::execute(::tt::target::metal::Command const *command) {
     break;
   }
   default:
-    throw std::runtime_error("Unsupported command type");
+    LOG_FATAL("Unsupported command type");
     break;
   }
 }
@@ -328,7 +328,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     break;
   }
   }
-  throw std::runtime_error("Unsupported kernel source type");
+  LOG_FATAL("Unsupported kernel source type");
 }
 
 static ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
@@ -346,7 +346,7 @@ static ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
   case ::tt::target::DataType::UInt8:
     return ::tt::DataFormat::UInt8;
   default:
-    throw std::runtime_error("Unsupported data type");
+    LOG_FATAL("Unsupported data type");
   }
 }
 
@@ -358,7 +358,7 @@ static CoreType toCoreType(::tt::target::metal::CoreType coreType) {
   case ::tt::target::metal::CoreType::ETH:
     return CoreType::ETH;
   }
-  throw std::runtime_error("Unsupported core type");
+  LOG_FATAL("Unsupported core type");
 }
 
 static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
@@ -423,7 +423,7 @@ static void processRuntimeArgs(
       break;
     }
     case ::tt::target::metal::RuntimeArg::NONE:
-      throw std::runtime_error("Unsupported runtime arg type");
+      LOG_FATAL("Unsupported runtime arg type");
     }
   }
 
@@ -500,7 +500,7 @@ void CQExecutor::execute(
     break;
   }
   default:
-    throw std::runtime_error("Unsupported HostBuffer type");
+    LOG_FATAL("Unsupported HostBuffer type");
   }
 }
 
@@ -508,7 +508,7 @@ void CQExecutor::execute(
     ::tt::target::metal::EnqueueReadBufferCommand const *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
   // Maybe we will need this in the future, like paging to system mem?
-  throw std::runtime_error("Unsupported EnqueueReadBufferCommand");
+  LOG_FATAL("Unsupported EnqueueReadBufferCommand");
 }
 
 void CQExecutor::execute(

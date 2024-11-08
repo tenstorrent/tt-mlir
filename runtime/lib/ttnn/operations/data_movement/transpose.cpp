@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
@@ -34,7 +35,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
   // work at the moment, we use this temporary solution.
   ::ttnn::Tensor unsqueezedInput = ::ttnn::unsqueeze_to_4D(in);
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::permute(unsqueezedInput, dimensionOrder, outputMemoryConfig);
   out = ::ttnn::squeeze_from_4D(out, inputRank);

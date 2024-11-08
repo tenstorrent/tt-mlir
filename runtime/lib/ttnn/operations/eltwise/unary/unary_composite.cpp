@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 #include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 
 namespace tt::runtime::ttnn::operations::unary::composite {
@@ -20,27 +21,26 @@ static void runEltwiseUnaryCompositeOp(
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
-static void runEltwiseUnaryCompositeClampOP(
+static void runEltwiseUnaryCompositeClampOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<::ttnn::Tensor(const ::ttnn::Tensor &, float, float,
-                                 const ::tt::tt_metal::MemoryConfig &)>
-        ttnnOp) {
+    const std::function<::ttnn::Tensor(const ::ttnn::Tensor &, float, float,
+                                       const ::tt::tt_metal::MemoryConfig &)>
+        &ttnnOp) {
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   float min = op->params_as_ClampOpParams()->min();
   float max = op->params_as_ClampOpParams()->max();
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ttnnOp(*in, min, max, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
-  return;
 }
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
@@ -51,7 +51,7 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Clamp: {
-    runEltwiseUnaryCompositeClampOP(op, tensorPool, ::ttnn::clamp);
+    runEltwiseUnaryCompositeClampOp(op, tensorPool, ::ttnn::clamp);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Log1p: {

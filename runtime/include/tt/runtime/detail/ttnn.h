@@ -114,11 +114,26 @@ void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
+Tensor toHost(Tensor tensor, bool untilize = false);
+
+Tensor toDevice(Tensor tensor, Device device);
+
+Tensor toDevice(Tensor tensor, Device device, Layout layout);
+
+Tensor toLayout(Tensor tensor, Layout layout);
+
+void deallocateTensor(Tensor tensor, bool force = false);
+
+Layout getLayout(Binary bin, std::uint32_t programIndex,
+                 std::uint32_t inputIndex);
+
 Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);
 
 void wait(Event event);
+
+void wait(Tensor tensor);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
