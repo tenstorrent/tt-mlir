@@ -34,7 +34,7 @@ namespace mlir::tt {
 // IndexOp decomposition
 //===----------------------------------------------------------------------===//
 
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR: decomposing_an_op_index_ttir_decompose_pattern
 // This transformation adjusts IndexOp attributes so that `begin`, `end`, and
 // `step` become arrays, where each array element corresponds to a dimension of
 // the input tensor. For dimensions other than the sliced dimension, default
@@ -76,7 +76,7 @@ struct IndexToSliceConversionPattern
     return success();
   }
 };
-// ANCHOR_END: adding_an_op_index_ttir
+// ANCHOR_END: decomposing_an_op_index_ttir_decompose_pattern
 
 //===----------------------------------------------------------------------===//
 // Convolution passes

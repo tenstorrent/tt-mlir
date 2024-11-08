@@ -434,7 +434,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // IndexOp
 //===----------------------------------------------------------------------===//
 
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR: decomposing_an_op_index_ttir_verify
 // IndexOp verification
 ::mlir::LogicalResult mlir::tt::ttir::IndexOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
@@ -540,7 +540,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   return success();
 }
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR_END: decomposing_an_op_index_ttir_verify
 
 //===----------------------------------------------------------------------===//
 // SqueezeOp
