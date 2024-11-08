@@ -17,12 +17,7 @@ void run(const ::tt::target::ttnn::TypecastOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
 
   ::ttnn::Tensor out = ::ttnn::typecast(inputTensor, targetDataType);
-
-  if (tensorPool.isUserOutput(op->out()->global_id())) {
-    tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
-  } else {
-    tensorPool.insert_or_assign(op->out()->global_id(), out);
-  }
+  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
 }
 
 } // namespace tt::runtime::ttnn::operations::layout

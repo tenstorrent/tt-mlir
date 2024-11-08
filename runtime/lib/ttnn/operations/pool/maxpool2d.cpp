@@ -14,9 +14,10 @@ namespace tt::runtime::ttnn::operations::pool {
 
 // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
 // instead of adding a method in runtime
+template <typename DeviceType>
 static ::ttnn::Tensor
 preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
-                     ::ttnn::Device &device, const ::ttnn::Tensor &input) {
+                     DeviceType &device, const ::ttnn::Tensor &input) {
   const ::ttnn::Shape inputShape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
       ::tt::runtime::ttnn::utils::toShapeFromFBShape(
           *op->in()->desc()->shape())));
@@ -42,17 +43,19 @@ preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
 
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  // TODO (jnie): Update this once we support multi device tensors
-  // Investigate how to handle multi device in maxpool2d
-  ::ttnn::Device &device =
-      context.getDeviceFromView(op->device()->global_id(), 0);
   const ::ttnn::operations::pool::MaxPool2DOp operation =
       ::ttnn::operations::pool::MaxPool2DOp();
 
   ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(input.is_allocated());
   if (workaround::Env::get().maxpool2dPreshard) {
-    input = preshardForMaxPool2d(op, device, input);
+    DeviceVariant targetDevice =
+        context.getTargetDevice(op->device()->global_id());
+    input = std::visit(
+        [&](auto &&targetDevice) -> ::ttnn::Tensor {
+          return preshardForMaxPool2d(op, targetDevice.get(), input);
+        },
+        targetDevice);
   }
 
   ::ttnn::Tensor out = operation.invoke(
@@ -64,6 +67,5 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
       std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
-  return;
 }
 } // namespace tt::runtime::ttnn::operations::pool
