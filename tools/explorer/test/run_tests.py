@@ -11,16 +11,19 @@ import glob
 
 HOST = "localhost"
 PORT = 8002
-CONVERT_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
+COMMAND_URL = "http://" + HOST + ":" + str(PORT) + "/apipost/v1/send_command"
 TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/mnist_sharding.mlir",
     "tools/explorer/test/models/*.mlir",
 ]
+TEST_EXECUTE_MODEL_PATHS = [
+    "test/ttmlir/Silicon/TTNN/sharded/mnist_sharding_tiled.mlir",
+]
 
 
-def get_test_files():
+def get_test_files(paths):
     files = []
-    for path in TEST_LOAD_MODEL_PATHS:
+    for path in paths:
         files.extend(glob.glob(path))
     return files
 
@@ -37,7 +40,7 @@ def start_server(request):
     request.addfinalizer(lambda: server_thread.terminate())
 
 
-@pytest.mark.parametrize("model_path", get_test_files())
+@pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
 def test_load_model(model_path):
     cmd = {
         "extensionId": "tt_adapter",
@@ -47,7 +50,24 @@ def test_load_model(model_path):
         "settings": {},
     }
 
-    result = requests.post(CONVERT_URL, json=cmd)
+    result = requests.post(COMMAND_URL, json=cmd)
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert False
+
+
+@pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
+def test_execute_model(model_path):
+    cmd = {
+        "extensionId": "tt_adapter",
+        "cmdId": "execute",
+        "modelPath": model_path,
+        "deleteAfterConversion": False,
+        "settings": {},
+    }
+
+    result = requests.post(COMMAND_URL, json=cmd)
     assert result.ok
     if "error" in result.json():
         print(result.json())
