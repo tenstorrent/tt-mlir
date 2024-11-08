@@ -502,7 +502,7 @@ public:
     // specific datatypes on input. However, one of the constructors takes in a
     // tt_metal::Shape - given that it's much easier to construct a
     // tt_metal::Shape, we opted to do that here. The call looks like this:
-    // ttnn::Shape(tt::tt_metal::Shape{dim0, dim1, dim2, ...});
+    // ttnn::Shape(tt::tt_metal::LegacyShape{dim0, dim1, dim2, ...});
     //
     // To make it easier on the eyes, these two calls are packed into one, using
     // EmitC's ExpressionOp.
@@ -517,8 +517,9 @@ public:
     rewriter.setInsertionPointToStart(&bodyBlock);
     emitc::CallOpaqueOp metalShapeOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp->getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(), "tt::metal::Shape"),
-        rewriter.getStringAttr("Shape"),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "tt::tt_metal::LegacyShape"),
+        rewriter.getStringAttr("tt::tt_metal::LegacyShape"),
         rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)), nullptr,
         ValueRange());
     emitc::CallOpaqueOp ttnnShapeOp = rewriter.create<emitc::CallOpaqueOp>(
@@ -537,10 +538,12 @@ public:
     //
     ArrayAttr arrayAttr;
     if (adaptor.getDevice()) {
-      mlir::emitc::ApplyOp derefDevice = rewriter.create<emitc::ApplyOp>(
-          srcOp->getLoc(), rewriter.getType<emitc::OpaqueType>("ttnn::Device&"),
-          "*", adaptor.getDevice());
-      operands.append(1, derefDevice->getResult(0));
+      // mlir::emitc::ApplyOp derefDevice = rewriter.create<emitc::ApplyOp>(
+      //     srcOp->getLoc(),
+      //     rewriter.getType<emitc::OpaqueType>("ttnn::Device&"),
+      //     "*", adaptor.getDevice());
+      // operands.append(1, derefDevice->getResult(0));
+      operands.append(1, adaptor.getDevice());
 
       // Create ArrayAttr object holding MemoryConfig attributes
       //

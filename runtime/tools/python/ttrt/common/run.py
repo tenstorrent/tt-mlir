@@ -623,7 +623,7 @@ class Run:
         return run_parser
 
     class TorchInitializer:
-        init_fns = sorted(["randn", "arange", "zeros"])
+        init_fns = sorted(["randn", "arange", "zeros", "ones"])
 
         @staticmethod
         def get_initilizer(name):
@@ -660,3 +660,9 @@ class Run:
             import torch
 
             return torch.zeros(shape, dtype=dtype)
+
+        @staticmethod
+        def ones(shape, dtype):
+            import torch
+
+            return torch.ones(shape, dtype=dtype)

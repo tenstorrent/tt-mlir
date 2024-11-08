@@ -54,14 +54,17 @@ add_executable(ttnn-standalone ttnn-standalone.cpp)
 set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
 
 target_include_directories(ttnn-standalone PRIVATE
-    # reflect
-    # TODO: Remove this when ttmetal removes this dependency (reflect) from public facing headers
+    # TODO: Remove these when ttmetal removes the dependencies from public facing headers
     $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
+    $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
+    $ENV{TT_METAL_HOME}/.cpmcache/magic_enum/1e1af177d4ab0ef660f105434fd1017c4d1f8c17/include/magic_enum
+    $ENV{TT_METAL_HOME}/.cpmcache/boost_core/e679bef5c160cf29d0f37d549881dc5f5a58c332/include
 
     # Metalium
     $ENV{TT_METAL_HOME}
     $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device
     $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
