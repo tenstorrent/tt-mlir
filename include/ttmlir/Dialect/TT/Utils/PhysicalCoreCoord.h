@@ -127,7 +127,8 @@ private:
 
 // Make PhysicalCoreCoord hashable.
 namespace llvm {
-template <> struct DenseMapInfo<mlir::tt::PhysicalCoreCoord> {
+template <>
+struct DenseMapInfo<mlir::tt::PhysicalCoreCoord> {
   static mlir::tt::PhysicalCoreCoord getEmptyKey() {
     return mlir::tt::PhysicalCoreCoord{-1, -1, -1};
   }

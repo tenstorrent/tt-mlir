@@ -10,7 +10,8 @@
 namespace mlir::tt::ttnn {
 // Base class for all TTNN analyses.
 //
-template <class I, class R> class TTNNAnalysis {
+template <class I, class R>
+class TTNNAnalysis {
 protected:
   Operation *op;
   bool isValid = false;

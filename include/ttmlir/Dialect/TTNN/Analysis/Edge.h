@@ -26,7 +26,8 @@ struct Edge {
 } // namespace mlir::tt::ttnn
 
 namespace std {
-template <> struct hash<mlir::tt::ttnn::Edge> {
+template <>
+struct hash<mlir::tt::ttnn::Edge> {
   size_t operator()(const mlir::tt::ttnn::Edge &edge) const noexcept {
     llvm::hash_code code = llvm::hash_value(edge.operandIndex);
     code = llvm::hash_combine(code, edge.producerOp);
