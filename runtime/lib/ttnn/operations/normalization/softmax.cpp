@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::normalization {
 void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
@@ -14,7 +15,7 @@ void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
   DEBUG_ASSERT(in.is_allocated());
   int32_t dimension = op->dimension();
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ::ttnn::softmax(in, dimension, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

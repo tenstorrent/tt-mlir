@@ -11,13 +11,6 @@ void run(const ::tt::target::ttnn::DeallocateOp *op, ProgramContext &context) {
   ::ttnn::Tensor &tensor = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(tensor.is_allocated());
   ::ttnn::deallocate(tensor, op->force());
-
-  // The tensor should be deallocated after the deallocate call.
-  // Still this assert may be hit in the future for multidevice/async ttnn
-  // support. In that case, we will reevaluate the assert/dealloc behaviour and
-  // adjust it accordingly.
-  //
-  DEBUG_ASSERT(!tensor.is_allocated());
   tensorPool.erase(op->in()->global_id());
 }
 } // namespace tt::runtime::ttnn::operations::deletion

@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/eltwise/binary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::binary::composite {
 
@@ -20,7 +21,7 @@ static void runEltwiseBinaryCompositeOp(
   getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
