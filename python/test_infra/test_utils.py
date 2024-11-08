@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from typing import Callable, Dict, Tuple, List
+from typing import Callable, Dict, Tuple, List, Optional
 
 import torch
 from ttmlir.dialects import func
@@ -135,7 +135,7 @@ def compile_as_mlir_module(
 def ttir_to_ttnn(
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
-    system_desc_path: str = "",
+    system_desc_path: Optional[str] = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -154,6 +154,10 @@ def ttir_to_ttnn(
     -------
     MLIR module containing MLIR op graph defined by decorated test function and instance of TTIRBuilder.
     """
+
+    # Default to the `SYSTEM_DESC_PATH` envvar
+    if system_desc_path is None:
+        system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
     def decorator(fn: Callable):
         def wrapper(*args, **kwargs):
@@ -183,7 +187,7 @@ def ttir_to_ttnn(
 def ttir_to_ttmetal(
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
-    system_desc_path: str = "",
+    system_desc_path: Optional[str] = None,
 ):
     """
     Converts TTIR module to TTMetal module and optionally dumps to file.
@@ -202,6 +206,10 @@ def ttir_to_ttmetal(
     -------
     MLIR module containing MLIR op graph defined by decorated test function and instance of TTIRBuilder.
     """
+
+    # Default to the `SYSTEM_DESC_PATH` envvar
+    if system_desc_path is None:
+        system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
     def decorator(fn: Callable):
         def wrapper(*args, **kwargs):
