@@ -43,6 +43,21 @@ static void runEltwiseUnaryCompositeClampOp(
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
+static void runEltwiseUnaryCompositeRoundOp(
+    const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
+    const std::function<::ttnn::Tensor(const ::ttnn::Tensor &, int,
+                                       const ::tt::tt_metal::MemoryConfig &)>
+        &ttnnOp) {
+  ::ttnn::Tensor *in = nullptr;
+  getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
+
+  int32_t decimals = op->params_as_RoundOpParams()->decimals();
+  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+  ::ttnn::Tensor out = ttnnOp(*in, decimals, outputMemoryConfig);
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
@@ -56,6 +71,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Log1p: {
     runEltwiseUnaryCompositeOp(op, tensorPool, ::ttnn::log1p);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Round: {
+    runEltwiseUnaryCompositeRoundOp(op, tensorPool, ::ttnn::round);
     break;
   }
   default:

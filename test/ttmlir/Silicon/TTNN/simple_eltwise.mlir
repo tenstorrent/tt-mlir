@@ -271,6 +271,20 @@ func.func @remainder(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tens
   // CHECK: return {{.*}} : tensor<32x32xf32, {{.*}}
 }
 
+func.func @roundnearesteven(%arg0: tensor<4xbf16>) -> tensor<4xbf16> {
+  %0 = tensor.empty() : tensor<4xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.round"[[C:.*]]
+  %1 = "ttir.roundnearesteven"(%arg0, %0) <{decimals = 0 : i32}> : (tensor<4xbf16>, tensor<4xbf16>) -> tensor<4xbf16>
+  return %1 : tensor<4xbf16>
+}
+
+func.func @round(%arg0: tensor<4xbf16>) -> tensor<4xbf16> {
+  %0 = tensor.empty() : tensor<4xbf16>
+  // CHECK: %[[C:.*]] = "ttnn.round"[[C:.*]]
+  %1 = "ttir.round"(%arg0, %0) <{decimals = 1 : i32}> : (tensor<4xbf16>, tensor<4xbf16>) -> tensor<4xbf16>
+  return %1 : tensor<4xbf16>
+}
+
 func.func @get_dimension_size(%arg0: tensor<13x21x3xf32>) -> tensor<1xi32> {
   %0 = "ttir.get_dimension_size"(%arg0) <{dimension = 1 : i32}> : (tensor<13x21x3xf32>) -> tensor<1xi32>
   // CHECK: [[VAL:%[0-9]+]] = "ttnn.full"(%{{[0-9]+}}) <{fillValue = 2.100000e+01 : f32}> : (!tt.device<#device>) -> tensor<1xi32, {{.*}}>

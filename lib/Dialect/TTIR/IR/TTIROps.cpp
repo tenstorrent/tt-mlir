@@ -46,6 +46,24 @@
 }
 
 //===----------------------------------------------------------------------===//
+// RoundOp/ RoundNearestEvenOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RoundOp::verify() {
+  if (getDecimals() == 0) {
+    return emitOpError("decimals must be non-zero.");
+  }
+  return success();
+}
+
+::mlir::LogicalResult mlir::tt::ttir::RoundNearestEvenOp::verify() {
+  if (getDecimals() != 0) {
+    return emitOpError("decimals must be zero.");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//
 

@@ -1755,6 +1755,41 @@ public:
   }
 };
 
+template <typename SrcOp, typename DestOp,
+          typename Adaptor = typename SrcOp::Adaptor>
+class StableHLOToTTIRRoundOpConversionPattern
+    : public OpConversionPattern<SrcOp> {
+public:
+  using OpConversionPattern<SrcOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    if (isa<stablehlo::RoundOp>(srcOp)) {
+      rewriter.replaceOpWithNewOp<DestOp>(srcOp, outputType,
+                                          adaptor.getOperand(), outputTensor,
+                                          rewriter.getI32IntegerAttr(1));
+    } else if (isa<stablehlo::RoundNearestEvenOp>(srcOp)) {
+      rewriter.replaceOpWithNewOp<DestOp>(srcOp, outputType,
+                                          adaptor.getOperand(), outputTensor,
+                                          rewriter.getI32IntegerAttr(0));
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "ttir::RoundOp only supports stablehlo:RoundOp or "
+                 "stablehlo::RoundNearestEvenOp");
+    }
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -1963,6 +1998,15 @@ void addReverseOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
 
+void addRoundOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                 TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRRoundOpConversionPattern<
+      mlir::stablehlo::RoundOp, mlir::tt::ttir::RoundOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRRoundOpConversionPattern<
+      mlir::stablehlo::RoundNearestEvenOp, mlir::tt::ttir::RoundNearestEvenOp>>(
+      typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1992,6 +2036,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReturnOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
+  addRoundOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

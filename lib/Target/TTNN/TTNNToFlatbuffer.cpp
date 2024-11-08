@@ -530,6 +530,10 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
     return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
                                                               parameter);
   }
+  if constexpr (std::is_same_v<EltwiseOp, RoundOp>) {
+    auto decimals = op.getDecimals();
+    return ::tt::target::ttnn::CreateRoundOpParams(*cache.fbb, decimals);
+  }
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
@@ -567,6 +571,12 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Clamp;
     paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
     params = createEltwiseOpParams<ClampOp, ::tt::target::ttnn::ClampOpParams>(
+                 cache, op)
+                 .Union();
+  } else if (std::is_same_v<EltwiseOp, RoundOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Round;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::RoundOpParams;
+    params = createEltwiseOpParams<RoundOp, ::tt::target::ttnn::RoundOpParams>(
                  cache, op)
                  .Union();
   } else {
@@ -1096,6 +1106,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
     return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
+                           debugString, locInfo);
+  }
+  if (auto roundOp = dyn_cast<RoundOp>(op); roundOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, roundOp),
                            debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

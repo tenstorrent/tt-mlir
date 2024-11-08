@@ -965,6 +965,24 @@ public:
   }
 };
 
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class RoundOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDecimals());
+
+    return success();
+  }
+};
+
 class SubtractOpConversionPattern
     : public OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
@@ -1178,6 +1196,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
+           RoundOpConversionPattern<ttir::RoundOp, ttnn::RoundOp>,
+           RoundOpConversionPattern<ttir::RoundNearestEvenOp, ttnn::RoundOp>,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,

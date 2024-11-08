@@ -296,6 +296,20 @@ def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
     }];
 }
 
+def TTNN_RoundOp : TTNN_Op<"round"> {
+    let summary = "Eltwise round operation.";
+    let description = [{
+      Eltwise round with decimal option to choose between Banker's rounding or normal rounding.
+    }];
+
+    let arguments = (ins
+        Variadic<AnyRankedTensor>:$inputs,
+        I32Attr:$decimals
+    );
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+}
+
 def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{

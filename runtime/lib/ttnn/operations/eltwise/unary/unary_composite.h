@@ -15,6 +15,7 @@ inline bool isUnaryCompositeOp(const ::tt::target::ttnn::EltwiseOp *op) {
   case ::tt::target::ttnn::EltwiseOpType::Cbrt:
   case ::tt::target::ttnn::EltwiseOpType::Clamp:
   case ::tt::target::ttnn::EltwiseOpType::Log1p:
+  case ::tt::target::ttnn::EltwiseOpType::Round:
     return true;
   default:
     return false;
