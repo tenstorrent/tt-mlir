@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void runReductionOp(
@@ -17,7 +18,7 @@ static void runReductionOp(
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         &ttnnOp) {
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 

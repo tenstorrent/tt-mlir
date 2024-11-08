@@ -63,11 +63,18 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
 
 void closeDevice(Device device);
 
-Event submit(Device device, Binary executable, std::uint32_t programIndex,
-             std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
-
 void wait(Event event);
+
+Tensor toHost(Tensor tensor, bool untilize = false);
+
+Tensor toDevice(Tensor tensor, Device device);
+
+Tensor toDevice(Tensor tensor, Device device, Layout layout);
+
+Tensor toLayout(Tensor tensor, Layout layout);
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
@@ -75,6 +82,20 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
 std::vector<float> getTensorData(Tensor tensor);
+
+void memcpy(void *dst, Tensor src);
+
+void memcpy(Tensor dst, Tensor src);
+
+void deallocateTensor(Tensor &tensor, bool force = false);
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputs);
+
+Event submit(Device deviceHandle, Binary executableHandle,
+             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
+             std::vector<Tensor> const &outputs);
 
 } // namespace tt::runtime
 

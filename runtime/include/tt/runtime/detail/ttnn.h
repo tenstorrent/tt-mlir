@@ -75,11 +75,16 @@ void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
-Event submit(Device device, Binary executable, std::uint32_t programIndex,
-             std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
+Tensor toHost(Tensor tensor, bool untilize = false);
 
-void wait(Event event);
+Tensor toDevice(Tensor tensor, Device device);
+
+Tensor toDevice(Tensor tensor, Device device, Layout layout);
+
+Tensor toLayout(Tensor tensor, Layout layout);
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
@@ -88,10 +93,34 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<float> getTensorData(Tensor tensor);
 
+void memcpy(void *dst, Tensor src);
+
+void memcpy(Tensor dst, Tensor src);
+
+void deallocateTensor(Tensor &tensor, bool force = false);
+
+namespace legacy {
+/* Will be deprecated soon once FEs migrate to new API */
+void wait(Event event);
+
+Event submit(Device deviceHandle, Binary executableHandle,
+             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
+             std::vector<Tensor> const &outputs);
+
 void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
                 std::uint32_t programIndex,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
+} // namespace legacy
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputs);
+
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::ttnn::Tensor *> const &inputs);
 
 } // namespace tt::runtime::ttnn
 

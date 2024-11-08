@@ -22,6 +22,7 @@ PYBIND11_MODULE(_C, m) {
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
+  py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
   py::enum_<::tt::target::DataType>(m, "DataType")
@@ -69,8 +70,8 @@ PYBIND11_MODULE(_C, m) {
          ::tt::target::DataType dataType,
          std::unordered_map<std::string, std::string> const &strategy) {
         std::vector<std::shared_ptr<void>> data;
-        data.resize(ptrs.size());
-        std::transform(ptrs.begin(), ptrs.end(), data.begin(),
+        data.reserve(ptrs.size());
+        std::transform(ptrs.begin(), ptrs.end(), std::back_inserter(data),
                        [](std::uintptr_t ptr) {
                          return ::tt::runtime::utils::unsafe_borrow_shared(
                              reinterpret_cast<void *>(ptr));
@@ -85,9 +86,53 @@ PYBIND11_MODULE(_C, m) {
         py::arg("num_hw_cqs") = size_t{1},
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
-  m.def("submit", &tt::runtime::submit, py::arg("device"),
-        py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
-        py::arg("outputs"), "Submit a binary for execution");
+  m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
+        py::arg("utilize") = false, "Copy the tensor to the host");
+  m.def(
+      "to_device",
+      [](const ::tt::runtime::Tensor tensor,
+         ::tt::runtime::Device device) -> ::tt::runtime::Tensor {
+        return ::tt::runtime::toDevice(tensor, device);
+      },
+      py::arg("tensor"), py::arg("device"), "Copy the tensor to the device");
+  m.def(
+      "to_device",
+      [](::tt::runtime::Tensor tensor, ::tt::runtime::Device device,
+         ::tt::runtime::Layout layout) -> ::tt::runtime::Tensor {
+        return ::tt::runtime::toDevice(tensor, device, layout);
+      },
+      py::arg("tensor"), py::arg("device"), py::arg("layout"),
+      "Copy the tensor to the device with the specified layout");
+  m.def("to_layout", &tt::runtime::toLayout, py::arg("tensor"),
+        py::arg("layout"),
+        "Create a copy of the tensor with the specified layout");
+  m.def("get_layout", &tt::runtime::getLayout, py::arg("executable"),
+        py::arg("program_index"), py::arg("input_index"),
+        "Get the layout of the input tensor");
+  m.def(
+      "submit",
+      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+         std::uint32_t programIndex,
+         const std::vector<::tt::runtime::Tensor> &inputs)
+          -> std::vector<::tt::runtime::Tensor> {
+        return ::tt::runtime::submit(device, executable, programIndex, inputs);
+      },
+      py::arg("device"), py::arg("executable"), py::arg("program_index"),
+      py::arg("inputs"),
+      "Submit a ttnn binary for execution, returns a vector of output tensors");
+  m.def(
+      "submit",
+      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+         std::uint32_t programIndex,
+         const std::vector<::tt::runtime::Tensor> &inputs,
+         const std::vector<::tt::runtime::Tensor> &outputs)
+          -> ::tt::runtime::Event {
+        return ::tt::runtime::submit(device, executable, programIndex, inputs,
+                                     outputs);
+      },
+      py::arg("device"), py::arg("executable"), py::arg("program_index"),
+      py::arg("inputs"), py::arg("outputs"),
+      "Submit a ttmetal binary for execution. returns event wrapper");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
   m.def(
       "get_op_output_tensor",
@@ -100,7 +145,22 @@ PYBIND11_MODULE(_C, m) {
       "Get the input tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
-
+  m.def(
+      "memcpy",
+      [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
+        ::tt::runtime::memcpy(reinterpret_cast<void *>(dst), src);
+      },
+      py::arg("dst"), py::arg("src"),
+      "Copy the data from src tensor to dst memory location");
+  m.def(
+      "memcpy",
+      [](::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
+        ::tt::runtime::memcpy(dst, src);
+      },
+      py::arg("dst"), py::arg("src"),
+      "Copy the data from src tensor to dst tensor");
+  m.def("deallocate_tensor", &tt::runtime::deallocateTensor, py::arg("tensor"),
+        py::arg("force") = false, "Deallocate the tensor memory");
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
       .def("__str__", [](const tt::runtime::debug::Env &env) {

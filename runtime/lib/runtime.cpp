@@ -42,7 +42,7 @@ void deallocateBuffers(Device device) {
     return ::tt::runtime::ttmetal::deallocateBuffers(device);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 } // namespace detail
 
@@ -91,15 +91,14 @@ void setCompatibleRuntime(const Binary &binary) {
     return setCurrentRuntime(DeviceRuntime::TTMetal);
   }
 #endif
-  throw std::runtime_error(
-      "Unsupported binary file identifier or runtime not enabled");
+  LOG_FATAL("Unsupported binary file identifier or runtime not enabled");
 }
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
 #if defined(TT_RUNTIME_ENABLE_TTNN) || defined(TT_RUNTIME_ENABLE_TTMETAL)
   return system_desc::getCurrentSystemDesc();
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 Tensor createTensor(std::shared_ptr<void> data,
@@ -122,7 +121,7 @@ Tensor createTensor(std::shared_ptr<void> data,
                                                 dataType);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 Tensor
@@ -143,10 +142,10 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    throw std::runtime_error("Not implemented");
+    LOG_FATAL("Not implemented");
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {
@@ -161,7 +160,7 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
     return ::tt::runtime::ttmetal::getTensorDataType(tensor);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 size_t getNumAvailableDevices() {
@@ -176,7 +175,7 @@ size_t getNumAvailableDevices() {
     return ::tt::runtime::ttmetal::getNumAvailableDevices();
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
@@ -191,7 +190,7 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
     return ::tt::runtime::ttmetal::openDevice(deviceIds, numHWCQs);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 void closeDevice(Device device) {
@@ -206,35 +205,14 @@ void closeDevice(Device device) {
     return ::tt::runtime::ttmetal::closeDevice(device);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
-}
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex,
-             std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
-                                       programIndex, inputHandles,
-                                       outputHandles);
-  }
-#endif
-
-#if defined(TT_RUNTIME_ENABLE_TTMETAL)
-  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
-                                          programIndex, inputHandles,
-                                          outputHandles);
-  }
-#endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 void wait(Event event) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::wait(event);
+    LOG_WARNING("wait API will be deprecated for TTNN runtime.");
+    return ::tt::runtime::ttnn::legacy::wait(event);
   }
 #endif
 
@@ -243,7 +221,84 @@ void wait(Event event) {
     return ::tt::runtime::ttmetal::wait(event);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor toHost(Tensor tensor, bool untilize) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::toHost(tensor, untilize);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor toDevice(Tensor tensor, Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::toDevice(tensor, device);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor toDevice(Tensor tensor, Device device, Layout layout) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::toDevice(tensor, device, layout);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Tensor toLayout(Tensor tensor, Layout layout) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::toLayout(tensor, layout);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
+                 std::uint32_t inputIndex) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getLayout(executableHandle, programIndex,
+                                          inputIndex);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
 }
 
 std::string getOpDebugString(OpContext opContextHandle) {
@@ -258,7 +313,7 @@ std::string getOpDebugString(OpContext opContextHandle) {
     return ::tt::runtime::ttmetal::getOpDebugString(opContextHandle);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 Tensor getOpOutputTensor(OpContext opContextHandle,
@@ -276,7 +331,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
                                                      programContextHandle);
   }
 #endif
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
 std::vector<float> getTensorData(Tensor tensor) {
@@ -292,7 +347,93 @@ std::vector<float> getTensorData(Tensor tensor) {
   }
 #endif
 
-  throw std::runtime_error("runtime is not enabled");
+  LOG_FATAL("runtime is not enabled");
 }
 
+void memcpy(void *dst, Tensor src) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::memcpy(dst, src);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+void memcpy(Tensor dst, Tensor src) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::memcpy(dst, src);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+void deallocateTensor(Tensor &tensor, bool force) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::deallocateTensor(tensor, force);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
+                           std::uint32_t programIndex,
+                           std::vector<Tensor> const &inputHandles) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
+                                       programIndex, inputHandles);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+Event submit(Device deviceHandle, Binary executableHandle,
+             std::uint32_t programIndex,
+             std::vector<Tensor> const &inputHandles,
+             std::vector<Tensor> const &outputHandles) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    LOG_WARNING("This submit API will soon be deprecated. Please switch to the "
+                "new API.");
+    return ::tt::runtime::ttnn::legacy::submit(deviceHandle, executableHandle,
+                                               programIndex, inputHandles,
+                                               outputHandles);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
+                                          programIndex, inputHandles,
+                                          outputHandles);
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
 } // namespace tt::runtime

@@ -20,8 +20,14 @@ try:
         create_tensor,
         create_multi_device_tensor,
         wait,
+        to_host,
+        to_device,
+        to_layout,
+        get_layout,
         get_op_output_tensor,
         get_op_debug_str,
+        memcpy,
+        deallocate_tensor,
         WorkaroundEnv,
     )
 except ModuleNotFoundError:
