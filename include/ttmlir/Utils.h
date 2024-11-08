@@ -15,11 +15,13 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace ttmlir::utils {
-template <typename T> T alignUp(T ptr, T alignment) {
+template <typename T>
+T alignUp(T ptr, T alignment) {
   return (ptr + alignment - 1) & ~(alignment - 1);
 }
 
-template <typename T> T alignDown(T ptr, T alignment) {
+template <typename T>
+T alignDown(T ptr, T alignment) {
   return ptr & ~(alignment - 1);
 }
 
@@ -56,7 +58,8 @@ llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
   return result;
 }
 
-template <typename IntType> IntType volume(mlir::ArrayRef<IntType> shape) {
+template <typename IntType>
+IntType volume(mlir::ArrayRef<IntType> shape) {
   IntType result = 1;
   for (auto dim : shape) {
     result *= dim;

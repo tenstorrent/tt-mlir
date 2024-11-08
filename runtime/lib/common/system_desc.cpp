@@ -258,7 +258,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-  if (not ::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
+  if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
     throw std::runtime_error("Failed to verify system desc root buffer");
   }
   uint8_t *buf = fbb.GetBufferPointer();

@@ -30,8 +30,12 @@ struct ObjectImpl {
   std::shared_ptr<void> handle;
 
   ObjectImpl(std::shared_ptr<void> handle) : handle(handle) {}
-  template <typename T> T &as() { return *static_cast<T *>(handle.get()); }
-  template <typename T> T const &as() const {
+  template <typename T>
+  T &as() {
+    return *static_cast<T *>(handle.get());
+  }
+  template <typename T>
+  T const &as() const {
     return *static_cast<T const *>(handle.get());
   }
 };
@@ -48,12 +52,14 @@ struct RuntimeCheckedObjectImpl {
     return associatedRuntime == runtime;
   }
 
-  template <typename T> T &as(DeviceRuntime expectedRuntime) {
+  template <typename T>
+  T &as(DeviceRuntime expectedRuntime) {
     assert(associatedRuntime == expectedRuntime &&
            "Associated runtime does not match expected runtime of cast");
     return *static_cast<T *>(handle.get());
   }
-  template <typename T> T const &as(DeviceRuntime expectedRuntime) const {
+  template <typename T>
+  T const &as(DeviceRuntime expectedRuntime) const {
     assert(associatedRuntime == expectedRuntime &&
            "Associated runtime does not match expected runtime of cast");
     return *static_cast<T const *>(handle.get());

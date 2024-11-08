@@ -242,7 +242,8 @@ inline void log_debug_(LogType type, Args const &...args) {
   Logger::get().log_level_type(Logger::Level::Debug, type, args...);
 }
 
-template <typename... Args> inline void log_debug_(Args const &...args) {
+template <typename... Args>
+inline void log_debug_(Args const &...args) {
   log_debug_(LogAlways, args...);
 }
 
@@ -258,7 +259,8 @@ inline void log_info_(LogType type, Args const &...args) {
   Logger::get().log_level_type(Logger::Level::Info, type, args...);
 }
 
-template <typename... Args> inline void log_info_(Args const &...args) {
+template <typename... Args>
+inline void log_info_(Args const &...args) {
   log_info_(LogAlways, args...);
 }
 
@@ -267,7 +269,8 @@ inline void log_warning_(LogType type, Args const &...args) {
   Logger::get().log_level_type(Logger::Level::Warning, type, args...);
 }
 
-template <typename... Args> inline void log_warning_(Args const &...args) {
+template <typename... Args>
+inline void log_warning_(Args const &...args) {
   log_warning_(LogAlways, args...);
 }
 
@@ -276,7 +279,8 @@ inline void log_error_(LogType type, Args const &...args) {
   Logger::get().log_level_type(Logger::Level::Error, type, args...);
 }
 
-template <typename... Args> inline void log_error_(Args const &...args) {
+template <typename... Args>
+inline void log_error_(Args const &...args) {
   log_error_(LogAlways, args...);
 }
 
@@ -285,7 +289,8 @@ inline void log_fatal_(LogType type, Args const &...args) {
   Logger::get().log_level_type(Logger::Level::Fatal, type, args...);
 }
 
-template <typename... Args> inline void log_fatal_(Args const &...args) {
+template <typename... Args>
+inline void log_fatal_(Args const &...args) {
   log_fatal_(LogAlways, args...);
 }
 

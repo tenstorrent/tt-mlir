@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include <algorithm>
 #include <bitset>
-#include <llvm/ADT/StringMap.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
