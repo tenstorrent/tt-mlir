@@ -406,11 +406,40 @@ public:
   }
 };
 
+class GetDimensionSizeToConstantConversionPattern
+    : public OpConversionPattern<ttir::GetDimensionSizeOp> {
+public:
+  using OpConversionPattern<ttir::GetDimensionSizeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GetDimensionSizeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    const RankedTensorType inputTensorType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+
+    int64_t dimensionIndex = op.getDimension();
+
+    int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+
+    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(op.getType());
+
+    mlir::ElementsAttr valueAttr =
+        mlir::DenseElementsAttr::get<int>(valueType, dimSize);
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, valueType,
+                                                            valueAttr);
+
+    return success();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
+  patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

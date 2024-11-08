@@ -84,6 +84,25 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     }];
 }
 
+def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
+  let summary = "GetDimensionSize op.";
+  let description = [{
+      Produces the size of the given `dimension` of the `operand`.
+
+      Example:
+        %operand: [[3, 2, 7], [1, 4, 4]]
+        "ttir.get_dimension_size"(%operand, value = dense<0>, %out) -> %out: [[3]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       I32Attr:$dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasFolder = 1;
+  let hasVerifier = 1;
+}
+
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
     let summary = "Layout op.";
     let description = [{
