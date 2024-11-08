@@ -18,6 +18,7 @@ import atexit
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
+from ttrt.common.golden import golden
 
 
 class Run:
@@ -164,6 +165,13 @@ class Run:
             default="run_results.json",
             choices=None,
             help="test file to save results to",
+        )
+        Run.register_arg(
+            name="--golden",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="run golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="binary",
@@ -354,6 +362,9 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
+            if self["--golden"]:
+                callback_env = ttrt.runtime.DebugHooks.get(golden)
+
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
@@ -395,9 +406,11 @@ class Run:
                             program.populate_outputs(
                                 Run.TorchInitializer.get_initilizer("zeros")
                             )
+                            program.populate_goldens()
 
                             total_inputs = []
                             total_outputs = []
+                            total_goldens = []
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -429,6 +442,24 @@ class Run:
 
                                 total_inputs.append(inputs)
                                 total_outputs.append(outputs)
+
+                                self.logging.debug(
+                                    f"generating golden map for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                                )
+                                goldens = {}
+
+                                for key, golden_obj in program.golden_map.map.items():
+                                    goldens[key] = ttrt.runtime.create_tensor(
+                                        golden_obj.torch_tensor.data_ptr(),
+                                        list(golden_obj.tensor_shape),
+                                        list(golden_obj.tensor_stride),
+                                        golden_obj.torch_tensor.element_size(),  # 4 bytes - float32
+                                        Binary.Program.to_data_type(
+                                            golden_obj.torch_tensor.dtype
+                                        ),
+                                    )
+
+                                total_goldens.append(goldens)
 
                             event = None
                             for loop in range(self["--loops"]):

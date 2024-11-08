@@ -39,8 +39,10 @@ Tensor createTensor(std::shared_ptr<void> data,
   desc.itemsize = itemsize;
   desc.dataType = dataType;
   std::shared_ptr<MetalTensor> tensor = std::make_shared<MetalTensor>(desc);
-  return Tensor(static_pointer_cast<void>(tensor), data,
-                DeviceRuntime::TTMetal);
+  std::uint32_t volume = std::accumulate(shape.begin(), shape.end(), 1,
+                                         std::multiplies<std::uint32_t>());
+  return Tensor(static_pointer_cast<void>(tensor), data, DeviceRuntime::TTMetal,
+                volume);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {

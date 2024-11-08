@@ -9,6 +9,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 
+#include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -20,7 +21,25 @@ PYBIND11_MODULE(_C, m) {
   py::class_<tt::runtime::Device>(m, "Device")
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
-  py::class_<tt::runtime::Tensor>(m, "Tensor");
+  py::class_<tt::runtime::Tensor>(m, "Tensor")
+      .def("get_data", [](tt::runtime::Tensor &tensor) {
+        return std::vector<float>(static_cast<float *>(tensor.data.get()),
+                                  static_cast<float *>(tensor.data.get()) +
+                                      tensor.volume);
+      });
+  py::class_<tt::runtime::OpContext>(m, "OpContext")
+      .def("get_op_output_tensor",
+           [](tt::runtime::OpContext &opContext,
+              tt::runtime::CallbackContext &programContext) {
+             tt::runtime::Tensor tensor =
+                 opContext.getOpOutputTensor(programContext);
+
+             return std::vector<float>(static_cast<float *>(tensor.data.get()),
+                                       static_cast<float *>(tensor.data.get()) +
+                                           tensor.volume);
+           })
+      .def("get_op_debug_str", &tt::runtime::OpContext::getOpDebugString);
+  py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)
@@ -38,7 +57,6 @@ PYBIND11_MODULE(_C, m) {
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
-
   m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
         "Get the backend device runtime type");
   m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
@@ -93,6 +111,28 @@ PYBIND11_MODULE(_C, m) {
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
+        return os.str();
+      });
+
+  py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
+      .def_static(
+          "get",
+          [](py::function func) {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            tt::runtime::debug::Hooks::get(
+                [func](
+                    std::optional<tt::runtime::Binary> binary,
+                    std::optional<tt::runtime::CallbackContext> programContext,
+                    std::optional<tt::runtime::OpContext> opContext) {
+                  func(binary, programContext, opContext);
+                });
+#else
+            tt::runtime::debug::Hooks::get();
+#endif
+          })
+      .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
+        std::stringstream os;
+        os << hooks;
         return os.str();
       });
 

@@ -2,9 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <numeric>
+
 #include "tt/runtime/types.h"
 
+#include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 
 namespace py = pybind11;
 
@@ -27,7 +31,22 @@ PYBIND11_MODULE(_C, m) {
       .def_property_readonly("file_identifier",
                              &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
-      .def("store", &tt::runtime::Binary::store);
+      .def("store", &tt::runtime::Binary::store)
+      .def("get_debug_info_golden", [](tt::runtime::Binary &binary,
+                                       std::string &loc) {
+        const ::tt::target::GoldenTensor *goldenTensor =
+            binary.getDebugInfoGolden(loc);
+        if (goldenTensor == nullptr) {
+          return std::vector<float>();
+        }
+
+        int totalDataSize = std::accumulate((*goldenTensor->shape()).begin(),
+                                            (*goldenTensor->shape()).end(), 1,
+                                            std::multiplies<int64_t>());
+        std::vector<float> dataVec(totalDataSize);
+        std::memcpy(dataVec.data(), goldenTensor->data(), totalDataSize);
+        return dataVec;
+      });
   py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_property_readonly("version", &tt::runtime::SystemDesc::getVersion)
       .def_property_readonly("ttmlir_git_hash",

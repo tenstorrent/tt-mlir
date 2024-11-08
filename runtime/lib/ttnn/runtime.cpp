@@ -5,6 +5,7 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -21,7 +22,7 @@ using ::tt::tt_metal::OwnedStorage;
 using ::tt::tt_metal::raise_unsupported_storage;
 
 template <typename StorageType, typename ElementType>
-static StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
+StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
   if constexpr (std::is_same_v<StorageType, BorrowedStorage>) {
     return BorrowedStorage(
         ::tt::tt_metal::borrowed_buffer::Buffer<ElementType>(ptr, numElements),
@@ -36,8 +37,8 @@ static StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
 }
 
 template <typename StorageType>
-static StorageType createStorage(void *ptr, std::uint32_t numElements,
-                                 ::tt::target::DataType dataType) {
+StorageType createStorage(void *ptr, std::uint32_t numElements,
+                          ::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
     return createStorage<StorageType>(static_cast<float *>(ptr), numElements);
@@ -85,7 +86,7 @@ Tensor createTensor(std::shared_ptr<void> data,
       ::ttnn::Shape(small_vector_shape), utils::toTTNNDataType(dataType),
       ::ttnn::Layout::ROW_MAJOR);
   return Tensor(std::static_pointer_cast<void>(tensor), data,
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, tensor.get()->volume());
 }
 
 Tensor
@@ -111,7 +112,7 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
       std::make_shared<std::vector<std::shared_ptr<void>>>(data);
   return Tensor(std::static_pointer_cast<void>(tensor),
                 std::static_pointer_cast<void>(borrowedData),
-                DeviceRuntime::TTNN);
+                DeviceRuntime::TTNN, tensor.get()->volume());
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor) {
@@ -161,33 +162,27 @@ void deallocateBuffers(Device deviceHandle) {
   }
 }
 
-static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
-  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
-      binary.handle.get());
-  LOG_ASSERT(isTTNN, "Unsupported binary format");
-  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
-}
-
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
              std::vector<Tensor> const &outputHandles) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   std::vector<::ttnn::Tensor *> inputs;
   inputs.reserve(inputHandles.size());
   for (auto &input : inputHandles) {
     LOG_ASSERT(input.matchesRuntime(DeviceRuntime::TTNN));
     inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
   }
+
   std::vector<::ttnn::Tensor *> outputs;
   outputs.reserve(outputHandles.size());
   for (auto &output : outputHandles) {
     LOG_ASSERT(output.matchesRuntime(DeviceRuntime::TTNN));
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
-  tt::runtime::ttnn::runProgram(meshDevice, fbb.programs()->Get(programIndex),
+
+  tt::runtime::ttnn::runProgram(meshDevice, executableHandle, programIndex,
                                 inputs, outputs);
   return Event(nullptr, DeviceRuntime::TTNN);
 }
