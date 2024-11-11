@@ -26,6 +26,55 @@
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
 
+namespace mlir::tt {
+flatbuffers::Offset<::tt::target::MemoryDesc>
+memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
+                       ::mlir::tt::TensorMemoryLayout memLayout) {
+  auto shapeInt64 = memref.getShape();
+  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+  DataType dtype = DataType::Float32;
+  ::tt::target::Dim2d tileShape(1, 1);
+  Type elementType = memref.getElementType();
+  std::uint64_t elementSize = 0;
+  if (isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementSize = tileType.getSizeBytes();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+    elementSize = getElementSizeBytes(dtype);
+  }
+
+  std::uint64_t size = elementSize;
+  for (auto dim : shapeInt64) {
+    size *= dim;
+  }
+
+  return ::tt::target::CreateMemoryDescDirect(
+      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
+      toFlatbuffer(
+          cache,
+          mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
+      toFlatbuffer(cache, memLayout), size);
+}
+
+flatbuffers::Offset<::tt::target::LayoutDesc>
+layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, LayoutAttr layoutAttr,
+                       ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  auto strideInt64 = layoutAttr.getStride(logicalShape);
+  std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
+  auto coreRangeSet =
+      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+  return ::tt::target::CreateLayoutDescDirect(
+      *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
+      &coreRangeSet,
+      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
+                        layoutAttr.getMemLayout()));
+}
+
+} // namespace mlir::tt
+
 namespace mlir::tt::ttmetal {
 
 struct CQBuilder {

@@ -105,4 +105,55 @@ def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
   let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
+def TTNN_TensorConfig: TTNN_Attr<"TensorConfig", "tensor_config"> {
+  let summary = "Tensor config attribute in ttnn";
+  let description = [{
+    Tensor config attribute in ttnn. This attribute is used to describe the memory layout of a tensor..
+  }];
+
+  let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
+                        AttrParameter<"GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
+                        AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard. It must also have a shape with rank equal to grid.">:$memref,
+                        DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::None", "The layout of the tensor in memory.">:$mem_layout);
+  let assemblyFormat = "`<` $linear`,` $grid`,` $memref (`,` $mem_layout^)? `>`";
+  let extraClassDeclaration = [{
+    static TensorConfigAttr get(::mlir::MLIRContext *context,
+                        ArrayRef<int64_t> tensorShape,
+                        Type elementType,
+                        BufferType bufferType,
+                        GridAttr grid,
+                        TensorMemoryLayout memoryLayout,
+                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+      uint64_t getShardSizeInBytes() const;
+      BufferType getBufferType() const;
+      TensorConfigAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+      TensorConfigAttr withGrid(::mlir::MLIRContext *context,
+                          RankedTensorType ty,
+                          GridAttr grid,
+                          ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+      TensorConfigAttr withElementType(::mlir::MLIRContext *context, Type elementType);
+      TensorConfigAttr withBufferType(::mlir::MLIRContext *context, BufferType bufferType);
+      TensorConfigAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
+      TensorConfigAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
+
+      bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
+      bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
+      bool hasShardedTensorMemoryLayout() const;
+      bool hasShardedL1TensorMemoryLayout() const;
+      bool hasInterleavedL1TensorMemoryLayout() const;
+      bool isTiled() const;
+      Type getElementType() const;
+      DataType getDataTypeFromMemRef() const;
+      uint64_t getElementSizeBytes() const;
+      int64_t getTensorSizeInBytes(ArrayRef<int64_t> tensorShape, ::mlir::tt::DeviceAttr device) const;
+      llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
+      llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
+      llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
+      AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
+      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
+      AffineMap getIdentityTileLinearMap() const;
+      llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
+  }];
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

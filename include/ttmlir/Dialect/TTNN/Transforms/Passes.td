@@ -21,4 +21,11 @@ def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNLayout : Pass<"ttnn-layout", "::mlir::ModuleOp"> {
+  let summary = "Add layout information to tensors.";
+  let description = [{
+    This pass adds layout information to tensors.
+  }];
+}
+
 #endif

@@ -14,7 +14,7 @@
 namespace mlir::tt::ttnn {
 
 struct MemoryLayoutAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
   std::unordered_set<Edge> overrideReshardEdges;
   MemoryLayoutAnalysisPolicyType policy;
@@ -22,7 +22,7 @@ struct MemoryLayoutAnalysisInput {
   MemoryLayoutAnalysisInput() : legalLayouts() {}
 
   MemoryLayoutAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
           &legalLayouts,
       unsigned usableL1CacheSize,
       const std::unordered_set<Edge> &overrideReshardEdges,
@@ -40,7 +40,7 @@ struct MemoryLayoutAnalysisInput {
 };
 
 struct MemoryLayoutAnalysisResult {
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>> legalLayouts;
   std::unordered_set<Edge> memReconfigEdges;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
@@ -48,7 +48,7 @@ struct MemoryLayoutAnalysisResult {
       : legalLayouts(), memReconfigEdges(), schedule() {}
 
   MemoryLayoutAnalysisResult(
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
           &legalLayouts,
       const std::unordered_set<Edge> &memReconfigEdges)
       : legalLayouts(legalLayouts), memReconfigEdges(memReconfigEdges) {}

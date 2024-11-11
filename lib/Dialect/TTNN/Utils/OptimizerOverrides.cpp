@@ -58,17 +58,16 @@ bool OutputLayoutOverrideParser::parse(
     }
 
     // Parse memory space.
-    std::optional<mlir::tt::MemorySpace> memorySpace =
-        mlir::tt::symbolizeMemorySpace(layoutParamParts[iMemorySpace]);
-    if (!memorySpace.has_value()) {
+    std::optional<BufferType> bufferType =
+        symbolizeBufferType(layoutParamParts[iMemorySpace]);
+    if (!bufferType.has_value()) {
       opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
       return true;
     }
 
     // Parse tensor memory layout.
-    std::optional<mlir::tt::TensorMemoryLayout> tensorMemoryLayout =
-        mlir::tt::symbolizeTensorMemoryLayout(
-            layoutParamParts[iTensorMemoryLayout]);
+    std::optional<TensorMemoryLayout> tensorMemoryLayout =
+        symbolizeTensorMemoryLayout(layoutParamParts[iTensorMemoryLayout]);
     if (!tensorMemoryLayout.has_value()) {
       opt.error("Invalid tensor memory layout: " +
                 layoutParamParts[iTensorMemoryLayout]);
@@ -93,7 +92,7 @@ bool OutputLayoutOverrideParser::parse(
 
     // Set parsed op overrides.
     value[opOverrideParts[iOpName]] = OutputLayoutOverrideParams{
-        std::move(grid), memorySpace.value(), tensorMemoryLayout.value(),
+        std::move(grid), bufferType.value(), tensorMemoryLayout.value(),
         memoryLayout.value(), dataType.value()};
   }
   return false;
@@ -115,9 +114,10 @@ void OutputLayoutOverrideParser::print(
       }
     }
     // Print memory space and memory layout
-    os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace);
+    os << ":" << mlir::tt::ttnn::stringifyBufferType(params.bufferType);
     os << ":"
-       << mlir::tt::stringifyTensorMemoryLayout(params.tensorMemoryLayout);
+       << mlir::tt::ttnn::stringifyTensorMemoryLayout(
+              params.tensorMemoryLayout);
     os << ":" << mlir::tt::ttnn::stringifyLayout(params.memoryLayout);
     os << ":" << mlir::tt::DataTypeEnumToString(params.dataType);
     if (++count < value.size()) {

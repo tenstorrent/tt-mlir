@@ -87,24 +87,23 @@ void DFShardingPolicy::run() {
             // currentOp output tensor shard spec, nextOp exec and nextOp output
             // tensor.
             //
-            tt::LayoutAttr currentOpLayout =
+            TensorConfigAttr currentOpLayout =
                 legalLayouts.lookup(currentOp).front();
             assert(currentOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> currentOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(currentOp->getResult(0).getType())
                     .getShape();
-            uint64_t currentOpL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-                currentOpOutputTensorShape, currentOpLayout,
-                currentOpLayout.getMemorySpace());
+            uint64_t currentOpL1OutputUsage =
+                currentOpLayout.getTensorSizeInBytes(currentOpOutputTensorShape,
+                                                     deviceAttr);
 
-            tt::LayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
+            TensorConfigAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
             assert(nextOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> nextOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(nextOp->getResult(0).getType())
                     .getShape();
-            uint64_t nextOpL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-                nextOpOutputTensorShape, nextOpLayout,
-                nextOpLayout.getMemorySpace());
+            uint64_t nextOpL1OutputUsage = nextOpLayout.getTensorSizeInBytes(
+                nextOpOutputTensorShape, deviceAttr);
 
             // Figure out this const based on exec data, but will be replaced
             // with API.
@@ -133,23 +132,23 @@ void DFShardingPolicy::run() {
                                                      .getDefiningOp()
                                                      ->getResult(0)
                                                      .getType());
-                tt::LayoutAttr firstOpInputLayout = mlir::cast<tt::LayoutAttr>(
-                    firstOpInputTensorType.getEncoding());
+                TensorConfigAttr firstOpInputLayout =
+                    mlir::cast<TensorConfigAttr>(
+                        firstOpInputTensorType.getEncoding());
 
-                tt::LayoutAttr firstOpInputShardedLayout =
+                TensorConfigAttr firstOpInputShardedLayout =
                     firstOpInputLayout
-                        .withMemorySpace(currentOp->getContext(),
-                                         currentOpLayout.getMemorySpace())
+                        .withBufferType(currentOp->getContext(),
+                                        currentOpLayout.getBufferType())
                         .withMemoryLayout(currentOp->getContext(),
                                           currentOpLayout.getMemLayout())
                         .withGrid(currentOp->getContext(),
                                   firstOpInputTensorType,
                                   currentOpLayout.getGrid());
 
-                uint64_t firstInputL1Usage = deviceAttr.getLayoutSizeBytes(
-                    firstOpInputTensorType.getShape(),
-                    firstOpInputShardedLayout,
-                    firstOpInputShardedLayout.getMemorySpace());
+                uint64_t firstInputL1Usage =
+                    firstOpInputShardedLayout.getTensorSizeInBytes(
+                        firstOpInputTensorType.getShape(), deviceAttr);
 
                 firstInputL1UsageValid =
                     (firstInputL1Usage + currentOpL1OutputUsage) <
@@ -211,7 +210,7 @@ void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
   for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
     Operation *op = shardSpec.op;
     ShardSolver::RemainingLayoutAttrs validLayouts = shardSolver.at(op);
-    const tt::LayoutAttr *selectedLayout = validLayouts.begin().get();
+    const TensorConfigAttr *selectedLayout = validLayouts.begin().get();
     float maxCoreUsage = 0;
     for (auto layoutIterator = validLayouts.begin();
          layoutIterator != validLayouts.end(); ++layoutIterator) {

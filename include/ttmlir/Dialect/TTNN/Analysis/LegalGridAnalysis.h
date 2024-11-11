@@ -42,8 +42,8 @@ struct LegalGridAnalysisInput {
   }
 };
 
-class LegalGridAnalysis
-    : public TTNNAnalysis<LegalGridAnalysisInput, std::vector<tt::LayoutAttr>> {
+class LegalGridAnalysis : public TTNNAnalysis<LegalGridAnalysisInput,
+                                              std::vector<TensorConfigAttr>> {
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;

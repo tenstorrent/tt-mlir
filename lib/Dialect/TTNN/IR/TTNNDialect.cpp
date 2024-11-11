@@ -28,6 +28,23 @@ parseDimensionList(::mlir::AsmParser &odsParser,
 }
 } // namespace mlir::tt::ttnn
 
+struct TTNNOpAsmDialectInterface : public OpAsmDialectInterface {
+  using OpAsmDialectInterface::OpAsmDialectInterface;
+
+  AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
+    if (llvm::isa<TensorConfigAttr>(attr)) {
+      os << "tensor_config";
+      return AliasResult::OverridableAlias;
+    }
+    if (llvm::isa<BufferTypeAttr>(attr)) {
+      os << mlir::cast<BufferTypeAttr>(attr).getValue();
+      return AliasResult::OverridableAlias;
+    }
+
+    return AliasResult::NoAlias;
+  }
+};
+
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsDialect.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsEnums.cpp.inc"
 
@@ -49,4 +66,5 @@ void TTNNDialect::initialize() {
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrDefs.cpp.inc"
       >();
   registerTypes();
+  addInterfaces<TTNNOpAsmDialectInterface>();
 }

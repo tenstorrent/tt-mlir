@@ -19,7 +19,7 @@ void L1ChainConfig::resolve() {
 }
 
 ShardSolver L1ChainConfig::resolveWithSolver(
-    const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+    const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
         &legalLayouts,
     unsigned usableL1CacheSize,
     const std::unordered_set<Edge> &overrideReshardEdges) {
@@ -36,7 +36,7 @@ ShardSolver L1ChainConfig::resolveWithSolver(
 }
 
 void L1ChainConfig::complete(
-    const llvm::DenseMap<Operation *, tt::LayoutAttr> &selectedOpLayout,
+    const llvm::DenseMap<Operation *, TensorConfigAttr> &selectedOpLayout,
     std::unordered_set<Edge> &memReconfigEdges) {
   assert(state == L1ChainState::Resolved);
   for (auto &opL1MemSpec : opL1MemSpecs) {

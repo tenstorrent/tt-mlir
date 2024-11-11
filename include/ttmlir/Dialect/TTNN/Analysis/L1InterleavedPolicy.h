@@ -15,7 +15,7 @@ class L1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
   L1InterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)

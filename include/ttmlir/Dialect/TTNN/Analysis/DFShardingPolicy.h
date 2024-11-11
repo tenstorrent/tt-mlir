@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
 
@@ -23,7 +24,7 @@ private:
 public:
   DFShardingPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)

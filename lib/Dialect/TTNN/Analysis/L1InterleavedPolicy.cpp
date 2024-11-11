@@ -11,16 +11,16 @@ namespace mlir::tt::ttnn {
 
 uint64_t getOpOutputLayoutUsage(
     Operation *op,
-    llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> &legalLayouts,
+    llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>> &legalLayouts,
     DeviceAttr &deviceAttr) {
-  tt::LayoutAttr opLayout = legalLayouts.lookup(op).front();
+  TensorConfigAttr opLayout = legalLayouts.lookup(op).front();
   assert(opLayout.hasInterleavedL1TensorMemoryLayout());
 
   llvm::ArrayRef<int64_t> opOutputTensorShape =
       mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape();
 
-  uint64_t opL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-      opOutputTensorShape, opLayout, opLayout.getMemorySpace());
+  uint64_t opL1OutputUsage =
+      opLayout.getTensorSizeInBytes(opOutputTensorShape, deviceAttr);
   return opL1OutputUsage;
 }
 
@@ -29,7 +29,7 @@ void L1InterleavedPolicy::run() {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     llvm::SmallVector<mlir::Operation *> scheduleableOps;
-    llvm::DenseMap<Operation *, tt::LayoutAttr> selectedOpLayout;
+    llvm::DenseMap<Operation *, TensorConfigAttr> selectedOpLayout;
     Operation *currentOp = nullptr;
 
     // TODO(fbajraktari): Add algorithm description. Currently, the algorithm
