@@ -594,12 +594,6 @@ public:
 class DeallocateOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp> {
 
-private:
-  std::string getPrefixSearchPattern() const override { return "ttnn.dealloc"; }
-  std::string getPrefixSwapPattern() const override {
-    return "ttnn::operations::core::deallocate";
-  }
-
 public:
   DeallocateOpConversionPattern(const TypeConverter &typeConverter,
                                 MLIRContext *context,

@@ -4,14 +4,13 @@
 #include "deallocate.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
-#include "ttnn/operations/core/core.hpp"
 
 namespace tt::runtime::ttnn::operations::deletion {
 void run(const ::tt::target::ttnn::DeallocateOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::Tensor &tensor = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(tensor.is_allocated());
-  ::ttnn::operations::core::deallocate(tensor, false);
+  ::ttnn::deallocate(tensor, op->force());
 
   // The tensor should be deallocated after the deallocate call.
   // Still this assert may be hit in the future for multidevice/async ttnn
