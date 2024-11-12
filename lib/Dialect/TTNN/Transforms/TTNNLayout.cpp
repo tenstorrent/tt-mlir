@@ -249,27 +249,12 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       ->getResult(0);
 }
 
-static std::optional<Value>
-createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint) {
-  // Find out which buffer type we want
-  tt::MemorySpace ttDefaultMemSpace =
-      utils::toTTMemorySpace(g_defaultMemorySpaceDevice);
-  tt::MemorySpace desiredMemorySpace =
-      getLegalMemorySpace(operandConstraint, ttDefaultMemSpace);
-  BufferType desiredBufferType = utils::toTTNNBufferType(desiredMemorySpace);
-
-  // Find out which memory layout we want
-  tt::TensorMemoryLayout ttMemoryLayout =
-      utils::toTTTensorMemoryLayout(g_defaultMemoryLayout);
-  tt::TensorMemoryLayout desiredMemoryLayout = getLegalTensorMemoryLayout(
-      operandConstraint, desiredMemorySpace, ttMemoryLayout);
-  TensorMemoryLayout ttnnMemoryLayout =
-      utils::toTTNNTensorMemoryLayout(desiredMemoryLayout);
-
-  // Check if the tensor should be tiled
-  bool tiled =
-      !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
+static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
+                                             Location loc, Value input) {
+  // Default layout is Tile/Dram/Interleaved
+  BufferType desiredBufferType = g_defaultMemorySpaceDevice;
+  TensorMemoryLayout ttnnMemoryLayout = g_defaultMemoryLayout;
+  bool tiled = true;
 
   return createToLayoutOp(rewriter, loc, input, desiredBufferType,
                           ttnnMemoryLayout, tiled);
@@ -310,17 +295,11 @@ public:
         continue;
       }
 
-      // Read operand constrait for current operand
-      OperandConstraint operandConstraint =
-          mlir::cast<OperandConstraintAttr>(
-              mlir::cast<ttir::TTIROp>(op.getOperation())
-                  .getOperandConstraints()[operand.getOperandNumber()])
-              .getValue();
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint);
+          createToLayoutOp(rewriter, newLoc, operand.get());
 
       // If layout changed update the operand
       if (desiredLayout) {

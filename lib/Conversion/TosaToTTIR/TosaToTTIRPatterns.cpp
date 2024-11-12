@@ -46,11 +46,7 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        ValueRange(outputTensor));
     return success();
   }
 

@@ -1,5 +1,4 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-#any_device = #tt.operand_constraint<any_device>
 #l1 = #ttnn.buffer_type<l1>
 #system = #ttnn.buffer_type<system_memory>
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #system>>
@@ -10,7 +9,7 @@ module attributes {} {
     // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
     %0 = tensor.empty() : tensor<64x128xf32, #ttnn_layout1>
     // CHECK: %[[C:.*]] = "ttnn.relu"[[C:.*]]
-    %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout1>) -> tensor<64x128xf32, #ttnn_layout1>
+    %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout1>) -> tensor<64x128xf32, #ttnn_layout1>
     return %1 : tensor<64x128xf32, #ttnn_layout1>
   }
 }
