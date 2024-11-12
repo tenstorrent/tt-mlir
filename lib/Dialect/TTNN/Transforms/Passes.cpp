@@ -91,7 +91,7 @@ public:
           }
 
           rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocOp>(lastOp->getLoc(), result);
+          rewriter.create<DeallocateOp>(lastOp->getLoc(), result);
         }
       });
     });

@@ -10,7 +10,7 @@
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
-#include "operations/deletion/dealloc.h"
+#include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
 #include "operations/eltwise/unary/unary.h"
@@ -143,8 +143,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);
   }
-  case ::tt::target::ttnn::OpType::DeallocOp: {
-    return operations::deletion::run(op->type_as_DeallocOp(), context);
+  case ::tt::target::ttnn::OpType::DeallocateOp: {
+    return operations::deletion::run(op->type_as_DeallocateOp(), context);
   }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
     return operations::pool::run(op->type_as_MaxPool2dOp(), context);

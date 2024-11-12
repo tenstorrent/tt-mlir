@@ -678,13 +678,14 @@ def TTNN_AllocOp : TTNN_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocOp : TTNN_Op<"dealloc"> {
-    let summary = "Dealloc op.";
+def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+    let summary = "Deallocate op.";
     let description = [{
-      Tensor Dealloc operation
+      Tensor Deallocate operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input);
+    let arguments = (ins AnyRankedTensor:$input,
+                         DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {

@@ -62,6 +62,10 @@ emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
   llvm_unreachable("Unknown ttnn::Layout");
 }
 
+emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr) {
+  return builder.getType<emitc::OpaqueAttr>(attr.getValue() ? "true" : "false");
+}
+
 // Create emitc::OpaqueAttr for ttnn::TensorMemoryLayout
 //
 emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
@@ -588,7 +592,7 @@ public:
 // DeallocateOp conversion pattern
 //
 class DeallocateOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocOp> {
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp> {
 
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.dealloc"; }
@@ -600,15 +604,20 @@ public:
   DeallocateOpConversionPattern(const TypeConverter &typeConverter,
                                 MLIRContext *context,
                                 PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocOp>(typeConverter,
-                                                            context, benefit) {}
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp>(
+            typeConverter, context, benefit) {}
 
   LogicalResult
-  matchAndRewrite(ttnn::DeallocOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(ttnn::DeallocateOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0),
+        convertBoolAttr(rewriter, srcOp.getForceAttr()),
+    });
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), nullptr,
+        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), arrayAttr,
         nullptr, adaptor.getOperands());
 
     return success();
