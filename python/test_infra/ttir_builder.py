@@ -192,33 +192,6 @@ class TTIRBuilder:
     def _get_golden_tensor(self, operand: Operand) -> torch.Tensor:
         return self._get_golden(operand).tensor
 
-    def _get_operand_constraint_attr(
-        self,
-        num_operands: int,
-        operand_constraints: Optional[List[tt.OperandConstraint]] = None,
-    ) -> tt.ir.OperandConstraintAttr:
-        """
-        Helper method to prepack operand constraints given as a list of enums
-        to a list of tt.ir.OperandConstraintAttr and wrap that list in an
-        tt.ir.OperandConstraintAttr.
-
-        If no `operand_constraints` are passed, `tt.OperandConstraint.Any` will
-        be used for each operand.
-        """
-        operand_constraints = (
-            operand_constraints
-            if operand_constraints is not None
-            else [tt.OperandConstraint.Any for _ in range(num_operands)]
-        )
-
-        return tt.ir.OperandConstraintAttr.get(
-            self._ctx,
-            [
-                tt.ir.OperandConstraintAttr.get(self._ctx, operand_constraint)
-                for operand_constraint in operand_constraints
-            ],
-        )
-
     @property
     def _default_dtype(self) -> Type:
         return F32Type.get(self._ctx)
@@ -303,7 +276,6 @@ class TTIRBuilder:
                 [self._get_type(output)],
                 inputs,
                 [output],
-                self._get_operand_constraint_attr(3),
                 loc=Location.name(str(id)),
             )
 

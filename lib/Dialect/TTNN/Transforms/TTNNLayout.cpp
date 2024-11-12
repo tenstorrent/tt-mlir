@@ -248,37 +248,6 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       ->getResult(0);
 }
 
-static std::optional<Value>
-createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint) {
-  // Find out which buffer type we want
-  tt::MemorySpace ttDefaultMemSpace =
-      utils::toTTMemorySpace(g_defaultMemorySpaceDevice);
-  tt::MemorySpace desiredMemorySpace =
-      getLegalMemorySpace(operandConstraint, ttDefaultMemSpace);
-  BufferType desiredBufferType = utils::toTTNNBufferType(desiredMemorySpace);
-
-  // Find out which memory layout we want
-  tt::TensorMemoryLayout ttMemoryLayout =
-      utils::toTTTensorMemoryLayout(g_defaultMemoryLayout);
-  tt::TensorMemoryLayout desiredMemoryLayout = getLegalTensorMemoryLayout(
-      operandConstraint, desiredMemorySpace, ttMemoryLayout);
-  TensorMemoryLayoutAttr ttnnMemoryLayoutAttr;
-  if (desiredMemoryLayout != tt::TensorMemoryLayout::None) {
-    TensorMemoryLayout ttnnMemoryLayout =
-        utils::toTTNNTensorMemoryLayout(desiredMemoryLayout);
-    ttnnMemoryLayoutAttr =
-        TensorMemoryLayoutAttr::get(rewriter.getContext(), ttnnMemoryLayout);
-  }
-
-  // Check if the tensor should be tiled
-  bool tiled =
-      !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
-
-  return createToLayoutOp(rewriter, loc, input, desiredBufferType,
-                          ttnnMemoryLayoutAttr, tiled);
-}
-
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter) {
   Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
@@ -334,17 +303,14 @@ public:
         continue;
       }
 
-      // Read operand constrait for current operand
-      OperandConstraint operandConstraint =
-          mlir::cast<OperandConstraintAttr>(
-              mlir::cast<ttir::TTIROp>(op.getOperation())
-                  .getOperandConstraints()[operand.getOperandNumber()])
-              .getValue();
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       // Given the operand constraint, create the desired layout for the operand
-      std::optional<Value> desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint);
+      std::optional<Value> desiredLayout = createToLayoutOp(
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                      g_defaultMemoryLayout),
+          true /* isTiled */);
 
       // If layout changed update the operand
       if (desiredLayout) {

@@ -68,7 +68,7 @@ public:
 
     auto kernel = rewriter.create<ttir::KernelOp>(
         op.getLoc(), op.getResultTypes(), kernelName, kernelKind,
-        op.getInputs(), op.getOutputs(), op.getOperandConstraints());
+        op.getInputs(), op.getOutputs());
 
     rewriter.replaceOp(op, kernel);
 
