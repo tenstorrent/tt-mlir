@@ -7,19 +7,18 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
 
 namespace mlir::tt::ttnn {
 
 // Process ops in DFS schedulable order and build shard chain configs.
 // Schedule is also produced as a side effect of sharding.
 //
-class DFShardingPolicy {
+class DFShardingPolicy : public MemoryLayoutAnalysisPolicy {
 private:
-  Operation *rootOp;
-  std::vector<L1ChainConfig> *l1ChainConfigs;
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
-  llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
-  unsigned usableL1CacheSize = 0;
+  std::unordered_set<Edge> overrideReshardEdges;
+  void pickOpShardLayouts(ShardSolver &shardSolver,
+                          const L1ChainConfig &l1ChainConfig);
 
 public:
   DFShardingPolicy(
@@ -28,11 +27,15 @@ public:
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
-      : rootOp(rootOp), l1ChainConfigs(&l1ChainConfigs),
-        legalLayouts(legalLayouts), schedule(&schedule),
-        usableL1CacheSize(usableL1CacheSize) {}
+      : MemoryLayoutAnalysisPolicy(rootOp, l1ChainConfigs, legalLayouts,
+                                   schedule, usableL1CacheSize),
+        overrideReshardEdges() {}
 
-  void run(const std::unordered_set<Edge> &overrideReshardEdges);
+  void run() final;
+
+  void setOverrideReshardEdges(const std::unordered_set<Edge> &reshardEdges) {
+    overrideReshardEdges = reshardEdges;
+  }
 };
 
 } // namespace mlir::tt::ttnn

@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
+#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -22,7 +23,6 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
-#include "types_generated.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -208,6 +208,13 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
 
+  uint32_t numShards = 1;
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   auto output = getOperandThroughDPSOps(op.getResult());
 
   // If the device is not set, we create on host
@@ -215,7 +222,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   if (!op.getDevice()) {
     return ::tt::target::ttnn::CreateEmptyOp(
         *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-        /* device */ 0, /* memcfg */ 0,
+        numShards, /* device */ 0, /* memcfg */ 0, strategy,
         cache.getOrCreate(output, tensorValueToFlatbuffer,
                           kHostAllocatedAddress, kHostAllocatedSize));
   }
@@ -227,7 +234,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-      cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+      numShards, cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+      strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }
@@ -237,8 +245,16 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
+  uint32_t numShards = 1;
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
+      numShards, strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }
@@ -303,6 +319,10 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Add;
   } else if constexpr (std::is_same_v<EltwiseOp, CbrtOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Cbrt;
+  } else if constexpr (std::is_same_v<EltwiseOp, FloorOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Floor;
+  } else if constexpr (std::is_same_v<EltwiseOp, IsFiniteOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::IsFinite;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalAndOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalAnd;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalNotOp>) {
@@ -546,6 +566,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
     return createOperation(cache, createEltwiseOp(cache, addOp), debugString);
   }
+  if (auto floorOp = dyn_cast<FloorOp>(op); floorOp) {
+    return createOperation(cache, createEltwiseOp(cache, floorOp), debugString);
+  }
+  if (auto isFiniteOp = dyn_cast<IsFiniteOp>(op); isFiniteOp) {
+    return createOperation(cache, createEltwiseOp(cache, isFiniteOp),
+                           debugString);
+  }
   if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
     return createOperation(cache, createEltwiseOp(cache, andOp), debugString);
   }
@@ -696,7 +723,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 
-std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
+std::shared_ptr<void>
+ttnnToFlatbuffer(Operation *op,
+                 std::unordered_map<std::string, GoldenTensor> goldenMap) {
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
 
@@ -717,7 +746,22 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
   (void)result;
 
-  auto debugInfo = ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str());
+  std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
+  goldenKVList.reserve(goldenMap.size());
+
+  for (auto element : goldenMap) {
+    std::vector<std::uint8_t> dataTensor = element.second.convertDataToVector();
+    auto goldenTensor = ::tt::target::CreateGoldenTensorDirect(
+        fbb, element.second.name.c_str(), &element.second.shape,
+        &element.second.strides, element.second.dtype, &dataTensor);
+    auto goldenKV = ::tt::target::CreateGoldenKVDirect(
+        fbb, element.first.c_str(), goldenTensor);
+    goldenKVList.push_back(goldenKV);
+  }
+
+  auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
+  auto debugInfo =
+      ::tt::target::CreateDebugInfoDirect(fbb, mlir, cpp.c_str(), goldenInfo);
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
@@ -745,8 +789,10 @@ std::shared_ptr<void> ttnnToFlatbuffer(Operation *op) {
   return bufferPtr;
 }
 
-LogicalResult translateTTNNToFlatbuffer(Operation *op, llvm::raw_ostream &os) {
-  std::shared_ptr<void> data = ttnnToFlatbuffer(op);
+LogicalResult translateTTNNToFlatbuffer(
+    Operation *op, llvm::raw_ostream &os,
+    std::unordered_map<std::string, GoldenTensor> goldenMap) {
+  std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);

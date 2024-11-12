@@ -167,7 +167,8 @@ void populatePassesModule(py::module &m) {
   });
 
   m.def("ttnn_to_flatbuffer_file",
-        [](MlirModule module, std::string &filepath) {
+        [](MlirModule module, std::string &filepath,
+           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
           std::error_code fileError;
@@ -178,15 +179,16 @@ void populatePassesModule(py::module &m) {
                                      ". Error: " + fileError.message());
           }
 
-          if (mlir::failed(
-                  mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file))) {
+          if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
+                  moduleOp, file, goldenMap))) {
             throw std::runtime_error("Failed to write flatbuffer to file: " +
                                      filepath);
           }
         });
 
   m.def("ttmetal_to_flatbuffer_file",
-        [](MlirModule module, std::string &filepath) {
+        [](MlirModule module, std::string &filepath,
+           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
           std::error_code fileError;
           llvm::raw_fd_ostream file(filepath, fileError);
@@ -195,10 +197,31 @@ void populatePassesModule(py::module &m) {
                                      ". Error: " + fileError.message());
           }
           if (mlir::failed(mlir::tt::ttmetal::translateTTMetalToFlatbuffer(
-                  moduleOp, file))) {
+                  moduleOp, file, goldenMap))) {
             throw std::runtime_error("Failed to write flatbuffer to file: " +
                                      filepath);
           }
+        });
+
+  py::enum_<::tt::target::DataType>(m, "DataType")
+      .value("Float32", ::tt::target::DataType::Float32)
+      .value("Float16", ::tt::target::DataType::Float16);
+
+  py::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
+      .def(py::init<std::string, std::vector<int64_t>, std::vector<int64_t>,
+                    ::tt::target::DataType, std::uint8_t *>())
+      .def_readwrite("name", &mlir::tt::GoldenTensor::name)
+      .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)
+      .def_readwrite("strides", &mlir::tt::GoldenTensor::strides)
+      .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
+      .def_readwrite("data", &mlir::tt::GoldenTensor::data);
+
+  m.def("create_golden_tensor",
+        [](std::string name, std::vector<int64_t> shape,
+           std::vector<int64_t> strides, ::tt::target::DataType dtype,
+           std::uintptr_t ptr) {
+          return mlir::tt::GoldenTensor(name, shape, strides, dtype,
+                                        reinterpret_cast<std::uint8_t *>(ptr));
         });
 }
 

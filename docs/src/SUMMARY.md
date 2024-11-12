@@ -23,6 +23,7 @@
 - [Project Structure](./project-structure.md)
 - [Dialects Overview](./dialects-overview.md)
 - [Adding an op](./adding-an-op.md)
+- [Decomposing an op in TTIR](./decomposing-an-op-in-ttir.md)
 - [Doxygen](./doxygen.md)
 - [Specifications](./specs/specs.md)
   - [Runtime Stitching](./specs/runtime-stitching.md)

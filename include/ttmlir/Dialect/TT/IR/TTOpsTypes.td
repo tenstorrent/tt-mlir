@@ -48,6 +48,19 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
         return GridAttr::get(context, SmallVector<std::int64_t>(rank, 1));
       }
+
+      uint64_t mutable cGridVolume = 0;
+      uint64_t getGridVolume() const {
+        if (cGridVolume != 0) {
+          return cGridVolume;
+        }
+
+        cGridVolume = 1;
+        for (int64_t dim : getShape()) {
+          cGridVolume *= dim;
+        }
+        return cGridVolume;
+      }
   }];
 }
 
@@ -288,7 +301,9 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
       bool hasShardedTensorMemoryLayout() const;
+      bool hasInterleavedTensorMemoryLayout() const;
       bool hasShardedL1TensorMemoryLayout() const;
+      bool hasInterleavedL1TensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;

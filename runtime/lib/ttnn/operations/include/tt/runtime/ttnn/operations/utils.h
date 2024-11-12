@@ -17,7 +17,12 @@ bool isOnHost(const ::ttnn::Tensor &tensor);
 
 bool isOnDevice(const ::ttnn::Tensor &tensor);
 
+bool isTilized(const ::tt::target::TensorRef *tensorRef);
+
 bool inSystemMemory(const ::tt::target::TensorRef *tensorRef);
+
+void updateTensorPool(ProgramTensorPool &tensorPool,
+                      const ::ttnn::Tensor &tensor, uint32_t outputGlobalId);
 
 ::tt::target::MemorySpace
 getMemorySpace(const ::tt::target::TensorRef *tensorRef);
@@ -37,6 +42,9 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
 ::tt::tt_metal::MemoryConfig
 createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
                    const ::tt::target::TensorRef *tensorRef);
+
+::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
+    const ::tt::target::DistributionStrategy *strategy);
 
 } // namespace tt::runtime::ttnn::operations::utils
 #endif

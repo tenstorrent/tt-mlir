@@ -193,6 +193,20 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     }];
 }
 
+def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
+    let summary = "Eltwise floor op.";
+    let description = [{
+      Eltwise floor operation.
+    }];
+}
+
+def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Eltwise isfinite op.";
+    let description = [{
+      Eltwise isfinite operation.
+    }];
+}
+
 def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
@@ -439,16 +453,21 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
-def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
 
     let hasVerifier = 1;
 }

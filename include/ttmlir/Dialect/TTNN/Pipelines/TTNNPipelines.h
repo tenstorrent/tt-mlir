@@ -6,13 +6,11 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "mlir/Pass/PassOptions.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
-#include <cstdint>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/CommandLine.h>
+#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
 namespace mlir::tt::ttnn {
+
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct TTIRToTTNNBackendPipelineOptions
@@ -48,17 +46,19 @@ struct TTIRToTTNNBackendPipelineOptions
   // The format is a comma separated list of op names equal to the output layout
   // params separated by ":"
   //
-  // op_name=grid_size:memory_space:tensor_memory_layout
+  // op_name=grid_size:memory_space:tensor_memory_layout:memory_layout:data_type
   //
   // * grid_size=2x2
   // * memory_space: system, mmio, dram or l1
   // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
   //   width_sharded or block_sharded
+  // * memory_layout: row_major or tile
+  // * data_type: f32, f16, bf16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
+  //   bfp_bf2, u32, u16, u8
   //
-  // Full Example: "op1=2x2:dram:interleaved,op2=4x4:l1:block_sharded"
+  // Full Example:
+  // "op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16"
   //
-  // This will set the output layout for op1 to grid 2x2,dram,interleaved and
-  // op2 4x4,l1,block_sharded.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
@@ -80,10 +80,16 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<bool> memReconfigEnabled{
       *this, "memreconfig-enabled",
-      llvm::cl::desc("Memory layout reconfiguration pass. Temp disabled till "
-                     "we support all types "
-                     "of shard specs."),
-      llvm::cl::init(false)};
+      llvm::cl::desc("Memory layout reconfiguration pass."),
+      llvm::cl::init(true)};
+
+  // Specify policy for memory layout analysis.
+  //
+  Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
+      memoryLayoutAnalysisPolicy{
+          *this, "memory-layout-analysis-policy",
+          llvm::cl::desc("Specify policy for memory layout analysis."),
+          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
   // Option to provide a system descriptor flatbuffer file to compile
   // against.

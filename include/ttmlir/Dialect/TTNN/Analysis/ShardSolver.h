@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include <algorithm>
 #include <bitset>
-#include <llvm/ADT/StringMap.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -289,6 +288,7 @@ public:
       const std::unordered_set<Edge> &overrideReshardEdges);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, tt::LayoutAttr const &layout);
+  static bool supportsInterleavedInputShardedOutput(Operation *op);
 
 private:
   const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> *legalLayouts;

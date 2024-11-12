@@ -46,14 +46,18 @@ table EmptyOp {
   shape: [int64];
   dtype: DataType;
   layout: TensorLayout;
+  num_shards: uint32;
   device: tt.target.DeviceRef;         // optional
   memcfg: tt.target.MemoryConfigDesc;  // optional
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 
 table FullOp {
   device: tt.target.DeviceRef;
   fill_value: float;
+  num_shards: uint32;
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 
@@ -90,7 +94,9 @@ enum EltwiseOpType: uint32 {
   Log1p = 29,
   Expm1 = 30,
   Sign = 31,
-  Remainder = 32
+  Remainder = 32,
+  IsFinite = 33,
+  Floor = 34,
 }
 
 union EltwiseOpParams {
@@ -121,7 +127,7 @@ table ReductionOp {
 table EmbeddingOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
-  output: tt.target.TensorRef;
+  out: tt.target.TensorRef;
 }
 
 table SoftmaxOp {

@@ -45,6 +45,7 @@
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 
 namespace tt::runtime::ttmetal {

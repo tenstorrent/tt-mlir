@@ -84,6 +84,25 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     }];
 }
 
+def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
+  let summary = "GetDimensionSize op.";
+  let description = [{
+      Produces the size of the given `dimension` of the `operand`.
+
+      Example:
+        %operand: [[3, 2, 7], [1, 4, 4]]
+        "ttir.get_dimension_size"(%operand, value = dense<0>, %out) -> %out: [[3]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       I32Attr:$dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasFolder = 1;
+  let hasVerifier = 1;
+}
+
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
     let summary = "Layout op.";
     let description = [{
@@ -211,15 +230,17 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
-def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
-    let summary = "Eltwise sign operation.";
+def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
+    let summary = "Eltwise floor op.";
     let description = [{
-      Returns the sign of the `operand` element-wise and produces a `result`
-      tensor.
+      Eltwise floor operation.
+    }];
+}
 
-      Example:
-        %a: [[3, -2, 0], [1, -4, 4]]
-        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
+def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Eltwise isfinite op.";
+    let description = [{
+      Eltwise isfinite operation.
     }];
 }
 
@@ -262,6 +283,18 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     let summary = "Eltwise sigmoid.";
     let description = [{
       Eltwise sigmoid operation.
+    }];
+}
+
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
+    let description = [{
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttir.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
     }];
 }
 
@@ -771,6 +804,7 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
+// ANCHOR: decomposing_an_op_index_ttir
 def TTIR_IndexOp: TTIR_DPSOp<"index"> {
     let summary = "Index op.";
     let description = [{
@@ -795,6 +829,7 @@ def TTIR_IndexOp: TTIR_DPSOp<"index"> {
 
     let hasVerifier = 1;
 }
+// ANCHOR_END: decomposing_an_op_index_ttir
 
 def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
     let summary = "Squeeze op.";

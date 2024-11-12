@@ -212,7 +212,7 @@ private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
-          isa<ttir::SliceOp>(user)) {
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user)) {
         return true;
       }
     }
@@ -317,7 +317,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight());
+        adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
 
     return success();
   }
@@ -503,9 +503,10 @@ public:
 
     if (valueAttr.isSplat()) {
       Value device = getOrInsertDevice(rewriter, op);
-      float fillValue = valueAttr.getElementType().isInteger()
-                            ? static_cast<float>(valueAttr.getSplatValue<int>())
-                            : valueAttr.getSplatValue<float>();
+      float fillValue =
+          valueAttr.getElementType().isInteger()
+              ? getIntegerValue(valueAttr)
+              : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
       if (fillValue == 0) {
         rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
             op, this->getTypeConverter()->convertType(op.getType()), device);
@@ -535,6 +536,23 @@ private:
     }
 
     return success();
+  }
+
+  float getIntegerValue(mlir::ElementsAttr valueAttr) const {
+    size_t bitWidth = valueAttr.getElementType().getIntOrFloatBitWidth();
+    switch (bitWidth) {
+    case 1:
+      return static_cast<float>(valueAttr.getSplatValue<bool>());
+    case 8:
+      return static_cast<float>(valueAttr.getSplatValue<int8_t>());
+    case 16:
+      return static_cast<float>(valueAttr.getSplatValue<int16_t>());
+    case 32:
+      return static_cast<float>(valueAttr.getSplatValue<int>());
+    case 64:
+      return static_cast<float>(valueAttr.getSplatValue<int64_t>());
+    }
+    assert(false && "Unsupported integer type.");
   }
 };
 
@@ -860,6 +878,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
            ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
+           ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
+           ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
            ElementwiseOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
            ElementwiseOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
            ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,

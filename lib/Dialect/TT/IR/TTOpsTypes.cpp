@@ -12,7 +12,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Target/Common/system_desc_generated.h"
+#include "ttmlir/Target/Common/Target.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -579,11 +579,20 @@ bool LayoutAttr::hasShardedTensorMemoryLayout() const {
           getMemLayout() == TensorMemoryLayout::BlockSharded);
 }
 
+bool LayoutAttr::hasInterleavedTensorMemoryLayout() const {
+  return (getMemLayout() == TensorMemoryLayout::Interleaved);
+}
+
 bool LayoutAttr::hasShardedL1TensorMemoryLayout() const {
   return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
          (getMemLayout() == TensorMemoryLayout::HeightSharded or
           getMemLayout() == TensorMemoryLayout::WidthSharded or
           getMemLayout() == TensorMemoryLayout::BlockSharded);
+}
+
+bool LayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
+  return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
+         (getMemLayout() == TensorMemoryLayout::Interleaved);
 }
 
 bool LayoutAttr::isTiled() const {

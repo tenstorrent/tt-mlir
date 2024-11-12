@@ -17,6 +17,7 @@ try:
         close_device,
         submit,
         create_tensor,
+        create_multi_device_tensor,
         wait,
         WorkaroundEnv,
     )

@@ -25,6 +25,8 @@ public:
     // Perform final configuration analysis.
     // Apply graph transformations based on analysis results.
     //
+    assertOverridesValid();
+
     ModuleOp moduleOp = getOperation();
 
     // Get the max grid size from the system description.
@@ -71,7 +73,8 @@ public:
       MemoryLayoutAnalysis memoryLayoutAnalysis =
           getAnalysis<MemoryLayoutAnalysis>();
       memoryLayoutAnalysis.init(MemoryLayoutAnalysisInput(
-          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges));
+          legalLayouts, chipDesc.getUsableL1Size(), overrideReshardEdges,
+          memoryLayoutAnalysisPolicy));
       legalLayouts = memoryLayoutAnalysis.getResult().legalLayouts;
       opSchedule = memoryLayoutAnalysis.getResult().schedule;
       memReconfigEdges = memoryLayoutAnalysis.getResult().memReconfigEdges;
@@ -129,7 +132,7 @@ public:
             mlir::cast<RankedTensorType>(op->getResult(0).getType());
         llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-        // Update the output layout attribute with the new grid size.
+        // Update the output layout attribute with the new one.
         //
         if (opConfigAnalysis.getResult().contains(op)) {
           RankedTensorType newTensorType =
@@ -155,7 +158,14 @@ public:
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setMemoryConfigAttr(MemoryConfigAttr::get(
+            emptyOp.setDtype(
+                utils::getDataTypeFromMemRef(ttLayoutAttr.getMemref()));
+            if (llvm::isa<TileType>(ttLayoutAttr.getElementType())) {
+              emptyOp.setLayout(ttnn::Layout::Tile);
+            } else {
+              emptyOp.setLayout(ttnn::Layout::RowMajor);
+            }
+            emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
                 op->getContext(),
                 TensorMemoryLayoutAttr::get(op->getContext(),
                                             tensorMemoryLayout),
@@ -204,6 +214,39 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+  }
+
+private:
+  void assertOverridesValid() {
+    // Check if each overriden op exists in the graph.
+    //
+    llvm::StringMap<bool> overridenOpExists;
+    for (auto &override : overrideOutputLayout) {
+      overridenOpExists[override.first()] = false;
+    }
+    for (auto &override : overrideInputLayout) {
+      overridenOpExists[override.first()] = false;
+    }
+
+    ModuleOp moduleOp = getOperation();
+    moduleOp->walk([&](Operation *op) {
+      if (not isa<NameLoc>(op->getLoc())) {
+        return;
+      }
+
+      StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+      if (overridenOpExists.contains(opLocName)) {
+        overridenOpExists[opLocName] = true;
+      }
+    });
+
+    for (auto &override : overridenOpExists) {
+      if (!override.second) {
+        llvm::errs() << "Trying to override non-existing op: "
+                     << override.first() << "\n";
+        assert(false && "Trying to override non-existing op");
+      }
+    }
   }
 
   void extractReshardEdges(ModuleOp &moduleOp,

@@ -21,7 +21,8 @@ ShardSolver::ShardSolver(
     const unsigned usableL1CacheSize,
     const std::unordered_set<Edge> &overrideReshardEdges)
     : legalLayouts(&legalLayouts), shardSpecs(&shardSpecs),
-      shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize) {
+      shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
+      memReconfigEdges(overrideReshardEdges) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
   bitsets.reserve(shardedOps.size());
@@ -44,12 +45,6 @@ ShardSolver::ShardSolver(
         userOpEdges[operandOp].emplace_back(Edge(operandOp, op, operandIndex));
       }
     }
-  }
-
-  // Insert override resharding edges
-  //
-  for (const Edge &edge : overrideReshardEdges) {
-    insertReshard(edge);
   }
 
   // Resolve shard chain.
@@ -181,17 +176,27 @@ bool ShardSolver::resolveStep() {
   return true;
 }
 
+bool ShardSolver::supportsInterleavedInputShardedOutput(Operation *op) {
+  // TODO(nobradovic,mbezulj): Add check whether this op type can have sharded
+  // output from interleaved inputs. For now assuming it can.
+  //
+  return true;
+}
+
 // We need to check if first op requires sharded inputs and if so, insert
 // reshard edge, then invalidate all sharding options which would go above L1
 // size limits.
 //
 void ShardSolver::preprocessFirstOp() {
-  // TODO(nobradovic): Add check whether this op type can have sharded output
-  // from interleaved inputs. For now assuming it can not.
-  //
+  Operation *firstOp = shardSpecs->front().op;
+  if (supportsInterleavedInputShardedOutput(firstOp) &&
+      memReconfigEdges.count(
+          Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0)) == 0) {
+    return;
+  }
+
   // Insert reshard edge for the first op to start the chain.
   //
-  Operation *firstOp = shardSpecs->front().op;
   Edge shardChainInputEdge =
       Edge(firstOp->getOperand(0).getDefiningOp(), firstOp, 0 /*operandIndex*/);
 
@@ -543,7 +548,17 @@ bool ShardSolver::checkShardCompatible(
   bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <
                       tensorL1UsageCap * usableL1CacheSize;
 
-  return l1UsageValid;
+  if (!l1UsageValid) {
+    return false;
+  }
+
+  // Shard compat assumption. Try to keep same shard layout.
+  //
+  if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
+    return false;
+  }
+
+  return true;
 }
 
 // Returns ShardSolverSolution.

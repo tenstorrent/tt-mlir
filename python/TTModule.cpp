@@ -11,7 +11,7 @@
 #include "mlir/CAPI/IR.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::ttmlir::python {

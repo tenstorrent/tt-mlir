@@ -6,3 +6,7 @@ third_party/tt-metal
 .cache
 *pycache*
 *.egg-info
+ttrt-artifacts/*
+query_results.json
+run_results.json
+ttrt_report.xml

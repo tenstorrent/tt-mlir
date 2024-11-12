@@ -36,9 +36,23 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType);
 
+Tensor
+createTensor(std::vector<std::shared_ptr<void>> &data,
+             std::vector<std::uint32_t> const &shape,
+             std::vector<std::uint32_t> const &stride, std::uint32_t itemsize,
+             ::tt::target::DataType dataType,
+             std::unordered_map<std::string, std::string> const &strategy);
+
 inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
   return createTensor(data, desc.shape, desc.stride, desc.itemsize,
                       desc.dataType);
+}
+
+inline Tensor
+createTensor(std::vector<std::shared_ptr<void>> &data, TensorDesc const &desc,
+             std::unordered_map<std::string, std::string> const &strategy) {
+  return createTensor(data, desc.shape, desc.stride, desc.itemsize,
+                      desc.dataType, strategy);
 }
 
 tt::target::DataType getTensorDataType(Tensor tensor);
