@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cmath>
+#include <limits>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -497,24 +499,43 @@ public:
     rewriter.eraseOp(op);
   }
 
-  bool isMaxPool2d(mlir::stablehlo::ReduceWindowOp &srcOp) const {
+  bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     if (srcOp.getBody().getBlocks().size() != 1) {
       return false;
     }
 
+    // Find constant input(s)
+    Operation *initValue;
+    for (uint64_t i = 0; i < srcOp.getInitValues().size(); i++) {
+      initValue = srcOp.getInitValues()[i].getDefiningOp();
+      while (initValue->getOpOperands().size() == 1) {
+        initValue = initValue->getOpOperand(0).get().getDefiningOp();
+      }
+      if (!isa<stablehlo::ConstantOp>(initValue)) {
+        return false;
+      }
+
+      stablehlo::ConstantOp initValueOp =
+          mlir::cast<stablehlo::ConstantOp>(initValue);
+
+      if (!checkInitValue(initValueOp, TypicalInitReductionValue::NEG_INF)) {
+        return false;
+      }
+    }
+
     Block &block = *srcOp.getBody().getBlocks().begin();
-    uint32_t op_idx = 0;
+    uint32_t opIdx = 0;
     for (Operation &op : block) {
-      if (op_idx == 0 && !isa<mlir::stablehlo::MaxOp>(op)) {
+      if (opIdx == 0 && !isa<mlir::stablehlo::MaxOp>(op)) {
         return false;
       }
-      if (op_idx == 1 && !isa<mlir::stablehlo::ReturnOp>(op)) {
+      if (opIdx == 1 && !isa<mlir::stablehlo::ReturnOp>(op)) {
         return false;
       }
-      if (op_idx >= 2) {
+      if (opIdx >= 2) {
         return false; // More than two ops in the block
       }
-      op_idx++;
+      opIdx++;
     }
 
     return true;
@@ -525,105 +546,136 @@ public:
                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    if (isMaxPool2d(srcOp)) {
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
 
-      RankedTensorType outputType = mlir::cast<RankedTensorType>(
-          getTypeConverter()->convertType(srcOp.getResult(0).getType()));
-
+    SmallVector<Value> outputsVec;
+    for (uint32_t i = 0; i < srcOp.getResults().size(); i++) {
       tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-      // The generalized ReduceWindow allows for kernel_size, strides, dilation,
-      // and padding to act on all 4 input dimensions. Since we only support
-      // channel-last pooling, we select the middle two values for H and W.
-      // And fail if the others are not 1 (or 0 in the case of padding).
-      std::vector<int64_t> window_dimensions = adaptor.getWindowDimensions();
-      if (window_dimensions[0] != 1 || window_dimensions[3] != 1) {
-        return failure();
-      }
-      IntegerAttr kernel_height_attr = rewriter.getSI32IntegerAttr(
-          static_cast<int32_t>(window_dimensions[1]));
-      IntegerAttr kernel_width_attr = rewriter.getSI32IntegerAttr(
-          static_cast<int32_t>(window_dimensions[2]));
-
-      std::vector<int64_t> strides =
-          adaptor.getWindowStrides()
-              .value_or(ArrayRef<int64_t>({1, 1, 1, 1}))
-              .vec();
-
-      if (strides[0] != 1 || strides[3] != 1) {
-        return failure();
-      }
-      IntegerAttr stride_height_attr =
-          rewriter.getSI32IntegerAttr(static_cast<int32_t>(strides[1]));
-      IntegerAttr stride_width_attr =
-          rewriter.getSI32IntegerAttr(static_cast<int32_t>(strides[2]));
-
-      std::vector<int64_t> dilation =
-          adaptor.getBaseDilations()
-              .value_or(ArrayRef<int64_t>({1, 1, 1, 1}))
-              .vec();
-
-      if (dilation[0] != 1 || dilation[3] != 1) {
-        return failure();
-      }
-      IntegerAttr dilation_height_attr =
-          rewriter.getSI32IntegerAttr(static_cast<int32_t>(dilation[1]));
-      IntegerAttr dilation_width_attr =
-          rewriter.getSI32IntegerAttr(static_cast<int32_t>(dilation[2]));
-
-      // Padding here is in the form ((., .), (top, bottom), (left, right), (.,
-      // .)) one for each of (N, H, W, C). Since we only support maxpool2d, the
-      // first and last padding tuples must be zero to be valid. This list is
-      // flattened so we can use a single iterator to get the values.
-      std::vector<int32_t> padding = {0, 0, 0, 0};
-      if (adaptor.getPadding().has_value()) {
-        uint32_t pad_idx = 0;
-        for (auto iter = adaptor.getPadding()->value_begin<int64_t>();
-             iter < adaptor.getPadding()->value_end<int64_t>(); iter++) {
-
-          // TTIR requires left, right, top, bottom
-          if (pad_idx == 2) {
-            padding[2] = *iter;
-          } else if (pad_idx == 3) {
-            padding[3] = *iter;
-          } else if (pad_idx == 4) {
-            padding[0] = *iter;
-          } else if (pad_idx == 5) {
-            padding[1] = *iter;
-          } else if (*iter != 0) {
-            // Padding on the channel or batch is > 1. TTIR/TTNN does not
-            // support this.
-            return failure();
-          }
-          pad_idx++;
-        }
-      }
-      ::llvm::ArrayRef<int64_t> input_shape =
-          mlir::cast<mlir::RankedTensorType>(adaptor.getInputs()[0].getType())
-              .getShape();
-
-      // Dead ttir.constant sticks around and fails verification. Removing it
-      // like so since its behind another op
-      recursiveErase(rewriter, adaptor.getInitValues()[0].getDefiningOp());
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::MaxPool2dOp>(
-          srcOp, outputType, srcOp.getInputs()[0], outputTensor,
-          kernel_height_attr, kernel_width_attr, stride_height_attr,
-          stride_width_attr, dilation_height_attr, dilation_width_attr,
-          rewriter.getBoolAttr(false), rewriter.getSI32IntegerAttr(padding[0]),
-          rewriter.getSI32IntegerAttr(padding[1]),
-          rewriter.getSI32IntegerAttr(padding[2]),
-          rewriter.getSI32IntegerAttr(padding[3]),
-          rewriter.getArrayAttr(
-              SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                     rewriter.getAttr<OperandConstraintAttr>(
-                                         OperandConstraint::AnyDeviceTile))),
-          rewriter.getSI32IntegerAttr(input_shape[1]),
-          rewriter.getSI32IntegerAttr(input_shape[2]));
-
-      return success();
+      outputsVec.push_back(outputTensor);
     }
-    return failure();
+    ValueRange outputs = outputsVec;
+
+    auto windowDimensions = adaptor.getWindowDimensionsAttr();
+    auto windowStrides = adaptor.getWindowStridesAttr();
+    auto baseDilations = adaptor.getBaseDilationsAttr();
+    auto window_dilations = adaptor.getWindowDilationsAttr();
+    auto padding_ = adaptor.getPaddingAttr();
+
+    // Generate defaults if they dont exist
+    windowStrides = windowStrides
+                        ? windowStrides
+                        : rewriter.getDenseI64ArrayAttr(
+                              SmallVector<int64_t>(windowDimensions.size(), 1));
+    baseDilations = baseDilations
+                        ? baseDilations
+                        : rewriter.getDenseI64ArrayAttr(
+                              SmallVector<int64_t>(windowDimensions.size(), 1));
+    window_dilations = window_dilations
+                           ? window_dilations
+                           : rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
+                                 windowDimensions.size(), 1));
+    auto padding =
+        padding_ ? rewriter.getDenseI64ArrayAttr(
+                       SmallVector<int64_t>(padding_.getValues<int64_t>()))
+                 : rewriter.getDenseI64ArrayAttr(
+                       SmallVector<int64_t>(windowDimensions.size() * 2, 1));
+
+    auto operandConstraints = rewriter.getArrayAttr(SmallVector<Attribute>(
+        adaptor.getOperands().size(), rewriter.getAttr<OperandConstraintAttr>(
+                                          OperandConstraint::AnyDeviceTile)));
+
+    mlir::tt::ttir::PoolingMethod poolingMethod;
+    if (isMaxPool(srcOp)) {
+      poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
+    } else {
+      return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
+        srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
+        windowDimensions, windowStrides, baseDilations, window_dilations,
+        padding, operandConstraints);
+
+    return success();
+  }
+
+private:
+  // Just to make the code more readable
+  enum TypicalInitReductionValue {
+    NEG_INF, // used for max pooling
+    ZERO,    // used for sum pooling
+  };
+
+  // Using the value enum rather than actual values because of different data
+  // types the init value could be
+  bool checkInitValue(stablehlo::ConstantOp initValueOp,
+                      TypicalInitReductionValue desired) const {
+    if (initValueOp.getValueAttr().size() != 1) {
+      return false;
+    }
+
+    float desiredF32;
+    double desiredF64;
+    uint16_t desiredBF16;
+    int32_t desiredI32;
+    int64_t desiredI64;
+    if (desired == TypicalInitReductionValue::NEG_INF) {
+      desiredF32 = -std::numeric_limits<float>::infinity();
+      desiredF64 = -std::numeric_limits<double>::infinity();
+      desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
+      desiredI32 = std::numeric_limits<int32_t>::min();
+      desiredI64 = std::numeric_limits<int64_t>::min();
+    } else if (desired == TypicalInitReductionValue::ZERO) {
+      desiredF32 = 0.0;
+      desiredF64 = 0.0;
+      desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
+      desiredI32 = 0;
+      desiredI64 = 0;
+    } else {
+      return false;
+    }
+
+    // Constant operand must be -inf if this is to be a max pool
+    // since bfloat16 is not a type we acually have I must compare the raw
+    // bits
+    if (initValueOp.getResult().getType().getElementType().isBF16()) {
+      // Collect the values into a vector
+      std::vector<mlir::Attribute> values;
+      for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
+        values.push_back(
+            initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+      }
+
+      auto denseValues = ::mlir::DenseElementsAttr::get(
+          initValueOp.getValueAttr().getShapedType(), values);
+      uint16_t bfloat_bits =
+          static_cast<uint16_t>(*denseValues.getRawData().data());
+      if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
+        return false;
+      }
+    } else if (initValueOp.getValue().getType().isF32()) {
+      if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
+        return false;
+      }
+    } else if (initValueOp.getValue().getType().isF64()) {
+      if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
+        return false;
+      }
+    } else if (initValueOp.getValue().getType().isInteger(32)) {
+      if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
+        return false;
+      }
+    } else if (initValueOp.getValue().getType().isInteger(64)) {
+      if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+
+    return true;
   }
 };
 

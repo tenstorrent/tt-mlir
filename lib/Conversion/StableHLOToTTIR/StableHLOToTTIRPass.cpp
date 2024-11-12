@@ -101,7 +101,6 @@ struct ConvertStableHLOToTTIRPass
         [&](func::CallOp op) { return typeConverter.isLegal(op); });
 
     populateStableHLOToTTIRPatterns(&getContext(), patterns, typeConverter);
-
     // Apply conversion.
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
