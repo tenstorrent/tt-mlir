@@ -64,7 +64,7 @@ struct IndexToSliceConversionPattern
     auto newOp = rewriter.create<ttir::SliceOp>(
         op.getLoc(), op.getType(), adaptor.getInput(), adaptor.getOutput(),
         rewriter.getArrayAttr(begins), rewriter.getArrayAttr(ends),
-        rewriter.getArrayAttr(steps), adaptor.getOperandConstraints());
+        rewriter.getArrayAttr(steps));
 
     rewriter.replaceOp(op, newOp.getResult());
     return success();
@@ -144,8 +144,7 @@ generateTransposeIndices(std::vector<int64_t> currentLayout,
  * result at the end of the sequence
  */
 static Value generateTransposeOps(Value input, PatternRewriter &rewriter,
-                                  std::vector<TransposeDims> transposeIndices,
-                                  ::mlir::ArrayAttr operandConstraints) {
+                                  std::vector<TransposeDims> transposeIndices) {
   for (auto [dim0, dim1] : transposeIndices) {
 
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
@@ -162,8 +161,7 @@ static Value generateTransposeOps(Value input, PatternRewriter &rewriter,
         input.getLoc(), outputShape, outputType.getElementType());
     input = rewriter
                 .create<ttir::TransposeOp>(input.getLoc(), outputType, input,
-                                           dpsOutput, dim0Attr, dim1Attr,
-                                           operandConstraints)
+                                           dpsOutput, dim0Attr, dim1Attr)
                 .getResult();
   }
 
@@ -316,12 +314,10 @@ public:
                                                      weightShape.end());
     reshapeWeightShape.push_back(1);
 
-    ttir::ReshapeOp reshapeInput =
-        createReshapeOp(op.getLoc(), adaptor.getInput(), reshapeInputShape,
-                        op.getOperandConstraints(), rewriter);
-    ttir::ReshapeOp reshapeWeight =
-        createReshapeOp(op.getLoc(), adaptor.getWeight(), reshapeWeightShape,
-                        op.getOperandConstraints(), rewriter);
+    ttir::ReshapeOp reshapeInput = createReshapeOp(
+        op.getLoc(), adaptor.getInput(), reshapeInputShape, rewriter);
+    ttir::ReshapeOp reshapeWeight = createReshapeOp(
+        op.getLoc(), adaptor.getWeight(), reshapeWeightShape, rewriter);
 
     mlir::DenseI64ArrayAttr conv2dOpWindowsStridesAttr =
         addIntegerToDenseArrayAttr(rewriter, adaptor.getWindowStridesAttr(), 1);
@@ -374,14 +370,9 @@ public:
                 convolutionLayout.getOutputFeatureDimension(),
                 conv2dOutputSpatialDimensions),
             adaptor.getFeatureGroupCountAttr(),
-            adaptor.getBatchGroupCountAttr(),
-            rewriter.getArrayAttr(
-                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                       rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile))));
+            adaptor.getBatchGroupCountAttr());
     ttir::ReshapeOp reshapeOutput =
-        createReshapeOp(op.getLoc(), new2dConvolutionOp, outputShape,
-                        op.getOperandConstraints(), rewriter);
+        createReshapeOp(op.getLoc(), new2dConvolutionOp, outputShape, rewriter);
 
     rewriter.replaceOp(op, reshapeOutput);
 
@@ -391,7 +382,6 @@ public:
 private:
   ttir::ReshapeOp createReshapeOp(Location loc, Value tensor,
                                   llvm::ArrayRef<int64_t> target_input_shape,
-                                  ::mlir::ArrayAttr constraints,
                                   ConversionPatternRewriter &rewriter) const {
     auto inputType = mlir::cast<RankedTensorType>(tensor.getType());
 
@@ -406,7 +396,7 @@ private:
         loc,
         mlir::RankedTensorType::get(target_input_shape,
                                     inputType.getElementType()),
-        tensor, DPSReshapeOutput, shape_attr, constraints);
+        tensor, DPSReshapeOutput, shape_attr);
   }
 
   mlir::DenseI64ArrayAttr
@@ -502,26 +492,23 @@ public:
 
     auto transposeIndices = generateConvTransposeIndices(op, conv2dLayout);
     Value input =
-        generateTransposeOps(adaptor.getInput(), rewriter, transposeIndices,
-                             adaptor.getOperandConstraints());
+        generateTransposeOps(adaptor.getInput(), rewriter, transposeIndices);
 
     auto kernelTransposeIndices =
         generateConvKernelTransposeIndices(op, conv2dKernelLayout);
     Value weight = generateTransposeOps(adaptor.getWeight(), rewriter,
-                                        kernelTransposeIndices,
-                                        adaptor.getOperandConstraints());
+                                        kernelTransposeIndices);
     ttir::Conv2dOp newConv = rewriter.create<ttir::Conv2dOp>(
         op.getLoc(), outputType, input, weight, adaptor.getBias(),
         convDPSOutput, strideHeightAttr, strideWidthAttr, dilationHeightAttr,
         dilationWidthAttr, groupsAttr, paddingLeftAttr, paddingRightAttr,
-        paddingTopAttr, paddingBottomAttr, adaptor.getOperandConstraints());
+        paddingTopAttr, paddingBottomAttr);
 
     // Applying the transposes in reverse order to the output will restore the
     // tensor to the original layout
     std::reverse(transposeIndices.begin(), transposeIndices.end());
     Value output =
-        generateTransposeOps(newConv.getResult(), rewriter, transposeIndices,
-                             adaptor.getOperandConstraints());
+        generateTransposeOps(newConv.getResult(), rewriter, transposeIndices);
 
     rewriter.replaceOp(op, output);
     return success();
@@ -618,8 +605,7 @@ struct GatherToEmbeddingConversionPattern
 
   ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
                                   Value input,
-                                  ::llvm::ArrayRef<int64_t> shapei64,
-                                  ::mlir::ArrayAttr operandConstraints) const {
+                                  ::llvm::ArrayRef<int64_t> shapei64) const {
 
     // reshape start indices (input) to remove the last dimension
     auto ty = mlir::cast<RankedTensorType>(input.getType());
@@ -630,7 +616,7 @@ struct GatherToEmbeddingConversionPattern
 
     return rewriter.create<ttir::ReshapeOp>(
         loc, mlir::RankedTensorType::get(shapei64, ty.getElementType()), input,
-        output, shape_attr, operandConstraints);
+        output, shape_attr);
   }
 
   /**
@@ -680,8 +666,7 @@ struct GatherToEmbeddingConversionPattern
                                        startIndicesType.getShape().end() - 1);
 
       ttir::ReshapeOp reshapeOp =
-          createReshapeOp(rewriter, op.getLoc(), startIndices, newShapeI64,
-                          op.getOperandConstraints());
+          createReshapeOp(rewriter, op.getLoc(), startIndices, newShapeI64);
 
       assert(reshapeOp && "Failed to create reshape op");
       reshapeOp->moveBefore(op);
@@ -691,10 +676,7 @@ struct GatherToEmbeddingConversionPattern
     // convert gather to embedding, use reshaped input if needed
     ttir::EmbeddingOp embeddingOp = rewriter.create<ttir::EmbeddingOp>(
         op.getLoc(), op.getResult().getType(), input, op.getOperands()[0],
-        op.getOutput(),
-        rewriter.getArrayAttr(SmallVector<Attribute>(
-            op.getNumOperands() + 1, rewriter.getAttr<OperandConstraintAttr>(
-                                         OperandConstraint::AnyDeviceTile))));
+        op.getOutput());
 
     assert(embeddingOp != nullptr && "Failed to create embedding op");
     rewriter.replaceOp(op, embeddingOp);
@@ -840,12 +822,10 @@ public:
         rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[1]]);
     auto paddingRightAttr =
         rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[1] + 1]);
-    auto operandConstraints = adaptor.getOperandConstraints();
 
     std::vector<Value> outputs;
     for (Value input : adaptor.getInputs()) {
-      input = generateTransposeOps(input, rewriter, transposeIndices,
-                                   operandConstraints);
+      input = generateTransposeOps(input, rewriter, transposeIndices);
 
       auto outputType = mlir::cast<RankedTensorType>(op.getResult(0).getType());
       auto newOutputShape = outputType.getShape().vec();
@@ -863,14 +843,13 @@ public:
           op.getLoc(), newOutputType, input, outputTensor, kernelHeightAttr,
           kernelWidthAttr, strideHeightAttr, strideWidthAttr,
           dilationHeightAttr, dilationWidthAttr, ceilModeAttr, paddingTopAttr,
-          paddingBottomAttr, paddingLeftAttr, paddingRightAttr,
-          operandConstraints);
+          paddingBottomAttr, paddingLeftAttr, paddingRightAttr);
 
       // Applying the transposes in reverse order to the output will restore the
       // tensor to the original layout
       std::reverse(transposeIndices.begin(), transposeIndices.end());
-      Value output = generateTransposeOps(newPool.getResult(), rewriter,
-                                          transposeIndices, operandConstraints);
+      Value output =
+          generateTransposeOps(newPool.getResult(), rewriter, transposeIndices);
 
       // Reverse back so the proper input transposes are generated for the next
       // pool
@@ -1042,7 +1021,7 @@ public:
       auto newOp = rewriter.create<ttir::SliceOp>(
           op.getLoc(), resultType, adaptor.getInput(), sliceDpsResult,
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
-          rewriter.getI32ArrayAttr(steps), adaptor.getOperandConstraints());
+          rewriter.getI32ArrayAttr(steps));
       slices.push_back(newOp->getResult(0));
     }
 
@@ -1052,7 +1031,7 @@ public:
           op.getLoc(), outputType.getShape(), outputType.getElementType());
       auto concatOp = rewriter.create<ttir::ConcatOp>(
           op.getLoc(), outputType, slices, concatDpsResult,
-          rewriter.getSI32IntegerAttr(dim), adaptor.getOperandConstraints());
+          rewriter.getSI32IntegerAttr(dim));
 
       rewriter.replaceOp(op, concatOp.getResult());
     } else {
@@ -1133,10 +1112,7 @@ public:
       output = rewriter.create<ttir::TransposeOp>(
           op.getLoc(), transposeType, output, dpsOutput,
           arangeDimensionNegative + transposeShape.size(),
-          arangeOutputType.getRank() - 1,
-          rewriter.getArrayAttr(SmallVector<Attribute>(
-              2, rewriter.getAttr<OperandConstraintAttr>(
-                     OperandConstraint::AnyDeviceTile))));
+          arangeOutputType.getRank() - 1);
 
       outputShape = transposeShape;
     }
@@ -1160,10 +1136,7 @@ public:
           reshapeType.getElementType());
       output = rewriter.create<ttir::ReshapeOp>(
           op.getLoc(), reshapeType, output, dpsOutput,
-          rewriter.getI32ArrayAttr(reshapeShape),
-          rewriter.getArrayAttr(SmallVector<Attribute>(
-              2, rewriter.getAttr<OperandConstraintAttr>(
-                     OperandConstraint::AnyDeviceTile))));
+          rewriter.getI32ArrayAttr(reshapeShape));
 
       outputShape =
           std::vector<int64_t>(reshapeShape.begin(), reshapeShape.end());
@@ -1186,10 +1159,7 @@ public:
 
       output = rewriter.create<ttir::BroadcastOp>(
           op.getLoc(), broadcastType, output, dpsOutput,
-          rewriter.getArrayAttr(broadcastDims),
-          rewriter.getArrayAttr(SmallVector<Attribute>(
-              2, rewriter.getAttr<OperandConstraintAttr>(
-                     OperandConstraint::AnyDeviceTile))));
+          rewriter.getArrayAttr(broadcastDims));
 
       assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
                  outputType.getShape() &&

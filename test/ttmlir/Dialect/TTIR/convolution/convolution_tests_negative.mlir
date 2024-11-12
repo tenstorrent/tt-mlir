@@ -1,6 +1,4 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
-
 module @jit_convolution_bad_spatial_dimensions {
   func.func public @test_illegal_convolution(%arg0: tensor<1x3x100x100xbf16>, %arg1: tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16> {
     %0 = tensor.empty() : tensor<1x7x100x100xbf16>
@@ -20,7 +18,6 @@ module @jit_convolution_bad_spatial_dimensions {
       >,
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
-      operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
       padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
@@ -51,7 +48,6 @@ module @jit_convolution_bad_stride_dimensions {
       >,
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
-      operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
       padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
@@ -82,7 +78,6 @@ module @jit_convolution_bad_input_tensor {
       >,
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
-      operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
       padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
@@ -113,7 +108,6 @@ module @jit_convolution_bad_weight_tensor {
       >,
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
-      operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
       padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
@@ -144,7 +138,6 @@ module @jit_convolution_bad_bias_tensor {
       >,
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
-      operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
       padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,

@@ -46,11 +46,7 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        ValueRange(outputTensor));
     return success();
   }
 
@@ -103,11 +99,7 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
-        outputTensor,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        outputTensor);
     return success();
   }
 
@@ -140,11 +132,8 @@ public:
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputTensor.getType(), adaptor.getInput(), outputTensor,
         true /*keepdim*/,
-        rewriter.getArrayAttr(SmallVector<Attribute>(1, adaptor.getAxisAttr())),
         rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+            SmallVector<Attribute>(1, adaptor.getAxisAttr())));
     return success();
   }
 };
@@ -169,11 +158,7 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MaxPool2dOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getInput(),
         outputTensor, dims[0], dims[1], strides[0], strides[1], 1, 1, false,
-        pad[2], pad[3], pad[0], pad[1],
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        pad[2], pad[3], pad[0], pad[1]);
     return success();
   }
 };

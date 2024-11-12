@@ -176,17 +176,21 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint,
                  MemorySpace defaultMemorySpace,
                  TensorMemoryLayout defaultDeviceMemoryLayout) {
-  auto desiredMemorySpace =
-      getLegalMemorySpace(operandConstraint, defaultMemorySpace);
+  // auto desiredMemorySpace =
+  //     getLegalMemorySpace(operandConstraint, defaultMemorySpace);
 
-  auto desiredMemoryLayout = getLegalTensorMemoryLayout(
-      operandConstraint, desiredMemorySpace, defaultDeviceMemoryLayout);
+  // auto desiredMemoryLayout = getLegalTensorMemoryLayout(
+  //     operandConstraint, desiredMemorySpace, defaultDeviceMemoryLayout);
 
-  bool tiled =
-      !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
+  // bool tiled =
+  //     !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
+
+  auto desiredMemorySpace = defaultMemorySpace;
+  auto desiredMemoryLayout = defaultDeviceMemoryLayout;
+  bool tiled = true;
+
   return createToLayoutOp(rewriter, loc, input, desiredMemorySpace,
                           desiredMemoryLayout, tiled);
 }
@@ -223,16 +227,16 @@ public:
       if (mlir::isa<Conv2dOp>(op.getOperation()) && !isResult) {
         continue;
       }
-      auto operandConstraint =
-          mlir::cast<OperandConstraintAttr>(
-              mlir::cast<TTIROp>(op.getOperation())
-                  .getOperandConstraints()[operand.getOperandNumber()])
-              .getValue();
+      // auto operandConstraint =
+      //     mlir::cast<OperandConstraintAttr>(
+      //         mlir::cast<TTIROp>(op.getOperation())
+      //             .getOperandConstraints()[operand.getOperandNumber()])
+      //         .getValue();
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       auto desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint,
-                           defaultMemorySpace, defaultDeviceMemoryLayout);
+          createToLayoutOp(rewriter, newLoc, operand.get(), defaultMemorySpace,
+                           defaultDeviceMemoryLayout);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {
