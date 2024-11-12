@@ -50,25 +50,30 @@ class ModelRunner:
             }
         )()
 
-    def run(self, model_path):
+    def run(
+        self, model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
+    ):
         # TODO(odjuricic, #1174) This should be in a separete thread later.
         model_name = os.path.basename(model_path).split(".")[0]
 
-        ttir_to_ttnn_options = " ".join(
-            [
-                f'system-desc-path={f"{self._explorer_artifacts_dir}/system_desc.ttsys"}',
-                "enable-optimizer=true",
-                "memory-layout-analysis-enabled=true",
-            ]
-        )
+        options = [
+            f'system-desc-path={f"{self._explorer_artifacts_dir}/system_desc.ttsys"}',
+            "enable-optimizer=true",
+            f"memory-layout-analysis-enabled={memory_layout_analysis_enabled}",
+        ]
+        if memory_layout_analysis_policy:
+            options.append(
+                f"memory-layout-analysis-policy={memory_layout_analysis_policy}"
+            )
+        options_string = " ".join(options)
 
         module = utils.parse_mlir_file(model_path)
 
         try:
             print("Running MLIR compile: TTIR to TTNN Backend Pipeline")
-            print("With options: ", ttir_to_ttnn_options)
+            print("With options: ", options_string)
             # TODO(odjuricic) When we hit compiler assert it terminates the process. We should catch this and return an error to the frontend.
-            ttmlir.passes.ttir_to_ttnn_backend_pipeline(module, ttir_to_ttnn_options)
+            ttmlir.passes.ttir_to_ttnn_backend_pipeline(module, options_string)
         except Exception as e:
             print("Error running MLIR compile: TTIR to TTNN Backend Pipeline")
             raise e

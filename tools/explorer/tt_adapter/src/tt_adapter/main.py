@@ -4,15 +4,34 @@
 from typing import Dict
 import model_explorer
 from . import ttir, runner, utils
+import dataclasses
+import enum
+
+
+class OptimizationPolicy(enum.Enum):
+    DFSharding = "DF Sharding"
+    L1Interleaved = "L1 Interleaved"
+    OptimizerDisabled = "Optimizer Disabled"
+
+
+OPTIMIZATION_POLICIES = [member.value for member in OptimizationPolicy]
+
+
+@dataclasses.dataclass
+class TTAdapterMetadata(model_explorer.AdapterMetadata):
+    settings: Dict[str, list] = dataclasses.field(default_factory=dict)
 
 
 class TTAdapter(model_explorer.Adapter):
-    metadata = model_explorer.AdapterMetadata(
+    metadata = TTAdapterMetadata(
         id="tt_adapter",
         name="Tenstorrent MLIR Adapter",
         description="Adapter for Tenstorrent MLIR dialects used in the Forge compiler.",
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir"],
+        settings={
+            "optimizationPolicies": OPTIMIZATION_POLICIES,
+        },
     )
     model_runner = None
 
@@ -35,7 +54,25 @@ class TTAdapter(model_explorer.Adapter):
     ) -> model_explorer.ModelExplorerGraphs:
         # TODO(odjuricic, #1178) settings need to be parsed.
         # Waiting on override class for this.
-        ttnn_ir = self.model_runner.run(model_path)
+
+        # Parse optimization policy from settings.
+        optimization_policy = settings.get("optimizationPolicy")
+        if optimization_policy not in OPTIMIZATION_POLICIES:
+            raise ValueError(
+                f"Invalid optimization policy selected: {optimization_policy}"
+            )
+        optimization_policy = OptimizationPolicy(optimization_policy)
+
+        memory_layout_analysis_enabled = True
+        memory_layout_analysis_policy = optimization_policy.name
+
+        if optimization_policy == OptimizationPolicy.OptimizerDisabled:
+            memory_layout_analysis_enabled = False
+            memory_layout_analysis_policy = None
+
+        ttnn_ir = self.model_runner.run(
+            model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
+        )
 
         # TODO(odjuricic, #933) Parse TTNN IR and return the post optimized graph.
         return {"graphs": []}
