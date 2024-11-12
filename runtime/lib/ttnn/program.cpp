@@ -13,6 +13,7 @@
 #include "operations/deletion/dealloc.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
+#include "operations/eltwise/ternary/ternary.h"
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
@@ -73,12 +74,17 @@ void ProgramExecutor::runEltwiseOperation(
     return operations::binary::run(op, context);
   };
 
+  auto runTernaryOp = [&]() { return operations::ternary::run(op, context); };
+
   if (operations::unary::isUnaryOp(op)) {
     return runUnaryOp();
   }
 
   if (operations::binary::isBinaryOp(op)) {
     return runBinaryOp();
+  }
+  if (operations::ternary::isTernaryOp(op)) {
+    return runTernaryOp();
   }
 
   throw std::invalid_argument("Unsupported Eltwise operation");

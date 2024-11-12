@@ -1027,6 +1027,8 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
                                                                 ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::RemOp, mlir::tt::ttir::RemainderOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
 }
 
 void addReduceOpsConversionPatterns(MLIRContext *ctx,

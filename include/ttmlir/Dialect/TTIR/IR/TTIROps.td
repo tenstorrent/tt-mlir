@@ -186,6 +186,29 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
+class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
+    let description = [{
+      Eltwise ternary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out, operand_constraints);
+      }]>
+    ];
+}
+
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where op.";
+    let description = [{
+      Eltwise where operation.
+    }];
+}
+
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise unary op.";

@@ -146,6 +146,29 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
+    let description = [{
+      Eltwise ternary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
+      }]>
+    ];
+}
+
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where.";
+    let description = [{
+      Eltwise where operation.
+    }];
+}
+
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let summary = "Eltwise absolute.";
     let description = [{
