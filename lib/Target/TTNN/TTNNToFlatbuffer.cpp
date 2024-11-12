@@ -381,6 +381,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Expm1;
   } else if constexpr (std::is_same_v<EltwiseOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Remainder;
+  } else if constexpr (std::is_same_v<EltwiseOp, WhereOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Where;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -433,22 +435,6 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   int32_t dim1 = op.getDim1();
 
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
-}
-
-template <typename WhereOp>
-::flatbuffers::Offset<::tt::target::ttnn::WhereOp>
-createWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
-  auto out = cache.at<::tt::target::TensorRef>(
-      getOperandThroughDPSOps(op.getResult()));
-  auto pred =
-      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getPred()));
-  auto ontrue = cache.at<::tt::target::TensorRef>(
-      getOperandThroughDPSOps(op.getOnTrue()));
-  auto onfalse = cache.at<::tt::target::TensorRef>(
-      getOperandThroughDPSOps(op.getOnFalse()));
-
-  return ::tt::target::ttnn::CreateWhereOp(*cache.fbb, pred, ontrue, onfalse,
-                                           out);
 }
 
 template <typename ConcatOp>
@@ -736,7 +722,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, sinOp), debugString);
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
-    return createOperation(cache, createWhereOp(cache, whereOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, whereOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

@@ -146,18 +146,27 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_NamedDPSOp<"where"> {
-    let summary = "Where op.";
+class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
     let description = [{
-      Selects an element from on_true or on_false based on pred.
+      Eltwise ternary op.
     }];
 
-    let arguments = (ins AnyRankedTensor:$pred,
-                         AnyRankedTensor:$on_true,
-                         AnyRankedTensor:$on_false,
-                         AnyRankedTensor:$outputs);
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
+      }]>
+    ];
+}
 
-    let results = (outs AnyRankedTensor:$result);
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where.";
+    let description = [{
+      Eltwise where operation.
+    }];
 }
 
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {

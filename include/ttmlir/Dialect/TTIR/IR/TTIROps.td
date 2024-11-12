@@ -186,6 +186,29 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
+class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
+    let description = [{
+      Eltwise ternary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out, operand_constraints);
+      }]>
+    ];
+}
+
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where op.";
+    let description = [{
+      Eltwise where operation.
+    }];
+}
+
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise unary op.";
@@ -200,25 +223,6 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {out.getType()}, in, out, operand_constraints);
       }]>
     ];
-}
-
-def TTIR_WhereOp : TTIR_DPSOp<"where"> {
-    let summary = "Where operation.";
-    let description = [{
-      Selects an element from on_true or on_false based on pred.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$pred,
-                         AnyRankedTensor:$on_true,
-                         AnyRankedTensor:$on_false,
-                         AnyRankedTensor:$output,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 }
 
 def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs"> {

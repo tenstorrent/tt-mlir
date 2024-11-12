@@ -97,6 +97,7 @@ enum EltwiseOpType: uint32 {
   Remainder = 32,
   IsFinite = 33,
   Floor = 34,
+  Where = 35,
 }
 
 union EltwiseOpParams {
@@ -122,13 +123,6 @@ table ReductionOp {
   out: tt.target.TensorRef;
   dim_arg: [int32];
   keep_dim: bool;
-}
-
-table WhereOp {
-  pred: tt.target.TensorRef;
-  on_true: tt.target.TensorRef;
-  on_false: tt.target.TensorRef;
-  output: tt.target.TensorRef;
 }
 
 table EmbeddingOp {
@@ -242,7 +236,6 @@ union OpType {
   EltwiseOp,
   MatmulOp,
   ReductionOp,
-  WhereOp,
   EmbeddingOp,
   SoftmaxOp,
   TransposeOp,
