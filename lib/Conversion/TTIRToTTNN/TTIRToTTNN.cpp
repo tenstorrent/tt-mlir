@@ -255,13 +255,9 @@ private:
       TileType tileType =
           TileType::get(rewriter.getContext(),
                         {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
-      llvm::SmallVector<int64_t> newShardShape =
-          tileType.getTiledShape(llvm::SmallVector<int64_t>(
-              oldShardShape.begin(), oldShardShape.end()));
       RankedTensorType result = RankedTensorType::get(
           oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType)
-              .withShardShape(rewriter.getContext(), newShardShape));
+          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType));
       return result;
     }
 
