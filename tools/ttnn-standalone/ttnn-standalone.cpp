@@ -9,7 +9,7 @@
 // --ttir-layout --convert-ttir-to-ttnn --ttnn-decompose-layouts
 // --ttnn-deallocate --convert-ttnn-to-emitc
 // test/ttmlir/Silicon/TTNN/emitc/simple_add.mlir | ./build/bin/ttmlir-translate
-// -mlir-to-cpp -allow-unregistered-dialect
+// --mlir-to-cpp -allow-unregistered-dialect
 
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::Device *v3 = ttnn::DeviceGetter::getInstance();
