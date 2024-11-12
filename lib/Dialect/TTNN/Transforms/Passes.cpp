@@ -119,8 +119,20 @@ public:
       TTNNValidateGraphCapture>::TTNNValidateGraphCaptureBase;
 
   void runOnOperation() final {
+
+    // Create a temporary directory to store the intermediate files.
+    auto now = std::time(nullptr);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&now), "%Y-%m-%d-%H.%M.%S");
+
     const std::filesystem::path tmpDirPath =
-        std::filesystem::temp_directory_path();
+        std::filesystem::temp_directory_path() / ss.str();
+
+    // Remove the directory if it already exists.
+    if (std::filesystem::exists(tmpDirPath)) {
+      std::filesystem::remove_all(tmpDirPath);
+    }
+    std::filesystem::create_directories(tmpDirPath);
 
     const std::string mlirFilePath = tmpDirPath / "module.mlir";
     const std::string flatBufferFilePath = tmpDirPath / "module.ttnn";
@@ -236,11 +248,14 @@ private:
 
     void print() const {
       llvm::errs() << "OpsToCreate{ \n"
-                   << "\t" << "CreateToDeviceOp: " << createToDeviceOp << "\n"
-                   << "\t" << "CreateFromDeviceOp: " << createFromDeviceOp
-                   << "\n"
-                   << "\t" << "CreateToLayoutOp: " << createToLayoutOp << "\n"
-                   << "\t" << "CreateTypecastOp: " << createTypecastOp << "\n"
+                   << "\t"
+                   << "CreateToDeviceOp: " << createToDeviceOp << "\n"
+                   << "\t"
+                   << "CreateFromDeviceOp: " << createFromDeviceOp << "\n"
+                   << "\t"
+                   << "CreateToLayoutOp: " << createToLayoutOp << "\n"
+                   << "\t"
+                   << "CreateTypecastOp: " << createTypecastOp << "\n"
                    << "\t"
                    << "CreateToMemoryConfigOp: " << createToMemoryConfigOp
                    << "\n"
