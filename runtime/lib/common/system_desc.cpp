@@ -55,7 +55,7 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 

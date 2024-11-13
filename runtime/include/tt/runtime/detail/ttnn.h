@@ -41,6 +41,7 @@
 #pragma clang diagnostic ignored "-Wundefined-inline"
 #pragma clang diagnostic ignored "-Wc99-extensions"
 #pragma clang diagnostic ignored "-Wc++11-narrowing"
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
