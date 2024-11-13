@@ -87,7 +87,7 @@ void ProgramExecutor::runEltwiseOperation(
     return runTernaryOp();
   }
 
-  throw std::invalid_argument("Unsupported Eltwise operation");
+  LOG_FATAL("Unsupported Eltwise operation");
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -159,7 +159,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
   default: {
-    throw std::runtime_error("Unsupported operation type");
+    LOG_FATAL("Unsupported operation type");
   }
   }
 }

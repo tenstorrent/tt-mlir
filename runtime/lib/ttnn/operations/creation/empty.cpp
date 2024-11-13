@@ -99,7 +99,7 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   } else if (config.numShards > 1) {
     out = createEmptyOnMultiDevice(context, config, op->device());
   } else {
-    throw std::invalid_argument("Unsupported num shards");
+    LOG_FATAL("Unsupported num shards");
   }
   utils::updateTensorPool(tensorPool, out, op->out()->global_id());
 }

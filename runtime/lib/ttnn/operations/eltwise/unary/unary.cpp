@@ -10,16 +10,15 @@
 
 namespace tt::runtime::ttnn::operations::unary {
 
-static void runEltwiseUnaryOP(
+static void runEltwiseUnaryOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<
+    const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &,
                        const std::optional<::tt::tt_metal::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &)>
-        ttnnOp) {
+                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
   ::ttnn::Tensor *in = nullptr;
-  getEltwiseUnaryOPInputTensor(op, tensorPool, &in);
+  getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
@@ -28,16 +27,15 @@ static void runEltwiseUnaryOP(
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
-static void runEltwiseUnaryWithFastAndApproximateModeOP(
+static void runEltwiseUnaryWithFastAndApproximateModeOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<
+    const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, const bool,
                        const std::optional<::tt::tt_metal::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &)>
-        ttnnOp) {
+                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
   ::ttnn::Tensor *in = nullptr;
-  getEltwiseUnaryOPInputTensor(op, tensorPool, &in);
+  getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
@@ -51,81 +49,81 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Abs: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::abs);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::abs);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Ceil: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::ceil);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::ceil);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Cos: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::cos);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::cos);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Floor: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::floor);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::floor);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Gelu: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::gelu);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::gelu);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::IsFinite: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::isfinite);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::isfinite);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LogicalNot: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::logical_not);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::logical_not);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Neg: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::neg);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::neg);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::relu);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sqrt: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sqrt);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sqrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Rsqrt: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::rsqrt);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::rsqrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sigmoid: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sigmoid);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sigmoid);
     break;
   }
 
   case ::tt::target::ttnn::EltwiseOpType::Sin: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sin);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sin);
     break;
   }
 
   case ::tt::target::ttnn::EltwiseOpType::Reciprocal: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::reciprocal);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::reciprocal);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sign: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::sign);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sign);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
-    runEltwiseUnaryWithFastAndApproximateModeOP(op, tensorPool, ::ttnn::exp);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::exp);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Log: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::log);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::log);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Expm1: {
-    runEltwiseUnaryOP(op, tensorPool, ::ttnn::expm1);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::expm1);
     break;
   }
   default:
-    throw std::invalid_argument("Unsupported unary operation");
+    LOG_FATAL("Unsupported unary operation");
   }
 }
 
