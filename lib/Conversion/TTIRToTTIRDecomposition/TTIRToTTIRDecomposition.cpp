@@ -41,8 +41,9 @@ struct IndexToSliceConversionPattern
                   ConversionPatternRewriter &rewriter) const override {
     auto inputType =
         ::mlir::dyn_cast<mlir::RankedTensorType>(adaptor.getInput().getType());
-    if (!inputType || !inputType.hasRank())
+    if (!inputType || !inputType.hasRank()) {
       return failure();
+    }
 
     int64_t rank = inputType.getRank();
     llvm::SmallVector<mlir::Attribute, 4> begins, ends, steps;
@@ -233,14 +234,20 @@ public:
   constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
 
   // NHWC
-  const std::vector<int64_t> conv2dLayout = {
-      ConvolutionDimension::BATCH, SPATIAL_DIM_HEIGHT, SPATIAL_DIM_WIDTH,
-      ConvolutionDimension::FEATURE};
+  static inline const std::vector<int64_t> conv2dLayout = {
+      ConvolutionDimension::BATCH,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+      ConvolutionDimension::FEATURE,
+  };
   // OIHW
-  const std::vector<int64_t> conv2dKernelLayout = {
+  static inline const std::vector<int64_t> conv2dKernelLayout = {
       ConvolutionKernelDimension::OUTPUT_FEATURES,
-      ConvolutionKernelDimension::INPUT_FEATURES, SPATIAL_DIM_HEIGHT,
-      SPATIAL_DIM_WIDTH};
+      ConvolutionKernelDimension::INPUT_FEATURES,
+      SPATIAL_DIM_HEIGHT,
+      SPATIAL_DIM_WIDTH,
+  };
+
   LogicalResult isConv2d(ttir::ConvolutionOp op) const {
 
     // Conv2d will have 2 spatial dimensions

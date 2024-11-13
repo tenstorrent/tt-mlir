@@ -303,7 +303,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     computeConfig.math_approx_mode =
         kernelSource->config_as_TensixConfig()->math_approx_mode();
 
-    auto unpackToDestModeVec =
+    auto const *unpackToDestModeVec =
         kernelSource->config_as_TensixConfig()->unpack_to_dest_mode();
     computeConfig.unpack_to_dest_mode.reserve(unpackToDestModeVec->size());
 

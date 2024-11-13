@@ -120,13 +120,15 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   // Subtract 2 from the rank as to not count batch and feature dimension
   if (getInput().getType().getRank() - 2 !=
-      (int64_t)getConvolutionLayout().getInputSpatialDimensions().size()) {
+      static_cast<int64_t>(
+          getConvolutionLayout().getInputSpatialDimensions().size())) {
     return emitOpError("Input tensor must have the same number of spatial "
                        "dimensions as specified in the ConvolutionLayout");
   }
 
   if (getWeight().getType().getRank() - 2 !=
-      (int64_t)getConvolutionLayout().getKernelSpatialDimensions().size()) {
+      static_cast<int64_t>(
+          getConvolutionLayout().getKernelSpatialDimensions().size())) {
     return emitOpError("Weight tensor must have the same number of spatial "
                        "dimensions as specified in the ConvolutionLayout");
   }
@@ -427,13 +429,17 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     if (step == 0) {
       return emitOpError("Step value for dimension " + std::to_string(i) +
                          " cannot be zero");
-    } else if (step > 0 && adjustedBegin > adjustedEnd) {
+    }
+
+    if (step > 0 && adjustedBegin > adjustedEnd) {
       return emitOpError() << "For positive step, begin index must be less "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
                            << ", end: " << endValueMessage << ", step: " << step
                            << ", input shape: " << inputShapeStr;
-    } else if (step < 0 && adjustedBegin < adjustedEnd) {
+    }
+
+    if (step < 0 && adjustedBegin < adjustedEnd) {
       return emitOpError() << "For negative step, begin index must be greater "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
@@ -539,13 +545,17 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   if (step == 0) {
     return emitOpError("Step value for dimension " + std::to_string(dim) +
                        " cannot be zero");
-  } else if (step > 0 && adjustedBegin > adjustedEnd) {
+  }
+
+  if (step > 0 && adjustedBegin > adjustedEnd) {
     return emitOpError() << "For positive step, begin index must be less "
                             "than or equal to end index for dimension "
                          << dim << ". Got begin: " << beginValueMessage
                          << ", end: " << endValueMessage << ", step: " << step
                          << ", input shape: " << inputShapeStr;
-  } else if (step < 0 && adjustedBegin < adjustedEnd) {
+  }
+
+  if (step < 0 && adjustedBegin < adjustedEnd) {
     return emitOpError() << "For negative step, begin index must be greater "
                             "than or equal to end index for dimension "
                          << dim << ". Got begin: " << beginValueMessage

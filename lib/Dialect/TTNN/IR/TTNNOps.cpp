@@ -396,13 +396,17 @@ namespace mlir::tt::ttnn {
     if (step == 0) {
       return emitOpError("Step value for dimension " + std::to_string(i) +
                          " cannot be zero");
-    } else if (step > 0 && adjustedBegin > adjustedEnd) {
+    }
+
+    if (step > 0 && adjustedBegin > adjustedEnd) {
       return emitOpError() << "For positive step, begin index must be less "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
                            << ", end: " << endValueMessage << ", step: " << step
                            << ", input shape: " << inputShapeStr;
-    } else if (step < 0 && adjustedBegin < adjustedEnd) {
+    }
+
+    if (step < 0 && adjustedBegin < adjustedEnd) {
       return emitOpError() << "For negative step, begin index must be greater "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
@@ -763,7 +767,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 }
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
-  // TODO
+  // TODO(gfengTT)
   return success();
 }
 
