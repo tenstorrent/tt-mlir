@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
+#include "ttmlir/Conversion/RedundantBroadcastElimination/RedundantBroadcastElimination.h"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>

@@ -30,6 +30,12 @@ struct StableHLOToTTIRPipelineOptions
       // This pass will convert stablehlo.composite ops into func.call ops so
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
+  Option<bool> eliminateRedundantBroadcast{
+      *this, "eliminate-redundant-broadcast",
+      llvm::cl::desc("Eliminate redundant broadcast ops."),
+      // Stablehlo can generate redundant broadcast ops where the input and
+      // output shapes are same. This pass folds those broadcasts.
+      llvm::cl::init(true)};
 };
 
 void createStableHLOToTTIRPipeline(

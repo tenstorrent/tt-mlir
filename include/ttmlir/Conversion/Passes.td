@@ -18,6 +18,11 @@ let summary = "Convert Arith Dialect to StableHLO dialect.";
   let constructor = "createConvertArithToStableHLOPass()";
   let dependentDialects = ["mlir::stablehlo::StablehloDialect", "mlir::arith::ArithDialect"];
 }
+def RedundantBroadcastElimination : Pass<"redundant-broadcast-elimination", "::mlir::ModuleOp"> {
+let summary = "Eliminate any redundant broadcast ops by folding them.";
+  let constructor = "createRedundantBroadcastEliminationPass()";
+  let dependentDialects = ["mlir::stablehlo::StablehloDialect"];
+}
 #endif
 
 def ConvertTosaToTTIR : Pass<"convert-tosa-to-ttir", "::mlir::ModuleOp"> {
