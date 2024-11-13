@@ -44,7 +44,7 @@ def execute_command(model_path, settings):
         assert False
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def start_server(request):
     server_thread = multiprocessing.Process(
         target=model_explorer.visualize,
@@ -59,11 +59,18 @@ def start_server(request):
             if response.status_code == 200:
                 break
         except requests.ConnectionError:
+            pass
+        finally:
             time.sleep(0.1)
     else:
         raise RuntimeError("Server did not start within the expected time")
 
-    request.addfinalizer(lambda: server_thread.terminate())
+    # Terminate the server and wait for it to finish.
+    def server_shutdown():
+        server_thread.terminate()
+        server_thread.join()
+
+    request.addfinalizer(server_shutdown)
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
