@@ -471,6 +471,12 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
 
+    - name: Test ttrt
+      shell: bash
+      run: |
+        source env/activate
+        TTRT_LOGGER_LEVEL=DEBUG; ttrt query --save-artifacts
+
     - name: Run tt-explorer tests
       shell: bash
       run: |
