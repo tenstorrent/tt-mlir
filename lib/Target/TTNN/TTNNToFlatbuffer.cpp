@@ -525,12 +525,13 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
-template <typename DeallocOp>
-::flatbuffers::Offset<::tt::target::ttnn::DeallocOp>
-createDeallocOp(FlatbufferObjectCache &cache, DeallocOp op) {
+template <typename DeallocateOp>
+::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>
+createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  return ::tt::target::ttnn::CreateDeallocOp(*cache.fbb, in);
+  auto force = op.getForceAttr().getValue();
+  return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -708,8 +709,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
                            debugString);
   }
-  if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
-    return createOperation(cache, createDeallocOp(cache, deallocOp),
+  if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {
+    return createOperation(cache, createDeallocateOp(cache, deallocateOp),
                            debugString);
   }
   if (auto ceilOp = dyn_cast<CeilOp>(op); ceilOp) {

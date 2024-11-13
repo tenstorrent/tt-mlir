@@ -213,8 +213,9 @@ table MaxPool2dOp {
   padding_width: uint32;
 }
 
-table DeallocOp {
+table DeallocateOp {
   in: tt.target.TensorRef;
+  force: bool;
 }
 
 table AllGatherOp {
@@ -244,7 +245,7 @@ union OpType {
   ReshapeOp,
   SliceOp,
   MaxPool2dOp,
-  DeallocOp,
+  DeallocateOp,
   AllGatherOp,
 }
 
