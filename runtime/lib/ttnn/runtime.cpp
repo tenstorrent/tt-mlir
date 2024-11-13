@@ -22,7 +22,7 @@ using ::tt::tt_metal::raise_unsupported_storage;
 using ::tt::tt_metal::ShardTensor;
 
 template <typename StorageType, typename ElementType>
-static StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
+StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
   if constexpr (std::is_same_v<StorageType, BorrowedStorage>) {
     return BorrowedStorage(
         ::tt::tt_metal::borrowed_buffer::Buffer<ElementType>(ptr, numElements),
@@ -37,8 +37,8 @@ static StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
 }
 
 template <typename StorageType>
-static StorageType createStorage(void *ptr, std::uint32_t numElements,
-                                 ::tt::target::DataType dataType) {
+StorageType createStorage(void *ptr, std::uint32_t numElements,
+                          ::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:
     return createStorage<StorageType>(static_cast<float *>(ptr), numElements);

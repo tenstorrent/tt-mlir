@@ -105,67 +105,36 @@ def golden(context=None, opContext=None):
     import ttrt.runtime
 
     print("-----------executing golden comparision-----------")
-    op_debug_str = opContext.get_op_debug_str()
 
-    # find matching golden tensor based on loc in op debug string
-    match = re.search(r"loc\(([^)]+)\)", op_debug_str)
-
-    if not match:
-        print(f"debug_str={op_debug_str}")
-        print("No location found in debug string - skipping golden comparison")
-        return
-
-    loc = match.group(1).replace('"', "")
-    print(f"found location={loc}")
-
-    golden_tensor = context.get_debug_info_golden(loc)
-    output_tensor = opContext.get_op_output_tensor(context)
-
-    print("-----------finished executing golden comparision-----------")
-
-    """
     try:
-        device_tensor = ttrt.runtime.get_op_output_tensor(context, opContext)
-        op_debug_str = ttrt.runtime.get_op_debug_str(context, opContext)
+        op_debug_str = opContext.get_op_debug_str()
 
-        if device_tensor == None or len(device_tensor) == 0:
-            print("No device tensor provided for golden comparison")
+        # find matching golden tensor based on loc in op debug string
+        match = re.search(r"loc\(([^)]+)\)", op_debug_str)
+
+        if not match:
+            print(f"debug_str={op_debug_str}")
+            print("No location found in debug string - skipping golden comparison")
             return
-        elif op_debug_str == None or op_debug_str == "":
-            print("No debug string provided for golden comparison")
-            return
-        else:
-            # find matching golden tensor based on loc in op debug string
-            match = re.search(r"loc\(([^)]+)\)", op_debug_str)
 
-            if not match:
-                print(f"debug_str={op_debug_str}")
-                print("No location found in debug string - skipping golden comparison")
-                return
+        loc = match.group(1).replace('"', "")
+        print(f"found location={loc}")
 
-            loc = match.group(1).replace('"', "")
-            print(f"found location={loc}")
+        golden_tensor = context.get_debug_info_golden(loc)
+        output_tensor = opContext.get_op_output_tensor(context)
 
-            if loc not in GOLDENS.keys():
-                print(
-                    f"No golden tensor found for loc={loc} in golden cache - skipping golden comparison"
-                )
-                return
+        print("GOT HEREEEEEEEEEEEEE")
+        print(type(golden_tensor))
+        print("GOT HEREEEEEEEEEEEEE")
 
-            golden_torch_tensor = GOLDENS[loc].flatten()
-            device_tensor_torch = torch.tensor(device_tensor, dtype=torch.float32)
-            _, _, cal_pcc, output_str = get_atol_rtol_pcc(
-                golden_torch_tensor, device_tensor_torch
-            )
+        golden_tensor_torch = torch.tensor(golden_tensor, dtype=torch.float32)
+        output_tensor_torch = torch.tensor(output_tensor, dtype=torch.float32)
 
-            print(f"PCC={cal_pcc}")
-            print(output_str)
+        _, _, cal_pcc, output_str = get_atol_rtol_pcc(
+            golden_torch_tensor, device_tensor_torch
+        )
+
+        print(f"PCC={cal_pcc}")
+        print(output_str)
     finally:
         print("-----------finished executing golden comparision-----------")
-    """
-
-
-def pdb():
-    import pdb
-
-    pdb.set_trace()

@@ -247,7 +247,7 @@ void wait(Event event) {
   throw std::runtime_error("runtime is not enabled");
 }
 
-std::vector<float> OpContext::getOpOutputTensor(CallbackContext context) {
+Tensor OpContext::getOpOutputTensor(CallbackContext context) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   auto *contextPtr =
       static_cast<tt::runtime::ttnn::ProgramContext *>(context.handle.get());
@@ -340,7 +340,7 @@ std::vector<float> OpContext::getOpOutputTensor(CallbackContext context) {
   }
   case ::tt::target::ttnn::OpType::DeallocOp: {
     LOG_WARNING("getting output tensor for DeallocOp is not supported");
-    return {};
+    return Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
   }
   default: {
     throw std::runtime_error("Unsupported operation type");
@@ -351,26 +351,31 @@ std::vector<float> OpContext::getOpOutputTensor(CallbackContext context) {
     outPtr = &tensorPool.at(globalId);
   } else {
     LOG_WARNING("Output tensor not found in tensor pool");
-    return {};
+    return Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
   }
 
   ::ttnn::Tensor hostTensor = ::ttnn::from_device(*outPtr);
   ::ttnn::Tensor outCopy =
       ::ttnn::to_layout(hostTensor, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
                         std::nullopt, static_cast<::ttnn::Device *>(nullptr));
-  std::uint32_t outCopySize = outCopy.volume() * outCopy.element_size();
-  void *src = ::tt::tt_metal::get_raw_host_data_ptr(outCopy);
-  void *dst = malloc(outCopySize);
-  std::memcpy(dst, src, outCopySize);
-  std::vector<float> outVec(static_cast<float *>(dst),
-                            static_cast<float *>(dst) + outCopy.volume());
 
-  return outVec;
+  void *src = ::tt::tt_metal::get_raw_host_data_ptr(outCopy);
+  std::uint32_t outCopySize = outCopy.volume() * outCopy.element_size();
+  std::shared_ptr<void> data = ::tt::runtime::utils::malloc_shared(outCopySize);
+  std::memcpy(data.get(), src, outCopySize);
+
+  auto tensor = std::make_shared<::ttnn::Tensor>(
+      ttnn::createStorage<BorrowedStorage>(data.get(), outCopy.volume(),
+                                           ::tt::target::DataType::Float32),
+      outCopy.shape().value, ::ttnn::DataType::FLOAT32,
+      ::ttnn::Layout::ROW_MAJOR);
+  return Tensor(std::static_pointer_cast<void>(tensor), data,
+                DeviceRuntime::TTNN);
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   LOG_WARNING("Getting device tensor for ttmetal runtime is not enabled yet!");
-  return {};
+  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
 #endif
 }
 

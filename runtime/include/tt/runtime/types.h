@@ -132,7 +132,7 @@ struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
 
 struct OpContext : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
-  std::vector<float> getOpOutputTensor(CallbackContext context);
+  Tensor getOpOutputTensor(CallbackContext context);
   std::string getOpDebugString();
 };
 

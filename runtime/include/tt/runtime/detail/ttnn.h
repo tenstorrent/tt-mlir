@@ -77,6 +77,13 @@ constexpr std::size_t kL1SmallSize = 1 << 15;
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
+template <typename StorageType, typename ElementType>
+StorageType createStorage(ElementType *ptr, std::uint32_t numElements);
+
+template <typename StorageType>
+StorageType createStorage(void *ptr, std::uint32_t numElements,
+                          ::tt::target::DataType dataType);
+
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
