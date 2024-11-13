@@ -248,7 +248,7 @@ def ttmetal_to_flatbuffer(
 
 def compile_to_flatbuffer(
     inputs_shapes: List[Shape],
-    test_name: str,
+    test_name: Optional[str] = None,
     targets: List[str] = ["ttmetal", "ttnn"],
     module_dump: bool = False,
 ):
@@ -272,9 +272,10 @@ def compile_to_flatbuffer(
     inputs_shapes: List[Shape]
         Shapes of the respective ranked tensor inputs of the test function.
 
-    test_name: str
-        The name of the decorated function. Used as the base name for dumped
-        files during the process
+    test_name: Optional[str]
+        The string to be used as the base name for dumped files throughout the
+        process. If `None` is provided, then the `__name__` of the decorated
+        function will be used.
 
     targets: List[str]
         A list that can only contain the following strings: 'ttnn' or
@@ -297,6 +298,13 @@ def compile_to_flatbuffer(
     """
 
     def decorator(test_fn: Callable):
+
+        # Snoop the name of `test_fn` if no override to the test name is provided
+        if test_name is None:
+            test_base = test_fn.__name__
+        else:
+            test_base = test_name
+
         def wrapper():
 
             # NOTE: since `ttir_to_tt{nn,metal} modifies the module in place,
@@ -305,13 +313,13 @@ def compile_to_flatbuffer(
 
             if "ttmetal" in targets:
                 module, builder = compile_as_mlir_module(test_fn, inputs_shapes)
-                module = ttir_to_ttmetal(module, builder, test_name + ".mlir")
-                ttmetal_to_flatbuffer(module, builder, test_name + ".ttm")
+                module = ttir_to_ttmetal(module, builder, test_base + ".mlir")
+                ttmetal_to_flatbuffer(module, builder, test_base + ".ttm")
 
             if "ttnn" in targets:
                 module, builder = compile_as_mlir_module(test_fn, inputs_shapes)
-                module = ttir_to_ttnn(module, builder, test_name + ".mlir")
-                ttnn_to_flatbuffer(module, builder, test_name + ".ttnn")
+                module = ttir_to_ttnn(module, builder, test_base + ".mlir")
+                ttnn_to_flatbuffer(module, builder, test_base + ".ttnn")
 
         return wrapper
 
