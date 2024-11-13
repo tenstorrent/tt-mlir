@@ -182,4 +182,34 @@ ttmlirTTOperandConstraintArrayAttrGet(MlirContext ctx,
   return wrap(ArrayAttr::get(unwrap(ctx), operandConstraintsArray));
 }
 
+MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
+  return wrap(TileSizeAttr::get(unwrap(ctx), y, x));
+}
+
+MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
+    MlirContext ctx, MlirAttribute *worker, size_t workerSize,
+    MlirAttribute *dram, size_t dramSize, MlirAttribute *eth, size_t ethSize,
+    MlirAttribute *eth_inactive, size_t eth_inactiveSize) {
+  std::vector<CoreCoordAttr> workerVec, dramVec, ethVec, ethInactiveVec;
+  for (size_t i = 0; i < workerSize; i++) {
+    workerVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(worker[i])));
+  }
+
+  for (size_t i = 0; i < dramSize; i++) {
+    dramVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(dram[i])));
+  }
+
+  for (size_t i = 0; i < ethSize; i++) {
+    ethVec.push_back(mlir::cast<CoreCoordAttr>(unwrap(eth[i])));
+  }
+
+  for (size_t i = 0; i < eth_inactiveSize; i++) {
+    ethInactiveVec.push_back(
+        mlir::cast<CoreCoordAttr>(unwrap(eth_inactive[i])));
+  }
+
+  return wrap(ChipPhysicalCoresAttr::get(unwrap(ctx), workerVec, dramVec,
+                                         ethVec, ethInactiveVec));
+}
+
 } // namespace mlir::tt
