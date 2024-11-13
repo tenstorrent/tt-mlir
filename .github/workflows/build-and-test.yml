@@ -428,7 +428,9 @@ jobs:
         ]
 
     name: Build and test tt-explorer
-    runs-on: ${{ matrix.build.runs-on }}
+    runs-on:
+      - in-service
+      - ${{ matrix.build.runs-on }}
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
