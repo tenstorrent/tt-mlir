@@ -28,6 +28,7 @@
 #pragma clang diagnostic ignored "-Wmismatched-tags"
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
+#pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
