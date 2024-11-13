@@ -164,24 +164,28 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             std::vector<Tensor> const &outputHandles,
+             std::unordered_map<std::string, Tensor> const &goldenHandles) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+
   std::vector<::ttnn::Tensor *> inputs;
   inputs.reserve(inputHandles.size());
   for (auto &input : inputHandles) {
     LOG_ASSERT(input.matchesRuntime(DeviceRuntime::TTNN));
     inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
   }
+
   std::vector<::ttnn::Tensor *> outputs;
   outputs.reserve(outputHandles.size());
   for (auto &output : outputHandles) {
     LOG_ASSERT(output.matchesRuntime(DeviceRuntime::TTNN));
     outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
   }
+
   tt::runtime::ttnn::runProgram(meshDevice, fbb.programs()->Get(programIndex),
-                                inputs, outputs);
+                                inputs, outputs, goldenHandles);
   return Event(nullptr, DeviceRuntime::TTNN);
 }
 

@@ -102,10 +102,11 @@ public:
   ProgramContext(const TensorMap &liveTensors,
                  const std::unordered_set<uint32_t> &programInputs,
                  const std::unordered_set<uint32_t> &programOutputs,
+                 const std::unordered_map<std::string, Tensor> &goldenTensors,
                  ::ttnn::MeshDevice *parentMesh)
       : tensorPool(
             ProgramTensorPool(liveTensors, programInputs, programOutputs)),
-        parentMesh(parentMesh) {
+        parentMesh(parentMesh), goldenTensors(goldenTensors) {
     assert(parentMesh && "Parent mesh cannot be null");
   }
   ProgramContext(const ProgramContext &) = delete;
@@ -168,6 +169,13 @@ public:
   ProgramTensorPool &getTensorPool() { return tensorPool; }
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
+  //
+  // Golden Tensor Operations
+  //
+  const std::unordered_map<std::string, Tensor> &getGoldenMap() {
+    return this->goldenTensors;
+  }
+
 private:
   ProgramTensorPool tensorPool;
 
@@ -178,6 +186,9 @@ private:
   // Contains subMeshes of the parentMesh that are used by the program
   // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
+
+  // Golden map of all golden tensors and their locations
+  std::unordered_map<std::string, Tensor> goldenTensors;
 };
 } // namespace tt::runtime::ttnn
 

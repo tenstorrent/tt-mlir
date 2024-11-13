@@ -19,8 +19,6 @@ try:
         submit,
         create_tensor,
         create_multi_device_tensor,
-        get_op_output_tensor,
-        get_op_debug_str,
         wait,
         WorkaroundEnv,
     )

@@ -212,12 +212,13 @@ void closeDevice(Device device) {
 Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex,
              std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
+             std::vector<Tensor> const &outputHandles,
+             std::unordered_map<std::string, Tensor> const &goldenHandles) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::submit(deviceHandle, executableHandle,
                                        programIndex, inputHandles,
-                                       outputHandles);
+                                       outputHandles, goldenHandles);
   }
 #endif
 
@@ -225,7 +226,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
     return ::tt::runtime::ttmetal::submit(deviceHandle, executableHandle,
                                           programIndex, inputHandles,
-                                          outputHandles);
+                                          outputHandles, goldenHandles);
   }
 #endif
   throw std::runtime_error("runtime is not enabled");
@@ -246,15 +247,15 @@ void wait(Event event) {
   throw std::runtime_error("runtime is not enabled");
 }
 
+std::vector<float> OpContext::getOpOutputTensor(CallbackContext context) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
-std::vector<float> getOpOutputTensor(const void *context,
-                                     const void *opContext) {
-  auto *contextPtr = static_cast<const ttnn::ProgramContext *>(context);
+  auto *contextPtr =
+      static_cast<tt::runtime::ttnn::ProgramContext *>(context.handle.get());
   auto *opContextPtr =
-      static_cast<const ::tt::target::ttnn::Operation *>(opContext);
-  const ::ttnn::Tensor *outPtr = nullptr;
+      static_cast<::tt::target::ttnn::Operation *>(this->handle.get());
   const ttnn::ProgramTensorPool &tensorPool = contextPtr->getTensorPool();
-  std::uint32_t globalId;
+  std::int32_t globalId{-1};
+  const ::ttnn::Tensor *outPtr = nullptr;
 
   switch (opContextPtr->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
@@ -329,10 +330,6 @@ std::vector<float> getOpOutputTensor(const void *context,
     globalId = opContextPtr->type_as_Conv2dOp()->out()->global_id();
     break;
   }
-  case ::tt::target::ttnn::OpType::DeallocOp: {
-    LOG_WARNING("getting output tensor for DeallocOp is not supported");
-    return {};
-  }
   case ::tt::target::ttnn::OpType::MaxPool2dOp: {
     globalId = opContextPtr->type_as_MaxPool2dOp()->out()->global_id();
     break;
@@ -340,6 +337,10 @@ std::vector<float> getOpOutputTensor(const void *context,
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     globalId = opContextPtr->type_as_AllGatherOp()->out()->global_id();
     break;
+  }
+  case ::tt::target::ttnn::OpType::DeallocOp: {
+    LOG_WARNING("getting output tensor for DeallocOp is not supported");
+    return {};
   }
   default: {
     throw std::runtime_error("Unsupported operation type");
@@ -352,6 +353,7 @@ std::vector<float> getOpOutputTensor(const void *context,
     LOG_WARNING("Output tensor not found in tensor pool");
     return {};
   }
+
   ::ttnn::Tensor hostTensor = ::ttnn::from_device(*outPtr);
   ::ttnn::Tensor outCopy =
       ::ttnn::to_layout(hostTensor, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
@@ -364,15 +366,29 @@ std::vector<float> getOpOutputTensor(const void *context,
                             static_cast<float *>(dst) + outCopy.volume());
 
   return outVec;
-}
 #endif
 
-#if defined(TT_RUNTIME_ENABLE_TTNN)
-std::string getOpDebugString(const void *context, const void *opContext) {
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  LOG_WARNING("Getting device tensor for ttmetal runtime is not enabled yet!");
+  return {};
+#endif
+}
+
+std::string OpContext::getOpDebugString() {
   auto *opContextPtr =
-      static_cast<const ::tt::target::ttnn::Operation *>(opContext);
+      static_cast<::tt::target::ttnn::Operation *>(this->handle.get());
   return std::string(opContextPtr->debug_info()->c_str());
 }
-#endif
+
+Tensor CallbackContext::getDebugInfoGolden(std::string loc) {
+  auto *contextPtr =
+      static_cast<tt::runtime::ttnn::ProgramContext *>(this->handle.get());
+  if (contextPtr->getGoldenMap().contains(loc)) {
+    return contextPtr->getGoldenMap().at(loc);
+  }
+
+  LOG_WARNING("Golden tensor not found!");
+  return Tensor(nullptr, nullptr, DeviceRuntime::TTNN);
+}
 
 } // namespace tt::runtime

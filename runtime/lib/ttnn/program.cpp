@@ -28,6 +28,7 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn {
@@ -38,9 +39,10 @@ public:
   ProgramExecutor(const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
                   const std::unordered_set<uint32_t> &programOutputs,
+                  const std::unordered_map<std::string, Tensor> &programGoldens,
                   ::ttnn::MeshDevice *meshDevice)
       : context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               meshDevice)) {}
+                               programGoldens, meshDevice)) {}
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
@@ -48,8 +50,14 @@ public:
                 "Executing operation: ", op->debug_info()->c_str());
       runOperation(op);
       if (auto callback = debug::Hooks::get().getOperatorCallback(); callback) {
-        (*callback)(static_cast<const void *>(&context),
-                    static_cast<const void *>(op));
+        std::shared_ptr<void> contextPtr =
+            ::tt::runtime::utils::unsafe_borrow_shared(&context);
+        std::shared_ptr<void> opPtr =
+            ::tt::runtime::utils::unsafe_borrow_shared(
+                const_cast<::tt::target::ttnn::Operation *>(op));
+
+        (*callback)(CallbackContext(contextPtr, DeviceRuntime::TTNN),
+                    OpContext(opPtr, DeviceRuntime::TTNN));
       }
     }
   }
@@ -184,7 +192,8 @@ static bool handleNopProgram(::tt::target::ttnn::Program const *program,
 void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs) {
+                std::vector<::ttnn::Tensor *> const &outputs,
+                std::unordered_map<std::string, Tensor> const &goldens) {
   if (handleNopProgram(program, inputs, outputs)) {
     return;
   }
@@ -210,7 +219,7 @@ void runProgram(::ttnn::MeshDevice &meshDevice,
     LOG_ASSERT(inserted, "Duplicate output tensor");
     programOutputs.emplace(output->global_id());
   }
-  ProgramExecutor executor(liveTensors, programInputs, programOutputs,
+  ProgramExecutor executor(liveTensors, programInputs, programOutputs, goldens,
                            &meshDevice);
   executor.execute(program);
 }

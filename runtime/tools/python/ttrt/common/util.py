@@ -17,7 +17,6 @@ from pkg_resources import get_distribution
 import shutil
 
 import ttrt.binary
-from ttrt.common.golden import add_global_golden
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -525,21 +524,18 @@ class Flatbuffer:
 
 class GoldenMap:
     def __init__(self):
-        self.golden_map = {}
+        self.map = {}
 
     def add_golden(self, element):
-        self.golden_map[element.tensor_id] = element
-
-        if not element.tensor_id.startswith("input"):
-            add_global_golden(element)
+        self.map[element.tensor_id] = element
 
     def get_golden(self, tensor_id):
-        return self.golden_map[tensor_id]
+        return self.map[tensor_id]
 
     def get_inputs(self):
         inputs = []
 
-        for i, tensor in self.golden_map.items():
+        for i, tensor in self.map.items():
             if i.startswith("input"):
                 inputs.append(tensor)
 
@@ -547,21 +543,19 @@ class GoldenMap:
 
     class Golden:
         def __init__(self, tensor_id, tensor_shape, tensor_stride, tensor_data):
+            import torch
+            import numpy as np
+
             self.tensor_id = tensor_id
             self.tensor_shape = tensor_shape
             self.tensor_stride = tensor_stride
             self.tensor_data = tensor_data
 
-        def get_torch_tensor(self):
-            import numpy as np
-            import torch
-
             tensor_byte_data = bytes(self.tensor_data)
             float_data = np.frombuffer(tensor_byte_data, dtype=np.float32)
-            golden_tensor = torch.tensor(float_data, dtype=torch.float32).reshape(
+            self.torch_tensor = torch.tensor(float_data, dtype=torch.float32).reshape(
                 self.tensor_shape
             )
-            return golden_tensor
 
 
 class Binary(Flatbuffer):
@@ -629,24 +623,12 @@ class Binary(Flatbuffer):
             self.output_tensors = []
             self.golden_map = GoldenMap()
 
-            # populate golden tensors if they exist
-            golden_info_list = self.program["debug_info"]["golden_info"]["golden_map"]
-            for golden_tensor_dict in golden_info_list:
-                golden_tensor = GoldenMap.Golden(
-                    golden_tensor_dict["key"],
-                    golden_tensor_dict["value"]["shape"],
-                    golden_tensor_dict["value"]["stride"],
-                    golden_tensor_dict["value"]["data"],
-                )
-                self.golden_map.add_golden(golden_tensor)
-
         def populate_inputs(self, init_fn):
             inputs = self.golden_map.get_inputs()
 
             if len(inputs) != 0:
-                for tensor in inputs:
-                    torch_tensor = tensor.get_torch_tensor()
-                    self.input_tensors.append(torch_tensor)
+                for input in inputs:
+                    self.input_tensors.append(input.torch_tensor)
             else:
                 for i in self.program["inputs"]:
                     torch_tensor = init_fn(
@@ -666,6 +648,18 @@ class Binary(Flatbuffer):
                     ),
                 )
                 self.output_tensors.append(torch_tensor)
+
+        def populate_goldens(self):
+            # populate golden tensors if they exist
+            golden_info_list = self.program["debug_info"]["golden_info"]["golden_map"]
+            for golden_tensor_dict in golden_info_list:
+                golden_tensor = GoldenMap.Golden(
+                    golden_tensor_dict["key"],
+                    golden_tensor_dict["value"]["shape"],
+                    golden_tensor_dict["value"]["stride"],
+                    golden_tensor_dict["value"]["data"],
+                )
+                self.golden_map.add_golden(golden_tensor)
 
         @staticmethod
         def to_data_type(dtype):

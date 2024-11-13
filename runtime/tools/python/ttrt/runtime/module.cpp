@@ -22,6 +22,12 @@ PYBIND11_MODULE(_C, m) {
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
+  py::class_<tt::runtime::OpContext>(m, "OpContext")
+      .def("get_op_output_tensor", &tt::runtime::OpContext::getOpOutputTensor)
+      .def("get_op_debug_str", &tt::runtime::OpContext::getOpDebugString);
+  py::class_<tt::runtime::CallbackContext>(m, "CallbackContext")
+      .def("get_debug_info_golden",
+           &tt::runtime::CallbackContext::getDebugInfoGolden);
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)
@@ -78,10 +84,6 @@ PYBIND11_MODULE(_C, m) {
                                          dataType, strategy);
       },
       "Create a multi-device host tensor with owned memory");
-  m.def("get_op_output_tensor", &tt::runtime::getOpOutputTensor,
-        "Get the output tensor of an operation");
-  m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
-        "Get the debug string of an operation");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
@@ -90,7 +92,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("submit", &tt::runtime::submit, py::arg("device"),
         py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
-        py::arg("outputs"), "Submit a binary for execution");
+        py::arg("outputs"), py::arg("goldens"),
+        "Submit a binary for execution");
   m.def("wait", &tt::runtime::wait, py::arg("event"));
 
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
@@ -102,14 +105,15 @@ PYBIND11_MODULE(_C, m) {
       });
 
   py::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
-      .def_static("get",
-                  [](py::function func) {
-                    tt::runtime::debug::Hooks::get(
-                        [func](std::optional<const void *> context,
-                               std::optional<const void *> opContext) {
-                          func(context, opContext);
-                        });
-                  })
+      .def_static(
+          "get",
+          [](py::function func) {
+            tt::runtime::debug::Hooks::get(
+                [func](std::optional<tt::runtime::CallbackContext> context,
+                       std::optional<tt::runtime::OpContext> opContext) {
+                  func(context, opContext);
+                });
+          })
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;

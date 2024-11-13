@@ -9,6 +9,8 @@
 #include <optional>
 #include <ostream>
 
+#include "tt/runtime/types.h"
+
 namespace tt::runtime::debug {
 
 struct Env {
@@ -46,15 +48,15 @@ inline std::ostream &operator<<(std::ostream &os, Env const &env) {
 struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static Hooks const &
-  get(std::optional<std::function<void(std::optional<const void *>,
-                                       std::optional<const void *>)>>
+  get(std::optional<std::function<void(std::optional<CallbackContext>,
+                                       std::optional<OpContext>)>>
           operatorCallback = std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::optional<std::function<void(std::optional<const void *>,
-                                   std::optional<const void *>)>>
+  std::optional<std::function<void(std::optional<CallbackContext>,
+                                   std::optional<OpContext>)>>
   getOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return operatorCallback;
@@ -65,13 +67,13 @@ struct Hooks {
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<std::function<void(std::optional<const void *>,
-                                         std::optional<const void *>)>>
+  Hooks(std::optional<std::function<void(std::optional<CallbackContext>,
+                                         std::optional<OpContext>)>>
             operatorCallback)
       : operatorCallback(operatorCallback) {}
 
-  std::optional<std::function<void(std::optional<const void *>,
-                                   std::optional<const void *>)>>
+  std::optional<std::function<void(std::optional<CallbackContext>,
+                                   std::optional<OpContext>)>>
       operatorCallback;
 #else
   constexpr Hooks() = default;

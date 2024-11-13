@@ -19,8 +19,6 @@ import re
 
 from ttrt.common.util import *
 
-GOLDENS = {}
-
 
 def get_atol_rtol_pcc(golden, calculated):
     import numpy as np
@@ -102,17 +100,30 @@ def get_atol_rtol_pcc(golden, calculated):
     )
 
 
-def add_global_golden(golden_tensor):
-    global GOLDENS
-    GOLDENS[golden_tensor.tensor_id] = golden_tensor.get_torch_tensor()
-
-
 def golden(context=None, opContext=None):
     import torch
     import ttrt.runtime
 
     print("-----------executing golden comparision-----------")
+    op_debug_str = opContext.get_op_debug_str()
 
+    # find matching golden tensor based on loc in op debug string
+    match = re.search(r"loc\(([^)]+)\)", op_debug_str)
+
+    if not match:
+        print(f"debug_str={op_debug_str}")
+        print("No location found in debug string - skipping golden comparison")
+        return
+
+    loc = match.group(1).replace('"', "")
+    print(f"found location={loc}")
+
+    golden_tensor = context.get_debug_info_golden(loc)
+    output_tensor = opContext.get_op_output_tensor(context)
+
+    print("-----------finished executing golden comparision-----------")
+
+    """
     try:
         device_tensor = ttrt.runtime.get_op_output_tensor(context, opContext)
         op_debug_str = ttrt.runtime.get_op_debug_str(context, opContext)
@@ -151,3 +162,10 @@ def golden(context=None, opContext=None):
             print(output_str)
     finally:
         print("-----------finished executing golden comparision-----------")
+    """
+
+
+def pdb():
+    import pdb
+
+    pdb.set_trace()

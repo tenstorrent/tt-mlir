@@ -414,9 +414,11 @@ class Run:
                             program.populate_outputs(
                                 Run.TorchInitializer.get_initilizer("zeros")
                             )
+                            program.populate_goldens()
 
                             total_inputs = []
                             total_outputs = []
+                            total_goldens = []
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"generating inputs/outputs for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -449,6 +451,24 @@ class Run:
                                 total_inputs.append(inputs)
                                 total_outputs.append(outputs)
 
+                                self.logging.debug(
+                                    f"generating golden map for loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                                )
+                                goldens = {}
+
+                                for key, golden_obj in program.golden_map.map.items():
+                                    goldens[key] = ttrt.runtime.create_tensor(
+                                        golden_obj.torch_tensor.data_ptr(),
+                                        list(golden_obj.tensor_shape),
+                                        list(golden_obj.tensor_stride),
+                                        golden_obj.torch_tensor.element_size(),  # 4 bytes - float32
+                                        Binary.Program.to_data_type(
+                                            golden_obj.torch_tensor.dtype
+                                        ),
+                                    )
+
+                                total_goldens.append(goldens)
+
                             event = None
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
@@ -461,6 +481,7 @@ class Run:
                                     program_index,
                                     total_inputs[loop],
                                     total_outputs[loop],
+                                    total_goldens[loop],
                                 )
 
                                 self.logging.debug(

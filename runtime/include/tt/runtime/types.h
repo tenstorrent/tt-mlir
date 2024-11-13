@@ -125,6 +125,17 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
 };
 
+struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  Tensor getDebugInfoGolden(std::string loc);
+};
+
+struct OpContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+  std::vector<float> getOpOutputTensor(CallbackContext context);
+  std::string getOpDebugString();
+};
+
 } // namespace tt::runtime
 
 #endif

@@ -65,13 +65,10 @@ void closeDevice(Device device);
 
 Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
+             std::vector<Tensor> const &outputs,
+             std::unordered_map<std::string, Tensor> const &goldens = {});
 
 void wait(Event event);
-
-std::vector<float> getOpOutputTensor(const void *context,
-                                     const void *opContext);
-std::string getOpDebugString(const void *context, const void *opContext);
 
 } // namespace tt::runtime
 

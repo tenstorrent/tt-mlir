@@ -113,14 +113,16 @@ void deallocateBuffers(Device device);
 
 Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
+             std::vector<Tensor> const &outputs,
+             std::unordered_map<std::string, Tensor> const &goldens = {});
 
 void wait(Event event);
 
 void runProgram(::ttnn::MeshDevice &meshDevice,
                 ::tt::target::ttnn::Program const *program,
                 std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs);
+                std::vector<::ttnn::Tensor *> const &outputs,
+                std::unordered_map<std::string, Tensor> const &goldens);
 
 } // namespace tt::runtime::ttnn
 

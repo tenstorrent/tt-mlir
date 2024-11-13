@@ -15,8 +15,8 @@ Env const &Env::get(bool loadKernelsFromDisk, bool enableAsyncTTNN) {
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 Hooks const &
-Hooks::get(std::optional<std::function<void(std::optional<const void *>,
-                                            std::optional<const void *>)>>
+Hooks::get(std::optional<std::function<void(std::optional<CallbackContext>,
+                                            std::optional<OpContext>)>>
                operatorCallback) {
   static Hooks config(operatorCallback);
   return config;
