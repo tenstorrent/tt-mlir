@@ -775,15 +775,10 @@ def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
     Variadic<AnyRankedTensor>:$outputs,
     TTIR_PoolingMethodAttr:$pooling_method,
     DenseI64ArrayAttr:$window_dimensions,
-
-    // Default stride of 1 over every dimension
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$window_strides,
-    // Default dilation of 1 over every dimension
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$base_dilations,
-    // Default dilation of 1 over every dimension
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$window_dilations,
-    // Default padding of 0 over every dimension
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size() * 2, 0)">:$padding,
+    DenseI64ArrayAttr:$window_strides,
+    DenseI64ArrayAttr:$base_dilations,
+    DenseI64ArrayAttr:$window_dilations,
+    DenseI64ArrayAttr:$padding,
     TT_OperandConstraintArrayAttr:$operand_constraints
   );
 

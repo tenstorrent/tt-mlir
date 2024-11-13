@@ -491,14 +491,6 @@ class StableHLOToTTIRReduceWindowOpConversionPattern
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
 
 public:
-  void recursiveErase(ConversionPatternRewriter &rewriter,
-                      Operation *op) const {
-    for (auto &operand : op->getOpOperands()) {
-      recursiveErase(rewriter, operand.get().getDefiningOp());
-    }
-    rewriter.eraseOp(op);
-  }
-
   bool isMaxPool(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     if (srcOp.getBody().getBlocks().size() != 1) {
       return false;
@@ -563,7 +555,8 @@ public:
     auto window_dilations = adaptor.getWindowDilationsAttr();
     auto padding_ = adaptor.getPaddingAttr();
 
-    // Generate defaults if they dont exist
+    // Generate defaults if they dont exist (these defaults are what the
+    // stablehlo dialect intends when they are not provided)
     windowStrides = windowStrides
                         ? windowStrides
                         : rewriter.getDenseI64ArrayAttr(
@@ -580,7 +573,7 @@ public:
         padding_ ? rewriter.getDenseI64ArrayAttr(
                        SmallVector<int64_t>(padding_.getValues<int64_t>()))
                  : rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(windowDimensions.size() * 2, 1));
+                       SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
     auto operandConstraints = rewriter.getArrayAttr(SmallVector<Attribute>(
         adaptor.getOperands().size(), rewriter.getAttr<OperandConstraintAttr>(
@@ -593,6 +586,10 @@ public:
       return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
     }
 
+    for (Value initValue : adaptor.getInitValues()) {
+      eraseInitValueSubgraph(rewriter, initValue.getDefiningOp());
+    }
+
     rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
         srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
         windowDimensions, windowStrides, baseDilations, window_dilations,
@@ -602,6 +599,31 @@ public:
   }
 
 private:
+  void eraseInitValueSubgraph(ConversionPatternRewriter &rewriter,
+                              Operation *op) const {
+
+    std::vector<Operation *> opsToErase;
+    opsToErase.push_back(op);
+
+    bool addedOps = true;
+    while (addedOps) {
+      addedOps = false;
+      Operation *currentOp = opsToErase.back();
+
+      for (auto &operand : currentOp->getOpOperands()) {
+        Operation *definingOp = operand.get().getDefiningOp();
+        if (definingOp->hasOneUse() || definingOp->use_empty()) {
+          addedOps = true;
+          opsToErase.push_back(definingOp);
+        }
+      }
+    }
+
+    for (auto &op : opsToErase) {
+      rewriter.eraseOp(op);
+    }
+  }
+
   // Just to make the code more readable
   enum TypicalInitReductionValue {
     NEG_INF, // used for max pooling
@@ -655,19 +677,21 @@ private:
       if (bfloat_bits != desiredBF16) { // This is -inf in bfloat16
         return false;
       }
-    } else if (initValueOp.getValue().getType().isF32()) {
+    } else if (initValueOp.getResult().getType().getElementType().isF32()) {
       if (*initValueOp.getValue().value_begin<float>() != desiredF32) {
         return false;
       }
-    } else if (initValueOp.getValue().getType().isF64()) {
+    } else if (initValueOp.getResult().getType().getElementType().isF64()) {
       if (*initValueOp.getValue().value_begin<double>() != desiredF64) {
         return false;
       }
-    } else if (initValueOp.getValue().getType().isInteger(32)) {
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   32)) {
       if (*initValueOp.getValue().value_begin<int32_t>() != desiredI32) {
         return false;
       }
-    } else if (initValueOp.getValue().getType().isInteger(64)) {
+    } else if (initValueOp.getResult().getType().getElementType().isInteger(
+                   64)) {
       if (*initValueOp.getValue().value_begin<int64_t>() != desiredI64) {
         return false;
       }
