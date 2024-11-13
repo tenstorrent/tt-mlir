@@ -377,20 +377,3 @@ def test_disable_maxpool2d_preshard_run():
 def test_disable_maxpool2d_preshard_cmd_run():
     command = f"ttrt run {BINARY_FILE_PATH} --disable-maxpool2d-preshard --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
-
-
-def test_disable_matmul_1d_program_config_run():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--disable-matmul-1d-program-config"] = True
-    run_instance = API.Run(args=custom_args)
-    run_instance()
-
-
-def test_disable_matmul_1d_program_config_cmd_run():
-    command = f"ttrt run {BINARY_FILE_PATH} --disable-matmul-1d-program-config --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    sub_process_command(command)
