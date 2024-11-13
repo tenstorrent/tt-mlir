@@ -1,10 +1,10 @@
-# Table of contents
+## Table of contents
 
 - [TTNN Standalone](#ttnn-standalone)
   - [Usage](#usage)
 - [TTNN Dylib](#ttnn-dylib)
 
-# TTNN Standalone
+## TTNN Standalone
 
 TTNN Standalone is a post-compile tuning tool.
 
