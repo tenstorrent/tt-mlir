@@ -641,6 +641,10 @@ class Run:
         def randn(shape, dtype):
             import torch
 
+            if dtype in (torch.uint8, torch.uint16, torch.uint32):
+                high = torch.iinfo(dtype).max + 1
+                return torch.randint(0, high, shape, dtype=dtype)
+
             return torch.randn(shape, dtype=dtype)
 
         @staticmethod
