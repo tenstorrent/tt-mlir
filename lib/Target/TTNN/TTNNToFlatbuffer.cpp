@@ -383,6 +383,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Remainder;
   } else if constexpr (std::is_same_v<EltwiseOp, WhereOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Where;
+  } else if constexpr (std::is_same_v<EltwiseOp, GeluOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Gelu;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -724,6 +726,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
     return createOperation(cache, createEltwiseOp(cache, whereOp), debugString);
+  }
+  if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
+    return createOperation(cache, createEltwiseOp(cache, geluOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

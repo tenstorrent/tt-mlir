@@ -223,6 +223,13 @@ def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     }];
 }
 
+def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
+  let summary = "Eltwise GELU.";
+  let description = [{
+    Eltwise GELU operation.
+  }];
+}
+
 def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
     let summary = "Eltwise isfinite op.";
     let description = [{

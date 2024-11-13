@@ -260,6 +260,13 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
     }];
 }
 
+def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
+  let summary = "Eltwise GELU op.";
+  let description = [{
+    Eltwise GELU operation.
+  }];
+}
+
 def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
     let summary = "Eltwise isfinite op.";
     let description = [{
