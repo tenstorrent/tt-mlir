@@ -51,7 +51,17 @@ def start_server(request):
         kwargs={"extensions": ["tt_adapter"], "host": HOST, "port": PORT},
     )
     server_thread.start()
-    time.sleep(1)
+
+    # Wait for the server to start
+    for _ in range(100):  # Try for up to 10 seconds
+        try:
+            response = requests.get(f"http://{HOST}:{PORT}/check_health")
+            if response.status_code == 200:
+                break
+        except requests.ConnectionError:
+            time.sleep(0.1)
+    else:
+        raise RuntimeError("Server did not start within the expected time")
 
     request.addfinalizer(lambda: server_thread.terminate())
 
