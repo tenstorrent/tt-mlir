@@ -33,10 +33,10 @@ py::class_<T> tt_attribute_class(py::module &m, const char *class_name) {
   cls.def_static("maybe_downcast",
                  [](MlirAttribute attr) -> std::variant<T, py::object> {
                    auto res = mlir::dyn_cast<T>(unwrap(attr));
-                   if (res)
+                   if (res) {
                      return res;
-                   else
-                     return py::none();
+                   }
+                   return py::none();
                  });
   return cls;
 }
@@ -47,10 +47,10 @@ py::class_<T> tt_type_class(py::module &m, const char *class_name) {
   cls.def_static("maybe_downcast",
                  [](MlirType type) -> std::variant<T, py::object> {
                    auto res = mlir::dyn_cast<T>(unwrap(type));
-                   if (res)
+                   if (res) {
                      return res;
-                   else
-                     return py::none();
+                   }
+                   return py::none();
                  });
   return cls;
 }
