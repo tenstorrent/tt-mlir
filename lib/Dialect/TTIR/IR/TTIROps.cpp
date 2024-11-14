@@ -950,25 +950,9 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     inputBShape.push_back(1);
   }
 
-  // Verify that the input A and input B has matching inner dimensions
-  if (inputAShape[inputAShape.size() - 1] !=
-      inputBShape[inputBShape.size() - 2]) {
-    return emitOpError(
-        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
-        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
-        ") must have matching inner dimensions");
-  }
-
   // Verify that the output shape is correct
-  if (outputShape.size() != 1) {
-    return emitOpError("Output shape rank(" +
-                       std::to_string(outputShape.size()) +
-                       ") must match the expected output shape rank(1)");
-  }
-
-  if (outputShape.front() != 1) {
-    return emitOpError(
-        "Output shape should be a scalar (1x1), but go something else!");
+  if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
+    return emitOpError("Scalar output must be a 1D tensor of size 1");
   }
 
   return success();

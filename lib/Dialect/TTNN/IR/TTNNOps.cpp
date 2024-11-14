@@ -723,21 +723,6 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
     inputBShape.push_back(1);
   }
 
-  // Check the case of a vector-vector product. At this moment we don't support
-  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
-  if (expectedOutputShape.size() == 0) {
-    if (outputType.getRank() < 1) {
-      return emitOpError("Scalar output is not supported, output must be at "
-                         "least a 1D tensor");
-    }
-
-    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
-      return emitOpError("Scalar output must be a 1D tensor of size 1");
-    }
-
-    return llvm::success();
-  }
-
   // Verify that the output shape is correct
   if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
     return emitOpError("Scalar output must be a 1D tensor of size 1");
