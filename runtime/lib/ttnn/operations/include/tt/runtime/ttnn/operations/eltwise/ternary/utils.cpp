@@ -7,7 +7,7 @@
 
 namespace tt::runtime::ttnn::operations::ternary {
 
-void getEltwiseTernaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
+void getEltwiseTernaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                      ProgramTensorPool &tensorPool,
                                      ::ttnn::Tensor **first,
                                      ::ttnn::Tensor **second,

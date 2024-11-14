@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_TO_MEMORY_CONFIG_H
-#define TTNN_RUNTIME_TO_MEMORY_CONFIG_H
+#ifndef RUNTIME_LIB_TTNN_OPERATIONS_LAYOUT_TO_MEMORY_CONFIG_H
+#define RUNTIME_LIB_TTNN_OPERATIONS_LAYOUT_TO_MEMORY_CONFIG_H
 
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_TYPES_H
-#define TTNN_RUNTIME_TYPES_H
+#ifndef TT_RUNTIME_TTNN_TYPES_H
+#define TT_RUNTIME_TTNN_TYPES_H
 
 #include "tt/runtime/detail/ttnn.h"
 

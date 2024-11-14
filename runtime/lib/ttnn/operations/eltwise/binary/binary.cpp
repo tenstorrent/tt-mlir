@@ -10,20 +10,19 @@
 
 namespace tt::runtime::ttnn::operations::binary {
 
-static void runEltwiseBinaryOP(
+static void runEltwiseBinaryOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    std::function<::ttnn::Tensor(
+    const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const ::ttnn::Tensor &,
         const std::optional<const ::ttnn::DataType> &,
         const std::optional<::tt::tt_metal::MemoryConfig> &,
         std::optional<::ttnn::Tensor>,
         std::optional<::ttnn::operations::unary::FusedActivations>,
-        std::optional<::ttnn::operations::unary::UnaryWithParam>)>
-        ttnnOp) {
+        std::optional<::ttnn::operations::unary::UnaryWithParam>)> &ttnnOp) {
 
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
-  getEltwiseBinaryOPInputTensors(op, tensorPool, &lhs, &rhs);
+  getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
@@ -39,59 +38,59 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseOpType::Add: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::add);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::add);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LogicalAnd: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::logical_and);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_and);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LogicalOr: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::logical_or);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_or);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LogicalXor: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::logical_xor);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_xor);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::multiply);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::multiply);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Subtract: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::subtract);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::subtract);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Equal: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::eq);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::eq);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::NotEqual: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::ne);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::ne);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterEqual: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::ge);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::ge);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::GreaterThan: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::gt);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::gt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LessEqual: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::le);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::le);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::LessThan: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::lt);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::lt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
-    runEltwiseBinaryOP(op, tensorPool, ::ttnn::divide);
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::divide);
     break;
   }
   default:
-    throw std::invalid_argument("Unsupported Eltwise Binary operation");
+    LOG_FATAL("Unsupported Eltwise Binary operation");
   }
 }
 

@@ -10,12 +10,12 @@
 namespace tt::runtime::ttnn::operations::reduction {
 static void runReductionOp(
     ::tt::target::ttnn::ReductionOp const *op, ProgramTensorPool &tensorPool,
-    std::function<::ttnn::Tensor(
+    const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,
         const bool, const std::optional<::tt::tt_metal::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
-        ttnnOp) {
+        &ttnnOp) {
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());

@@ -17,11 +17,8 @@ namespace tt::runtime::ttnn {
 using ::tt::runtime::DeviceRuntime;
 using ::tt::tt_metal::BorrowedStorage;
 using ::tt::tt_metal::DistributedTensorConfig;
-using ::tt::tt_metal::MultiDeviceHostStorage;
-using ::tt::tt_metal::OwnedBuffer;
 using ::tt::tt_metal::OwnedStorage;
 using ::tt::tt_metal::raise_unsupported_storage;
-using ::tt::tt_metal::ShardTensor;
 
 template <typename StorageType, typename ElementType>
 static StorageType createStorage(ElementType *ptr, std::uint32_t numElements) {
@@ -54,7 +51,7 @@ static StorageType createStorage(void *ptr, std::uint32_t numElements,
     return createStorage<StorageType>(static_cast<uint16_t *>(ptr),
                                       numElements);
   default:
-    throw std::runtime_error("Unsupported data type");
+    LOG_FATAL("Unsupported data type");
   }
 }
 
@@ -167,9 +164,7 @@ void deallocateBuffers(Device deviceHandle) {
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
-  if (not isTTNN) {
-    throw std::runtime_error("Unsupported binary format");
-  }
+  LOG_ASSERT(isTTNN, "Unsupported binary format");
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
