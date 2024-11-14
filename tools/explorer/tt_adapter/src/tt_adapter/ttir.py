@@ -71,7 +71,7 @@ def get_layout_attrs(tensor):
     return attrs
 
 
-def ttir_to_graph(module, ctx):
+def ttir_to_graph(module):
     # Can assume that to-layout pass has already been run on the module.
     name_dict = defaultdict(int)
     output_connections = defaultdict(int)

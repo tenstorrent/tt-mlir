@@ -559,17 +559,18 @@ class Binary(Flatbuffer):
 
             # populate golden tensors if they exist
             if "debug_info" in self.fbb_dict["programs"][i]:
-                golden_info_list = self.fbb_dict["programs"][i]["debug_info"][
-                    "golden_info"
-                ]["golden_map"]
+                if "golden_info" in self.fbb_dict["programs"][i]["debug_info"]:
+                    golden_info_list = self.fbb_dict["programs"][i]["debug_info"][
+                        "golden_info"
+                    ]["golden_map"]
 
-                for golden_tensor_dict in golden_info_list:
-                    Golden(
-                        golden_tensor_dict["key"],
-                        golden_tensor_dict["value"]["shape"],
-                        golden_tensor_dict["value"]["stride"],
-                        golden_tensor_dict["value"]["data"],
-                    )
+                    for golden_tensor_dict in golden_info_list:
+                        Golden(
+                            golden_tensor_dict["key"],
+                            golden_tensor_dict["value"]["shape"],
+                            golden_tensor_dict["value"]["stride"],
+                            golden_tensor_dict["value"]["data"],
+                        )
 
     def check_system_desc(self, query):
         import ttrt.binary
