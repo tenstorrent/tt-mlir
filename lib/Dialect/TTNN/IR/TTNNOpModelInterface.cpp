@@ -5,6 +5,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.hpp"
+
+#include <cassert>
 #include <tuple>
 
 namespace mlir::tt::ttnn {
@@ -22,14 +25,16 @@ size_t ReluOp::getOpPerfCycles(const std::vector<tt::LayoutAttr> &input_layouts,
 std::tuple<size_t, size_t, size_t>
 ReluOp::getOpL1Usage(const std::vector<tt::LayoutAttr> &input_layouts,
                      const tt::LayoutAttr &output_layout) {
-  // TODO(mbezulj) wire to tt-metal once we have API
-  return std::make_tuple(1024, 2048, 1024);
+  assert(input_layouts.size() == 1);
+  return op_model::ttnn::ReluOpInterface::getOpL1Usage(input_layouts[0],
+                                                       output_layout);
 }
 
 bool ReluOp::isOpLegal(const std::vector<tt::LayoutAttr> &input_layouts,
                        const tt::LayoutAttr &output_layout) {
-  // TODO(mbezulj) wire to tt-metal once we have API
-  return true;
+  assert(input_layouts.size() == 1);
+  return op_model::ttnn::ReluOpInterface::isLegal(input_layouts[0],
+                                                  output_layout);
 }
 
 } // namespace mlir::tt::ttnn

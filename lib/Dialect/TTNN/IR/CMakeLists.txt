@@ -10,10 +10,12 @@ add_mlir_dialect_library(MLIRTTNNDialect
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTOpsIncGen
+        TTNNOpModelLib
 
         LINK_LIBS PUBLIC
         TTMLIRTTNNUtils
         MLIRSCFToEmitC
         MLIRLinalgDialect
         MLIRMLProgramDialect
+        TTNNOpModelLib
         )
