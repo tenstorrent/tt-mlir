@@ -918,7 +918,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 //===----------------------------------------------------------------------===//
 // TestOp
 //===----------------------------------------------------------------------===//
-:mlir::LogicalResult mlir::tt::ttir::TestOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::TestOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
