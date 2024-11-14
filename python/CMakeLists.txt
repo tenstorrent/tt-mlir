@@ -102,6 +102,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
 
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
+  MLIRPythonSources.Dialects.affine
   MLIRPythonSources.Dialects.arith
   MLIRPythonSources.Dialects.func
   MLIRPythonSources.Dialects.tensor
