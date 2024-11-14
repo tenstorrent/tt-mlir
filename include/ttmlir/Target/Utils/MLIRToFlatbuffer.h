@@ -300,9 +300,10 @@ toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
   auto chipCapabilities = toFlatbuffer(cache, systemDesc.getChipCapabilities());
   auto chipCoords = toFlatbuffer(cache, systemDesc.getChipCoords());
   auto chipChannels = toFlatbuffer(cache, systemDesc.getChipChannels());
+  auto cpuDescs = toFlatbuffer(cache, systemDesc.getCpuDescs();)
   return ::tt::target::CreateSystemDesc(*cache.fbb, chipDescs, chipDescIndices,
                                         chipCapabilities, chipCoords,
-                                        chipChannels);
+                                        chipChannels, cpuDescs);
 }
 
 inline std::vector<::tt::target::Dim2dRange>
