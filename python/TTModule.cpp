@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cstdint>
-#include <variant>
 #include <vector>
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
@@ -12,12 +11,7 @@
 #include "mlir/CAPI/IR.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#include "ttmlir/Target/Common/types_generated.h"
-#pragma clang diagnostic pop
-
+#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::ttmlir::python {

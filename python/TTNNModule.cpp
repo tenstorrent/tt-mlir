@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
-#include <variant>
 
 namespace mlir::ttmlir::python {
 void populateTTNNModule(py::module &m) {
