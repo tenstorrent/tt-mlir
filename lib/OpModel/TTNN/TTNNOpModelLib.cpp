@@ -32,72 +32,31 @@ namespace detail {
 
 DataType getDataType(const mlir::MemRefType &memref) {
 
-  // what's better way to to this?
-  // auto dataTypeAttr =
-  //     llvm::dyn_cast_or_null<mlir::tt::DataTypeAttr>(memref.getElementType());
-  // if (!dataTypeAttr) {
-  //   throw std::runtime_error("Invalid element type");
-  // }
+  auto dataType = elementTypeToDataType(memref.getElementType());
 
-  // switch (dataTypeAttr.getValue()) {
-  // case tt::DataType::BFloat16:
-  //   return tt_DataType::BFLOAT16;
-  // case tt::DataType::Float32:
-  //   return tt_DataType::FLOAT32;
-  // case tt::DataType::BFP_BFloat8:
-  //   return tt_DataType::BFLOAT8_B;
-  // case tt::DataType::BFP_BFloat4:
-  //   return tt_DataType::BFLOAT4_B;
-  // case tt::DataType::UInt8:
-  //   return tt_DataType::UINT8;
-  // case tt::DataType::UInt16:
-  //   return tt_DataType::UINT16;
-  // default:
-  //   throw std::runtime_error("Invalid element type");
-  // }
-
-  mlir::Type element_type = memref.getElementType();
-  // what's better way to to this?
-  // auto data_type = mlir::cast<DataType>(element_type);
-  std::string ret_value;
-  llvm::raw_string_ostream os(ret_value);
-  element_type.print(os);
-  std::string data_type_str = os.str();
-  if (data_type_str == "f32") {
+  switch (dataType) {
+  case tt::DataType::Float32:
     return DataType::FLOAT32;
-  }
-  if (data_type_str == "bf16") {
+  case tt::DataType::BFloat16:
     return DataType::BFLOAT16;
-  }
-  if (data_type_str == "bfp_bf8") {
+  case tt::DataType::BFP_BFloat8:
     return DataType::BFLOAT8_B;
-  }
-  if (data_type_str == "bfp_bf4") {
+  case tt::DataType::BFP_BFloat4:
     return DataType::BFLOAT4_B;
-  }
-  if (data_type_str == "u32") {
+  case tt::DataType::UInt32:
     return DataType::UINT32;
-  }
-  if (data_type_str == "u16") {
+  case tt::DataType::UInt16:
     return DataType::UINT16;
-  }
-  if (data_type_str == "u8") {
+  case tt::DataType::UInt8:
     return DataType::UINT8;
+  default:
+    throw std::runtime_error("Invalid element type");
   }
-  throw std::runtime_error("Invalid element type");
 }
 
 ::ttnn::SimpleShape getTensorShape(const mlir::MemRefType &memref) {
-  // SmallVector<uint32_t> shape;
-  // for (auto i = 0; i < memref.getRank(); i++) {
-  //   shape.push_back(memref.getShape()[i]);
-  // }
-
   ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape(
       memref.getShape().begin(), memref.getShape().end());
-
-  // std::vector<uint32_t> shape(memref.getShape().begin(),
-  // memref.getShape().end());
   return ::ttnn::SimpleShape(small_vector_shape);
 }
 
