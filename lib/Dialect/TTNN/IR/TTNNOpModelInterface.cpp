@@ -4,30 +4,31 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsBackendInterfaces.cpp.inc"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
+#include <tuple>
 
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
-// ReluOp
+// ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-// // Relu backend interface
 size_t ReluOp::getOpPerfCycles(const std::vector<tt::LayoutAttr> &input_layouts,
                                const tt::LayoutAttr &output_layout) {
-  // Implement a custom estimate for relu op cycles.
+  // TODO(mbezulj) wire to tt-metal once we have API
   return 5;
 }
 
-size_t ReluOp::getOpL1Usage(const std::vector<tt::LayoutAttr> &input_layouts,
-                            const tt::LayoutAttr &output_layout) {
-  // Implement a custom estimate for relu op L1 usage.
-  return 10;
+std::tuple<size_t, size_t, size_t>
+ReluOp::getOpL1Usage(const std::vector<tt::LayoutAttr> &input_layouts,
+                     const tt::LayoutAttr &output_layout) {
+  // TODO(mbezulj) wire to tt-metal once we have API
+  return std::make_tuple(1024, 2048, 1024);
 }
 
 bool ReluOp::isOpLegal(const std::vector<tt::LayoutAttr> &input_layouts,
                        const tt::LayoutAttr &output_layout) {
-  // Implement a custom check for relu op legality.
+  // TODO(mbezulj) wire to tt-metal once we have API
   return true;
 }
 

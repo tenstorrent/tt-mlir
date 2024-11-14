@@ -7,16 +7,15 @@
 
 include "mlir/IR/OpBase.td"
 
-def TTNNOpBackendInterface : OpInterface<"TTNNOpBackend"> {
+def TTNN_OpModelInterface : OpInterface<"OpModel"> {
     let description = [{
-        Interface to access a registered method to infer the return types for an
-        operation that can be used during type inference.
+        Interface to access TTNN op model methods.
     }];
     let cppNamespace = "::mlir::tt::ttnn";
     let methods = [
         InterfaceMethod<
             /*desc=*/[{
-                Return the op kernel estimate in clock cycles.
+                Returns the op kernel estimate in clock cycles.
             }],
             /*retTy=*/"size_t",
             /*methodName=*/"getOpPerfCycles",
@@ -26,17 +25,20 @@ def TTNNOpBackendInterface : OpInterface<"TTNNOpBackend"> {
         >,
         InterfaceMethod<
             /*desc=*/[{
-                Return the op kernel estimate in clock cycles.
+                Returns the op memory L1 usage estimate in bytes. The return value is a tuple of 3 values:
+                - The first value is CB L1 peak allocation in bytes.
+                - The second value is Tensor L1 peak allocation in bytes.
+                - The third value is Output L1 buffer allocation in bytes.
             }],
-            /*retTy=*/"size_t",
+            /*retTy=*/"std::tuple<size_t, size_t, size_t>",
             /*methodName=*/"getOpL1Usage",
             /*args=*/(ins "const std::vector<tt::LayoutAttr>&":$input_layouts, "const tt::LayoutAttr&":$output_layout),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return 0;"
+            /*defaultImplementation=*/"return std::make_tuple(0,0,0);"
         >,
         InterfaceMethod<
             /*desc=*/[{
-                Return the op kernel estimate in clock cycles.
+                Returns if input/output layouts are legal for the op.
             }],
             /*retTy=*/"bool",
             /*methodName=*/"isOpLegal",
