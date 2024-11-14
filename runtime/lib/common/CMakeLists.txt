@@ -16,7 +16,7 @@ set(TARGET_OS ${CMAKE_SYSTEM_NAME})
 # Construct the target triple
 set(TARGET_TRIPLE "${TARGET_ARCH}-${TARGET_VENDOR}-${TARGET_OS}")
 
-add_definitions(-DTARGET_TRIPLE=${TARGET_TRIPLE})
+add_definitions(-DTARGET_TRIPLE="${TARGET_TRIPLE}")
 
 add_library(TTRuntimeSysDesc STATIC system_desc.cpp)
 set_property(TARGET TTRuntimeSysDesc PROPERTY CXX_STANDARD 20)
