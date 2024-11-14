@@ -923,7 +923,6 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   ::mlir::RankedTensorType inputBType = getB().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
   llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
