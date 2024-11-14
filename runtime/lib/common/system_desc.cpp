@@ -28,7 +28,6 @@
 #pragma clang diagnostic ignored "-Wmismatched-tags"
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
-#pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
@@ -56,7 +55,7 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -227,7 +226,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
-    chipDescs.push_back(::tt::target::CreateChipDesc(
+    chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
@@ -248,10 +247,14 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   // Extract chip connected channels
   std::vector<::tt::target::ChipChannel> allConnections =
       getAllDeviceConnections(devices);
+  // Store CPUDesc
+  
+  cpuDescs.emplace_back(::tt::target::CPUDesc{::tt::target::CPURole::Host, std::string(TARGET_TRIPLE)});
+
   // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
       fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoords,
-      &allConnections);
+      &allConnections, &cpuDescs);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
@@ -278,7 +281,7 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
           meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+          ::tt::tt_metal::DispatchCoreType::WORKER, );
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {
