@@ -17,13 +17,13 @@ The more information regarding this step can be found here: [Define the Op in th
 I updated the `TTIROps.td` as following:
 
 ```td
-{{#include ../../../include/ttmlir/Dialect/TTIR/IR/TTIROps.td:adding_an_op_index_ttir}}
+{{#include ../../../include/ttmlir/Dialect/TTIR/IR/TTIROps.td:decomposing_an_op_index_ttir}}
 ```
 
 The verification function has been added as well:
 
 ```cpp
-{{#include ../../../lib/Dialect/TTIR/IR/TTIROps.cpp:adding_an_op_index_ttir}}
+{{#include ../../../lib/Dialect/TTIR/IR/TTIROps.cpp:decomposing_an_op_index_ttir_verify}}
 ```
 
 ## 2. Create a conversion pattern
@@ -35,7 +35,7 @@ A conversion pattern defines how MLIR should rewrite the Op. It can be implement
 For the `Index` operation, we use the C++ conversion pattern because it involves changing the Op’s input types from integers to arrays, which TableGen lacks flexibility for.
 
 ```
-{{#include ../../../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td:adding_an_op_index_ttir}}
+{{#include ../../../lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.cpp:decomposing_an_op_index_ttir_decompose_pattern}}
 ```
 
 The `matchAndRewrite` method from `OpConversionPattern` is implemented to replace the matched Op with the newly created Op. Since decomposition is implemented as a conversion pass, `OpAdaptor` is used to access the attributes of the original Op in their converted types. Finally, we instantiate the new Op and call the `replaceOp` method on `ConversionPatternRewriter` to replace the original Op.

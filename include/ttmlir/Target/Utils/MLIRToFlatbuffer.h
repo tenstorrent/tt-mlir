@@ -10,8 +10,7 @@
 
 #include "flatbuffers/flatbuffers.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Target/Common/debug_info_generated.h"
-#include "ttmlir/Target/Common/types_generated.h"
+#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
@@ -449,11 +448,18 @@ layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
   auto coreRangeSet =
       toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   return ::tt::target::CreateLayoutDescDirect(
       *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
       &coreRangeSet,
       cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
-                        layoutAttr.getMemLayout()));
+                        layoutAttr.getMemLayout()),
+      strategy);
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>

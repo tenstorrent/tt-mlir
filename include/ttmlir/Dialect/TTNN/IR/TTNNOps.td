@@ -146,6 +146,29 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
+    let description = [{
+      Eltwise ternary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
+      }]>
+    ];
+}
+
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where.";
+    let description = [{
+      Eltwise where operation.
+    }];
+}
+
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let summary = "Eltwise absolute.";
     let description = [{
@@ -198,6 +221,13 @@ def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
     let description = [{
       Eltwise floor operation.
     }];
+}
+
+def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
+  let summary = "Eltwise GELU.";
+  let description = [{
+    Eltwise GELU operation.
+  }];
 }
 
 def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
@@ -362,6 +392,13 @@ def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or"> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
+    }];
+}
+
+def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
+    let summary = "Eltwise logical xor.";
+    let description = [{
+      Eltwise logical xor operation.
     }];
 }
 
@@ -678,13 +715,14 @@ def TTNN_AllocOp : TTNN_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocOp : TTNN_Op<"dealloc"> {
-    let summary = "Dealloc op.";
+def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+    let summary = "Deallocate op.";
     let description = [{
-      Tensor Dealloc operation
+      Tensor Deallocate operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input);
+    let arguments = (ins AnyRankedTensor:$input,
+                         DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {

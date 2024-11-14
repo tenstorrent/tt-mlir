@@ -2,6 +2,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/eltwise/binary/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/eltwise/unary/utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/eltwise/ternary/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
@@ -10,11 +11,12 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/deletion/dealloc.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/deletion/deallocate.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/binary/binary_composite.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary_composite.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/ternary/ternary.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp

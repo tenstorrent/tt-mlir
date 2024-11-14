@@ -623,7 +623,7 @@ class Run:
         return run_parser
 
     class TorchInitializer:
-        init_fns = sorted(["randn", "arange", "zeros"])
+        init_fns = sorted(["randn", "arange", "zeros", "ones"])
 
         @staticmethod
         def get_initilizer(name):
@@ -640,6 +640,10 @@ class Run:
         @staticmethod
         def randn(shape, dtype):
             import torch
+
+            if dtype in (torch.uint8, torch.uint16, torch.uint32):
+                high = torch.iinfo(dtype).max + 1
+                return torch.randint(0, high, shape, dtype=dtype)
 
             return torch.randn(shape, dtype=dtype)
 
@@ -660,3 +664,9 @@ class Run:
             import torch
 
             return torch.zeros(shape, dtype=dtype)
+
+        @staticmethod
+        def ones(shape, dtype):
+            import torch
+
+            return torch.ones(shape, dtype=dtype)

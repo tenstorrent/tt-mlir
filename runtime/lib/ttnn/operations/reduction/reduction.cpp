@@ -12,8 +12,8 @@ static void runReductionOp(
     ::tt::target::ttnn::ReductionOp const *op, ProgramTensorPool &tensorPool,
     std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
-        const std::optional<std::variant<int, std::vector<int>>> &, const bool,
-        const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,
+        const bool, const std::optional<::tt::tt_metal::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         ttnnOp) {
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
@@ -22,9 +22,9 @@ static void runReductionOp(
   DEBUG_ASSERT(in.is_allocated());
 
   const auto *fbDimArg = op->dim_arg();
-  std::optional<vector<int>> dimArg =
-      fbDimArg ? std::make_optional(
-                     std::vector<int>(fbDimArg->begin(), fbDimArg->end()))
+  std::optional<::ttnn::SmallVector<int>> dimArg =
+      fbDimArg ? std::make_optional(::ttnn::SmallVector<int>(fbDimArg->begin(),
+                                                             fbDimArg->end()))
                : std::nullopt;
 
   ::ttnn::Tensor out = ttnnOp(

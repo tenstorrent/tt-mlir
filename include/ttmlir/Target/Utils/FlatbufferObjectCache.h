@@ -17,7 +17,8 @@ struct FlatbufferObjectCache {
 
   FlatbufferObjectCache(::flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {}
 
-  template <typename T> struct offset_extract_t;
+  template <typename T>
+  struct offset_extract_t;
   template <template <typename> typename OffsetT, typename T>
   struct offset_extract_t<OffsetT<T>> {
     using type = T;
@@ -25,7 +26,8 @@ struct FlatbufferObjectCache {
 
   uint32_t nextGlobalId() { return global_id++; }
 
-  template <typename MLIRTypeOrAttr> bool exists(MLIRTypeOrAttr obj) const {
+  template <typename MLIRTypeOrAttr>
+  bool exists(MLIRTypeOrAttr obj) const {
     return objectMap.contains(obj.getAsOpaquePointer());
   }
 

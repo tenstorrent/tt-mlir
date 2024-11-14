@@ -251,3 +251,39 @@ func.func @remainder(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> tens
   return %1 : tensor<32x32xf32>
   // CHECK: return {{.*}} : tensor<32x32xf32, {{.*}}
 }
+
+func.func @get_dimension_size(%arg0: tensor<13x21x3xf32>) -> tensor<1xi32> {
+  %0 = "ttir.get_dimension_size"(%arg0) <{dimension = 1 : i32}> : (tensor<13x21x3xf32>) -> tensor<1xi32>
+  // CHECK: [[VAL:%[0-9]+]] = "ttnn.full"(%{{[0-9]+}}) <{fillValue = 2.100000e+01 : f32}> : (!tt.device<#device>) -> tensor<1xi32, {{.*}}>
+  return %0 : tensor<1xi32>
+  // CHECK: return [[VAL]] : tensor<1xi32, {{.*}}>
+}
+
+func.func @test_where(%arg0: tensor<13x37xf32>, %arg1: tensor<13x37xf32>) -> tensor<13x37xf32> {
+  %0 = tensor.empty() : tensor<13x37xbf16>
+  %1 = "ttir.eq"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xbf16>) -> tensor<13x37xbf16>
+  %2 = tensor.empty() : tensor<13x37xf32>
+  %3 = "ttir.where"(%1, %arg0, %arg1, %2) <{operandSegmentSizes = array<i32: 3, 1>, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<13x37xbf16>, tensor<13x37xf32>, tensor<13x37xf32>, tensor<13x37xf32>) -> tensor<13x37xf32>
+  // CHECK: %[[EMPTY:.*]] = "ttnn.empty"{{.*}}
+  // CHECK: %[[VAL1:[0-9]+]] = "ttnn.eq"(%{{[0-9]+}}, %{{[0-9]+}}, %[[EMPTY]])
+  // CHECK: %{{[0-9]+}} = "ttnn.where"(%[[VAL1]], %{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}})
+  return %3 : tensor<13x37xf32>
+}
+
+func.func @gelu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: "ttnn.empty"
+  // CHECK-SAME: tensor<64x128xf32,
+  %0 = tensor.empty() : tensor<64x128xf32>
+  // CHECK: "ttnn.gelu"
+  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: tensor<64x128xf32,
+  // CHECK-SAME: tensor<64x128xf32,
+  %1 = "ttir.gelu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @addint32(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
+  %0 = tensor.empty() : tensor<64x128xi32>
+  %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
+  return %1 : tensor<64x128xi32>
+}

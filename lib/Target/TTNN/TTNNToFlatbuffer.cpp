@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
+#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
@@ -22,7 +23,6 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
-#include "types_generated.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -208,6 +208,13 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::tt::target::TensorLayout layout =
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
 
+  uint32_t numShards = 1;
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   auto output = getOperandThroughDPSOps(op.getResult());
 
   // If the device is not set, we create on host
@@ -215,7 +222,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   if (!op.getDevice()) {
     return ::tt::target::ttnn::CreateEmptyOp(
         *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-        /* device */ 0, /* memcfg */ 0,
+        numShards, /* device */ 0, /* memcfg */ 0, strategy,
         cache.getOrCreate(output, tensorValueToFlatbuffer,
                           kHostAllocatedAddress, kHostAllocatedSize));
   }
@@ -227,7 +234,8 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-      cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+      numShards, cache.at<::tt::target::DeviceRef>(device), memoryConfigDesc,
+      strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }
@@ -237,8 +245,16 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto device = getOperandThroughDPSOps(op.getDevice());
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
+  uint32_t numShards = 1;
+  ::tt::target::DistributedTensorConfig distributionType =
+      ::tt::target::DistributedTensorConfig::NONE;
+  ::flatbuffers::Offset<void> distribution = 0;
+  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
+      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
+                                               distribution);
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
+      numShards, strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
 }
@@ -313,6 +329,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalNot;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalOrOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalOr;
+  } else if constexpr (std::is_same_v<EltwiseOp, LogicalXorOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LogicalXor;
   } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
   } else if constexpr (std::is_same_v<EltwiseOp, NegOp>) {
@@ -365,6 +383,10 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Expm1;
   } else if constexpr (std::is_same_v<EltwiseOp, RemainderOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Remainder;
+  } else if constexpr (std::is_same_v<EltwiseOp, WhereOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Where;
+  } else if constexpr (std::is_same_v<EltwiseOp, GeluOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Gelu;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -507,12 +529,13 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
-template <typename DeallocOp>
-::flatbuffers::Offset<::tt::target::ttnn::DeallocOp>
-createDeallocOp(FlatbufferObjectCache &cache, DeallocOp op) {
+template <typename DeallocateOp>
+::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>
+createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  return ::tt::target::ttnn::CreateDeallocOp(*cache.fbb, in);
+  auto force = op.getForceAttr().getValue();
+  return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -568,6 +591,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto orOp = dyn_cast<LogicalOrOp>(op); orOp) {
     return createOperation(cache, createEltwiseOp(cache, orOp), debugString);
+  }
+  if (auto xorOp = dyn_cast<LogicalXorOp>(op); xorOp) {
+    return createOperation(cache, createEltwiseOp(cache, xorOp), debugString);
   }
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
     return createOperation(cache, createEltwiseOp(cache, multiplyOp),
@@ -690,8 +716,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
                            debugString);
   }
-  if (auto deallocOp = dyn_cast<DeallocOp>(op); deallocOp) {
-    return createOperation(cache, createDeallocOp(cache, deallocOp),
+  if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {
+    return createOperation(cache, createDeallocateOp(cache, deallocateOp),
                            debugString);
   }
   if (auto ceilOp = dyn_cast<CeilOp>(op); ceilOp) {
@@ -702,6 +728,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto sinOp = dyn_cast<SinOp>(op); sinOp) {
     return createOperation(cache, createEltwiseOp(cache, sinOp), debugString);
+  }
+  if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
+    return createOperation(cache, createEltwiseOp(cache, whereOp), debugString);
+  }
+  if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
+    return createOperation(cache, createEltwiseOp(cache, geluOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

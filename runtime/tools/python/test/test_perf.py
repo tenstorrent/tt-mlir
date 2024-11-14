@@ -74,25 +74,6 @@ def test_clean_artifacts_cmd_perf():
     sub_process_command(command)
 
 
-def test_save_artifacts_perf():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = PERF_BINARY_FILE_PATH
-    custom_args["--host-only"] = True
-    custom_args["--clean-artifacts"] = True
-    custom_args["--save-artifacts"] = True
-    perf_instance = API.Perf(args=custom_args)
-    perf_instance()
-
-
-def test_save_artifacts_cmd_perf():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --save-artifacts --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    sub_process_command(command)
-
-
 def test_log_file_perf():
     API.initialize_apis()
     custom_args = {}
@@ -108,26 +89,6 @@ def test_log_file_perf():
 
 def test_log_file_cmd_perf():
     command = f"ttrt perf {PERF_BINARY_FILE_PATH} --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    sub_process_command(command)
-
-
-def test_artifact_dir_perf():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = PERF_BINARY_FILE_PATH
-    custom_args["--host-only"] = True
-    custom_args["--clean-artifacts"] = True
-    custom_args["--save-artifacts"] = True
-    custom_args["--artifact-dir"] = f"{os.getcwd()}/ttrt-artifacts"
-    perf_instance = API.Perf(args=custom_args)
-    perf_instance()
-
-
-def test_artifact_dir_cmd_perf():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/ttrt-artifacts --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
 

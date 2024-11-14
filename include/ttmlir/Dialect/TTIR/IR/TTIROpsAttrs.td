@@ -6,7 +6,11 @@
 #define TTMLIR_TTIR_ATTRS_TD
 
 include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/EnumAttr.td"
+include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.td"
 include "ttmlir/Dialect/TTIR/IR/TTIRBase.td"
+
+def TTIR_PoolingMethodAttr : EnumAttr<TTIR_Dialect, TTIR_PoolingMethod, "pooling_method">;
 
 def TTIR_ConvolutionLayoutAttr : AttrDef<TTIR_Dialect, "ConvolutionLayout", [], "::mlir::Attribute"> {
   let mnemonic = "convolution_layout";

@@ -84,6 +84,25 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
     }];
 }
 
+def TTIR_GetDimensionSizeOp : TTIR_Op<"get_dimension_size"> {
+  let summary = "GetDimensionSize op.";
+  let description = [{
+      Produces the size of the given `dimension` of the `operand`.
+
+      Example:
+        %operand: [[3, 2, 7], [1, 4, 4]]
+        "ttir.get_dimension_size"(%operand, value = dense<0>, %out) -> %out: [[3]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$operand,
+                       I32Attr:$dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasFolder = 1;
+  let hasVerifier = 1;
+}
+
 def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpInterface]> {
     let summary = "Layout op.";
     let description = [{
@@ -167,6 +186,29 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
+class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
+    let description = [{
+      Eltwise ternary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out, operand_constraints);
+      }]>
+    ];
+}
+
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where op.";
+    let description = [{
+      Eltwise where operation.
+    }];
+}
+
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise unary op.";
@@ -216,6 +258,13 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor"> {
     let description = [{
       Eltwise floor operation.
     }];
+}
+
+def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
+  let summary = "Eltwise GELU op.";
+  let description = [{
+    Eltwise GELU operation.
+  }];
 }
 
 def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
@@ -399,6 +448,13 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or"> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
+    }];
+}
+
+def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
+    let summary = "Eltwise logical xor.";
+    let description = [{
+      Eltwise logical xor operation.
     }];
 }
 
@@ -708,6 +764,33 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
     }];
 }
 
+def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
+  let summary = "General pooling op";
+  let description = [{
+    General pooling op
+  }];
+
+  let arguments = (ins
+    Variadic<AnyRankedTensor>:$inputs,
+    Variadic<AnyRankedTensor>:$outputs,
+    TTIR_PoolingMethodAttr:$pooling_method,
+    DenseI64ArrayAttr:$window_dimensions,
+
+    // Default stride of 1 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$window_strides,
+    // Default dilation of 1 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$base_dilations,
+    // Default dilation of 1 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size(), 1)">:$window_dilations,
+    // Default padding of 0 over every dimension
+    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getWindowDimensions().size() * 2, 0)">:$padding,
+    TT_OperandConstraintArrayAttr:$operand_constraints
+  );
+
+  let results = (outs Variadic<AnyRankedTensor>);
+
+  let hasVerifier = 1;
+}
 
 def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
@@ -728,9 +811,7 @@ def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom,
-                         TT_OperandConstraintArrayAttr:$operand_constraints,
-                         OptionalAttr<SI32Attr>:$original_height,
-                         OptionalAttr<SI32Attr>:$original_width);
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -785,7 +866,7 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR: decomposing_an_op_index_ttir
 def TTIR_IndexOp: TTIR_DPSOp<"index"> {
     let summary = "Index op.";
     let description = [{
@@ -810,7 +891,7 @@ def TTIR_IndexOp: TTIR_DPSOp<"index"> {
 
     let hasVerifier = 1;
 }
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR_END: decomposing_an_op_index_ttir
 
 def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
     let summary = "Squeeze op.";

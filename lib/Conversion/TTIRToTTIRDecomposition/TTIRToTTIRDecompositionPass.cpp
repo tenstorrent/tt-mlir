@@ -48,6 +48,8 @@ struct TTIRToTTIRDecompositionPass
     // These are the ops we intend to remove entirely with this pass
     target.addIllegalOp<ttir::IndexOp>();
     target.addIllegalOp<ttir::ConvolutionOp>();
+    target.addIllegalOp<ttir::GetDimensionSizeOp>();
+    target.addIllegalOp<ttir::PoolingOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

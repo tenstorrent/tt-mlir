@@ -14,7 +14,8 @@
 
 namespace mlir::tt {
 
-template <typename OpT> struct Program {
+template <typename OpT>
+struct Program {
   ::flatbuffers::FlatBufferBuilder *fbb;
   const char *name;
   std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> inputs;

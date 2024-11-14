@@ -46,14 +46,18 @@ table EmptyOp {
   shape: [int64];
   dtype: DataType;
   layout: TensorLayout;
+  num_shards: uint32;
   device: tt.target.DeviceRef;         // optional
   memcfg: tt.target.MemoryConfigDesc;  // optional
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 
 table FullOp {
   device: tt.target.DeviceRef;
   fill_value: float;
+  num_shards: uint32;
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 
@@ -93,6 +97,9 @@ enum EltwiseOpType: uint32 {
   Remainder = 32,
   IsFinite = 33,
   Floor = 34,
+  Where = 35,
+  Gelu = 36,
+  LogicalXor = 37,
 }
 
 union EltwiseOpParams {
@@ -208,8 +215,9 @@ table MaxPool2dOp {
   padding_width: uint32;
 }
 
-table DeallocOp {
+table DeallocateOp {
   in: tt.target.TensorRef;
+  force: bool;
 }
 
 table AllGatherOp {
@@ -239,7 +247,7 @@ union OpType {
   ReshapeOp,
   SliceOp,
   MaxPool2dOp,
-  DeallocOp,
+  DeallocateOp,
   AllGatherOp,
 }
 

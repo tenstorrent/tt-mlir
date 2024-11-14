@@ -37,6 +37,46 @@
 }
 
 //===----------------------------------------------------------------------===//
+// GetDimensionSizeOp
+//===----------------------------------------------------------------------===//
+
+// GetDimensionSizeOp folder
+::mlir::OpFoldResult
+mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getOperand().getType());
+
+  int64_t dimensionIndex = getDimension();
+
+  if (dimensionIndex >=
+      static_cast<int64_t>(inputTensorType.getShape().size())) {
+    return nullptr;
+  };
+
+  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+
+  mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(getType());
+
+  return mlir::DenseElementsAttr::get<int>(valueType, dimSize);
+}
+
+// GetDimensionSizeOp verification
+::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getOperand().getType());
+
+  int64_t dimensionIndex = getDimension();
+
+  if (dimensionIndex >=
+      static_cast<int64_t>(inputTensorType.getShape().size())) {
+    return failure();
+  };
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
@@ -111,6 +151,46 @@
 }
 
 //===----------------------------------------------------------------------===//
+// PoolingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
+
+  uint32_t inputRank =
+      mlir::cast<RankedTensorType>(getInputs()[0].getType()).getRank();
+
+  for (auto input : getInputs()) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    if (inputType.getRank() != inputRank) {
+      return emitOpError("All input tensors must have the same rank");
+    }
+  }
+
+  if (getWindowStrides().size() != inputRank) {
+    return emitOpError("Window strides must have the same number of elements "
+                       "as the rank of the input tensor");
+  }
+
+  if (getWindowDilations().size() != inputRank) {
+    return emitOpError("Window dilations must have the same number of elements "
+                       "as the rank of the input tensor");
+  }
+
+  if (getWindowDimensions().size() != inputRank) {
+    return emitOpError(
+        "Window dimensions must have the same number of elements "
+        "as the rank of the input tensor");
+  }
+
+  if (getPadding().size() != 2 * inputRank) {
+    return emitOpError("Padding must have the same number of elements as twice "
+                       "the rank of the input tensor");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 
@@ -123,20 +203,6 @@
     return emitOpError()
            << "Input tensor rank must be 4. Recieved input with rank "
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
-  }
-
-  if (getOriginalHeight().has_value() != getOriginalWidth().has_value()) {
-    std::string with_value =
-        getOriginalHeight().has_value() ? "original_height" : "original_width";
-    return emitOpError()
-           << "If providing the original height and width as attributes, both "
-              "original_height and original_width must be set. However, only "
-           << with_value << " was provided.";
-  }
-
-  if (getOriginalHeight().has_value() && getOriginalWidth().has_value()) {
-    inputShape[1] = getOriginalHeight().value();
-    inputShape[2] = getOriginalWidth().value();
   }
 
   if (getKernelHeight() > inputShape[1]) {
@@ -394,7 +460,7 @@
 // IndexOp
 //===----------------------------------------------------------------------===//
 
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR: decomposing_an_op_index_ttir_verify
 // IndexOp verification
 ::mlir::LogicalResult mlir::tt::ttir::IndexOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
@@ -500,7 +566,7 @@
 
   return success();
 }
-// ANCHOR: adding_an_op_index_ttir
+// ANCHOR_END: decomposing_an_op_index_ttir_verify
 
 //===----------------------------------------------------------------------===//
 // SqueezeOp

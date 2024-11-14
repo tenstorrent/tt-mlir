@@ -182,7 +182,7 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
 namespace system_desc {
 
 ::tt::target::SystemDescRoot const *getBinary(Flatbuffer binary) {
-  if (not ::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
+  if (!::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           binary.handle.get())) {
     throw std::runtime_error("Unsupported binary format");
   }

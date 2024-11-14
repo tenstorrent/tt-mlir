@@ -2,12 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TT_UTILS_OVERRIDEPARAMS_H
-#define TTMLIR_DIALECT_TT_UTILS_OVERRIDEPARAMS_H
+#ifndef TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
+#define TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include <cstdint>
 #include <llvm/Support/CommandLine.h>
 
 namespace mlir::tt::ttnn {

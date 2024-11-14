@@ -38,6 +38,7 @@
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #pragma clang diagnostic ignored "-Wlogical-op-parentheses"
 #pragma clang diagnostic ignored "-Wundefined-inline"
+#pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
 #include "impl/event/event.hpp"
@@ -45,6 +46,7 @@
 #pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 
 namespace tt::runtime::ttmetal {
@@ -159,12 +161,12 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
                           .page_size = pageSize,
                           .buffer_type = bufferType,
                           .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
-                          .shard_parameters = shardSpecBuffer,
-                          .allocate = false};
-  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-      ::tt::tt_metal::CreateBuffer(shardedBufferConfig);
+                          .shard_parameters = shardSpecBuffer};
+
   assert(tensorRef->address());
-  buffer->set_address(tensorRef->address());
+  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
+      ::tt::tt_metal::CreateBuffer(shardedBufferConfig, tensorRef->address());
+
   return buffer;
 }
 #pragma clang diagnostic pop

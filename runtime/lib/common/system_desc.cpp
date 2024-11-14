@@ -28,6 +28,7 @@
 #pragma clang diagnostic ignored "-Wmismatched-tags"
 #pragma clang diagnostic ignored "-Wunused-function"
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
+#pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
@@ -55,7 +56,7 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -258,7 +259,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-  if (not ::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
+  if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
     throw std::runtime_error("Failed to verify system desc root buffer");
   }
   uint8_t *buf = fbb.GetBufferPointer();

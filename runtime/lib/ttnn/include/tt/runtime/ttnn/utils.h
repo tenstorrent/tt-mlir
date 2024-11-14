@@ -6,9 +6,9 @@
 #define TTNN_RUNTIME_UTILS_H
 
 #include "flatbuffers/vector.h"
+#include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttnn/types.hpp"
-#include "types_generated.h"
 
 namespace tt::runtime::ttnn::utils {
 

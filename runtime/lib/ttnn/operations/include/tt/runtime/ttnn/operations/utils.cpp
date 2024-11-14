@@ -15,12 +15,15 @@ namespace tt::runtime::ttnn::operations::utils {
 bool isOnHost(const ::ttnn::Tensor &tensor) {
   // Currently only supports borrowed or owned host storage
   return tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED or
-         tensor.storage_type() == ::tt::tt_metal::StorageType::OWNED;
+         tensor.storage_type() == ::tt::tt_metal::StorageType::OWNED or
+         tensor.storage_type() ==
+             ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST;
 }
 
 bool isOnDevice(const ::ttnn::Tensor &tensor) {
   // Currently only supports single device storage
-  return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
+  return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE or
+         tensor.storage_type() == ::tt::tt_metal::StorageType::MULTI_DEVICE;
 }
 
 bool isTilized(const ::tt::target::TensorRef *tensorRef) {
@@ -38,6 +41,15 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::MemorySpace targetMemorySpace = getMemorySpace(tensorRef);
   return targetMemorySpace == ::tt::target::MemorySpace::System or
          targetMemorySpace == ::tt::target::MemorySpace::SystemMMIO;
+}
+
+void updateTensorPool(ProgramTensorPool &tensorPool,
+                      const ::ttnn::Tensor &tensor, uint32_t outputGlobalId) {
+  if (tensorPool.isUserOutput(outputGlobalId)) {
+    tensorPool.copyTensorToUserOutput(outputGlobalId, tensor);
+  } else {
+    tensorPool.insert_or_assign(outputGlobalId, tensor);
+  }
 }
 
 ::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef) {
@@ -162,4 +174,29 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
   return memoryConfig;
 }
 
+::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
+    const ::tt::target::DistributionStrategy *strategy) {
+  switch (strategy->strategy_type()) {
+  case ::tt::target::DistributedTensorConfig::ReplicateTensor: {
+    return ::tt::tt_metal::ReplicateTensor(
+        strategy->strategy_as_ReplicateTensor()->replication_factor());
+  }
+  case ::tt::target::DistributedTensorConfig::ShardTensor: {
+    return ::tt::tt_metal::ShardTensor(
+        strategy->strategy_as_ShardTensor()->shard_dim());
+  }
+  case ::tt::target::DistributedTensorConfig::ShardTensor2D: {
+    uint32_t y = strategy->strategy_as_ShardTensor2D()->shard_mesh()->y();
+    uint32_t x = strategy->strategy_as_ShardTensor2D()->shard_mesh()->x();
+    ::tt::tt_metal::ShardMesh mesh(y, x);
+    return ::tt::tt_metal::ShardTensor2D(mesh);
+  }
+  case ::tt::target::DistributedTensorConfig::AllGatherTensor: {
+    return ::tt::tt_metal::AllGatherTensor();
+  }
+  case ::tt::target::DistributedTensorConfig::NONE: {
+    throw std::invalid_argument("Unsupported distributed tensor config");
+  }
+  }
+}
 } // namespace tt::runtime::ttnn::operations::utils
