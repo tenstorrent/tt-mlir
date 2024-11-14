@@ -12,6 +12,9 @@ module attributes {} {
         pooling_method = #ttir<pooling_method Max>,
         window_dimensions = array<i64: 1, 1, 2, 2>,
         window_strides = array<i64: 1, 1, 2, 2>,
+        base_dilations = array<i64: 1, 1, 1, 1>,
+        window_dilations = array<i64: 1, 1, 1, 1>,
+        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>,
         operand_constraints = [#any_device, #any_device]}> : (tensor<1x32x128x128xbf16>, tensor<1x32x128x128xbf16>, tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>) -> (tensor<1x32x64x64xbf16>, tensor<1x32x64x64xbf16>)
     return %2, %3 : tensor<1x32x64x64xbf16>,tensor<1x32x64x64xbf16>
   }
