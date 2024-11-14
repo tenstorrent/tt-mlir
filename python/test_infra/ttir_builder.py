@@ -278,18 +278,21 @@ class TTIRBuilder:
         inputs: List[Operand],
     ) -> OpView:
 
-
         # Snoop the location of the first caller outside of this file to
-        # annotate the MLIR with.
+        # annotate the MLIR with. NOTE that this location is _NOT_ row:col, but
+        # instead row:id, where id is a unique id given to all calls to builder
+        # funcs. See `get_next_global_id` for more details
         stack = inspect.stack()
 
         # find the innermost frame outside of this file
         cur_filename = stack[0].filename
 
-        while stack[0].filename == cur_filename:
+        while len(stack) > 0 and stack[0].filename == cur_filename:
             stack = stack[1:]
 
-        print("innermost extrafile call at %s:%d" % (stack[0].filename, stack[0].lineno))
+        assert (
+            len(stack) > 0
+        ), "Top of callstack to builder funcs must be outside this file"
 
         with self._ctx, self._loc:
             output = self.empty(self.get_shape(inputs[0]))
@@ -301,7 +304,9 @@ class TTIRBuilder:
                 inputs,
                 [output],
                 self._get_operand_constraint_attr(3),
-                loc=Location.file(filename=stack[0].filename, line=stack[0].lineno, col=id)
+                loc=Location.file(
+                    filename=stack[0].filename, line=stack[0].lineno, col=id
+                ),
             )
 
             goldens = []
