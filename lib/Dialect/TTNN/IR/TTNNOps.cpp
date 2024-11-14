@@ -689,6 +689,64 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
 
 //===----------------------------------------------------------------------===//
+// TestOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::TestOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+
+  // Verify that the input A is at least 1D tensor
+  if (inputAType.getRank() < 1) {
+    return emitOpError("Input A must be at least a 1D tensor");
+  }
+
+  // Verify that the input B is at least 1D tensor
+  if (inputBType.getRank() < 1) {
+    return emitOpError("Input B must be at least a 1D tensor");
+  }
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
+  // purpose of the matrix multiply. After the matrix multiply, the prepended
+  // dimension is removed.
+  if (inputAType.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
+  }
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
+  // the purpose of the matrix-vector product and removed after.
+  if (inputBType.getRank() == 1) {
+    inputBShape.push_back(1);
+  }
+
+  // Check the case of a vector-vector product. At this moment we don't support
+  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
+  if (expectedOutputShape.size() == 0) {
+    if (outputType.getRank() < 1) {
+      return emitOpError("Scalar output is not supported, output must be at "
+                         "least a 1D tensor");
+    }
+
+    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
+      return emitOpError("Scalar output must be a 1D tensor of size 1");
+    }
+
+    return llvm::success();
+  }
+
+  // Verify that the output shape is correct
+  if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
+    return emitOpError("Scalar output must be a 1D tensor of size 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 

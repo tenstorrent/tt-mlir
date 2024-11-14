@@ -601,6 +601,19 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
+def TTNN_TestOp : TTNN_NamedDPSOp<"test"> {
+  let arguments = (ins  AnyRankedTensor:$a,
+                        AnyRankedTensor:$b,
+                        AnyRankedTensor:$output);
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{

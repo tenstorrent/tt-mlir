@@ -569,6 +569,20 @@ public:
 };
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
+class TestOpConversionPattern : public OpConversionPattern<ttir::TestOp> {
+public:
+  using OpConversionPattern<ttir::TestOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TestOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::TestOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
+        adaptor.getB(), adaptor.getOutput());
+    return success();
+  }
+};
+
 static ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
                                        PatternRewriter &rewriter) {
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
@@ -939,6 +953,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
            MatmulOpConversionPattern,
+           TestOpConversionPattern,
            Conv2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,

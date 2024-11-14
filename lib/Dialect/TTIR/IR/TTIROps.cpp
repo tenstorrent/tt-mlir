@@ -916,6 +916,65 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
 //===----------------------------------------------------------------------===//
+// TestOp
+//===----------------------------------------------------------------------===//
+:mlir::LogicalResult mlir::tt::ttir::TestOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+
+  // Verify that the input A is at least 1D tensor
+  if (inputAType.getRank() < 1) {
+    return emitOpError("Input A must be at least a 1D tensor");
+  }
+
+  // Verify that the input B is at least 1D tensor
+  if (inputBType.getRank() < 1) {
+    return emitOpError("Input B must be at least a 1D tensor");
+  }
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
+  // purpose of the matrix multiply. After the matrix multiply, the prepended
+  // dimension is removed.
+  if (inputAType.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
+  }
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
+  // the purpose of the matrix-vector product and removed after.
+  if (inputBType.getRank() == 1) {
+    inputBShape.push_back(1);
+  }
+
+  // Verify that the input A and input B has matching inner dimensions
+  if (inputAShape[inputAShape.size() - 1] !=
+      inputBShape[inputBShape.size() - 2]) {
+    return emitOpError(
+        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
+        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
+        ") must have matching inner dimensions");
+  }
+
+  // Verify that the output shape is correct
+  if (outputShape.size() != 1) {
+    return emitOpError("Output shape rank(" +
+                       std::to_string(outputShape.size()) +
+                       ") must match the expected output shape rank(1)");
+  }
+
+  if (outputShape.front() != 1) {
+    return emitOpError(
+        "Output shape should be a scalar (1x1), but go something else!");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 

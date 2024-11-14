@@ -991,6 +991,22 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
+def TTIR_TestOp : TTIR_DPSOp<"test"> {
+  let summary = "Fake operator to test adding custom ops.";
+  let description = "Maybe take the median of 2 input tensors or something";
+  let arguments = (ins  AnyRankedTensor:$a,
+                        AnyRankedTensor:$b,
+                        AnyRankedTensor:$output, 
+                        TT_OperandConstraintArrayAttr:$operand_constraints);
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
 //===----------------------------------------------------------------------===//
