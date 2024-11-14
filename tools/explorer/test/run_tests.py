@@ -97,14 +97,14 @@ def test_execute_model(model_path):
 
 def test_execute_mnist_l1_interleaved():
     execute_command(
-        "test/ttmlir/Dialect/TTNN/mnist_sharding.mlir",
+        "test/ttmlir/Silicon/TTNN/sharded/mnist_sharding_tiled.mlir",
         {"optimizationPolicy": "L1 Interleaved"},
     )
 
 
 def test_execute_mnist_optimizer_disabled():
     execute_command(
-        "test/ttmlir/Dialect/TTNN/mnist_sharding.mlir",
+        "test/ttmlir/Silicon/TTNN/sharded/mnist_sharding_tiled.mlir",
         {"optimizationPolicy": "Optimizer Disabled"},
     )
 

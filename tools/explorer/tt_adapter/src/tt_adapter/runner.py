@@ -6,7 +6,7 @@ import os
 import tempfile
 
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
-os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
+# os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
 import ttmlir.passes
 from . import utils
@@ -99,7 +99,6 @@ class ModelRunner:
                 "perf",
                 flatbuffer_file,
                 f"--artifact-dir={self._explorer_artifacts_dir}",
-                "--save-artifacts",
             ]
         )
 
