@@ -250,7 +250,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       getAllDeviceConnections(devices);
   // Store CPUDesc
   std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
-  cpuDescs.emplace_back(::tt::target::CreateCPUDesc(fbb, ::tt::target::CPURole::Host, std::string(TARGET_TRIPLE)));
+  cpuDescs.emplace_back(::tt::target::CreateCPUDesc(fbb, ::tt::target::CPURole::Host, fbb.CreateString(std::string(TARGET_TRIPLE))));
 
   // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
