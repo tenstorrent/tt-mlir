@@ -508,6 +508,13 @@ jobs:
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
 
