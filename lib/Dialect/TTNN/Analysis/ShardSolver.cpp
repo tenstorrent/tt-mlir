@@ -509,7 +509,7 @@ bool ShardSolver::checkShardCompatible(
   // TEMP : Dummy mock implementation, will be replaced.
   //
 
-  if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(consumerOp)) {
+  if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
     if (false ==
         backend.isOpLegal(std::vector{producerLayout}, consumerLayout)) {
       return false;
