@@ -477,7 +477,7 @@ private:
     }
 
     /* If the output is not tilized, typecast on host */
-    else if (not output.isTilized()) {
+    if (not output.isTilized()) {
       currentInput =
           this->createTypecastOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =

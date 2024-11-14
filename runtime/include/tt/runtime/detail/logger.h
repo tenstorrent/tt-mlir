@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TT_RUNTIME_LOGGER_H
-#define TT_RUNTIME_LOGGER_H
+#ifndef TT_RUNTIME_DETAIL_LOGGER_H
+#define TT_RUNTIME_DETAIL_LOGGER_H
 
 #include <algorithm>
 #include <chrono>
@@ -395,4 +395,4 @@ tt_throw_(const char *file, int line, const char *assert_type,
 
 #pragma clang diagnostic pop
 
-#endif // TT_RUNTIME_LOGGER_H
+#endif // TT_RUNTIME_DETAIL_LOGGER_H
