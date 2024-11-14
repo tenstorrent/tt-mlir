@@ -50,10 +50,9 @@ endif()
 
 message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
 
-add_executable(ttnn-standalone ttnn-standalone.cpp)
-set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
-
-target_include_directories(ttnn-standalone PRIVATE
+# Directories to search for headers
+#
+set(INCLUDE_DIRS
     # TODO: Remove these when ttmetal removes the dependencies from public facing headers
     $ENV{TT_METAL_HOME}/.cpmcache/reflect/e75434c4c5f669e4a74e4d84e0a30d7249c1e66f
     $ENV{TT_METAL_HOME}/.cpmcache/fmt/73b5ec45edbd92babfd91c3777a9e1ab9cac8238/include
@@ -78,18 +77,22 @@ target_include_directories(ttnn-standalone PRIVATE
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
 )
 
-target_link_directories(ttnn-standalone PRIVATE
+# Link directories
+#
+set(LINK_DIRS
     $ENV{TT_METAL_HOME}-build/lib
 )
 
-target_link_libraries(ttnn-standalone PRIVATE
-    # Metalium
+# Libraries to link
+#
+set(LINK_LIBS
     tt_metal
     device
     yaml-cpp
     pthread
-    # The below libs have been added to tt-metal repo at some point, but are
-    # not currently needed by the standalone - leaving them commented here for
+
+    # The below libs have been added to tt-metal repo at some point, but are not
+    # currently needed by the targets here - leaving them commented here for
     # reference
     #
     # nng
@@ -100,8 +103,41 @@ target_link_libraries(ttnn-standalone PRIVATE
     $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
 )
 
-target_compile_definitions(ttnn-standalone PRIVATE
-    FMT_HEADER_ONLY
+# Compile definitions
+#
+set(COMPILE_DEFS
+    FMT_HEADER_ONLY  # needed for fmt lib
 )
 
+#       _                     _         _
+#  ___ | |_  __ _  _ __    __| |  __ _ | |  ___   _ __    ___
+# / __|| __|/ _` || '_ \  / _` | / _` || | / _ \ | '_ \  / _ \
+# \__ \| |_| (_| || | | || (_| || (_| || || (_) || | | ||  __/
+# |___/ \__|\__,_||_| |_| \__,_| \__,_||_| \___/ |_| |_| \___|
+
+add_executable(ttnn-standalone ttnn-standalone.cpp)
+set_property(TARGET ttnn-standalone PROPERTY CXX_STANDARD 20)
+
+target_include_directories(ttnn-standalone PRIVATE ${INCLUDE_DIRS})
+target_link_directories(ttnn-standalone PRIVATE ${LINK_DIRS})
+target_link_libraries(ttnn-standalone PRIVATE ${LINK_LIBS})
+target_compile_definitions(ttnn-standalone PRIVATE ${COMPILE_DEFS})
+
 target_precompile_headers(ttnn-standalone PRIVATE ttnn-precompiled.hpp)
+
+#      _         _  _  _
+#   __| | _   _ | |(_)| |__
+#  / _` || | | || || || '_ \
+# | (_| || |_| || || || |_) |
+#  \__,_| \__, ||_||_||_.__/
+#         |___/
+
+add_library(ttnn-dylib SHARED ttnn-dylib.cpp)
+set_property(TARGET ttnn-dylib PROPERTY CXX_STANDARD 20)
+
+target_include_directories(ttnn-dylib PRIVATE ${INCLUDE_DIRS})
+target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
+target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
+set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
+
+target_precompile_headers(ttnn-dylib PRIVATE ttnn-dylib.hpp)
