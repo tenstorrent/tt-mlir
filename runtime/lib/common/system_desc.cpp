@@ -249,7 +249,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   std::vector<::tt::target::ChipChannel> allConnections =
       getAllDeviceConnections(devices);
   // Store CPUDesc
-  
+  std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
   cpuDescs.emplace_back(::tt::target::CPUDesc{::tt::target::CPURole::Host, std::string(TARGET_TRIPLE)});
 
   // Create SystemDesc
