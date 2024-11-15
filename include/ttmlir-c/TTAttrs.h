@@ -43,13 +43,12 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipChannelAttrGet(
     int64_t *ethernetCoreCoord1, size_t ethernetCoreCoord1Size);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
-    MlirContext ctx,
-    MlirAttribute *cpuDescs, size_t cpuDescsSize,
-    MlirAttribute *chipDescs, size_t chipDescsSize,
-    unsigned *chipDescIndices, size_t chipDescIndicesSize,
-    MlirAttribute *chipCapabilities, size_t chipCapabilitiesSize,
-    MlirAttribute *chipCoords, size_t chipCoordsSize,
-    MlirAttribute *chipChannels, size_t chipChannelsSize);
+    MlirContext ctx, MlirAttribute *cpuDescs, size_t cpuDescsSize,
+    MlirAttribute *chipDescs, size_t chipDescsSize, unsigned *chipDescIndices,
+    size_t chipDescIndicesSize, MlirAttribute *chipCapabilities,
+    size_t chipCapabilitiesSize, MlirAttribute *chipCoords,
+    size_t chipCoordsSize, MlirAttribute *chipChannels,
+    size_t chipChannelsSize);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear, unsigned oobVal,

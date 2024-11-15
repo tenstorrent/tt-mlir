@@ -81,8 +81,9 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
   return tt::SystemDescAttr::get(
       context,
       // CPU Descriptors
-      {tt::CPUDescAttr::get(context, tt::CPURole::Host,
-                            mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
+      {tt::CPUDescAttr::get(
+          context, tt::CPURole::Host,
+          mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
       // Chip Descriptors
       {
           tt::ChipDescAttr::get(
@@ -310,16 +311,18 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
                       ::mlir::tt::CPURole::Host) ==
                   static_cast<std::underlying_type_t<::tt::target::CPURole>>(
                       ::tt::target::CPURole::Host));
-    const auto* flatbufferTargetTripleString = element->target_triple();
+    const auto *flatbufferTargetTripleString = element->target_triple();
     cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
         context, static_cast<mlir::tt::CPURole>(element->role()),
-        mlir::StringAttr::get(context, std::string(flatbufferTargetTripleString->c_str(), flatbufferTargetTripleString->size()))));
+        mlir::StringAttr::get(
+            context, std::string(flatbufferTargetTripleString->c_str(),
+                                 flatbufferTargetTripleString->size()))));
   }
 
   // Generate system desc attribute
   auto system_desc_attr = tt::SystemDescAttr::get(
-      context, cpu_desc_list, chip_desc_list, chip_indices_list, chip_capabilities_list,
-      chip_coordinate_list, chip_channel_list);
+      context, cpu_desc_list, chip_desc_list, chip_indices_list,
+      chip_capabilities_list, chip_coordinate_list, chip_channel_list);
 
   return system_desc_attr;
 }

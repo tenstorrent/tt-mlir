@@ -293,8 +293,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getNumCBs());
 }
 
-inline ::tt::target::CPURole
-toFlatbuffer(FlatbufferObjectCache &, CPURole memLayout) {
+inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
+                                          CPURole memLayout) {
   switch (memLayout) {
   case CPURole::Host:
     return ::tt::target::CPURole::Host;
@@ -306,10 +306,8 @@ toFlatbuffer(FlatbufferObjectCache &, CPURole memLayout) {
 inline flatbuffers::Offset<::tt::target::CPUDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
   return ::tt::target::CreateCPUDesc(
-    *cache.fbb,
-    toFlatbuffer(cache, cpuDesc.getRole()),
-    cache.fbb->CreateString(cpuDesc.getTargetTriple().getValue().str())
-  );
+      *cache.fbb, toFlatbuffer(cache, cpuDesc.getRole()),
+      cache.fbb->CreateString(cpuDesc.getTargetTriple().getValue().str()));
 }
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>
