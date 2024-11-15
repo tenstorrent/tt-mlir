@@ -137,6 +137,14 @@ func.func @relu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
 }
 
+func.func @leaky_relu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    // CHECK: %[[C:.*]] = "ttnn.empty"
+    %0 = tensor.empty() : tensor<64x128xf32>
+    // CHECK: %[[C:.*]] = "ttnn.leaky_relu"
+    %1 = "ttir.leaky_relu"(%arg0, %0) <{parameter = 0.01 : f32, operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    return %1 : tensor<64x128xf32>
+}
+
 func.func @reshape(%arg0: tensor<4x2x32x32xbf16>) -> tensor<2x4x32x32xbf16> {
   %0 = tensor.empty() : tensor<2x4x32x32xbf16>
   // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]

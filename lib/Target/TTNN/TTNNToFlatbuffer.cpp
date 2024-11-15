@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -379,11 +380,19 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
                                                op.getDim(), op.getNumLinks());
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ClampOpParams>
-createEltwiseOpParams(FlatbufferObjectCache &cache, ClampOp op) {
-  auto min = op.getMin().convertToFloat();
-  auto max = op.getMax().convertToFloat();
-  return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
+template <typename EltwiseOp, typename EltwiseOpParams>
+::flatbuffers::Offset<EltwiseOpParams>
+createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
+  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
+    auto min = op.getMin().convertToFloat();
+    auto max = op.getMax().convertToFloat();
+    return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
+  }
+  if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
+    auto parameter = op.getParameter().convertToFloat();
+    return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
+                                                              parameter);
+  }
 }
 
 template <typename EltwiseOp>
@@ -396,7 +405,9 @@ createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
   if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Clamp;
     paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
-    params = createEltwiseOpParams(cache, op).Union();
+    params = createEltwiseOpParams<ClampOp, ::tt::target::ttnn::ClampOpParams>(
+                 cache, op)
+                 .Union();
   } else {
     llvm_unreachable("unhandled non-DPS EltwiseOp");
   }
@@ -494,6 +505,14 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Where;
   } else if constexpr (std::is_same_v<EltwiseOp, GeluOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Gelu;
+  } else if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LeakyRelu;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::EltwiseOpWithFloatParams;
+    params =
+        createEltwiseOpParams<LeakyReluOp,
+                              ::tt::target::ttnn::EltwiseOpWithFloatParams>(
+            cache, op)
+            .Union();
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -776,6 +795,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
     return createOperation(cache, createEltwiseOp(cache, remainderOp),
+                           debugString);
+  }
+  if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
+    return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
                            debugString);
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {

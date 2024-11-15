@@ -325,6 +325,49 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
+class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseUnaryOp<mnemonic, traits> {
+    let summary = "Eltwise unary op with the float parameter.";
+    let description = [{
+      Eltwise unary op with the float parameter.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         F32Attr:$parameter);
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      [{
+        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
+      }]>
+    ];
+}
+
+def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
+    let summary = "Eltwise leaky relu operation.";
+    let description = [{
+      The Leaky ReLU (Rectified Linear Unit) operation computes an element-wise
+      activation function over its input tensor. It is defined as:
+
+      y = x if x > 0
+      y = parameter * x if x <= 0
+
+      where `parameter` is a small, user-defined constant that determines the slope for
+      negative inputs.
+
+      Attributes:
+      - `parameter` (float): The slope for negative values.
+
+      Inputs:
+      - `input` (Tensor): The input tensor to be activated.
+
+      Outputs:
+      - `output` (Tensor): The tensor after applying the Leaky ReLU activation.
+    }];
+}
+
 def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{
