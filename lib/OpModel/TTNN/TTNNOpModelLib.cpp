@@ -50,7 +50,7 @@ DataType getDataType(const mlir::MemRefType &memref) {
   case tt::DataType::UInt8:
     return DataType::UINT8;
   default:
-    throw std::runtime_error("Invalid element type");
+    throw std::runtime_error("Unsupported data type");
   }
 }
 
@@ -116,7 +116,7 @@ layout_get_shard_spec(const mlir::tt::LayoutAttr &layout) {
   case tt::MemorySpace::DeviceL1:
     return ::tt::tt_metal::BufferType::L1;
   default: // TODO(mbezulj): handle other memory spaces
-    return ::tt::tt_metal::BufferType::DRAM;
+    throw std::runtime_error("Unsupported memory space");
   }
 }
 
@@ -135,7 +135,7 @@ TensorMemoryLayout getTensorMemoryLayout(const mlir::tt::LayoutAttr &layout) {
   case tt::TensorMemoryLayout::BlockSharded:
     return TensorMemoryLayout::BLOCK_SHARDED;
   default:
-    return TensorMemoryLayout::INTERLEAVED;
+    throw std::runtime_error("Unsupported tensor memory layout");
   }
 }
 
