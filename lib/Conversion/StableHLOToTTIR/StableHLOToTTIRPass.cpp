@@ -12,6 +12,7 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Dialect.h>
+#include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Pass/Pass.h>
 
@@ -43,18 +44,29 @@ public:
 
     // TTNN doesn't support either scalars or boolean data. This transformation
     // converts boolean to bfloat16 and scalars to 1-D tensors.
+    // This transformation also convert 64 bit float/integer types to 32 bit
+    // types.
     addConversion([&](RankedTensorType type) -> RankedTensorType {
       bool changed = false;
       Type elementType = type.getElementType();
       llvm::ArrayRef<int64_t> shape = type.getShape();
+      size_t bitWidth = type.getElementTypeBitWidth();
+      MLIRContext *context = elementType.getContext();
       // Convert the element type to bfloat16 if the input is boolean.
-      if (type.getElementTypeBitWidth() == 1) {
-        elementType = BFloat16Type::get(elementType.getContext());
+      if (bitWidth == 1) {
+        elementType = BFloat16Type::get(context);
         changed = true;
-      } else if (type.getElementTypeBitWidth() == 64 &&
-                 isa<IntegerType>(type.getElementType())) {
-        elementType = IntegerType::get(elementType.getContext(), 32);
-        changed = true;
+      } else if (bitWidth == 64) {
+        // Convert 64 bit integer element type to 32 bit integer.
+        if (isa<IntegerType>(type.getElementType())) {
+          elementType = IntegerType::get(context, 32);
+          changed = true;
+        }
+        // Convert 64 bit float element type to 32 bit float.
+        else if (isa<FloatType>(type.getElementType())) {
+          elementType = FloatType::getF32(context);
+          changed = true;
+        }
       }
       // Create shape of 1-D tensor in case of scalar input.
       if (shape.size() == 0) {

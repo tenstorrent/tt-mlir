@@ -376,13 +376,16 @@ private:
   //    converted to bfloat16 tensors.
   // 3. Integer tensor: TTNN does not support 64 bit integer. So they are
   //    converted to 32 bit tensor.
+  // 4. Float tensor: TTNN does not support 64 bit float. So they are converted
+  //    to 32 bit tensor.
   mlir::ElementsAttr getValueAttr(mlir::ElementsAttr valueAttr) const {
     Type elementType = valueAttr.getElementType();
     size_t bitWidth = elementType.getIntOrFloatBitWidth();
     bool isTensor = !valueAttr.getShapedType().getShape().empty();
     bool isIntTensor = isTensor && isa<IntegerType>(elementType) &&
                        bitWidth != 1 && bitWidth != 64;
-    bool isFloatTensor = isTensor && isa<FloatType>(elementType);
+    bool isFloatTensor = isTensor && isa<FloatType>(elementType) &&
+                         bitWidth != 1 && bitWidth != 64;
 
     if (isTensor && (isIntTensor || isFloatTensor)) {
       return valueAttr;
@@ -413,6 +416,16 @@ private:
       }
     }
     if (isa<FloatType>(elementType)) {
+      // Convert 64 bit floating point numbers to 32 bit floating point numbers.
+      if (bitWidth == 64) {
+        std::vector<mlir::APFloat> floatValues;
+        for (mlir::APFloat value : valueAttr.getValues<mlir::APFloat>()) {
+          float fl = static_cast<float>(value.convertToDouble());
+          mlir::APFloat input = mlir::APFloat(fl);
+          floatValues.emplace_back(input);
+        }
+        return mlir::DenseElementsAttr::get(valueType, floatValues);
+      }
       // In case of float values llvm has a bug where not all float types are
       // supported for iterating in DenseElementsAttr, so we have to use a
       // different constructor.
