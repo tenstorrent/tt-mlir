@@ -298,7 +298,7 @@ toFlatbuffer(FlatbufferObjectCache &, CPURole memLayout) {
   switch (memLayout) {
   case CPURole::Host:
     return ::tt::target::CPURole::Host;
-  case TensorMemoryLayout::Device:
+  case CPURole::Device:
     return ::tt::target::CPURole::Device;
   }
 }

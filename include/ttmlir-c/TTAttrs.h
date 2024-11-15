@@ -47,7 +47,8 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
     unsigned *chipDescIndices, size_t chipDescIndicesSize,
     MlirAttribute *chipCapabilities, size_t chipCapabilitiesSize,
     MlirAttribute *chipCoords, size_t chipCoordsSize,
-    MlirAttribute *chipChannels, size_t chipChannelsSize);
+    MlirAttribute *chipChannels, size_t chipChannelsSize,
+    MlirAttribute *cpuDecs, size_t cpuDescsSize);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear, unsigned oobVal,
