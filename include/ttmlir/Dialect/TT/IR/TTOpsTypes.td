@@ -159,7 +159,7 @@ def TT_CPUDescAttr : TT_Attr<"CPUDesc", "cpu_desc"> {
   }];
 
   let parameters = (ins "CPURoleAttr":$role,
-                        "string":$target_triple);
+                        "std::string":$target_triple);
   let assemblyFormat = [{`{` `role` `=` $role `,`
                              `target_triple` `=` $target_triple `}`}];
 }
