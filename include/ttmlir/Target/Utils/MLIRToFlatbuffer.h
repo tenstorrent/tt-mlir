@@ -308,7 +308,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
   return ::tt::target::CreateCPUDesc(
     *cache.fbb,
     toFlatbuffer(cache, cpuDesc.getRole()),
-    cache.fbb->CreateString(cpuDesc.getTargetTriple())
+    cache.fbb->CreateString(cpuDesc.getTargetTriple().getValue().str())
   );
 }
 
