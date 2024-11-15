@@ -293,16 +293,34 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getNumCBs());
 }
 
+inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
+                                          CPURole memLayout) {
+  switch (memLayout) {
+  case CPURole::Host:
+    return ::tt::target::CPURole::Host;
+  case CPURole::Device:
+    return ::tt::target::CPURole::Device;
+  }
+}
+
+inline flatbuffers::Offset<::tt::target::CPUDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
+  return ::tt::target::CreateCPUDesc(
+      *cache.fbb, toFlatbuffer(cache, cpuDesc.getRole()),
+      cache.fbb->CreateString(cpuDesc.getTargetTriple().getValue().str()));
+}
+
 inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
+  auto cpuDescs = toFlatbuffer(cache, systemDesc.getCpuDescs());
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
   auto chipCapabilities = toFlatbuffer(cache, systemDesc.getChipCapabilities());
   auto chipCoords = toFlatbuffer(cache, systemDesc.getChipCoords());
   auto chipChannels = toFlatbuffer(cache, systemDesc.getChipChannels());
-  return ::tt::target::CreateSystemDesc(*cache.fbb, chipDescs, chipDescIndices,
-                                        chipCapabilities, chipCoords,
-                                        chipChannels);
+  return ::tt::target::CreateSystemDesc(*cache.fbb, cpuDescs, chipDescs,
+                                        chipDescIndices, chipCapabilities,
+                                        chipCoords, chipChannels);
 }
 
 inline std::vector<::tt::target::Dim2dRange>

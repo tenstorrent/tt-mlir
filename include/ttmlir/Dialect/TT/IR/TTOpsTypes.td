@@ -148,6 +148,22 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
   }];
 }
 
+def TT_CPURoleAttr : EnumAttr<TT_Dialect, TT_CPURole, "cpu_role"> {
+  let assemblyFormat = "$value";
+}
+
+def TT_CPUDescAttr : TT_Attr<"CPUDesc", "cpu_desc"> {
+  let summary = "TT cpu_desc attribute";
+  let description = [{
+    TT cpu_desc attribute
+  }];
+
+  let parameters = (ins "CPURole":$role,
+                        "StringAttr":$target_triple);
+  let assemblyFormat = [{`{` `role` `=` $role `,`
+                             `target_triple` `=` $target_triple `}`}];
+}
+
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
   let summary = "TT chip_coord attribute";
   let description = [{
@@ -177,12 +193,13 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
     TT system_desc attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"ChipDescAttr">:$chipDescs,
+  let parameters = (ins ArrayRefParameter<"CPUDescAttr">:$cpuDescs,
+                        ArrayRefParameter<"ChipDescAttr">:$chipDescs,
                         ArrayRefParameter<"unsigned">:$chipDescIndices,
                         ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
                         ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
                         OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
-  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
+  let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);

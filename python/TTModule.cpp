@@ -276,7 +276,8 @@ void populateTTModule(py::module &m) {
                   })
       .def_static(
           "get",
-          [](MlirContext ctx, std::vector<MlirAttribute> chipDescs,
+          [](MlirContext ctx, std::vector<MlirAttribute> cpuDescs,
+             std::vector<MlirAttribute> chipDescs,
              std::vector<unsigned> chipDescIndices,
              std::vector<MlirAttribute> chipCapabilities,
              std::vector<MlirAttribute> chipCoords,
@@ -301,9 +302,14 @@ void populateTTModule(py::module &m) {
               chipChannelsUnwrapped.push_back(
                   mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
             }
+            std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
+            for (const auto &cpuDesc : cpuDescs) {
+              cpuDescsUnwrapped.push_back(
+                  mlir::cast<tt::CPUDescAttr>(unwrap(cpuDesc)));
+            }
             return wrap(tt::SystemDescAttr::get(
-                unwrap(ctx), chipDescsUnwrapped, chipDescIndices,
-                chipCapabilitiesUnwrapped, chipCoordsUnwrapped,
+                unwrap(ctx), cpuDescsUnwrapped, chipDescsUnwrapped,
+                chipDescIndices, chipCapabilitiesUnwrapped, chipCoordsUnwrapped,
                 chipChannelsUnwrapped));
           })
       .def_property_readonly(
