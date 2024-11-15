@@ -274,42 +274,60 @@ void populateTTModule(py::module &m) {
                   [](MlirContext ctx) {
                     return wrap(tt::SystemDescAttr::getDefault(unwrap(ctx)));
                   })
-      .def_static("get", [](MlirContext ctx,
-                            std::vector<MlirAttribute> cpuDescs,
-                            std::vector<MlirAttribute> chipDescs,
-                            std::vector<unsigned> chipDescIndices,
-                            std::vector<MlirAttribute> chipCapabilities,
-                            std::vector<MlirAttribute> chipCoords,
-                            std::vector<MlirAttribute> chipChannels) {
-        std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
-        for (auto chipDesc : chipDescs) {
-          chipDescsUnwrapped.push_back(
-              mlir::cast<tt::ChipDescAttr>(unwrap(chipDesc)));
-        }
-        std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
-        for (auto chipCapability : chipCapabilities) {
-          chipCapabilitiesUnwrapped.push_back(
-              mlir::cast<tt::ChipCapabilityAttr>(unwrap(chipCapability)));
-        }
-        std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
-        for (auto chipCoord : chipCoords) {
-          chipCoordsUnwrapped.push_back(
-              mlir::cast<tt::ChipCoordAttr>(unwrap(chipCoord)));
-        }
-        std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
-        for (auto chipChannel : chipChannels) {
-          chipChannelsUnwrapped.push_back(
-              mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
-        }
-        std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
-        for (const auto& cpuDesc : cpuDescs)
-        {
-            cpuDescsUnwrapped.push_back(mlir::cast<tt::CPUDescAttr>(unwrap(cpuDesc)));
-        }
-        return wrap(tt::SystemDescAttr::get(
-            unwrap(ctx), cpuDescsUnwrapped, chipDescsUnwrapped, chipDescIndices,
-            chipCapabilitiesUnwrapped, chipCoordsUnwrapped,
-            chipChannelsUnwrapped));
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<MlirAttribute> cpuDescs,
+             std::vector<MlirAttribute> chipDescs,
+             std::vector<unsigned> chipDescIndices,
+             std::vector<MlirAttribute> chipCapabilities,
+             std::vector<MlirAttribute> chipCoords,
+             std::vector<MlirAttribute> chipChannels) {
+            std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
+            for (auto chipDesc : chipDescs) {
+              chipDescsUnwrapped.push_back(
+                  mlir::cast<tt::ChipDescAttr>(unwrap(chipDesc)));
+            }
+            std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
+            for (auto chipCapability : chipCapabilities) {
+              chipCapabilitiesUnwrapped.push_back(
+                  mlir::cast<tt::ChipCapabilityAttr>(unwrap(chipCapability)));
+            }
+            std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
+            for (auto chipCoord : chipCoords) {
+              chipCoordsUnwrapped.push_back(
+                  mlir::cast<tt::ChipCoordAttr>(unwrap(chipCoord)));
+            }
+            std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
+            for (auto chipChannel : chipChannels) {
+              chipChannelsUnwrapped.push_back(
+                  mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
+            }
+            std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
+            for (const auto &cpuDesc : cpuDescs) {
+              cpuDescsUnwrapped.push_back(
+                  mlir::cast<tt::CPUDescAttr>(unwrap(cpuDesc)));
+            }
+            return wrap(tt::SystemDescAttr::get(
+                unwrap(ctx), cpuDescsUnwrapped, chipDescsUnwrapped,
+                chipDescIndices, chipCapabilitiesUnwrapped, chipCoordsUnwrapped,
+                chipChannelsUnwrapped));
+          })
+      .def_property_readonly(
+          "chip_descs",
+          [](tt::SystemDescAttr self) { return self.getChipDescs().vec(); })
+      .def_property_readonly("chip_desc_indices",
+                             [](tt::SystemDescAttr self) {
+                               return self.getChipDescIndices().vec();
+                             })
+      .def_property_readonly("chip_capabilities",
+                             [](tt::SystemDescAttr self) {
+                               return self.getChipCapabilities().vec();
+                             })
+      .def_property_readonly(
+          "chip_coords",
+          [](tt::SystemDescAttr self) { return self.getChipCoords().vec(); })
+      .def_property_readonly("chip_channels", [](tt::SystemDescAttr self) {
+        return self.getChipChannels().vec();
       });
 
   tt_attribute_class<tt::MemorySpaceAttr>(m, "MemorySpaceAttr")
