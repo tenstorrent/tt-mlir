@@ -29,6 +29,9 @@ try:
         get_op_debug_str,
         memcpy,
         deallocate_tensor,
+        open_so,
+        run_so_program,
+        compare_outs,
         WorkaroundEnv,
     )
 except ModuleNotFoundError:

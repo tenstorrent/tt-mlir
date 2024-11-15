@@ -4,4 +4,5 @@
 
 #include "ttnn-precompiled.hpp"
 
-std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs);
+std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs,
+                                  ttnn::Device *device);
