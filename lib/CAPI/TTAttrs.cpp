@@ -72,12 +72,12 @@ MlirAttribute ttmlirTTChipChannelAttrGet(MlirContext ctx, unsigned deviceId0,
 }
 
 MlirAttribute ttmlirTTSystemDescAttrGet(
-    MlirContext ctx, MlirAttribute *chipDescs, size_t chipDescsSize,
+    MlirContext ctx, MlirAttribute *cpuDescs, size_t cpuDescsSize,
+    MlirAttribute *chipDescs, size_t chipDescsSize,
     unsigned *chipDescIndices, size_t chipDescIndicesSize,
     MlirAttribute *chipCapabilities, size_t chipCapabilitiesSize,
     MlirAttribute *chipCoords, size_t chipCoordsSize,
-    MlirAttribute *chipChannels, size_t chipChannelsSize,
-    MlirAttribute *cpuDescs, size_t cpuDescsSize) {
+    MlirAttribute *chipChannels, size_t chipChannelsSize) {
   llvm::ArrayRef<MlirAttribute> chipDescsRef(chipDescs, chipDescsSize),
       chipCapabilitiesRef(chipCapabilities, chipCapabilitiesSize),
       chipCoordsRef(chipCoords, chipCoordsSize),
