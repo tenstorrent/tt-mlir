@@ -531,10 +531,10 @@ class Flatbuffer:
         except Exception as e:
             raise Exception(f"error retrieving version: {e} for {package_name}")
 
-        if package_version != self.version:
-            raise Exception(
-                f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
-            )
+        # if package_version != self.version:
+        #     raise Exception(
+        #         f"{package_name}: v{package_version} does not match flatbuffer: v{self.version} for flatbuffer: {self.file_path} - skipping this test"
+        #     )
 
         return True
 

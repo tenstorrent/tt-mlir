@@ -110,6 +110,13 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::uint32_t programIndex, std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);
 
+void *openSo(std::string path);
+
+std::vector<Tensor> runSoProgram(void *so, std::string name,
+                                 std::vector<Tensor> inputs, Device device);
+
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
+
 } // namespace tt::runtime
 
 #endif
