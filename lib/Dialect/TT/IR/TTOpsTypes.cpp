@@ -1,4 +1,4 @@
-\ // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17,7 +17,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-    using namespace mlir::tt;
+using namespace mlir::tt;
 
 #include "ttmlir/Dialect/TT/IR/TTOpsEnums.cpp.inc"
 
