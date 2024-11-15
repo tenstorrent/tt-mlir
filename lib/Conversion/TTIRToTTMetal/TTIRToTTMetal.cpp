@@ -2,11 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Operation.h"
-#include "llvm/ADT/ArrayRef.h"
-#include <cstdint>
-
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
@@ -15,10 +10,13 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
@@ -31,17 +29,14 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
-#include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/SmallSet.h>
-#include <mlir/IR/Block.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Types.h>
 #include <utility>
 
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
