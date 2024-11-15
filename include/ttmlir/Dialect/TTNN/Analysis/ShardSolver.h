@@ -89,6 +89,9 @@ public:
       }
       bool operator!=(Iterator other) const { return not(*this == other); }
       reference operator*() const { return (*p)[i]; }
+      pointer operator->() const { return get(); }
+      pointer get() const { return &(*p)[i]; }
+      std::uint64_t index() const { return i; }
     };
 
     RemainingLayoutAttrs(std::vector<tt::LayoutAttr> const &p,
@@ -104,8 +107,6 @@ public:
     std::vector<tt::LayoutAttr> const *p = nullptr;
     Bitset mask = 0;
   };
-
-  ShardSolverSolution const finish();
 
 private:
   static Bitset bitset(std::uint64_t bit) {
@@ -241,8 +242,8 @@ private:
 
     Operation *getProducerOp() const { return producerOperation; }
     Operation *getConsumerOp() const { return consumerOperation; }
+    const Paths &getPaths() const { return paths; }
 
-  private:
   private:
     BitsetId producerSetId = -1;
     BitsetId consumerSetId = -1;
@@ -280,15 +281,17 @@ private:
                             tt::LayoutAttr const &consumerLayout) const;
 
 public:
-  ShardSolver(
-      const llvm::DenseMap<Operation *, std::vector<LayoutAttr>> &legalLayouts,
-      const std::vector<OpL1MemSpec> &shardSpecs,
-      const llvm::DenseSet<Operation *> &shardedOps,
-      const unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges);
+  ShardSolver(const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+                  &legalLayouts,
+              const std::vector<OpL1MemSpec> &shardSpecs,
+              const llvm::DenseSet<Operation *> &shardedOps,
+              const unsigned usableL1CacheSize,
+              const std::unordered_set<Edge> &overrideReshardEdges);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, tt::LayoutAttr const &layout);
   static bool supportsInterleavedInputShardedOutput(Operation *op);
+  llvm::DenseMap<Operation *, SmallVector<float, 64>> produceMaxCoreUsage();
+  ShardSolverSolution finish() const;
 
 private:
   const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> *legalLayouts;
