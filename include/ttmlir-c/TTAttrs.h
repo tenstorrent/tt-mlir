@@ -75,6 +75,14 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTOperandConstraintArrayAttrGet(
     MlirContext ctx, uint32_t *OperandConstraints,
     size_t OperandConstraintsSize);
 
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx,
+                                                         int64_t y, int64_t x);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
+    MlirContext ctx, MlirAttribute *worker, size_t workerSize,
+    MlirAttribute *dram, size_t dramSize, MlirAttribute *eth, size_t ethSize,
+    MlirAttribute *eth_inactive, size_t eth_inactiveSize);
+
 #ifdef __cplusplus
 }
 #endif
