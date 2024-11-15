@@ -304,9 +304,7 @@ class TTIRBuilder:
                 inputs,
                 [output],
                 self._get_operand_constraint_attr(3),
-                loc=Location.file(
-                    filename=stack[0].filename, line=stack[0].lineno, col=id
-                ),
+                loc=Location.name(str(id)),
             )
 
             goldens = []

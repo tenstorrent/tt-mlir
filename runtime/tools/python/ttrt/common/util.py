@@ -522,22 +522,6 @@ class Flatbuffer:
         return Flatbuffer.ttsys_file_extension
 
 
-class Golden:
-    def __init__(self, tensor_id, tensor_shape, tensor_stride, tensor_data):
-        self.tensor_id = tensor_id
-        self.tensor_shape = tensor_shape
-        self.tensor_stride = tensor_stride
-        self.tensor_data = tensor_data
-
-    def get_golden_tensor(self):
-        tensor_byte_data = bytes(self.tensor_data)
-        float_data = np.frombuffer(tensor_byte_data, dtype=np.float32)
-        golden_tensor = torch.tensor(float_data, dtype=torch.float32).reshape(
-            self.tensor_shape
-        )
-        return golden_tensor
-
-
 class Binary(Flatbuffer):
     def __init__(self, logger, file_manager, file_path, capsule=None):
         super().__init__(logger, file_manager, file_path, capsule=capsule)
@@ -556,21 +540,6 @@ class Binary(Flatbuffer):
         for i in range(len(self.fbb_dict["programs"])):
             program = Binary.Program(i, self.fbb_dict["programs"][i])
             self.programs.append(program)
-
-            # populate golden tensors if they exist
-            if "debug_info" in self.fbb_dict["programs"][i]:
-                if "golden_info" in self.fbb_dict["programs"][i]["debug_info"]:
-                    golden_info_list = self.fbb_dict["programs"][i]["debug_info"][
-                        "golden_info"
-                    ]["golden_map"]
-
-                    for golden_tensor_dict in golden_info_list:
-                        Golden(
-                            golden_tensor_dict["key"],
-                            golden_tensor_dict["value"]["shape"],
-                            golden_tensor_dict["value"]["stride"],
-                            golden_tensor_dict["value"]["data"],
-                        )
 
     def check_system_desc(self, query):
         import ttrt.binary
@@ -617,15 +586,20 @@ class Binary(Flatbuffer):
             self.input_tensors = []
             self.output_tensors = []
 
-        def populate_inputs(self, init_fn):
-            for i in self.program["inputs"]:
-                torch_tensor = init_fn(
-                    i["desc"]["shape"],
-                    dtype=Binary.Program.from_data_type(
-                        i["desc"]["layout"]["memory_desc"]["data_type"]
-                    ),
-                )
-                self.input_tensors.append(torch_tensor)
+        def populate_inputs(self, init_fn, golden_inputs=[]):
+            if len(golden_inputs) > 0:
+                assert len(golden_inputs) == len(self.program["inputs"])
+                for golden_input in golden_inputs:
+                    self.input_tensors.append(golden_input)
+            else:
+                for i in self.program["inputs"]:
+                    torch_tensor = init_fn(
+                        i["desc"]["shape"],
+                        dtype=Binary.Program.from_data_type(
+                            i["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
+                    self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
             for i in self.program["outputs"]:
