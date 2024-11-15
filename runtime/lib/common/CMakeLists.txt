@@ -1,20 +1,30 @@
-# Get the target architecture
-set(TARGET_ARCH ${CMAKE_SYSTEM_PROCESSOR})
-
-# Get the target vendor
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(TARGET_VENDOR "gnu")
-elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-    set(TARGET_VENDOR "apple")
-elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
-    set(TARGET_VENDOR "microsoft")
+#credit: https://github.com/google/libcxx/blob/master/cmake/Modules/GetTriple.cmake
+# Get the architecture.
+set(arch ${CMAKE_SYSTEM_PROCESSOR})
+if (arch STREQUAL "x86")
+  set(arch "i686")
 endif()
-
-# Get the target OS
-set(TARGET_OS ${CMAKE_SYSTEM_NAME})
+# Get the vendor.
+if (${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
+  set(vendor "apple")
+else()
+  set(vendor "pc")
+endif()
+# Get os.
+if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
+  set(os "win32")
+else()
+  string(TOLOWER ${CMAKE_SYSTEM_NAME} os)
+endif()
+set(triple "${arch}-${vendor}-${os}")
+set(${out} ${triple} PARENT_SCOPE)
+set(${out_arch} ${arch} PARENT_SCOPE)
+set(${out_vendor} ${vendor} PARENT_SCOPE)
+set(${out_os} ${os} PARENT_SCOPE)
+message(STATUS "Target triple: ${triple}")
 
 # Construct the target triple
-set(TARGET_TRIPLE "${TARGET_ARCH}-${TARGET_VENDOR}-${TARGET_OS}")
+set(TARGET_TRIPLE "triple")
 
 add_definitions(-DTARGET_TRIPLE="${TARGET_TRIPLE}")
 
