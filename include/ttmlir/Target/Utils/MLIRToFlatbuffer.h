@@ -293,11 +293,21 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getNumCBs());
 }
 
+inline ::tt::target::CPURole
+toFlatbuffer(FlatbufferObjectCache &, CPURole memLayout) {
+  switch (memLayout) {
+  case CPURole::Host:
+    return ::tt::target::TensorMemoryLayout::Host;
+  case TensorMemoryLayout::Device:
+    return ::tt::target::TensorMemoryLayout::Device;
+  }
+}
+
 inline flatbuffers::Offset<::tt::target::CPUDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, CpuDescAttr cpuDesc) {
+toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
   return ::tt::target::CreateCPUDesc(
     *cache.fbb,
-    toFlatBuffer(cache, cpuDesc.getRole()),
+    toFlatbuffer(cache, cpuDesc.getRole()),
     cache.fbb->CreateString(cpuDesc.getTargetTriple())
   );
 }
