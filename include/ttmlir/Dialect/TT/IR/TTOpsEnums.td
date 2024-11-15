@@ -190,7 +190,7 @@ def TT_BufferAccess : I32BitEnumAttr<"BufferAccess", "TT Buffer Access",
 }
 
 def TT_CPURoleHost : I32BitEnumAttrCaseBit<"Host", 0, "host">;
-def TT_CPURoleDevice : I32BitEnumAttrCaseBit<"Device", 0, "device">;
+def TT_CPURoleDevice : I32BitEnumAttrCaseBit<"Device", 1, "device">;
 
 def TT_CPURole : I32BitEnumAttr<"CPURole", "TT CPU Role",
                             [
