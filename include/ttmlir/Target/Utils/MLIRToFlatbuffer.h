@@ -312,15 +312,15 @@ toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
 
 inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
+  auto cpuDescs = toFlatbuffer(cache, systemDesc.getCpuDescs());
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
   auto chipCapabilities = toFlatbuffer(cache, systemDesc.getChipCapabilities());
   auto chipCoords = toFlatbuffer(cache, systemDesc.getChipCoords());
   auto chipChannels = toFlatbuffer(cache, systemDesc.getChipChannels());
-  auto cpuDescs = toFlatbuffer(cache, systemDesc.getCpuDescs());
-  return ::tt::target::CreateSystemDesc(*cache.fbb, chipDescs, chipDescIndices,
-                                        chipCapabilities, chipCoords,
-                                        chipChannels, cpuDescs);
+  return ::tt::target::CreateSystemDesc(*cache.fbb, cpuDescs, chipDescs,
+                                        chipDescIndices, chipCapabilities,
+                                        chipCoords, chipChannels);
 }
 
 inline std::vector<::tt::target::Dim2dRange>
