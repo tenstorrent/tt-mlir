@@ -158,13 +158,34 @@ getMemoryConfig(const mlir::tt::LayoutAttr &layout) {
 
 bool ReluOpInterface::isLegal(const mlir::tt::LayoutAttr &inputLayout,
                               const mlir::tt::LayoutAttr &outputLayout) {
-  return true; // to solve when we have metal implementation
+  // return true; // to solve when we have metal implementation
+  const auto input =
+      std::make_tuple(detail::getTensorShape(inputLayout.getMemref()),
+                      detail::getDataType(inputLayout.getMemref()),
+                      detail::getTensorLayout(inputLayout),
+                      detail::getMemoryConfig(inputLayout));
+  const auto output =
+      std::make_tuple(detail::getTensorShape(outputLayout.getMemref()),
+                      detail::getDataType(outputLayout.getMemref()),
+                      detail::getTensorLayout(outputLayout),
+                      detail::getMemoryConfig(outputLayout));
+  auto usage =
+      ::ttnn::compiler_interface::unary::unary_op_constraints<::ttnn::relu6>(
+          input, output);
+
+  llvm::outs() << "ReluOpInterface::getOpL1Usage: " << std::get<0>(usage)
+               << ", " << std::get<1>(usage) << ", " << std::get<2>(usage)
+               << ", " << std::get<3>(usage) << inputLayout << outputLayout
+               << "\n";
+
+  return true;
 }
 
 std::tuple<size_t, size_t, size_t>
 ReluOpInterface::getOpL1Usage(const mlir::tt::LayoutAttr &inputLayout,
                               const mlir::tt::LayoutAttr &outputLayout) {
-  return std::make_tuple(0, 0, 0); // to solve when we have metal implementation
+  return std::make_tuple(0, 0, 0); // to solve when we have metal
+  // implementation
 }
 
 } // namespace mlir::tt::op_model::ttnn

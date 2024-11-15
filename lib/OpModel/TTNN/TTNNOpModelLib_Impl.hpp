@@ -44,11 +44,15 @@
 #pragma clang diagnostic ignored "-Wc99-extensions"
 #pragma clang diagnostic ignored "-Wc++11-narrowing"
 #pragma clang diagnostic ignored "-Wzero-length-array"
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 #define FMT_HEADER_ONLY
 #include "tt_metal/common/core_coord.hpp"
 #include "tt_metal/impl/buffers/buffer.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
+
+#include "ttnn/operations/eltwise/unary/unary.hpp"
+#include "ttnn/operations/eltwise/unary/unary_compiler_interface.hpp"
 
 #pragma clang diagnostic pop
