@@ -307,9 +307,9 @@ void populateTTModule(py::module &m) {
             cpuDescsUnwrapped.push_back(mlir::cast<tt::CPUDescAttr>(unwrap(cpuDesc)));
         }
         return wrap(tt::SystemDescAttr::get(
-            unwrap(ctx), chipDescsUnwrapped, chipDescIndices,
+            unwrap(ctx), cpuDescsUnwrapped, chipDescsUnwrapped, chipDescIndices,
             chipCapabilitiesUnwrapped, chipCoordsUnwrapped,
-            chipChannelsUnwrapped, cpuDescsUnwrapped));
+            chipChannelsUnwrapped));
       });
 
   tt_attribute_class<tt::MemorySpaceAttr>(m, "MemorySpaceAttr")

@@ -115,9 +115,9 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
     cpuDescsUnwrapped.push_back(mlir::cast<CPUDescAttr>(unwrap(cpuDesc)));
   }
 
-  return wrap(SystemDescAttr::get(unwrap(ctx), chipDescsUnwrapped,
+  return wrap(SystemDescAttr::get(unwrap(ctx), cpuDescsUnwrapped, chipDescsUnwrapped,
                                   chipDescIndicesRef, chipCapabilitiesUnwrapped,
-                                  chipCoordsUnwrapped, chipChannelsUnwrapped, cpuDescsUnwrapped));
+                                  chipCoordsUnwrapped, chipChannelsUnwrapped));
 }
 
 MlirAttribute ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
