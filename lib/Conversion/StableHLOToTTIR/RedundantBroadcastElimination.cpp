@@ -49,7 +49,7 @@ public:
 
         if (op->getResult(0).getType() == op->getOperand(0).getType()) {
           // This broadcast is redundant
-          rewriter.replaceAllUsesWith((Value)op->getResult(0),
+          rewriter.replaceAllUsesWith(Value(op->getResult(0)),
                                       op->getOperand(0));
           rewriter.eraseOp(op);
         }
