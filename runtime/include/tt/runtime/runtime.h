@@ -76,6 +76,13 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
 
 std::vector<float> getTensorData(Tensor tensor);
 
+void *openSo(std::string path);
+
+std::vector<Tensor> runSoProgram(void *so, std::string name,
+                                 std::vector<Tensor> inputs, Device device);
+
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
+
 } // namespace tt::runtime
 
 #endif

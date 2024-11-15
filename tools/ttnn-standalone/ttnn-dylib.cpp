@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttnn-dylib.hpp"
+#include "device.hpp"
 
 // Forward function example
 //
-std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs) {
+std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs,
+                                  ttnn::Device *v3) {
   ttnn::Tensor v1 = inputs[0];
   ttnn::Tensor v2 = inputs[1];
-  ttnn::Device *v3 = ttnn::DeviceGetter::getInstance();
+  //   ttnn::Device *v3 = ttnn::DeviceGetter::getInstance();
   ttnn::MemoryConfig v4 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v5 = ttnn::to_device(v1, v3, v4);
@@ -30,8 +32,8 @@ std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs) {
   }));
   ttnn::MemoryConfig v11 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
-  ttnn::Tensor v12 =
-      ttnn::empty(v10, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, v3, v11);
+  ttnn::Tensor v12 = ttnn::empty(v10, ttnn::DataType::BFLOAT16,
+                                 ttnn::Layout::ROW_MAJOR, v3, v11);
   ttnn::Tensor v13 = ttnn::add(v6, v9, std::nullopt, std::nullopt, v12);
   ttnn::deallocate(v9, false);
   ttnn::deallocate(v6, false);

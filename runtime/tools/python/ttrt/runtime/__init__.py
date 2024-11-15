@@ -22,6 +22,9 @@ try:
         wait,
         get_op_output_tensor,
         get_op_debug_str,
+        open_so,
+        run_so_program,
+        compare_outs,
         WorkaroundEnv,
     )
 except ModuleNotFoundError:

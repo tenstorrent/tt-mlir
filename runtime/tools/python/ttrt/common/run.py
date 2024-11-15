@@ -383,6 +383,10 @@ class Run:
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
+            so_path = "/localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/build/libttnn-dylib.so"
+            so_handle = ttrt.runtime.open_so(so_path)
+            print(f"opened so handle")
+
             try:
                 for bin in binaries:
                     try:
@@ -473,6 +477,23 @@ class Run:
                                 )
 
                             ttrt.runtime.wait(event)
+
+                            emitc_outs = ttrt.runtime.run_so_program(
+                                so_handle,
+                                "_Z7forwardSt6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE",
+                                inputs,
+                                device,
+                            )
+                            print("got outs")
+
+                            all_tensors_match = ttrt.runtime.compare_outs(
+                                total_outputs[0], emitc_outs
+                            )
+
+                            if not all_tensors_match:
+                                raise Exception(
+                                    "Failed: TTRT and EmitC outputs do not match!"
+                                )
 
                             if self["--identity"]:
                                 self.logging.debug(
