@@ -293,6 +293,15 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getNumCBs());
 }
 
+inline flatbuffers::Offset<::tt::target::CPUDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, CpuDescAttr cpuDesc) {
+  return ::tt::target::CreateCPUDesc(
+    *cache.fbb,
+    toFlatBuffer(cache, cpuDesc.getRole()),
+    cache.fbb->CreateString(cpuDesc.getTargetTriple())
+  );
+}
+
 inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
