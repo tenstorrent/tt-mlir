@@ -1,4 +1,4 @@
-#credit: https://github.com/google/libcxx/blob/master/cmake/Modules/GetTriple.cmake
+# credit: https://github.com/google/libcxx/blob/master/cmake/Modules/GetTriple.cmake
 # Get the architecture.
 set(arch ${CMAKE_SYSTEM_PROCESSOR})
 if (arch STREQUAL "x86")
