@@ -212,4 +212,8 @@ MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
                                          ethVec, ethInactiveVec));
 }
 
+MlirAttribute ttmlirTTCoreCoordAttrGet(MlirContext ctx, int64_t y, int64_t x) {
+  return wrap(CoreCoordAttr::get(unwrap(ctx), y, x));
+}
+
 } // namespace mlir::tt

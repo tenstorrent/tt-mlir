@@ -17,7 +17,7 @@ ExternalProject_Add(
 
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
-  COMMAND pip install ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
+  COMMAND pip install -e ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
   COMMAND pip install ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package
 
   DEPENDS TTMLIRPythonModules model-explorer ttrt

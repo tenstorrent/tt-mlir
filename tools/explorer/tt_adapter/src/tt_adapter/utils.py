@@ -9,5 +9,6 @@ def parse_mlir_file(model_path):
         ttmlir.dialects.ttkernel.register_dialect(ctx)
         ttmlir.dialects.ttir.register_dialect(ctx)
         ttmlir.dialects.tt.register_dialect(ctx)
-        module = ttmlir.ir.Module.parse("".join(model_file.readlines()), ctx)
+        ttmlir.dialects.ttnn.register_dialect(ctx)
+        module = ttmlir.ir.Module.parse(model_file.read(), ctx)
         return module

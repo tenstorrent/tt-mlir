@@ -90,7 +90,8 @@ void populateTTModule(py::module &m) {
                                return static_cast<uint32_t>(la.getOobVal());
                              })
       .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
-      .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
+      .def_property_readonly(
+          "memref", [](tt::LayoutAttr self) { return wrap(self.getMemref()); })
       .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
       .def_property_readonly("memory_space_as_int",
                              [](tt::LayoutAttr la) {
@@ -99,6 +100,8 @@ void populateTTModule(py::module &m) {
                              })
       .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape)
       .def_property_readonly("memory_layout", &tt::LayoutAttr::getMemLayout)
+      .def_property_readonly(
+          "linear", [](tt::LayoutAttr self) { return wrap(self.getLinear()); })
       .def_property_readonly("memory_layout_as_int", [](tt::LayoutAttr la) {
         return static_cast<uint32_t>(la.getMemLayout());
       });
@@ -235,6 +238,14 @@ void populateTTModule(py::module &m) {
                              [](tt::ChipPhysicalCoresAttr self) {
                                return self.getEthInactive().vec();
                              });
+
+  tt_attribute_class<tt::CoreCoordAttr>(m, "CoreCoordAttr")
+      .def_static("get",
+                  [](MlirContext ctx, int64_t y, int64_t x) {
+                    return wrap(tt::CoreCoordAttr::get(unwrap(ctx), y, x));
+                  })
+      .def_property_readonly("y", &tt::CoreCoordAttr::getY)
+      .def_property_readonly("x", &tt::CoreCoordAttr::getX);
 
   tt_attribute_class<tt::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",
@@ -424,8 +435,11 @@ void populateTTModule(py::module &m) {
              return mlir::cast<tt::DeviceAttr>(unwrap(self));
            })
       .def_property_readonly("grid_attr", &tt::DeviceAttr::getWorkerGrid)
-      .def_property_readonly("l1_map", &tt::DeviceAttr::getL1Map)
-      .def_property_readonly("dram_map", &tt::DeviceAttr::getDramMap)
+      .def_property_readonly(
+          "l1_map", [](tt::DeviceAttr self) { return wrap(self.getL1Map()); })
+      .def_property_readonly(
+          "dram_map",
+          [](tt::DeviceAttr self) { return wrap(self.getDramMap()); })
       .def_property_readonly(
           "mesh_shape",
           [](tt::DeviceAttr const &self) { return self.getMeshShape().vec(); })
@@ -441,7 +455,10 @@ void populateTTModule(py::module &m) {
                         unwrap(ctx), SmallVector<std::int64_t>{height, width},
                         static_cast<tt::DataType>(dataType)));
                   })
-      .def_property_readonly("data_type", &tt::TileType::getDataType)
+      .def_property_readonly("data_type_as_int",
+                             [](tt::TileType self) {
+                               return static_cast<uint32_t>(self.getDataType());
+                             })
       .def_property_readonly("shape", [](tt::TileType const &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
       });
