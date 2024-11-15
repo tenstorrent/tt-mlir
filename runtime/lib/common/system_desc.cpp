@@ -256,8 +256,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
   // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoords,
-      &allConnections, &cpuDescs);
+      fbb, &cpuDescs, &chipDescs, &chipDescIndices, &chipCapabilities,
+      &chipCoords, &allConnections);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
