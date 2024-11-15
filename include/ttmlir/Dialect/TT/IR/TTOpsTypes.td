@@ -148,7 +148,7 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
   }];
 }
 
-def TT_CPURoleAttr : EnumAttr<TT_Dialect, TT_CPURole, "buffer_access"> {
+def TT_CPURoleAttr : EnumAttr<TT_Dialect, TT_CPURole, "cpu_role"> {
   let assemblyFormat = "$value";
 }
 
