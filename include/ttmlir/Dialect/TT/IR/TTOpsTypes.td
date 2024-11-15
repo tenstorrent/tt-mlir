@@ -159,9 +159,9 @@ def TT_CPUDescAttr : TT_Attr<"CPUDesc", "cpu_desc"> {
   }];
 
   let parameters = (ins "CPURole":$role,
-                        "std::string":$target_triple);
+                        "StringAttr":$target_triple);
   let assemblyFormat = [{`{` `role` `=` $role `,`
-                             `target_triple` `=` " $target_triple " `}`}];
+                             `target_triple` `=` $target_triple `}`}];
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
