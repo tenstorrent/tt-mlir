@@ -310,9 +310,10 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
                       ::mlir::tt::CPURole::Host) ==
                   static_cast<std::underlying_type_t<::tt::target::CPURole>>(
                       ::tt::target::CPURole::Host));
+    const auto* flatbufferTargetTripleString = element->target_triple();
     cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
         context, static_cast<mlir::tt::CPURole>(element->role()),
-        element->target_triple()));
+        std::string(flatbufferTargetTripleString->c_str(), flatbufferTargetTripleString->size())));
   }
 
   // Generate system desc attribute
