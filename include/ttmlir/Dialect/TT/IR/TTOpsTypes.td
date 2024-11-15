@@ -198,8 +198,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
                         ArrayRefParameter<"unsigned">:$chipDescIndices,
                         ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
                         ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
-                        OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels,
-                        );
+                        OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
   let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
