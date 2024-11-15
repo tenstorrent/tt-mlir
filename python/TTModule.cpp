@@ -304,7 +304,7 @@ void populateTTModule(py::module &m) {
         std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
         for (auto cpuDesc : cpuDescs)
         {
-            cpuDescsUnwrapped.push_back(mlir::cast<tt::CPUDescAttr>(cpuDesc));
+            cpuDescsUnwrapped.push_back(mlir::cast<tt::CPUDescAttr>(unwrap(cpuDesc)));
         }
         return wrap(tt::SystemDescAttr::get(
             unwrap(ctx), chipDescsUnwrapped, chipDescIndices,

@@ -108,9 +108,8 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
       // Chip Channel Connections
       {},
       // CPU Descriptors
-      {
-        tt::CPUDescAttr::get(context, tt::CPURole::Host, "x86_64-pc-linux-gnu")
-      });
+      {tt::CPUDescAttr::get(context, tt::CPURole::Host,
+                            "x86_64-pc-linux-gnu")});
 }
 
 mlir::tt::SystemDescAttr
@@ -302,10 +301,18 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
     chip_channel_list.push_back(chip_channel_attr);
   }
   std::vector<tt::CPUDescAttr> cpu_desc_list;
-  for (auto const *element : *binary_cpu_desc)
-  {
-    auto role = element->role();
-    cpu_desc_list.emplace_back(tt::CPUDescAttr::get(context, element->role(), element->target_triple()));
+  for (auto const *element : *binary_cpu_desc) {
+    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::mlir::tt::CPURole::Device) ==
+                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::tt::target::CPURole::Device));
+    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::mlir::tt::CPURole::Host) ==
+                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::tt::target::CPURole::Host));
+    cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
+        context, static_cast<mlir::tt::CPURole>(element->role()),
+        element->target_triple()));
   }
 
   // Generate system desc attribute
