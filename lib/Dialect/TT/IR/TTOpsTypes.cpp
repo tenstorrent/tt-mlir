@@ -304,6 +304,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   std::vector<tt::CPUDescAttr> cpu_desc_list;
   for (auto const *element : *binary_cpu_desc)
   {
+    auto role = element->role();
     cpu_desc_list.emplace_back(tt::CPUDescAttr::get(context, element->role(), element->target_triple()));
   }
 

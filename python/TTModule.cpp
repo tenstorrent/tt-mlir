@@ -301,7 +301,7 @@ void populateTTModule(py::module &m) {
           chipChannelsUnwrapped.push_back(
               mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
         }
-        std::vector<tt:CPUDescAttr> cpuDescsUnwrapped;
+        std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
         for (auto cpuDesc : cpuDescs)
         {
             cpuDescsUnwrapped.push_back(mlir::cast<tt::CPUDescAttr>(cpuDesc));

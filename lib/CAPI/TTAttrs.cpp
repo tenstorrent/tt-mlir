@@ -77,7 +77,7 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
     MlirAttribute *chipCapabilities, size_t chipCapabilitiesSize,
     MlirAttribute *chipCoords, size_t chipCoordsSize,
     MlirAttribute *chipChannels, size_t chipChannelsSize,
-    MlirAttribute *cpuDecs, size_t cpuDescsSize) {
+    MlirAttribute *cpuDescs, size_t cpuDescsSize) {
   llvm::ArrayRef<MlirAttribute> chipDescsRef(chipDescs, chipDescsSize),
       chipCapabilitiesRef(chipCapabilities, chipCapabilitiesSize),
       chipCoordsRef(chipCoords, chipCoordsSize),
