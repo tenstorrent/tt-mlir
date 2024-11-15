@@ -199,7 +199,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
                         ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
                         OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels,
                         ArrayRefParameter<"CPUDescAttr">:$cpuDescs);
-  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `[` $cpuDescs `]` `>`";
+  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `,` `[` $cpuDescs `]` `>`";
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
