@@ -106,7 +106,11 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
           tt::ChipCoordAttr::get(context, 0, 0, 0, 0),
       },
       // Chip Channel Connections
-      {});
+      {},
+      // CPU Descriptors
+      {
+        tt::CPUDescAttr::get(context, tt::CPURole::Host, "x86_64-pc-linux-gnu")
+      });
 }
 
 mlir::tt::SystemDescAttr
@@ -129,6 +133,7 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   auto const *chip_capabilities = binary_system_desc->chip_capabilities();
   auto const *binary_chip_coords = binary_system_desc->chip_coords();
   auto const *chip_channel_connections = binary_system_desc->chip_channels();
+  auto const *binary_cpu_desc = binary_system_desc->cpu_descs();
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
@@ -296,11 +301,16 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->device_id1(), ethernet_core_coord1_vec);
     chip_channel_list.push_back(chip_channel_attr);
   }
+  std::vector<tt::CPUDescAttr> cpu_desc_list;
+  for (auto const *element : *binary_cpu_desc)
+  {
+    cpu_desc_list.emplace_back(tt::CPUDescAttr::get(context, element->role(), element->target_triple()));
+  }
 
   // Generate system desc attribute
   auto system_desc_attr = tt::SystemDescAttr::get(
       context, chip_desc_list, chip_indices_list, chip_capabilities_list,
-      chip_coordinate_list, chip_channel_list);
+      chip_coordinate_list, chip_channel_list, cpu_desc_list);
 
   return system_desc_attr;
 }

@@ -112,7 +112,7 @@ MlirAttribute ttmlirTTSystemDescAttrGet(
   std::vector<tt::CPUDescAttr> cpuDescsUnwrapped;
   for (auto cpuDesc : cpuDescsRef)
   {
-    cpuDescsUnwrapped.push_back(mlir::cast<CpuDescAttr>(unwrap(cpuDesc)));
+    cpuDescsUnwrapped.push_back(mlir::cast<CPUDescAttr>(unwrap(cpuDesc)));
   }
 
   return wrap(SystemDescAttr::get(unwrap(ctx), chipDescsUnwrapped,
