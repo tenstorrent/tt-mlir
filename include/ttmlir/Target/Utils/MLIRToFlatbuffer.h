@@ -297,9 +297,9 @@ inline ::tt::target::CPURole
 toFlatbuffer(FlatbufferObjectCache &, CPURole memLayout) {
   switch (memLayout) {
   case CPURole::Host:
-    return ::tt::target::TensorMemoryLayout::Host;
+    return ::tt::target::CPURole::Host;
   case TensorMemoryLayout::Device:
-    return ::tt::target::TensorMemoryLayout::Device;
+    return ::tt::target::CPURole::Device;
   }
 }
 
