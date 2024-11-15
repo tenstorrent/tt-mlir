@@ -21,7 +21,7 @@ module @jit_convolution_bad_spatial_dimensions {
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
       operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
-      padding = dense<1> : tensor<2x2xi64>,
+      padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
@@ -52,7 +52,7 @@ module @jit_convolution_bad_stride_dimensions {
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
       operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
-      padding = dense<1> : tensor<2x2xi64>,
+      padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1, 1>
@@ -83,7 +83,7 @@ module @jit_convolution_bad_input_tensor {
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
       operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
-      padding = dense<1> : tensor<2x2xi64>,
+      padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
@@ -114,7 +114,7 @@ module @jit_convolution_bad_weight_tensor {
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
       operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
-      padding = dense<1> : tensor<2x2xi64>,
+      padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
@@ -145,7 +145,7 @@ module @jit_convolution_bad_bias_tensor {
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
       operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
-      padding = dense<1> : tensor<2x2xi64>,
+      padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
