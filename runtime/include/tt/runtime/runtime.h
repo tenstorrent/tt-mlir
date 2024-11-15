@@ -69,6 +69,13 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
+void *openSo(std::string path);
+
+std::vector<Tensor> runSoProgram(void *so, std::string name,
+                                 std::vector<Tensor> inputs, Device device);
+
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
+
 } // namespace tt::runtime
 
 #endif

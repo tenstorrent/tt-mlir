@@ -19,6 +19,9 @@ try:
         create_tensor,
         create_multi_device_tensor,
         wait,
+        open_so,
+        run_so_program,
+        compare_outs,
         WorkaroundEnv,
     )
 except ModuleNotFoundError:
