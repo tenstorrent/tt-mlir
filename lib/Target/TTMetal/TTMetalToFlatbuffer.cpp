@@ -265,7 +265,8 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
           for (auto arg : region.getArguments()) {
             auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
             auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-            auto tensorRef = cbType.getIsInternal() ? 0 : operands[argNumber++];
+            auto tensorRef =
+                argNumber >= operands.size() ? 0 : operands[argNumber++];
             cbs.push_back(
                 ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
                                           cbType.getAddress(), cbDesc));

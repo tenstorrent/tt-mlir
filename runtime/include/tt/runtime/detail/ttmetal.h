@@ -41,6 +41,7 @@
 #pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
+#include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
 #include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop

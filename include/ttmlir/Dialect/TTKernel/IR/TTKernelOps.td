@@ -536,13 +536,20 @@ def TTKernel_UnreachableOp : TTKernel_Op<"unreachable", [Pure, ReturnLike, Termi
     }];
 }
 
-def TTKernel_MacroOp : TTKernel_Op<"macro"> {
-    let summary = "Macro op.";
+def TTKernel_MemZerosBaseOp : TTKernel_Op<"mem_zeros_base"> {
+    let summary = "Op corresponding to MEM_ZEROS_BASE macro in kernels.";
     let description = [{
-      Macro operation to mimic C++ macros
+      Op corresponding to MEM_ZEROS_BASE macro in kernels.
     }];
 
-    let arguments = (ins FlatSymbolRefAttr:$name);
+    let results = (outs I32:$result);
+}
+
+def TTKernel_MemZerosSizeOp : TTKernel_Op<"mem_zeros_size"> {
+    let summary = "Op corresponding to MEM_ZEROS_SIZE macro in kernels.";
+    let description = [{
+      Op corresponding to MEM_ZEROS_SIZE macro in kernels.
+    }];
 
     let results = (outs I32:$result);
 }

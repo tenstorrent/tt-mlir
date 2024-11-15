@@ -81,16 +81,14 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
                           "uint64_t":$address,
                           "MemRefType":$memref,
                           "uint64_t":$page_size,
-                          "uint64_t":$num_buffers,
-                          "bool":$is_internal);
-    let assemblyFormat = "`<` $port`,` $address`,` $memref`,` $page_size`,` $num_buffers`,` $is_internal `>`";
+                          "uint64_t":$num_buffers);
+    let assemblyFormat = "`<` $port`,` $address`,` $memref`,` $page_size`,` $num_buffers `>`";
 
     let extraClassDeclaration = [{
         static CBType get(::mlir::MLIRContext *context,
                               CBPort port,
                               uint64_t address,
-                              MemRefType memref,
-                              bool is_internal = false) {
+                              MemRefType memref) {
           uint64_t numBuffers = 1;
           uint64_t pageSize = 0;
           if (::mlir::isa<::mlir::tt::TileType>(memref.getElementType())) {
@@ -98,7 +96,7 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
           } else {
             pageSize = memref.getShape().back() * (memref.getElementType().getIntOrFloatBitWidth() / 8);
           }
-          return CBType::get(context, port, address, memref, pageSize, numBuffers, is_internal);
+          return CBType::get(context, port, address, memref, pageSize, numBuffers);
         }
 
         ::llvm::ArrayRef<int64_t> getShape() const {

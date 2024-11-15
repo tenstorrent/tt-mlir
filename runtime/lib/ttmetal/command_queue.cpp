@@ -31,13 +31,6 @@ struct CQExecutor {
   CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
              std::vector<InputBuffer> const &inputs,
              std::vector<OutputBuffer> const &outputs);
-  ~CQExecutor() {
-    ::tt::tt_metal::DeallocateBuffer(*buffers.at(kReservedBufferId));
-    buffers.erase(kReservedBufferId);
-  }
-
-  constexpr static uint32_t kReservedBufferId = 1 << 20;
-  void createReservedL1Buffer();
 
   std::shared_ptr<::tt::tt_metal::Event>
   execute(::tt::target::metal::CommandQueue const *commandQueue);
@@ -74,47 +67,6 @@ CQExecutor::CQExecutor(::tt::tt_metal::Device *device, std::size_t cq_id,
   }
 
   cq = &device->command_queue(cq_id);
-
-  createReservedL1Buffer();
-}
-
-void CQExecutor::createReservedL1Buffer() {
-  // Ideally size of the reserved space should be part of system desc.
-  constexpr uint32_t dimSize = 32;
-  constexpr uint32_t sizeKB = dimSize * dimSize * 4;
-  const uint32_t address = device->l1_size_per_core() - sizeKB;
-
-  CoreCoord cores = device->logical_grid_size();
-
-  std::array<uint32_t, 2> shape = {dimSize, dimSize};
-  ShardSpec shardSpec(
-      CoreRangeSet(
-          {CoreRange(CoreCoord(0, 0), CoreCoord(cores.x - 1, cores.y - 1))}),
-      shape);
-
-  array<uint32_t, 2> tensorShape = {static_cast<uint32_t>(cores.y),
-                                    static_cast<uint32_t>(cores.x)};
-  ShardSpecBuffer shardSpecBuffer(shardSpec, {dimSize, dimSize}, tensorShape);
-
-  tt::target::DataType dataType = tt::target::DataType::Float16;
-  uint64_t itemSize = ::tt::runtime::utils::dataTypeElementSize(dataType);
-  array<uint32_t, 2> pageShape = {dimSize, dimSize};
-  uint64_t pageSize = pageShape[0] * pageShape[1] * itemSize;
-  uint64_t size = pageSize * cores.x * cores.y;
-  ShardedBufferConfig shardConfig = {.device = device,
-                                     .size = size,
-                                     .page_size = pageSize,
-                                     .buffer_type = BufferType::L1,
-                                     .buffer_layout =
-                                         TensorMemoryLayout::BLOCK_SHARDED,
-                                     .shard_parameters = shardSpecBuffer,
-                                     .allocate = false};
-
-  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-      ::tt::tt_metal::CreateBuffer(shardConfig);
-  buffer->set_address(address);
-
-  buffers[kReservedBufferId] = buffer;
 }
 
 std::shared_ptr<::tt::tt_metal::Event>
@@ -420,14 +372,8 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
       toDataFormat(cbRef->desc()->memory_desc()->data_type());
 
   if (!cbRef->tensor_ref()) {
-    assert(cbRef->address() >=
-           buffers.at(CQExecutor::kReservedBufferId)->address());
-    // TODO specifying address to CB must be done through shadow buffer.
-    // However, in this case we're seeing weird behavior w.r.t. to results when
-    // using shadow buffer. This needs to be investigated further.
     return CircularBufferConfig(totalSize,
                                 {{cbRef->desc()->port(), dataFormat}})
-        // *buffers.at(CQExecutor::kReservedBufferId))
         .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
   }
 
@@ -521,7 +467,19 @@ void CQExecutor::execute(
       }
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
-      ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      CBHandle cbHandle =
+          ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+
+      if (!cbRef->tensor_ref()) {
+        // Internally allocated CBs are not associated with any tensor ref. We
+        // need to set the address of the CB manually.
+        std::shared_ptr<CircularBuffer> cbPtr =
+            tt_metal::detail::GetCircularBuffer(program, cbHandle);
+        assert(!cbPtr->globally_allocated() &&
+               "CB should not be globally allocated");
+        cbPtr->set_locally_allocated_address(cbRef->address());
+      }
+
       createdCBs.insert(cbRef->desc()->port());
     }
 

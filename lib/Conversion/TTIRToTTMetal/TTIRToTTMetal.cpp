@@ -386,11 +386,11 @@ public:
     Type inputCBTy = rewriter.getType<ttkernel::CBType>(
         ttkernel::CBPort::In0, inputBaseAddress,
         mlir::cast<MemRefType>(inputLayout.getMemref()), pageSize,
-        /*num_buffers*/ 1, false /* is_internal */);
+        /*num_buffers*/ 1);
     Type outputCBTy = rewriter.getType<ttkernel::CBType>(
         ttkernel::CBPort::Out0, outputBaseAddress,
         mlir::cast<MemRefType>(outputLayout.getMemref()), pageSize,
-        /*num_buffers*/ 1, false /* is_internal */);
+        /*num_buffers*/ 1);
     tensixBlock->addArgument(inputCBTy, op.getLoc());
     tensixBlock->addArgument(outputCBTy, op.getLoc());
 
@@ -1411,8 +1411,8 @@ public:
 
     auto scalerCBType = ttkernel::CBType::get(
         op.getContext(), scalerCBPort,
-        op.getSystemDesc().getChipDescs().front().getGlobalL1RegionAddress(),
-        tileMemref, true /* is_internal */);
+        op.getSystemDesc().getChipDescs().front().getScratchL1RegionAddress(),
+        tileMemref);
     auto scalerCB = dmBlock->addArgument(scalerCBType, op.getLoc());
 
     auto reduceKind = kernelOp.getKind();
@@ -1465,12 +1465,12 @@ public:
     builder.create<ttkernel::CBReserveBackOp>(loc, scalerCB, oneConst);
 
     // Prepare zero region read.
-    auto zerosBase = builder.create<ttkernel::MacroOp>(
-        loc, builder.getI32Type(), "MEM_ZEROS_BASE");
+    auto zerosBase =
+        builder.create<ttkernel::MemZerosBaseOp>(loc, builder.getI32Type());
     auto zerosNocAddr =
         builder.create<ttkernel::GetNocAddrOp>(loc, zerosBase->getResult(0));
-    auto memZerosSize = builder.create<ttkernel::MacroOp>(
-        loc, builder.getI32Type(), "MEM_ZEROS_SIZE");
+    auto memZerosSize =
+        builder.create<ttkernel::MemZerosSizeOp>(loc, builder.getI32Type());
     builder.create<ttkernel::NocAsyncReadOnePacketSetStateOp>(loc, zerosNocAddr,
                                                               memZerosSize);
 

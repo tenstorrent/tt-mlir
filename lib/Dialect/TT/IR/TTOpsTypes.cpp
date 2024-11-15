@@ -26,14 +26,14 @@ using namespace mlir::tt;
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
 
-unsigned mlir::tt::ChipDescAttr::getGlobalL1RegionSize() const {
-  // 4KB is the default size for the global L1 region.
-  constexpr uint32_t kGlobalL1RegionSize = 1 << 12;
-  return kGlobalL1RegionSize;
+unsigned mlir::tt::ChipDescAttr::getScratchL1RegionSize() const {
+  // 4KB is the default size for the scratch L1 region.
+  constexpr uint32_t kScratchL1RegionSize = 1 << 12;
+  return kScratchL1RegionSize;
 }
 
-unsigned mlir::tt::ChipDescAttr::getGlobalL1RegionAddress() const {
-  return getL1Size() - getGlobalL1RegionSize();
+unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
+  return getL1Size() - getScratchL1RegionSize();
 }
 
 mlir::tt::SystemDescAttr

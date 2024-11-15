@@ -24,6 +24,7 @@
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
@@ -302,20 +303,26 @@ private:
   std::string opName;
 };
 
-class TTKernelMacroOpToEmitCOpRewriter
-    : public OpConversionPattern<ttkernel::MacroOp> {
+template <typename Op, typename Adaptor = typename Op::Adaptor>
+class TTKernelMacroOpToEmitCOpRewriter : public OpConversionPattern<Op> {
 public:
   TTKernelMacroOpToEmitCOpRewriter(TTKernelToEmitCTypeConverter &typeConverter,
                                    MLIRContext *ctx)
-      : OpConversionPattern<ttkernel::MacroOp>(typeConverter, ctx) {}
+      : OpConversionPattern<Op>(typeConverter, ctx) {}
+
+  std::string getMacroName(Op op) const {
+    auto name = op.getOperation()->getName().getStringRef();
+    name = name.drop_front(9);
+    return name.upper();
+  }
 
   LogicalResult
-  matchAndRewrite(ttkernel::MacroOp op, ttkernel::MacroOp::Adaptor adaptor,
+  matchAndRewrite(Op op, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
     rewriter.replaceOpWithNewOp<emitc::ConstantOp>(
         op, op->getResultTypes(),
-        emitc::OpaqueAttr::get(op->getContext(), adaptor.getName()));
+        emitc::OpaqueAttr::get(op->getContext(), getMacroName(op)));
 
     return success();
   }
@@ -376,7 +383,8 @@ public:
 
       patterns
           .add<TTMetalToEmitCFuncArgsRewriter, TTMetalToEmitCReturnRewriter,
-               TTKernelMacroOpToEmitCOpRewriter,
+               TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
+               TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::BuiltinOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::RecipTileInitOp>,
