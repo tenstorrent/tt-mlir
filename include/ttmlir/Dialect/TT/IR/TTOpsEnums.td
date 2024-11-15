@@ -189,4 +189,16 @@ def TT_BufferAccess : I32BitEnumAttr<"BufferAccess", "TT Buffer Access",
   let cppNamespace = "::mlir::tt";
 }
 
+def TT_CPURoleHost : I32BitEnumAttrCaseBit<"Host", 0, "host">;
+def TT_CPURoleDevice : I32BitEnumAttrCaseBit<"Device", 0, "device">;
+
+def TT_CPURole : I32BitEnumAttr<"CPURole", "TT CPU Role",
+                            [
+                              TT_CPURoleHost,
+                              TT_CPURoleDevice,
+                            ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
 #endif
