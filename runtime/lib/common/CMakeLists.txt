@@ -1,4 +1,4 @@
-# credit: https://github.com/google/libcxx/blob/master/cmake/Modules/GetTriple.cmake
+#credit: https://github.com/google/libcxx/blob/master/cmake/Modules/GetTriple.cmake
 # Get the architecture.
 set(arch ${CMAKE_SYSTEM_PROCESSOR})
 if (arch STREQUAL "x86")
@@ -23,10 +23,7 @@ set(${out_vendor} ${vendor} PARENT_SCOPE)
 set(${out_os} ${os} PARENT_SCOPE)
 message(STATUS "Target triple: ${triple}")
 
-# Construct the target triple
-set(TARGET_TRIPLE "triple")
-
-add_definitions(-DTARGET_TRIPLE="${TARGET_TRIPLE}")
+add_definitions(-DTARGET_TRIPLE="${triple}")
 
 add_library(TTRuntimeSysDesc STATIC system_desc.cpp)
 set_property(TARGET TTRuntimeSysDesc PROPERTY CXX_STANDARD 20)
