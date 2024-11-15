@@ -6,10 +6,10 @@
 
 // Forward function example
 //
-std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs) {
+std::vector<ttnn::Tensor> forward(std::vector<ttnn::Tensor> inputs,
+                                  ttnn::Device *v3) {
   ttnn::Tensor v1 = inputs[0];
   ttnn::Tensor v2 = inputs[1];
-  ttnn::Device *v3 = ttnn::DeviceGetter::getInstance();
   ttnn::MemoryConfig v4 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v5 = ttnn::to_device(v1, v3, v4);
