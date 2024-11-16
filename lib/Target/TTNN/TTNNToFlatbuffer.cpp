@@ -101,7 +101,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       toFlatbuffer(cache, memLayout), size);
 }
 
-flatbuffers::Offset<::tt::target::LayoutDesc> tensorConfigAttrToFlatbuffer(
+flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
     FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr layoutAttr,
     mlir::ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
   auto strideInt64 = layoutAttr.getStride(logicalShape);
