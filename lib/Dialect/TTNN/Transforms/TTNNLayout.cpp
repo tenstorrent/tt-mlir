@@ -60,7 +60,7 @@ public:
   TTNNLayoutTensorTypeConverter(MLIRContext *ctx, GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
     addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
-      auto layout = type.getEncoding();
+      Attribute layout = type.getEncoding();
       if (layout) {
         return type;
       }
@@ -68,12 +68,12 @@ public:
       std::int64_t deviceGridRank = deviceGrid.getShape().size();
 
       // Default to single core grid
-      auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
+      GridAttr tensorGrid = GridAttr::get(ctx, deviceGridRank);
 
       llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
           g_defaultCollapseDims);
 
-      auto newLayout = TensorConfigAttr::get(
+      TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
           ctx, type.getShape(), type.getElementType(), g_defaultMemorySpaceHost,
           tensorGrid, TensorMemoryLayout::None, collapseDimsRef);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
@@ -106,7 +106,7 @@ public:
 
   // FuncOp requires special handling because it has a FunctionType attribute
   bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
-    auto funcOp = dyn_cast<func::FuncOp>(op);
+    func::FuncOp funcOp = dyn_cast<func::FuncOp>(op);
     if (!funcOp) {
       return false;
     }
@@ -119,7 +119,8 @@ public:
     for (Type &ty : outputTypes) {
       ty = converter->convertType(ty);
     }
-    auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
+    FunctionType newType =
+        rewriter.getType<FunctionType>(inputTypes, outputTypes);
     if (funcOp.getFunctionType() == newType) {
       return false;
     }
@@ -148,30 +149,31 @@ public:
 };
 
 // Given desired buffer type, memory layout and type checks if the input tensor
-// needs to be converted to the desired layout. If so, creates a ToLayou
+// needs to be converted to the desired layout. If it does, creates a new
+// EmptyOp/ConstantOp/EmptyOp + ToLayoutOp depending on the input.
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  BufferType desiredBufferType,
                  TensorMemoryLayout desiredMemLayout, bool tiled) {
 
   // Get type
-  auto ty = mlir::cast<RankedTensorType>(input.getType());
+  RankedTensorType ty = mlir::cast<RankedTensorType>(input.getType());
 
   // Get tensor config from the type
-  auto tensorConfig = mlir::cast<TensorConfigAttr>(ty.getEncoding());
+  TTNNLayoutAttr tensorConfig = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
 
   // Get buffer type (i.e DRAM/L1 etc)
-  auto currBufferType = tensorConfig.getBufferType();
+  BufferType currBufferType = tensorConfig.getBufferType();
 
   // Get the current element type (i.e bf16/TileType etc)
-  auto currElementType = tensorConfig.getElementType();
+  Type currElementType = tensorConfig.getElementType();
 
   // Get the mem layout attribute (i.e interleaved/sharded or null in case of
   // System)
-  auto currMemLayout = tensorConfig.getMemLayout();
+  TensorMemoryLayout currMemLayout = tensorConfig.getMemLayout();
 
   // Get element type that should be used in the new tensor config
-  auto desiredElementType =
+  Type desiredElementType =
       tiled ? rewriter.getType<TileType>(ty.getElementType())
             : ty.getElementType();
 
@@ -185,7 +187,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 
   // Create a new tensor config with the desired buffer type, element type and
   // memory layout
-  auto desiredLayout = rewriter.getAttr<TensorConfigAttr>(
+  TTNNLayoutAttr desiredLayout = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
       tensorConfig.getGrid(), desiredMemLayout, g_defaultCollapseDims);
 
@@ -269,7 +271,7 @@ public:
 
     assert(op->template hasTrait<ttir::TTIROp::Trait>());
     bool modified = false;
-    for (auto &operand : op->getOpOperands()) {
+    for (OpOperand &operand : op->getOpOperands()) {
       // Check if the operand is a dps result
       bool isResult = op.isDpsInit(&operand);
 
@@ -280,7 +282,7 @@ public:
       }
 
       // Read operand constrait for current operand
-      auto operandConstraint =
+      OperandConstraint operandConstraint =
           mlir::cast<OperandConstraintAttr>(
               mlir::cast<ttir::TTIROp>(op.getOperation())
                   .getOperandConstraints()[operand.getOperandNumber()])
@@ -288,7 +290,7 @@ public:
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       // Given the operand constraint, create the desired layout for the operand
-      auto desiredLayout =
+      std::optional<Value> desiredLayout =
           createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint);
 
       // If layout changed update the operand
@@ -319,10 +321,10 @@ public:
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
-    for (auto &operand : op->getOpOperands()) {
+    for (OpOperand &operand : op->getOpOperands()) {
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-      auto layout = createToLayoutOp(
+      std::optional<Value> layout = createToLayoutOp(
           rewriter, newLoc, operand.get(), BufferType::SystemMemory,
           TensorMemoryLayout::None, false /* tiled */);
       if (layout.has_value()) {
@@ -347,7 +349,7 @@ public:
     // we construct a tensor config attribute with default values:
     // tensor_config<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
-      auto device = getCurrentScopeDevice(getOperation());
+      DeviceAttr device = getCurrentScopeDevice(getOperation());
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeConverter(&getContext(),
                                                   device.getWorkerGrid());

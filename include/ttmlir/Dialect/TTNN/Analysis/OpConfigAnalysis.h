@@ -11,17 +11,17 @@
 namespace mlir::tt::ttnn {
 
 struct OpConfigAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalGrids;
 
   OpConfigAnalysisInput() : legalGrids() {}
 
   OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &&legalGrids)
       : legalGrids(std::move(legalGrids)) {}
 
   OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalGrids)
       : legalGrids(legalGrids) {}
 
@@ -38,7 +38,7 @@ struct OpConfigAnalysisInput {
 //
 class OpConfigAnalysis
     : public TTNNAnalysis<OpConfigAnalysisInput,
-                          llvm::DenseMap<Operation *, TensorConfigAttr>> {
+                          llvm::DenseMap<Operation *, TTNNLayoutAttr>> {
 
 private:
   void analysisImplementation() override;

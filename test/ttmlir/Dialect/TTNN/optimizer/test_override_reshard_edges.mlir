@@ -5,7 +5,7 @@
 #tensor_config = #ttnn.tensor_config<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #system_memory>>
 #tensor_config1 = #ttnn.tensor_config<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #dram>, interleaved>
 module attributes {tt.device = #device} {
-  func.func @main(%arg0: tensor<1x32x32xf32, #tensor_config1, %arg1: tensor<1x32x32xf32, #tensor_config1, %arg2: tensor<1x32x32xf32, #tensor_config1) -> tensor<1x32x32xf32, #tensor_config1 {
+  func.func @main(%arg0: tensor<1x32x32xf32, #tensor_config>, %arg1: tensor<1x32x32xf32, #tensor_config>, %arg2: tensor<1x32x32xf32, #tensor_config>) -> tensor<1x32x32xf32, #tensor_config> {
     // CHECK: #[[LAYOUT_1:.*]] = #ttnn.tensor_config<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #dram>, interleaved>
     // CHECK: #[[LAYOUT_2:.*]] = #ttnn.tensor_config<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #l1_>, width_sharded>
     // CHECK: #[[LAYOUT_3:.*]] = #ttnn.tensor_config<(d0, d1, d2) -> (d0 * 32 + d1, d2), <8x8>, memref<4x4xf32, #dram>, interleaved>

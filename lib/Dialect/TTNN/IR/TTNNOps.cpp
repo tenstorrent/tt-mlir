@@ -155,9 +155,8 @@ namespace mlir::tt::ttnn {
   assert(::llvm::isa<RankedTensorType>(getResult().getType()));
   RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
 
-  assert(::llvm::isa<TensorConfigAttr>(output.getEncoding()));
-  TensorConfigAttr layoutAttr =
-      mlir::cast<TensorConfigAttr>(output.getEncoding());
+  assert(::llvm::isa<TTNNLayoutAttr>(output.getEncoding()));
+  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
   // Shape
   //
@@ -545,9 +544,9 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getResult().getType();
   auto inputLayout =
-      mlir::dyn_cast_or_null<TensorConfigAttr>(inputTy.getEncoding());
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputTy.getEncoding());
   auto outputLayout =
-      mlir::dyn_cast_or_null<TensorConfigAttr>(outputTy.getEncoding());
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor type missing layout attribute");
   }
@@ -731,7 +730,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
 
 // AllocOp verification
 ::mlir::LogicalResult AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<TensorConfigAttr>(
+  auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");

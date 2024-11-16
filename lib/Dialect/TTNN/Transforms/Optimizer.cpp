@@ -159,7 +159,7 @@ public:
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-    llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>> legalLayouts;
+    llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -261,8 +261,8 @@ public:
 
           // Update the memory space and layout of the op.
           //
-          TensorConfigAttr layoutAttr =
-              mlir::cast<TensorConfigAttr>(newTensorType.getEncoding());
+          TTNNLayoutAttr layoutAttr =
+              mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
 
           op->getResult(0).setType(newTensorType);
 
@@ -419,7 +419,7 @@ private:
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
-      TensorConfigAttr consumerOpOutputLayout = mlir::cast<TensorConfigAttr>(
+      TTNNLayoutAttr consumerOpOutputLayout = mlir::cast<TTNNLayoutAttr>(
           mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
               .getEncoding());
 
@@ -427,8 +427,8 @@ private:
           mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
       llvm::ArrayRef<int64_t> producerOpTensorShape =
           producerOpTensorType.getShape();
-      TensorConfigAttr producerOpLayout =
-          mlir::cast<TensorConfigAttr>(producerOpTensorType.getEncoding());
+      TTNNLayoutAttr producerOpLayout =
+          mlir::cast<TTNNLayoutAttr>(producerOpTensorType.getEncoding());
 
       // TODO(nobradovic): Match memory space and layout of consumer op.
       // This actually needs to be properly resolved based on op type, output

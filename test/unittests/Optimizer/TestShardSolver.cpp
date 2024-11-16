@@ -83,24 +83,24 @@ public:
     l1ChainedOps.insert(op);
   }
 
-  void addLayoutForOp(
-      mlir::Operation *op,
-      llvm::DenseMap<mlir::Operation *, std::vector<mlir::tt::LayoutAttr>>
-          &legalLayouts,
-      mlir::tt::MemorySpace memorySpace,
-      mlir::tt::TensorMemoryLayout tensorMemoryLayout, int gridWidth,
-      int gridHeight) {
+  void
+  addLayoutForOp(mlir::Operation *op,
+                 llvm::DenseMap<mlir::Operation *, std::vector<TTNNLayoutAttr>>
+                     &legalLayouts,
+                 BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout,
+                 int gridWidth, int gridHeight) {
     if (legalLayouts.find(op) == legalLayouts.end()) {
-      legalLayouts[op] =
-          std::vector<mlir::tt::LayoutAttr>{mlir::tt::LayoutAttr::get(
-              &context, getTensorRankedType(), memorySpace,
-              mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
-              builder.getF32Type(), tensorMemoryLayout)};
-    } else {
-      legalLayouts[op].push_back(mlir::tt::LayoutAttr::get(
-          &context, getTensorRankedType(), memorySpace,
+      legalLayouts[op] = std::vector<TTNNLayoutAttr>{TTNNLayoutAttr::get(
+          &context, getTensorRankedType().getShape(), builder.getF32Type(),
+          memorySpace,
           mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
-          builder.getF32Type(), tensorMemoryLayout));
+          tensorMemoryLayout)};
+    } else {
+      legalLayouts[op].push_back(TTNNLayoutAttr::get(
+          &context, getTensorRankedType().getShape(), builder.getF32Type(),
+          memorySpace,
+          mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
+          tensorMemoryLayout));
     }
   }
 
@@ -137,8 +137,7 @@ public:
 //    Op5 ----- (2, 1, 1)
 //
 TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
-  llvm::DenseMap<mlir::Operation *, std::vector<mlir::tt::LayoutAttr>>
-      legalLayouts;
+  llvm::DenseMap<mlir::Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   std::vector<OpL1MemSpec> opL1MemSpecs;
   llvm::DenseSet<mlir::Operation *> l1ChainedOps;
   constexpr unsigned usableL1CacheSize = 1024 * 1024;
@@ -152,23 +151,23 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   mlir::Operation *firstOp = op;
 
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::WidthSharded, 1, 4);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::HeightSharded, 8, 1);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::BlockSharded, 2, 2);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::WidthSharded, 1, 4);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::HeightSharded, 8, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::BlockSharded, 2, 2);
 
   rhs = op->getResult(0);
   dest = createEmptyTensor();
   op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs, dest);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::WidthSharded, 1, 8);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::HeightSharded, 4, 1);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::BlockSharded, 2, 2);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::WidthSharded, 1, 8);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::HeightSharded, 4, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::BlockSharded, 2, 2);
 
   lhs = func.getBody().getBlocks().front().getArgument(0);
   rhs = op->getResult(0);
@@ -176,45 +175,45 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   dest = createEmptyTensor();
   op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::WidthSharded, 1, 4);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::HeightSharded, 4, 1);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::BlockSharded, 1, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::WidthSharded, 1, 4);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::HeightSharded, 4, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::BlockSharded, 1, 1);
 
   dest = createEmptyTensor();
   op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::WidthSharded, 1, 4);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::HeightSharded, 4, 1);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::BlockSharded, 1, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::WidthSharded, 1, 4);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::HeightSharded, 4, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::BlockSharded, 1, 1);
 
   lhs = opL1MemSpecs[opL1MemSpecs.size() - 2].op->getResult(0);
   rhs = opL1MemSpecs[opL1MemSpecs.size() - 1].op->getResult(0);
   dest = createEmptyTensor();
   op = builder.create<AddOp>(builder.getUnknownLoc(), lhs, rhs, dest);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::WidthSharded, 1, 2);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::HeightSharded, 1, 1);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::BlockSharded, 1, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::WidthSharded, 1, 2);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::HeightSharded, 1, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::BlockSharded, 1, 1);
 
   rhs = op->getResult(0);
   dest = createEmptyTensor();
   op = builder.create<ReluOp>(builder.getUnknownLoc(), rhs, dest);
   prepareOpForShardSolver(op, opL1MemSpecs, l1ChainedOps);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::WidthSharded, 1, 2);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::HeightSharded, 1, 1);
-  addLayoutForOp(op, legalLayouts, mlir::tt::MemorySpace::DeviceL1,
-                 mlir::tt::TensorMemoryLayout::BlockSharded, 1, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::WidthSharded, 1, 2);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::HeightSharded, 1, 1);
+  addLayoutForOp(op, legalLayouts, BufferType::L1,
+                 TensorMemoryLayout::BlockSharded, 1, 1);
 
   ShardSolver shardSolver(legalLayouts, opL1MemSpecs, l1ChainedOps,
                           usableL1CacheSize, overrideReshardEdges);
@@ -233,11 +232,11 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   for (auto &opL1MemSpec : opL1MemSpecs) {
     ShardSolver::RemainingLayoutAttrs validLayouts =
         shardSolver.at(opL1MemSpec.op);
-    const mlir::tt::LayoutAttr *selectedLayout = validLayouts.begin().get();
+    const TTNNLayoutAttr *selectedLayout = validLayouts.begin().get();
     shardSolver.set(opL1MemSpec.op, *selectedLayout);
   }
 
-  llvm::DenseMap<mlir::Operation *, mlir::tt::LayoutAttr> selectedOpLayout =
+  llvm::DenseMap<mlir::Operation *, TTNNLayoutAttr> selectedOpLayout =
       shardSolver.finish().selectedOpLayout;
   float totalCoreUsage = 0;
   for (const auto &opLayout : selectedOpLayout) {

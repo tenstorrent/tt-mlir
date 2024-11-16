@@ -11,14 +11,12 @@
 
 namespace mlir::tt::ttnn {
 
-bool mock_is_output_tensor_legal_for_op(Operation *op,
-                                        TensorConfigAttr layout) {
+bool mock_is_output_tensor_legal_for_op(Operation *op, TTNNLayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
   return true;
 }
 
-bool tensor_shape_compatible_with_shard(Operation *op,
-                                        TensorConfigAttr layout) {
+bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
   // These constraints are implemented seperatelly in every TTNN op.
   // Almost nothing seems to be shared between EVERY op, so is hard to have any
   // logic here without the risk of discarding a valid configuraiton or modeling
@@ -86,8 +84,7 @@ bool LegalGridAnalysis::applyOverrides() {
   OutputLayoutOverrideParams override = gridOverride->getValue();
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  TensorConfigAttr layout =
-      mlir::cast<TensorConfigAttr>(tensorType.getEncoding());
+  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   GridAttr grid =
       GridAttr::get(op->getContext(), ArrayRef<int64_t>(override.grid));
@@ -121,8 +118,7 @@ void LegalGridAnalysis::analysisImplementation() {
   // Get output tensor type.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  TensorConfigAttr layout =
-      mlir::cast<TensorConfigAttr>(tensorType.getEncoding());
+  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   // Return existing layout if it is not possible to change it.
   if (cantChangeOutputLayout(op)) {
@@ -134,7 +130,7 @@ void LegalGridAnalysis::analysisImplementation() {
   // No grid is set since the tensor is not sharded.
   // TODO(odjuricic): We need to set grid here since it will be used as the
   // compute gird. (not implemented in runtime atm)
-  TensorConfigAttr dram =
+  TTNNLayoutAttr dram =
       layout.withBufferType(op->getContext(), BufferType::DRAM)
           .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved)
           .withGrid(op->getContext(), tensorType,
@@ -145,7 +141,7 @@ void LegalGridAnalysis::analysisImplementation() {
   }
 
   // L1 Interleaved (same as above).
-  TensorConfigAttr l1Interleaved =
+  TTNNLayoutAttr l1Interleaved =
       layout.withBufferType(op->getContext(), BufferType::L1)
           .withMemoryLayout(op->getContext(), TensorMemoryLayout::Interleaved)
           .withGrid(op->getContext(), tensorType,
@@ -156,9 +152,9 @@ void LegalGridAnalysis::analysisImplementation() {
   }
 
   // L1 Sharded
-  TensorConfigAttr shardedBase =
+  TTNNLayoutAttr shardedBase =
       layout.withBufferType(op->getContext(), BufferType::L1);
-  std::vector<TensorConfigAttr> shardedResults;
+  std::vector<TTNNLayoutAttr> shardedResults;
 
   // Block Sharded
   for (auto width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
@@ -200,7 +196,7 @@ void LegalGridAnalysis::analysisImplementation() {
   // Filter layouts based on output tensor legality for current op.
   shardedResults.erase(
       std::remove_if(shardedResults.begin(), shardedResults.end(),
-                     [this](TensorConfigAttr layout) {
+                     [this](TTNNLayoutAttr layout) {
                        return !tensor_shape_compatible_with_shard(op, layout) ||
                               !mock_is_output_tensor_legal_for_op(op, layout);
                      }),
@@ -208,7 +204,7 @@ void LegalGridAnalysis::analysisImplementation() {
 
   // Pick top largest sharded grids.
   std::sort(shardedResults.begin(), shardedResults.end(),
-            [](TensorConfigAttr a, TensorConfigAttr b) {
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
               return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
             });
 

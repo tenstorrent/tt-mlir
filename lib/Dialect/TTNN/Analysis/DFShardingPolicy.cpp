@@ -87,7 +87,7 @@ void DFShardingPolicy::run() {
             // currentOp output tensor shard spec, nextOp exec and nextOp output
             // tensor.
             //
-            TensorConfigAttr currentOpLayout =
+            TTNNLayoutAttr currentOpLayout =
                 legalLayouts.lookup(currentOp).front();
             assert(currentOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> currentOpOutputTensorShape =
@@ -97,7 +97,7 @@ void DFShardingPolicy::run() {
                 currentOpLayout.getTensorSizeInBytes(currentOpOutputTensorShape,
                                                      deviceAttr);
 
-            TensorConfigAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
+            TTNNLayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
             assert(nextOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> nextOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(nextOp->getResult(0).getType())
@@ -132,11 +132,10 @@ void DFShardingPolicy::run() {
                                                      .getDefiningOp()
                                                      ->getResult(0)
                                                      .getType());
-                TensorConfigAttr firstOpInputLayout =
-                    mlir::cast<TensorConfigAttr>(
-                        firstOpInputTensorType.getEncoding());
+                TTNNLayoutAttr firstOpInputLayout = mlir::cast<TTNNLayoutAttr>(
+                    firstOpInputTensorType.getEncoding());
 
-                TensorConfigAttr firstOpInputShardedLayout =
+                TTNNLayoutAttr firstOpInputShardedLayout =
                     firstOpInputLayout
                         .withBufferType(currentOp->getContext(),
                                         currentOpLayout.getBufferType())
@@ -210,7 +209,7 @@ void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
   for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
     Operation *op = shardSpec.op;
     ShardSolver::RemainingLayoutAttrs validLayouts = shardSolver.at(op);
-    const TensorConfigAttr *selectedLayout = validLayouts.begin().get();
+    const TTNNLayoutAttr *selectedLayout = validLayouts.begin().get();
     float maxCoreUsage = 0;
     for (auto layoutIterator = validLayouts.begin();
          layoutIterator != validLayouts.end(); ++layoutIterator) {
@@ -221,7 +220,7 @@ void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
         // If we have a tie, prefer layout that is not BlockSharded.
         //
         if (layoutIterator->getMemLayout() !=
-            tt::TensorMemoryLayout::BlockSharded) {
+            ttnn::TensorMemoryLayout::BlockSharded) {
           selectedLayout = layoutIterator.get();
         }
       }

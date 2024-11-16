@@ -21,8 +21,8 @@ flatbuffers::Offset<::tt::target::LayoutDesc>
 layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, LayoutAttr attr,
                        ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr);
 
-flatbuffers::Offset<::tt::target::LayoutDesc> tensorConfigAttrToFlatbuffer(
-    FlatbufferObjectCache &cache, ttnn::TensorConfigAttr attr,
+flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
+    FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr attr,
     ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr);
 
 struct GoldenTensor {
@@ -443,9 +443,9 @@ encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
                                   deviceAttr);
   }
 
-  if (isa<ttnn::TensorConfigAttr>(attr)) {
-    return tensorConfigAttrToFlatbuffer(
-        cache, cast<ttnn::TensorConfigAttr>(attr), logicalShape, deviceAttr);
+  if (isa<ttnn::TTNNLayoutAttr>(attr)) {
+    return ttnnLayoutAttrToFlatbuffer(cache, cast<ttnn::TTNNLayoutAttr>(attr),
+                                      logicalShape, deviceAttr);
   }
 
   assert(false && "unsupported layout attr");

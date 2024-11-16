@@ -58,9 +58,9 @@ public:
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Get ttnn::TensorConfigAttr of the result type
+    // Get ttnn::TTNNLayoutAttr of the result type
     //
-    ttnn::TensorConfigAttr layoutAttr = mlir::cast<ttnn::TensorConfigAttr>(
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
     // Get the shape of the tensor, tensor layout, and data type
@@ -134,7 +134,7 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
-    auto outputLayoutAttr = mlir::cast<ttnn::TensorConfigAttr>(
+    auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
     auto outputMemref = outputLayoutAttr.getMemref();
@@ -175,7 +175,7 @@ public:
             getLayoutForcedResultTensor(rewriter, result, newOutputLayoutEnum);
         op.getResult().setType(result);
         outputLayoutAttr =
-            mlir::cast<ttnn::TensorConfigAttr>(result.getEncoding());
+            mlir::cast<ttnn::TTNNLayoutAttr>(result.getEncoding());
         outputMemref = outputLayoutAttr.getMemref();
         outputLayoutEnum = newOutputLayoutEnum;
       }
@@ -221,7 +221,7 @@ private:
                               RankedTensorType oldOutput,
                               ttnn::Layout newOutputLayoutEnum) const {
     auto oldOutputLayoutAttr =
-        mlir::cast<ttnn::TensorConfigAttr>(oldOutput.getEncoding());
+        mlir::cast<ttnn::TTNNLayoutAttr>(oldOutput.getEncoding());
     auto oldOutputMemref = oldOutputLayoutAttr.getMemref();
     DataType outputDtype = ttnn::utils::getDataTypeFromMemRef(oldOutputMemref);
     llvm::ArrayRef<std::int64_t> oldShardShape = oldOutputMemref.getShape();
@@ -772,8 +772,8 @@ public:
     auto result = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
         *op.getResults().begin());
 
-    ttnn::TensorConfigAttr outputLayoutAttr =
-        mlir::cast<ttnn::TensorConfigAttr>(result.getType().getEncoding());
+    ttnn::TTNNLayoutAttr outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(result.getType().getEncoding());
 
     mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
 

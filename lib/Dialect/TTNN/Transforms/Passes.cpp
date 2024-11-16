@@ -214,7 +214,7 @@ private:
     LayoutInfo input, output;
 
     auto inputLayoutAttr =
-        mlir::cast<TensorConfigAttr>(op.getInput().getType().getEncoding());
+        mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
     auto inputMemref = inputLayoutAttr.getMemref();
 
     assert(op.getMemoryConfig().has_value());

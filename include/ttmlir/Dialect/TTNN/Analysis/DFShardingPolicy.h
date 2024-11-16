@@ -24,7 +24,7 @@ private:
 public:
   DFShardingPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<TensorConfigAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)
