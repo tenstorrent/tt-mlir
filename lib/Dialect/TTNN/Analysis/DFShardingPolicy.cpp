@@ -206,23 +206,24 @@ void DFShardingPolicy::run() {
 
 void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
                                           const L1ChainConfig &l1ChainConfig) {
-  // TODO(nobradovic)
-  // Simple picker for now, choose the highest grid size for each op, prefer
-  // width and height sharding over block sharding.
-  //
+  llvm::DenseMap<Operation *, SmallVector<float, 64>> accMaxCoreUsage =
+      shardSolver.produceMaxCoreUsage();
   for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
     Operation *op = shardSpec.op;
     ShardSolver::RemainingLayoutAttrs validLayouts = shardSolver.at(op);
-    const tt::LayoutAttr *selectedLayout = &(*validLayouts.begin());
-    for (const tt::LayoutAttr &layout : validLayouts) {
-
-      if (layout.getGrid().getGridVolume() >
-          selectedLayout->getGrid().getGridVolume()) {
-        selectedLayout = &layout;
-      } else if (layout.getGrid().getGridVolume() ==
-                 selectedLayout->getGrid().getGridVolume()) {
-        if (layout.getMemLayout() != tt::TensorMemoryLayout::BlockSharded) {
-          selectedLayout = &layout;
+    const tt::LayoutAttr *selectedLayout = validLayouts.begin().get();
+    float maxCoreUsage = 0;
+    for (auto layoutIterator = validLayouts.begin();
+         layoutIterator != validLayouts.end(); ++layoutIterator) {
+      if (accMaxCoreUsage[op][layoutIterator.index()] > maxCoreUsage) {
+        maxCoreUsage = accMaxCoreUsage[op][layoutIterator.index()];
+        selectedLayout = layoutIterator.get();
+      } else if (accMaxCoreUsage[op][layoutIterator.index()] == maxCoreUsage) {
+        // If we have a tie, prefer layout that is not BlockSharded.
+        //
+        if (layoutIterator->getMemLayout() !=
+            tt::TensorMemoryLayout::BlockSharded) {
+          selectedLayout = layoutIterator.get();
         }
       }
     }
