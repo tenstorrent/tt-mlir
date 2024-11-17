@@ -105,7 +105,7 @@ def TTNN_MeshShapeAttr : TTNN_Attr<"MeshShape", "mesh_shape"> {
   let assemblyFormat = "custom<VargDimensionList>($y, $x)";
 }
 
-def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "tensor_config"> {
+def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
   let summary = "Tensor encoding attribute used for types in ttnn";
   let description = [{
     Layout attribute in ttnn. This attribute is used to encode different information about tensor memory layout.

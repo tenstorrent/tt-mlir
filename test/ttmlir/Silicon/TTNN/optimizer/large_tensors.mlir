@@ -4,7 +4,7 @@
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
   func.func @forward(%arg0: tensor<8192x8192xbf16>, %arg1: tensor<8192x8192xbf16>, %arg2: tensor<8192x8192xbf16>) -> tensor<8192x8192xbf16> {
-    // CHECK: #[[LAYOUT_2:tensor_config2]] = #ttnn.tensor_config<{{.*}}, memref<{{.*}}, #dram>, {{.*}}>
+    // CHECK: #[[LAYOUT_2:ttnn_layout2]] = #ttnn.ttnn_layout<{{.*}}, memref<{{.*}}, #dram>, {{.*}}>
     %0 = tensor.empty() : tensor<8192x8192xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<8192x8192xbf16, #[[LAYOUT_2]]>
     %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<8192x8192xbf16>, tensor<8192x8192xbf16>, tensor<8192x8192xbf16>) -> tensor<8192x8192xbf16>

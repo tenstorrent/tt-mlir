@@ -50,10 +50,10 @@ inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
 // To layout pass
 //===----------------------------------------------------------------------===//
 
-// Converts tensor types to have a tensor config attribute with default values
+// Converts tensor types to have a ttnn layout attribute with default values
 //
-// Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, tensor_config<...>>
-// where tensor_config<...> is constructed with default values
+// Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
+// where ttnn_layout<...> is constructed with default values
 // SystemMemory, MemoryLayout::None, Grid<1x1>
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
@@ -82,7 +82,7 @@ public:
   }
 };
 
-// Rewrites tensor types to have a tensor config attribute with default values
+// Rewrites tensor types to have a ttnn layout attribute with default values
 class TTNNLayoutTensorTypeRewriter : public RewritePattern {
 public:
   TTNNLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
@@ -159,7 +159,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   // Get type
   RankedTensorType ty = mlir::cast<RankedTensorType>(input.getType());
 
-  // Get tensor config from the type
+  // Get ttnn layout from the type
   TTNNLayoutAttr tensorConfig = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
 
   // Get buffer type (i.e DRAM/L1 etc)
@@ -172,7 +172,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   // System)
   TensorMemoryLayout currMemLayout = tensorConfig.getMemLayout();
 
-  // Get element type that should be used in the new tensor config
+  // Get element type that should be used in the new ttnn layout
   Type desiredElementType =
       tiled ? rewriter.getType<TileType>(ty.getElementType())
             : ty.getElementType();
@@ -185,7 +185,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
     return std::nullopt;
   }
 
-  // Create a new tensor config with the desired buffer type, element type and
+  // Create a new ttnn layout with the desired buffer type, element type and
   // memory layout
   TTNNLayoutAttr desiredLayout = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
@@ -346,8 +346,8 @@ public:
   void runOnOperation() final {
     // First add default attribute to all tensors. Example:
     // Given tensor type: tensor<15x10x32xf32>
-    // we construct a tensor config attribute with default values:
-    // tensor_config<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
+    // we construct a ttnn layout attribute with default values:
+    // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
     {
       DeviceAttr device = getCurrentScopeDevice(getOperation());
       assert(device && "Device not found");

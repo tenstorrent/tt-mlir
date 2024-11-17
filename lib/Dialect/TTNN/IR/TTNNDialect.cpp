@@ -33,7 +33,7 @@ struct TTNNOpAsmDialectInterface : public OpAsmDialectInterface {
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
     if (llvm::isa<TTNNLayoutAttr>(attr)) {
-      os << "tensor_config";
+      os << "ttnn_layout";
       return AliasResult::OverridableAlias;
     }
     if (llvm::isa<BufferTypeAttr>(attr)) {
