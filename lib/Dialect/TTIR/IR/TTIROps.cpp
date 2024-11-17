@@ -773,16 +773,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 ::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
-  auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
-  if (not inputLayout) {
-    return emitOpError("Input tensor type missing layout attribute");
-  }
-  if (not outputLayout) {
-    return emitOpError("Output tensor type missing layout attribute");
-  }
   if (inputTy.getShape() != outputTy.getShape()) {
     return emitOpError("Input and output shapes must be the same");
   }
