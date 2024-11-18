@@ -93,6 +93,36 @@ module @jit_constant attributes {} {
     return %0 : tensor<2x2xf32>
   }
 
+  func.func public @test_f64_scalar() -> tensor<f64> {
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<3.000000e-01> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %0 = stablehlo.constant dense<0.3> : tensor<f64>
+    // CHECK: return %[[VAL]] : tensor<1xf32>
+    return %0 : tensor<f64>
+  }
+
+  func.func public @test_f64_splat() -> tensor<64xf64> {
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<3.000000e-01> : tensor<64xf32>}> : () -> tensor<64xf32>
+    %0 = stablehlo.constant dense<0.3> : tensor<64xf64>
+    // CHECK: return %[[VAL]] : tensor<64xf32>
+    return %0 : tensor<64xf64>
+  }
+
+  func.func public @test_f64_multiple() -> tensor<2x2xf64> {
+    // The ugly regex after `dense` is necessary because double square opening
+    // brackets indicate substitution block in FileCheck syntax.
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<{{([[])}}[0.000000e+00, 1.000000e+00], [2.000000e+00, 3.000000e+00]]> : tensor<2x2xf32>}> : () -> tensor<2x2xf32>
+    %0 = stablehlo.constant dense<[[0.0, 1.0], [2.0, 3.0]]> : tensor<2x2xf64>
+    // CHECK: return %[[VAL]] : tensor<2x2xf32>
+    return %0 : tensor<2x2xf64>
+  }
+
+  func.func public @test_f64_inf() -> tensor<f64> {
+    // CHECK: %[[VAL:[0-9]+]] = "ttir.constant"() <{value = dense<0xFF800000> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %0 = stablehlo.constant dense<0xFFF0000000000000> : tensor<f64>
+    // CHECK: return %[[VAL]] : tensor<1xf32>
+    return %0 : tensor<f64>
+  }
+
   func.func public @test_int8_scalar() -> tensor<i8> {
     // CHECK: %{{[0-9]+}} = "ttir.constant"() <{value = dense<3> : tensor<1xi8>}> : () -> tensor<1xi8>
     %0 = stablehlo.constant dense<3> : tensor<i8>
