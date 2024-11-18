@@ -35,11 +35,11 @@ public:
     rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
     auto cpuMaxOp = rewriter.create<MaximumOp>(loc, resultTy, op.getOperand(0),
                                                op.getOperand(1));
-    rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResult());
+    rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
     auto callOp = rewriter.create<func::CallOp>(
         loc, hoistFunc, op.getOperand(0), op.getOperand(1));
-    rewriter.replaceOp(op, callOp.getResult());
+    rewriter.replaceOp(op, callOp.getResults());
 
     return success();
   }
