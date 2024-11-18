@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -27,16 +28,16 @@ public:
     auto hoistFuncTy = rewriter.getFunctionType({resultTy}, {resultTy});
 
     // define hoisted func, w placeholder attr for CPU execution
-    ::func::FuncOp hoistFunc =
-        rewriter.create<::func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
+    func::FuncOp hoistFunc =
+        rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
     hoistFunc.setAttr("target", rewriter.getStringAttr("CPU"));
 
     rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
     auto cpuMaxOp = rewriter.create<MaximumOp>(loc, resultTy, op.getOperand(0),
                                                op.getOperand(1));
-    rewriter.create<::func::ReturnOp>(loc, cpuMaxOp.getResult());
+    rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResult());
 
-    auto callOp = rewriter.create<::func::CallOp>(
+    auto callOp = rewriter.create<func::CallOp>(
         loc, hoistFunc, op.getOperand(0), op.getOperand(1));
     rewriter.replaceOp(op, callOp.getResult());
 
