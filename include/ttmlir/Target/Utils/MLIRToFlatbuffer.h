@@ -443,12 +443,9 @@ encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
                                   deviceAttr);
   }
 
-  if (isa<ttnn::TTNNLayoutAttr>(attr)) {
-    return ttnnLayoutAttrToFlatbuffer(cache, cast<ttnn::TTNNLayoutAttr>(attr),
-                                      logicalShape, deviceAttr);
-  }
-
-  assert(false && "unsupported layout attr");
+  assert(isa<ttnn::TTNNLayoutAttr>(attr) && "unsupported layout attr");
+  return ttnnLayoutAttrToFlatbuffer(cache, cast<ttnn::TTNNLayoutAttr>(attr),
+                                    logicalShape, deviceAttr);
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>
