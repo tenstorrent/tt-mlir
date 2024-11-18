@@ -125,4 +125,16 @@ def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
+{
+  let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
+  let description = [{
+    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.  Currently we only have a manual analysis which requires a commandline list of named locs to hoist--in the future, we will have an automatic analysis as well.
+  }];
+  let options = [
+    ListOption<"hoistLocs", "hoist-locations", "std::string",
+               "comma-separated list of NameLoc's from input.">,
+  ];
+}
+
 #endif
