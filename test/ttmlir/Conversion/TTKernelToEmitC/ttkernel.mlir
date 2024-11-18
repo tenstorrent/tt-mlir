@@ -15,11 +15,11 @@ module attributes {} {
     // CHECK: [[C:.*]] = "emitc.constant"[[C:.*]]
     %c262144_i32 = arith.constant 262144 : i32
     // CHECK: [[C:.*]] = emitc.call_opaque "get_noc_addr"[[C:.*]]
-    %3 = "ttkernel.get_noc_addr"(%c0_i32, %c0_i32, %c262144_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
+    %3 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262144_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
     // CHECK: emitc.call_opaque "noc_async_read"[[C:.*]]
     "ttkernel.noc_async_read"(%3, %c262400_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
     // CHECK: [[C:.*]] = emitc.call_opaque "get_noc_addr"[[C:.*]]
-    %4 = "ttkernel.get_noc_addr"(%c0_i32, %c0_i32, %c262208_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
+    %4 = "ttkernel.get_noc_addr_xy"(%c0_i32, %c0_i32, %c262208_i32) : (i32, i32, i32) -> !ttkernel.noc_addr
     // CHECK: emitc.call_opaque "noc_async_read"[[C:.*]]
     "ttkernel.noc_async_read"(%4, %c262432_i32, %c32_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
     // CHECK: emitc.call_opaque "noc_async_read_barrier"[[C:.*]]

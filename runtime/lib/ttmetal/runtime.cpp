@@ -29,6 +29,10 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
 
+static Tensor createNullTensor() {
+  return Tensor(nullptr, nullptr, DeviceRuntime::TTMetal);
+}
+
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
@@ -250,6 +254,25 @@ void wait(Event event) {
   for (auto e : events) {
     ::tt::tt_metal::EventSynchronize(e);
   }
+}
+
+std::string getOpDebugString(OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op debug string for metal runtime not implemented");
+  return "";
+}
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
+  return createNullTensor();
+}
+
+std::vector<float> getTensorData(Tensor tensor) {
+  // Not implemented
+  LOG_WARNING("obtaining tensor data for metal runtime not implemented");
+  return {};
 }
 
 } // namespace tt::runtime::ttmetal

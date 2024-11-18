@@ -740,16 +740,12 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
     AnyRankedTensor:$weight,
     Optional<AnyRankedTensor>:$bias,
     AnyRankedTensor:$output,
-    // Default value: one for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$window_strides,
-    // Default value: two zeros for each of the spatial dimension.
-    DefaultValuedOptionalAttr<I64ElementsAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size()*2, 0)">:$padding,
-    // Default value: one for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$input_dilation,
-    // Default value: one for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$weight_dilation,
-    // Default value: false for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseBoolArrayAttr, "SmallVector<bool>(getConvolutionLayout().getInputSpatialDimensions().size(), false)">:$window_reversal,
+
+    DenseI64ArrayAttr:$window_strides,
+    DenseI64ArrayAttr:$padding,
+    DenseI64ArrayAttr:$input_dilation,
+    DenseI64ArrayAttr:$weight_dilation,
+    DenseBoolArrayAttr:$window_reversal,
     TTIR_ConvolutionLayoutAttr:$convolution_layout,
     ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
     ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count,

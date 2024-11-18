@@ -45,6 +45,43 @@ mlir::tt::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
   llvm_unreachable("Unknown TensorMemoryLayout");
 }
 
+mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
+    const ::mlir::tt::ttnn::TensorMemoryLayout ttnnTensorMemoryLayout) {
+
+  switch (ttnnTensorMemoryLayout) {
+  case ttnn::TensorMemoryLayout::HeightSharded:
+    return ::mlir::tt::TensorMemoryLayout::HeightSharded;
+  case ttnn::TensorMemoryLayout::Interleaved:
+    return ::mlir::tt::TensorMemoryLayout::Interleaved;
+  case ttnn::TensorMemoryLayout::WidthSharded:
+    return ::mlir::tt::TensorMemoryLayout::WidthSharded;
+  case ttnn::TensorMemoryLayout::BlockSharded:
+    return ::mlir::tt::TensorMemoryLayout::BlockSharded;
+  case ttnn::TensorMemoryLayout::SingleBank:
+    return ::mlir::tt::TensorMemoryLayout::SingleBank;
+  case ttnn::TensorMemoryLayout::None:
+    return ::mlir::tt::TensorMemoryLayout::None;
+  }
+}
+
+mlir::tt::MemorySpace
+toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
+  switch (bufferType) {
+  case ttnn::BufferType::SystemMemory:
+    return MemorySpace::System;
+  case ttnn::BufferType::DRAM:
+    return MemorySpace::DeviceDRAM;
+  case ttnn::BufferType::L1:
+    return MemorySpace::DeviceL1;
+  case ttnn::BufferType::L1Small:
+    assert(false && "BufferType::L1Small not supported");
+  case ttnn::BufferType::Trace:
+    assert(false && "BufferType::Trace not supported");
+  }
+
+  llvm_unreachable("Unknown MemorySpace");
+}
+
 DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
   Type elementType = memref.getElementType();
   DataType dtype = DataType::Float32;

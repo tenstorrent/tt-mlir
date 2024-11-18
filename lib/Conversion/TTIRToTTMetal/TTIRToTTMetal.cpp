@@ -2,22 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Operation.h"
-#include "llvm/ADT/ArrayRef.h"
-#include <cstdint>
-
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
@@ -30,7 +29,9 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
@@ -183,13 +184,13 @@ public:
     auto size = nocBuilder.create<arith::ConstantOp>(
         loc, nocBuilder.getI32Type(), nocBuilder.getI32IntegerAttr(nocTx.size));
     if (nocTx.type == NocTx::Type::Read) {
-      auto srcRemoteNocAddr =
-          nocBuilder.create<ttkernel::GetNocAddrOp>(loc, x, y, srcLocalL1Addr);
+      auto srcRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrXYOp>(
+          loc, x, y, srcLocalL1Addr);
       nocBuilder.create<ttkernel::NocAsyncReadOp>(loc, srcRemoteNocAddr,
                                                   dstLocalL1Addr, size);
     } else {
-      auto dstRemoteNocAddr =
-          nocBuilder.create<ttkernel::GetNocAddrOp>(loc, x, y, dstLocalL1Addr);
+      auto dstRemoteNocAddr = nocBuilder.create<ttkernel::GetNocAddrXYOp>(
+          loc, x, y, dstLocalL1Addr);
       nocBuilder.create<ttkernel::NocAsyncWriteOp>(loc, srcLocalL1Addr,
                                                    dstRemoteNocAddr, size);
     }
@@ -289,6 +290,8 @@ public:
       createDataMovementThread(op->getLoc(), block, inputBaseAddress,
                                outputBaseAddress, transactions,
                                physicalCoordMapping, addressAlignment);
+      OpBuilder endBuilder = OpBuilder::atBlockEnd(block);
+      endBuilder.create<ttkernel::ReturnOp>(op->getLoc());
     }
     rewriter.replaceOp(op, metalDispatch);
 
@@ -305,7 +308,7 @@ public:
     assert(outputBaseAddress);
     assert(inputBaseAddress % addressAlignment == 0);
     assert(outputBaseAddress % addressAlignment == 0);
-    OpBuilder nocBuilder(block, block->begin());
+    OpBuilder nocBuilder = OpBuilder::atBlockEnd(block);
     NocTx::Type type = transactions.front().type;
     for (auto tx : transactions) {
       assert(tx.type == type);
@@ -334,7 +337,6 @@ public:
         nocBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
       }
     }
-    nocBuilder.create<ttkernel::ReturnOp>(loc, ValueRange());
   }
 
   LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
@@ -710,7 +712,10 @@ public:
           assert(innerOffset.size() == 1);
           innerIndices.push_back(innerLoopRegion.create<arith::AddIOp>(
               output.getLoc(), forOp.getRegionIterArg(i),
-              i32(innerOffset[0], innerLoopRegion)));
+              i32(innerOffset[0], innerLoopRegion),
+              arith::IntegerOverflowFlagsAttr::get(
+                  innerLoopRegion.getContext(),
+                  arith::IntegerOverflowFlags::nsw)));
           ++i;
         }
         innerLoopRegion.create<scf::YieldOp>(output.getLoc(), innerIndices);
@@ -736,7 +741,10 @@ public:
           std::int64_t offset =
               outerOffset[0] - innerOffset[0] * walkingShape[dim];
           outerIndices.push_back(regionBuilder.create<arith::AddIOp>(
-              output.getLoc(), forOp.getResult(i), i32(offset, regionBuilder)));
+              output.getLoc(), forOp.getResult(i), i32(offset, regionBuilder),
+              arith::IntegerOverflowFlagsAttr::get(
+                  regionBuilder.getContext(),
+                  arith::IntegerOverflowFlags::nsw)));
           ++i;
         }
         regionBuilder.create<scf::YieldOp>(output.getLoc(), outerIndices);
@@ -799,19 +807,22 @@ public:
   void convertInitReduceOp(Operation &reduceOp, ttkernel::ReduceDim reduceDim,
                            ArrayRef<BlockArgument> cbOperands,
                            OpBuilder &builder) const {
-    assert(cbOperands.size() == 2 &&
-           "Expected one input and one output CB for reduce op.");
+    assert(cbOperands.size() == 3 &&
+           "Expected two inputs and one output CB for reduce op.");
 
     auto kernelOp = mlir::cast<ttir::KernelOp>(reduceOp);
     assert(kernelOp.getOp() == "reduce");
-    auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::Sum
-                                            : ttkernel::ReduceType::Max;
+    auto type = kernelOp.getKind() == "max" ? ttkernel::ReduceType::Max
+                                            : ttkernel::ReduceType::Sum;
     builder.create<ttkernel::ReduceInitOp>(
-        reduceOp.getLoc(), cbOperands[0],
-        cbOperands[0], // TODO(rpavlovic) insert proper scaling cb
-        cbOperands[1],
+        reduceOp.getLoc(), cbOperands[0], cbOperands[2], cbOperands[1],
         ttkernel::ReduceTypeAttr::get(builder.getContext(), type),
         ttkernel::ReduceDimAttr::get(builder.getContext(), reduceDim));
+
+    // Wait for scaler to be ready.
+    auto one = i32(1, builder);
+    builder.create<ttkernel::CBWaitFrontOp>(reduceOp.getLoc(), cbOperands[2],
+                                            one);
   }
 
   // Convert arith and math dialect operations into ttkernel init tile
@@ -1013,17 +1024,17 @@ public:
 
     auto kernelOp = mlir::cast<ttir::KernelOp>(op);
     assert(kernelOp.getOp() == "reduce");
-    auto type = kernelOp.getKind() == "sum" ? ttkernel::ReduceType::Sum
-                                            : ttkernel::ReduceType::Max;
+    auto type = kernelOp.getKind() == "max" ? ttkernel::ReduceType::Max
+                                            : ttkernel::ReduceType::Sum;
+    OpBuilder mainBuilder(computeBlock, computeBlock->begin());
+    mainBuilder.setInsertionPointToEnd(computeBlock);
 
     OpBuilder innerLoopBuilder(&loopNest.loopRegions.back()->front(),
                                loopNest.loopRegions.back()->front().begin());
     auto dstIndex = i32(0, innerLoopBuilder);
 
     innerLoopBuilder.create<ttkernel::ReduceTileOp>(
-        op.getLoc(), cbOperands[0],
-        cbOperands[0], // TODO(rpavlovic) insert proper
-                       // scaling cb
+        op.getLoc(), cbOperands[0], cbOperands[2],
         iterators[blockArgIteratorMapping[0]],
         iterators[blockArgIteratorMapping[0]], dstIndex,
         ttkernel::ReduceTypeAttr::get(innerLoopBuilder.getContext(), type),
@@ -1064,8 +1075,8 @@ public:
     packingBuilder.create<ttkernel::TileRegsWaitOp>(
         computeBlock->front().getLoc());
     packingBuilder.create<ttkernel::PackTileOp>(
-        computeBlock->front().getLoc(), i32(0, packingBuilder),
-        cbOperands.back(), packingTileIndex);
+        computeBlock->front().getLoc(), i32(0, packingBuilder), cbOperands[1],
+        packingTileIndex);
     packingBuilder.create<ttkernel::TileRegsReleaseOp>(
         computeBlock->front().getLoc());
   }
@@ -1177,8 +1188,6 @@ public:
     assert(users.begin() != users.end());
     assert(mlir::isa<ttir::YieldOp>(*users.begin()));
     assert(computeBlock->getNumArguments() > numDPSInputs);
-    assert((computeBlock->getNumArguments() - numDPSInputs) == 1 &&
-           "Expected 1 output");
 
     auto outputMemref = mlir::cast<ttkernel::CBType>(
                             computeBlock->getArgument(numDPSInputs).getType())
@@ -1217,6 +1226,7 @@ public:
     uint64_t srcAddress;
     uint64_t dstAddress;
     size_t blockArgIndex;
+    bool hasDataMovement;
     llvm::MapVector<PhysicalCoreCoord,
                     SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
         dataMovement;
@@ -1225,13 +1235,15 @@ public:
 
     StreamedOperand(
         uint64_t srcAddress, uint64_t dstAddress, size_t blockArgIndex,
+        bool hasDataMovement,
         llvm::MapVector<PhysicalCoreCoord,
                         SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
             dataMovement,
         uint64_t numTiles, const PhysicalCoreCoordMapping &coordMappping)
         : srcAddress(srcAddress), dstAddress(dstAddress),
-          blockArgIndex(blockArgIndex), dataMovement(dataMovement),
-          numTiles(numTiles), coordMappping(coordMappping) {}
+          blockArgIndex(blockArgIndex), hasDataMovement(hasDataMovement),
+          dataMovement(dataMovement), numTiles(numTiles),
+          coordMappping(coordMappping) {}
   };
 
   std::pair<SmallVector<Type>, SmallVector<StreamedOperand>>
@@ -1262,24 +1274,27 @@ public:
 
       rewrittenBlockArgumentTypes.push_back(
           rewriter.getType<ttkernel::CBType>(port, address, memref));
-      if (buffer.getBufferAccess() != BufferAccess::Stream) {
-        continue;
-      }
 
-      assert(cbMapping != -1 && "Expected streamed operand to have CB mapping");
-
-      auto matchingCB = op.getCbs()[cbMapping];
       uint64_t numTiles = memref.getShape()[memref.getRank() - 1] *
                           memref.getShape()[memref.getRank() - 2];
+
+      llvm::MapVector<PhysicalCoreCoord,
+                      SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
+          dataMovement;
+      if (buffer.getBufferAccess() == BufferAccess::Stream) {
+        dataMovement = calculateDataMovement(
+            op.getIteratorTypes(),
+            mlir::cast<RankedTensorType>(matchingOperand.getType()),
+            mlir::cast<RankedTensorType>(correspondingOperand.getType()),
+            op.getDevice());
+      } else {
+        dataMovement[PhysicalCoreCoord()] =
+            SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>();
+      }
       streamedOperands.push_back(StreamedOperand(
-          lookupAddress(matchingOperand), lookupAddress(matchingCB),
-          arg.getArgNumber(),
-          calculateDataMovement(
-              op.getIteratorTypes(),
-              mlir::cast<RankedTensorType>(matchingOperand.getType()),
-              mlir::cast<RankedTensorType>(matchingCB.getType()),
-              op.getDevice()),
-          numTiles,
+          lookupAddress(matchingOperand), lookupAddress(correspondingOperand),
+          arg.getArgNumber(), buffer.getBufferAccess() == BufferAccess::Stream,
+          dataMovement, numTiles,
           // TODO(rpavlovic) fix the assumption that input is always in L1.
           PhysicalCoreCoordMapping::getMemorySpaceMapping(
               op.getDevice().getChipIds(), op.getSystemDesc().getChipDescs(),
@@ -1344,6 +1359,268 @@ public:
     return dm;
   }
 
+  static bool needScaler(ttir::GenericOp op) {
+    Block &block = op.getRegion().front();
+    Operation &firstOp = block.getOperations().front();
+    if (!mlir::isa<ttir::KernelOp>(firstOp)) {
+      return false;
+    }
+
+    auto kernelOp = mlir::cast<ttir::KernelOp>(firstOp);
+    if (kernelOp.getOp() != "reduce") {
+      return false;
+    }
+
+    return true;
+  }
+
+  static Type addReduceScaler(ttir::GenericOp op, Block *dmBlock,
+                              ArrayRef<Type> rewrittenBlockArgumentTypes,
+                              PatternRewriter &rewriter) {
+    Block &block = op.getRegion().front();
+    Operation &firstOp = block.getOperations().front();
+    if (!mlir::isa<ttir::KernelOp>(firstOp)) {
+      return nullptr;
+    }
+
+    auto kernelOp = mlir::cast<ttir::KernelOp>(firstOp);
+    if (kernelOp.getOp() != "reduce") {
+      return nullptr;
+    }
+
+    // Take the port after the last input arg.
+    auto scalerCBPort = ttkernel::symbolizeCBPort(
+                            ttmlir::utils::enum_as_int(ttkernel::CBPort::In0) +
+                            op.getInputs().size())
+                            .value();
+    auto inputCB =
+        mlir::cast<ttkernel::CBType>(*rewrittenBlockArgumentTypes.begin());
+    auto inputTT = mlir::cast<TileType>(inputCB.getMemref().getElementType());
+    assert(inputTT);
+
+    // Single tile memref that will be used for the scaler.
+    MemRefType tileMemref = MemRefType::get(
+        {1, 1}, inputTT,
+        mlir::AffineMap::getMultiDimIdentityMap(2, op->getContext()),
+        MemorySpaceAttr::get(op->getContext(), MemorySpace::DeviceL1));
+
+    auto scalerCBType = ttkernel::CBType::get(
+        op.getContext(), scalerCBPort,
+        op.getSystemDesc().getChipDescs().front().getScratchL1RegionAddress(),
+        tileMemref);
+    auto scalerCB = dmBlock->addArgument(scalerCBType, op.getLoc());
+
+    auto reduceKind = kernelOp.getKind();
+    float scalerValue = 0.;
+    if (reduceKind == "sum" || reduceKind == "max") {
+      scalerValue = 1.;
+    }
+
+    if (reduceKind == "mean") {
+      int64_t numElements = 1;
+      auto inputType =
+          mlir::cast<RankedTensorType>(op.getInputs()[0].getType());
+
+      for (int64_t dim = 0; dim < inputType.getRank(); ++dim) {
+        auto iteratorType =
+            mlir::cast<IteratorTypeAttr>(op.getIteratorTypes()[dim]);
+        if (iteratorType.getValue() == IteratorType::Reduction) {
+          numElements *= inputType.getShape()[dim];
+        }
+      }
+      scalerValue = 1. / numElements;
+    }
+
+    generateScaler(op.getLoc(), dmBlock, scalerCB, scalerValue);
+
+    return scalerCBType;
+  }
+
+  // Given float value fValue, generate a scaler tile with value fValue. Tile
+  // should be populated in pattern such that only first row of each face is
+  // populated with fValue, while the rest of the tile is zeroed out.
+  static void generateScaler(Location loc, Block *block,
+                             BlockArgument &scalerCB, float fValue) {
+    OpBuilder builder(block, block->begin());
+
+    // Assumption is that scalerCB is tile of F16/BF16 values. Converting from
+    // float to 2byte float is truncating mantissa bits. To support lesser
+    // fortmats we need to add conversion from float to those formats, which is
+    // trickier than just truncating mantissa bits.
+    uint32_t iValue = *reinterpret_cast<uint32_t *>(&fValue);
+    iValue >>= 16;
+    uint16_t iValue16 = iValue & 0xFFFF;
+    auto scalerConst = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(),
+        builder.getI32IntegerAttr(iValue16 | (iValue16 << 16)));
+
+    // Reserve single tile.
+    auto oneConst = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(), builder.getI32IntegerAttr(1));
+    builder.create<ttkernel::CBReserveBackOp>(loc, scalerCB, oneConst);
+
+    // Prepare zero region read.
+    auto zerosBase =
+        builder.create<ttkernel::MemZerosBaseOp>(loc, builder.getI32Type());
+    auto zerosNocAddr =
+        builder.create<ttkernel::GetNocAddrOp>(loc, zerosBase->getResult(0));
+    auto memZerosSize =
+        builder.create<ttkernel::MemZerosSizeOp>(loc, builder.getI32Type());
+    builder.create<ttkernel::NocAsyncReadOnePacketSetStateOp>(loc, zerosNocAddr,
+                                                              memZerosSize);
+
+    // Prepare pointer to scalerCB tile.
+    auto writeAddr = builder.create<ttkernel::GetWritePtrOp>(loc, scalerCB);
+    auto ptr = builder.create<ttkernel::CastToL1PtrOp>(loc, writeAddr);
+
+    // Zeros are read in few packets, so we need to calculate how many reads.
+    // Assumption is that scalerCB is 2048 bytes.
+    auto lowerBound = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(), builder.getI32IntegerAttr(0));
+    auto cbSizeBytes = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(), builder.getI32IntegerAttr(2048));
+    auto numZerosReads = builder.create<arith::DivSIOp>(
+        loc, builder.getI32Type(), cbSizeBytes, memZerosSize);
+    auto step = builder.create<arith::ConstantOp>(loc, builder.getI32Type(),
+                                                  builder.getI32IntegerAttr(1));
+
+    // Generate loop to read zeros and fill tile. Move address by memZerosSize
+    // in each iteration.
+    auto forOp = builder.create<scf::ForOp>(loc, lowerBound, numZerosReads,
+                                            step, ValueRange(writeAddr));
+    builder.setInsertionPointToStart(forOp.getBody());
+    builder.create<ttkernel::NocAsyncReadOnePacketWithStateOp>(
+        loc, zerosNocAddr, forOp.getRegionIterArg(0));
+    SmallVector<Value> newAddr;
+    newAddr.push_back(builder.create<arith::AddIOp>(
+        loc, forOp.getRegionIterArg(0), memZerosSize,
+        mlir::arith::IntegerOverflowFlagsAttr::get(
+            builder.getContext(), mlir::arith::IntegerOverflowFlags::nsw)));
+    builder.create<scf::YieldOp>(loc, newAddr);
+
+    builder.setInsertionPointAfter(forOp);
+    builder.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+
+    // Fill the tile in 2 nested loops. Outer loop is for 4 faces.
+    auto numFaces = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(), builder.getI32IntegerAttr(4));
+    auto fillingOuterLoop = builder.create<scf::ForOp>(
+        loc, lowerBound, numFaces, step, ValueRange{});
+
+    auto faceIndex = fillingOuterLoop.getInductionVar();
+    builder.setInsertionPointToStart(fillingOuterLoop.getBody());
+
+    // In each face, we want to fill first row of 16 datums, each datum being
+    // sized 2B. So we need to fill 32B in each face. Since we packed 4B in
+    // scalerConst, this gives us 8 stores in each face.
+    // After each face, we need to move to next face, which is 512B away (or
+    // 128x4B).
+    auto bytesStride = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(), builder.getI32IntegerAttr(128));
+    auto offset = builder.create<arith::MulIOp>(
+        loc, faceIndex, bytesStride,
+        mlir::arith::IntegerOverflowFlagsAttr::get(
+            builder.getContext(), mlir::arith::IntegerOverflowFlags::nsw));
+
+    auto numStores = builder.create<arith::ConstantOp>(
+        loc, builder.getI32Type(), builder.getI32IntegerAttr(8));
+    auto fillingInnerLoop = builder.create<scf::ForOp>(
+        loc, lowerBound, numStores, step, ValueRange{});
+
+    builder.setInsertionPointToStart(fillingInnerLoop.getBody());
+    auto fillingIdx = builder.create<arith::AddIOp>(
+        loc, offset, fillingInnerLoop.getInductionVar(),
+        mlir::arith::IntegerOverflowFlagsAttr::get(
+            builder.getContext(), mlir::arith::IntegerOverflowFlags::nsw));
+    builder.create<ttkernel::StoreToL1Op>(loc, scalerConst, ptr, fillingIdx);
+
+    // Notify that we filled the tile.
+    builder.setInsertionPointAfter(fillingOuterLoop);
+    builder.create<ttkernel::CBPushBackOp>(loc, scalerCB, oneConst);
+  }
+
+  void generateDataMovementThreads(
+      ttir::GenericOp op, Block *tensixBlock,
+      ArrayRef<StreamedOperand> streamedOperands, PatternRewriter &rewriter,
+      ttmetal::DispatchOp &metalDispatch,
+      ArrayRef<Type> rewrittenBlockArgumentTypes) const {
+
+    // TODO(1159) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
+    // (& other data movement logic) into common place
+    int dmThreadIdx = 1;
+    assert(!streamedOperands.empty());
+
+    llvm::DenseMap<PhysicalCoreCoord, Block *> coordToBlock;
+    for (auto operand : streamedOperands) {
+      if (!operand.hasDataMovement) {
+        continue;
+      }
+      for (auto [dstCoord, srcs] : operand.dataMovement) {
+        Block *block =
+            coordToBlock.find(dstCoord) == coordToBlock.end()
+                ? rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++))
+                : coordToBlock[dstCoord];
+        coordToBlock[dstCoord] = block;
+
+        block->addArgument(rewrittenBlockArgumentTypes[operand.blockArgIndex],
+                           op.getLoc());
+
+        auto streamedCB = block->getArgument(0);
+
+        TTIRToTTMetalLayoutRewriter::createDataMovementThread(
+            op->getLoc(), block, operand.srcAddress, operand.dstAddress, srcs,
+            operand.coordMappping, op.getSystemDesc().getAddressAlignBytes(),
+            &streamedCB);
+      }
+    }
+
+    if (needScaler(op)) {
+      if (coordToBlock.empty()) {
+        // No data movement, so we need to add a block for the scaler.
+        coordToBlock[PhysicalCoreCoord()] =
+            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
+      }
+
+      Type scalerCBType;
+      for (auto [coord, block] : coordToBlock) {
+        scalerCBType =
+            addReduceScaler(op, block, rewrittenBlockArgumentTypes, rewriter);
+      }
+
+      // Propagate the scalerCBType to the compute thread.
+      tensixBlock->addArgument(scalerCBType, op.getLoc());
+    }
+
+    // Finish all blocks with return op.
+    for (auto [coord, block] : coordToBlock) {
+      OpBuilder builder = OpBuilder::atBlockEnd(block);
+      builder.create<ttkernel::ReturnOp>(op.getLoc());
+    }
+  }
+
+  static void
+  addSyncronizationForDataMovement(ttir::GenericOp op, Block *tensixBlock,
+                                   ArrayRef<StreamedOperand> streamedOperands) {
+    for (auto operand : streamedOperands) {
+      if (operand.hasDataMovement) {
+        // There is some data movement. Let's just insert waiting command at the
+        // start of compute block. We assume whole block is streamed.
+        OpBuilder builder(tensixBlock, tensixBlock->begin());
+        auto numPages = builder.create<arith::ConstantOp>(
+            op.getLoc(), builder.getI32Type(),
+            builder.getI32IntegerAttr(operand.numTiles));
+
+        auto streamedCB = tensixBlock->getArgument(operand.blockArgIndex);
+        builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), streamedCB,
+                                                numPages);
+
+        builder.setInsertionPoint(tensixBlock->getTerminator());
+        builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), streamedCB,
+                                               numPages);
+      }
+    }
+  }
+
   LogicalResult matchAndRewrite(ttir::GenericOp op,
                                 PatternRewriter &rewriter) const final {
     // Temporary fix that allows ttir::KernelOp to be lowered directly into
@@ -1374,19 +1651,37 @@ public:
         getBlockArgumentTypesAsCBs(op, op->getRegion(0).getArguments(),
                                    rewriter);
 
-    assert(streamedOperands.size() <= 1 &&
-           "Expecting at most one streamed operand for now");
+    assert(!streamedOperands.empty());
 
-    if (!streamedOperands.empty()) {
-      auto &dm = streamedOperands[0].dataMovement;
-      for (auto [dstCoord, srcs] : dm) {
-        kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
-            rewriter.getContext(),
-            ttkernel::NocIndex::Noc0)); // TODO(rpavlovic) choose Noc0 vs Noc1
-                                        // based off transaction type
-        coreRanges.push_back(ttmetal::CoreRangeAttr::get(
-            getContext(), {dstCoord.y, dstCoord.x}, {1, 1} /* size */));
+    // Minimal mapping to cover whole generic op grid w.r.t. data movement
+    // requirements of all operands. Today, each destination core gets its own
+    // unique kernel for data movement, while in the future we'll want to merge
+    // them into less kernels if possible and configure them through kernel
+    // configs. Operands that have no data movement simply cover whole op grid.
+    llvm::DenseMap<PhysicalCoreCoord, SmallVector<int64_t, 2>> allDstCoords;
+    for (auto operand : streamedOperands) {
+      for (auto [dstCoord, srcs] : operand.dataMovement) {
+        if (allDstCoords.find(dstCoord) != allDstCoords.end() &&
+            !operand.hasDataMovement) {
+          // Some other operand already added this dstCoord, we don't want to
+          // overwrite it by this operand which has no data movement.
+          continue;
+        }
+        allDstCoords.try_emplace(dstCoord, operand.hasDataMovement
+                                               ? SmallVector<int64_t>({1, 1})
+                                               : op.getGrid().getShape());
       }
+    }
+
+    assert(!allDstCoords.empty() && "There should be at least one dstCoord");
+
+    for (auto [dstCoord, gridShape] : allDstCoords) {
+      kernelConfigs.push_back(ttkernel::NocConfigAttr::get(
+          rewriter.getContext(), ttkernel::NocIndex::Noc0));
+      // If no data movement transactions are needed, let's cover whole op
+      // grid.
+      coreRanges.push_back(ttmetal::CoreRangeAttr::get(
+          getContext(), {dstCoord.y, dstCoord.x}, gridShape));
     }
 
     // Wire generic's operands to dispatch op's operands with respect to the CB
@@ -1410,44 +1705,23 @@ public:
       tensixBlock->addArgument(ty, op.getLoc());
     }
 
-    // TODO(radenko) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
-    // (& other data movement logic) into common place
-    int dmThreadIdx = 1;
-
-    if (!streamedOperands.empty()) {
-      for (auto [dstCoord, srcs] : streamedOperands[0].dataMovement) {
-        Block *block =
-            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
-        block->addArgument(
-            rewrittenBlockArgumentTypes[streamedOperands[0].blockArgIndex],
-            op.getLoc());
-        auto streamedCB = block->getArgument(0);
-
-        TTIRToTTMetalLayoutRewriter::createDataMovementThread(
-            op->getLoc(), block, streamedOperands[0].srcAddress,
-            streamedOperands[0].dstAddress, srcs,
-            streamedOperands[0].coordMappping,
-            op.getSystemDesc().getAddressAlignBytes(), &streamedCB);
-      }
-    }
+    generateDataMovementThreads(op, tensixBlock, streamedOperands, rewriter,
+                                metalDispatch, rewrittenBlockArgumentTypes);
 
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
                op.getIndexingMaps(), op.getInputs().size());
 
-    if (kernelConfigs.size() > 1) {
-      // There is some data movement. Let's just insert waiting command at the
-      // start of compute block. We assume whole block is streamed.
-      OpBuilder builder(tensixBlock, tensixBlock->begin());
-      auto numPages = builder.create<arith::ConstantOp>(
-          op.getLoc(), builder.getI32Type(),
-          builder.getI32IntegerAttr(streamedOperands[0].numTiles));
-      auto streamedCB =
-          tensixBlock->getArgument(streamedOperands[0].blockArgIndex);
-      builder.create<ttkernel::CBWaitFrontOp>(op.getLoc(), streamedCB,
-                                              numPages);
+    addSyncronizationForDataMovement(op, tensixBlock, streamedOperands);
 
-      builder.setInsertionPoint(tensixBlock->getTerminator());
-      builder.create<ttkernel::CBPopFrontOp>(op.getLoc(), streamedCB, numPages);
+    // Regions for dispatch op are allocated up-front, but some of them may be
+    // empty at the end of lowering due to no data movement requirements. Insert
+    // return op in those regions.
+    for (Region &reg : metalDispatch->getRegions()) {
+      if (reg.empty()) {
+        auto &block = reg.emplaceBlock();
+        OpBuilder builder = OpBuilder::atBlockEnd(&block);
+        builder.create<ttkernel::ReturnOp>(op.getLoc());
+      }
     }
 
     rewriter.replaceOp(op, metalDispatch);
