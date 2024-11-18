@@ -144,6 +144,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
+    unsigned getScratchL1RegionAddress() const;
+    unsigned getScratchL1RegionSize() const;
     unsigned getUsableDramChannelSize() const { return getDramUnreservedEnd() - getDramUnreservedBase(); }
   }];
 }

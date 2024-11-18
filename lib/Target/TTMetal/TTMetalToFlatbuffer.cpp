@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cassert>
+#include <cstddef>
+#include <flatbuffers/buffer.h>
 #include <memory>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -25,6 +27,7 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 
 namespace mlir::tt {
 flatbuffers::Offset<::tt::target::MemoryDesc>
@@ -302,17 +305,17 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             emitDispatchOpRegionsAsCpp(dispatchOp, cppKernels);
         assert(success.succeeded() &&
                "failed to emit dispatch op regions as cpp");
-
         for (auto &region : dispatchOp.getRegions()) {
           std::vector<::tt::target::Dim2dRange> coreRangeSet = {
               toFlatbuffer(mlir::cast<CoreRangeAttr>(
                   dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
+          size_t argNumber = 0;
           for (auto arg : region.getArguments()) {
-            assert(arg.getArgNumber() < operands.size());
             auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
             auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-            auto tensorRef = operands[arg.getArgNumber()];
+            auto tensorRef =
+                argNumber >= operands.size() ? 0 : operands[argNumber++];
             cbs.push_back(
                 ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
                                           cbType.getAddress(), cbDesc));
