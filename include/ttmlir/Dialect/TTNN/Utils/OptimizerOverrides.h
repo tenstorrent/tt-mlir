@@ -12,11 +12,17 @@
 namespace mlir::tt::ttnn {
 
 struct OutputLayoutOverrideParams {
-  SmallVector<int64_t, 2> grid;
-  tt::MemorySpace memorySpace;
-  tt::TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
-  tt::ttnn::Layout memoryLayout;             // ROW_MAJOR / TILE
-  tt::DataType dataType;
+  std::optional<SmallVector<int64_t, 2>> grid;
+  std::optional<tt::MemorySpace> memorySpace;
+  std::optional<tt::TensorMemoryLayout>
+      tensorMemoryLayout;                       // INTERLEAVED / SHARDED etc...
+  std::optional<tt::ttnn::Layout> memoryLayout; // ROW_MAJOR / TILE
+  std::optional<tt::DataType> dataType;
+
+  bool allParamsSet() const {
+    return grid.has_value() && memorySpace.has_value() &&
+           tensorMemoryLayout.has_value() && memoryLayout.has_value();
+  }
 };
 
 struct InputLayoutOverrideParams {

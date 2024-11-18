@@ -45,22 +45,25 @@ bool OutputLayoutOverrideParser::parse(
     }
 
     // Parse grid.
-    SmallVector<int64_t, kMaxGridSize> grid;
-    SmallVector<StringRef, kMaxGridSize> gridParts;
-    layoutParamParts[iGrid].split(gridParts, gridSeparator);
-    for (const StringRef gridPart : gridParts) {
-      int64_t gridValue;
-      if (gridPart.getAsInteger(10 /*Radix*/, gridValue)) {
-        opt.error("Invalid grid size: " + gridPart);
-        return true;
+    std::optional<SmallVector<int64_t, kMaxGridSize>> grid = std::nullopt;
+    if (!layoutParamParts[iGrid].empty()) {
+      grid = SmallVector<int64_t, kMaxGridSize>();
+      SmallVector<StringRef, kMaxGridSize> gridParts;
+      layoutParamParts[iGrid].split(gridParts, gridSeparator);
+      for (const StringRef gridPart : gridParts) {
+        int64_t gridValue;
+        if (gridPart.getAsInteger(10 /*Radix*/, gridValue)) {
+          opt.error("Invalid grid size: " + gridPart);
+          return true;
+        }
+        grid->push_back(gridValue);
       }
-      grid.push_back(gridValue);
     }
 
     // Parse memory space.
     std::optional<mlir::tt::MemorySpace> memorySpace =
         mlir::tt::symbolizeMemorySpace(layoutParamParts[iMemorySpace]);
-    if (!memorySpace.has_value()) {
+    if (!memorySpace.has_value() and !layoutParamParts[iMemorySpace].empty()) {
       opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
       return true;
     }
@@ -69,7 +72,8 @@ bool OutputLayoutOverrideParser::parse(
     std::optional<mlir::tt::TensorMemoryLayout> tensorMemoryLayout =
         mlir::tt::symbolizeTensorMemoryLayout(
             layoutParamParts[iTensorMemoryLayout]);
-    if (!tensorMemoryLayout.has_value()) {
+    if (!tensorMemoryLayout.has_value() and
+        !layoutParamParts[iTensorMemoryLayout].empty()) {
       opt.error("Invalid tensor memory layout: " +
                 layoutParamParts[iTensorMemoryLayout]);
       return true;
@@ -78,7 +82,8 @@ bool OutputLayoutOverrideParser::parse(
     // Parse memory layout.
     std::optional<tt::ttnn::Layout> memoryLayout =
         mlir::tt::ttnn::symbolizeLayout(layoutParamParts[iMemoryLayout]);
-    if (!memoryLayout.has_value()) {
+    if (!memoryLayout.has_value() and
+        !layoutParamParts[iMemoryLayout].empty()) {
       opt.error("Invalid memory layout: " + layoutParamParts[iMemoryLayout]);
       return true;
     }
@@ -86,14 +91,14 @@ bool OutputLayoutOverrideParser::parse(
     // Parse data type.
     std::optional<tt::DataType> dataType =
         mlir::tt::DataTypeStringToEnum(layoutParamParts[iDataType]);
-    if (!dataType.has_value()) {
+    if (!dataType.has_value() and !layoutParamParts[iDataType].empty()) {
       opt.error("Invalid data type: " + layoutParamParts[iDataType]);
       return true;
     }
 
     // Set parsed op overrides.
     value[opOverrideParts[iOpName]] = OutputLayoutOverrideParams{
-        std::move(grid), memorySpace.value(), tensorMemoryLayout.value(),
+        grid, memorySpace.value(), tensorMemoryLayout.value(),
         memoryLayout.value(), dataType.value()};
   }
   return false;
@@ -108,18 +113,19 @@ void OutputLayoutOverrideParser::print(
     os << entry.getKey() << "=";
     const OutputLayoutOverrideParams &params = entry.getValue();
     // Print grid values
-    for (size_t i = 0; i < params.grid.size(); ++i) {
-      os << params.grid[i];
-      if (i < params.grid.size() - 1) {
+    for (size_t i = 0; i < params.grid.value().size(); ++i) {
+      os << params.grid.value()[i];
+      if (i < params.grid.value().size() - 1) {
         os << "x";
       }
     }
     // Print memory space and memory layout
-    os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace);
+    os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace.value());
     os << ":"
-       << mlir::tt::stringifyTensorMemoryLayout(params.tensorMemoryLayout);
-    os << ":" << mlir::tt::ttnn::stringifyLayout(params.memoryLayout);
-    os << ":" << mlir::tt::DataTypeEnumToString(params.dataType);
+       << mlir::tt::stringifyTensorMemoryLayout(
+              params.tensorMemoryLayout.value());
+    os << ":" << mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value());
+    os << ":" << mlir::tt::DataTypeEnumToString(params.dataType.value());
     if (++count < value.size()) {
       os << ",";
     }
