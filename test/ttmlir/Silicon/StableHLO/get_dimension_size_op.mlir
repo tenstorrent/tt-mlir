@@ -15,4 +15,13 @@ module @jit_get_dimension_size attributes {} {
     %0 = stablehlo.get_dimension_size %arg0, dim = 1 : (tensor<64x128xf32>) -> tensor<i32>
     return %0 : tensor<i32>
   }
+
+  func.func public @test_get_dimension_size_f64(%arg0: tensor<64x128xf64>) -> tensor<i32> {
+    // CHECK-LABEL: func.func public @test_get_dimension_size_f64
+    // CHECK: ttnn.full
+    // CHECK-SAME: {fillValue = 1.280000e+02 : f32}
+    // CHECK-SAME: -> tensor<1xi32
+    %0 = stablehlo.get_dimension_size %arg0, dim = 1 : (tensor<64x128xf64>) -> tensor<i32>
+    return %0 : tensor<i32>
+  }
 }

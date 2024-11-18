@@ -215,7 +215,7 @@ public:
     ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        srcOp->getOperand(0), outputTensor, new_shape_attr,
+        adaptor.getOperand(), outputTensor, new_shape_attr,
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -327,7 +327,7 @@ public:
         intType, static_cast<int32_t>(srcOp.getDimension()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::GetDimensionSizeOp>(
-        srcOp, outputType, srcOp.getOperand(), dimension_attr);
+        srcOp, outputType, adaptor.getOperand(), dimension_attr);
 
     return success();
   }
