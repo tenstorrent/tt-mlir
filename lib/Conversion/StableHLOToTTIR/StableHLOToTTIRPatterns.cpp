@@ -19,6 +19,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include <llvm/ADT/APFloat.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -220,6 +221,11 @@ public:
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
+    checkForArgumentsAndReplace(srcOp, new_reshape_op);
+    rewriter.replaceOp(srcOp, new_reshape_op);
+    if (new_reshape_op.getType() == new_reshape_op->getOperand(0).getType()) {
+      rewriter.replaceOp(new_reshape_op, new_reshape_op->getOperand(0));
+    }
     return success();
   }
 
@@ -234,6 +240,17 @@ public:
     }
 
     return success();
+  }
+
+private:
+  void
+  checkForArgumentsAndReplace(mlir::stablehlo::ReshapeOp &srcOp,
+                              mlir::tt::ttir::ReshapeOp &newReshapeOp) const {
+    if (auto blockArg = mlir::cast<BlockArgument>(srcOp->getOperand(0))) {
+      newReshapeOp.setOperand(
+          0, srcOp->getParentOfType<mlir::func::FuncOp>().getArgument(
+                 blockArg.getArgNumber()));
+    }
   }
 };
 
