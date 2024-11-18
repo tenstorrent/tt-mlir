@@ -23,14 +23,14 @@ public:
 
   LogicalResult matchAndRewrite(MaximumOp op,
                                 PatternRewriter &rewriter) const final {
-    auto resultTy = op.getResult().getType();
+    auto resultTy = op.getResultTypes();
     auto loc = op.getLoc();
     auto hoistFuncTy = rewriter.getFunctionType({resultTy}, {resultTy});
 
     // define hoisted func, w placeholder attr for CPU execution
-    func::FuncOp hoistFunc =
+    auto hoistFunc =
         rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
-    hoistFunc.setAttr("target", rewriter.getStringAttr("CPU"));
+    hoistFunc->setAttr("target", rewriter.getStringAttr("CPU"));
 
     rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
     auto cpuMaxOp = rewriter.create<MaximumOp>(loc, resultTy, op.getOperand(0),
