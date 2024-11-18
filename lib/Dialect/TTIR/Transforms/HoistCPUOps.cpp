@@ -38,8 +38,9 @@ public:
     //                                            op.getOperand(1));
     rewriter.create<func::ReturnOp>(loc, op.getResults());
 
-    auto callOp = rewriter.create<func::CallOp>(
-        loc, hoistFunc, op.getOperand(0), op.getOperand(1));
+    SymbolRefAttr funcAttr = rewriter.getSymbolRefAttr(hoistFunc);
+    auto callOp = rewriter.create<func::CallOp>(loc, funcAttr, op.getOperand(0),
+                                                op.getOperand(1));
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
