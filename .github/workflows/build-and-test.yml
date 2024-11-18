@@ -107,11 +107,36 @@ jobs:
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
     - name: Lint
+      id: lint
       shell: bash
       if: matrix.build.enable_perf == 'OFF'
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+
+    - name: Unique-ify clang-tidy fixes
+      shell: bash
+      if: failure() && steps.lint.outcome == 'failure'
+      run: |
+        source env/activate
+        python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
+    - name: Clang-tidy PR Comments
+      uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        # The GitHub token (or a personal access token)
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        # The path to the clang-tidy fixes generated above
+        clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+        # Optionally set to true if you want the Action to request
+        # changes in case warnings are found
+        request_changes: false
+        # Optionally set the number of comments per review
+        # to avoid GitHub API timeouts for heavily loaded
+        # pull requests
+        suggestions_per_comment: 10
+        python_path: "python3"
 
     - name: Run Test
       shell: bash

@@ -103,6 +103,23 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return outputs;
 }
 
+const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
+                                                     std::string &loc) {
+  auto const *programs = getBinary(binary)->programs();
+  for (auto const *program : *programs) {
+    for (const ::tt::target::GoldenKV *goldenKV :
+         *program->debug_info()->golden_info()->golden_map()) {
+      if (std::string(goldenKV->key()->c_str()) == loc) {
+        return goldenKV->value();
+        ;
+      }
+    }
+  }
+
+  LOG_WARNING("Golden information not found");
+  return nullptr;
+}
+
 } // namespace ttnn
 
 namespace metal {
@@ -175,6 +192,12 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
     outputs.push_back(desc);
   }
   return outputs;
+}
+
+const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
+                                                     std::string &loc) {
+  LOG_WARNING("Debug golden information not enabled for metal yet!");
+  return nullptr;
 }
 
 } // namespace metal
@@ -342,6 +365,22 @@ Binary::getProgramOutputs(std::uint32_t programIndex) const {
   }
 
   throw std::runtime_error("Unsupported binary format");
+}
+
+const ::tt::target::GoldenTensor *
+Binary::getDebugInfoGolden(std::string &loc) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getDebugInfoGolden(*this, loc);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getDebugInfoGolden(*this, loc);
+  }
+
+  throw std::runtime_error(
+      "Unsupported binary format for obtaining golden information");
 }
 
 } // namespace tt::runtime

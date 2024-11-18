@@ -7,7 +7,7 @@
 namespace mlir::ttmlir::python {
 void populateTTNNModule(py::module &m) {
 
-  py::class_<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
+  tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> offset,
                      std::vector<int64_t> size) {
@@ -27,8 +27,15 @@ void populateTTNNModule(py::module &m) {
                 offsetVec));
           },
           py::arg("ctx"), py::arg("grid"),
-          py::arg("offset") = std::vector<int64_t>{0, 0});
-  py::class_<tt::ttnn::LayoutAttr>(m, "LayoutAttr")
+          py::arg("offset") = std::vector<int64_t>{0, 0})
+      .def_property_readonly(
+          "offset",
+          [](tt::ttnn::CoreRangeAttr self) { return self.getOffset().vec(); })
+      .def_property_readonly("size", [](tt::ttnn::CoreRangeAttr self) {
+        return self.getSize().vec();
+      });
+
+  tt_attribute_class<tt::ttnn::LayoutAttr>(m, "LayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t layout) {
                     return wrap(tt::ttnn::LayoutAttr::get(
@@ -37,7 +44,9 @@ void populateTTNNModule(py::module &m) {
       .def_property_readonly("value", [](tt::ttnn::LayoutAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
-  py::class_<tt::ttnn::TensorMemoryLayoutAttr>(m, "TensorMemoryLayoutAttr")
+
+  tt_attribute_class<tt::ttnn::TensorMemoryLayoutAttr>(m,
+                                                       "TensorMemoryLayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t tensorMemoryLayout) {
                     return wrap(tt::ttnn::TensorMemoryLayoutAttr::get(
@@ -48,7 +57,7 @@ void populateTTNNModule(py::module &m) {
                              [](tt::ttnn::TensorMemoryLayoutAttr self) {
                                return static_cast<uint32_t>(self.getValue());
                              });
-  py::class_<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
+  tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
       .def_static(
           "get",
           [](MlirContext ctx, uint32_t bufferType) {
@@ -58,7 +67,8 @@ void populateTTNNModule(py::module &m) {
       .def_property_readonly("value", [](tt::ttnn::BufferTypeAttr self) {
         return static_cast<uint32_t>(self.getValue());
       });
-  py::class_<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
+
+  tt_attribute_class<tt::ttnn::ShardSpecAttr>(m, "ShardSpecAttr")
       .def_static("get",
                   [](MlirContext ctx, tt::ttnn::ShapeAttr shardShape) {
                     return wrap(
@@ -66,7 +76,8 @@ void populateTTNNModule(py::module &m) {
                   })
       .def_property_readonly("shard_shape",
                              &tt::ttnn::ShardSpecAttr::getShardShape);
-  py::class_<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
+
+  tt_attribute_class<tt::ttnn::MemoryConfigAttr>(m, "MemoryConfigAttr")
       .def_static("get",
                   [](MlirContext ctx,
                      tt::ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr,
@@ -97,7 +108,8 @@ void populateTTNNModule(py::module &m) {
                              &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_property_readonly("shard_spec",
                              &tt::ttnn::MemoryConfigAttr::getShardSpec);
-  py::class_<tt::ttnn::ShapeAttr>(m, "ShapeAttr")
+
+  tt_attribute_class<tt::ttnn::ShapeAttr>(m, "ShapeAttr")
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> shape) {
                     return wrap(tt::ttnn::ShapeAttr::get(unwrap(ctx), shape));
@@ -106,7 +118,8 @@ void populateTTNNModule(py::module &m) {
         return std::vector<int64_t>(self.getShape().begin(),
                                     self.getShape().end());
       });
-  py::class_<tt::ttnn::MeshShapeAttr>(m, "MeshShapeAttr")
+
+  tt_attribute_class<tt::ttnn::MeshShapeAttr>(m, "MeshShapeAttr")
       .def_static("get",
                   [](MlirContext ctx, int64_t y, int64_t x) {
                     return wrap(

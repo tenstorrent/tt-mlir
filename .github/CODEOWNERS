@@ -24,4 +24,5 @@
 /runtime/tools/ @tapspatel @nsmithtt
 /test/ttmlir/Dialect/TTNN/optimizer/ @nobradovictt @odjuricicTT
 /test/ttmlir/Silicon/TTNN/optimizer/ @nobradovictt @odjuricicTT
+/test/unittests/Optimizer @nobradovictt @odjuricicTT
 /tools/explorer/ @odjuricicTT @nobradovictt @vprajapati-tt

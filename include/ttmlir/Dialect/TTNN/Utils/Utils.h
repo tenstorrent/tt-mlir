@@ -11,15 +11,25 @@
 
 namespace mlir::tt::ttnn::utils {
 
-// Map TT::MemorySpace to TTNN::BufferType
+// Map tt::MemorySpace to ttnn::BufferType
 //
 mlir::tt::ttnn::BufferType
 toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
 
-// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
+// Map tt::TensorMemoryLayout to ttnn::TensorMemoryLayout
 //
 ttnn::TensorMemoryLayout
 toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout);
+
+// Map ttnn::BufferType to tt::MemorySpace
+//
+mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
+    const ::mlir::tt::ttnn::TensorMemoryLayout ttnnTensorMemoryLayout);
+
+// Map ttnn::BufferType to tt::MemorySpace
+//
+mlir::tt::MemorySpace
+toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
 DataType getDataTypeFromMemRef(mlir::MemRefType memref);
 

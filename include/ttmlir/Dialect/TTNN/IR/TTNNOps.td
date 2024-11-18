@@ -732,7 +732,7 @@ def TTNN_AllocOp : TTNN_Op<"alloc"> {
       Tensor Alloc operation
     }];
 
-    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
+    let arguments = (ins I64Attr:$address, I64Attr:$size, TTNN_BufferTypeAttr:$buffer_type);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;

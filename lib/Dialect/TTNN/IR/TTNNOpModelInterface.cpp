@@ -13,21 +13,21 @@ namespace mlir::tt::ttnn {
 // ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-size_t ReluOp::getOpPerfCycles(const std::vector<tt::LayoutAttr> &input_layouts,
-                               const tt::LayoutAttr &output_layout) {
+size_t ReluOp::getOpPerfCycles(const std::vector<TTNNLayoutAttr> &input_layouts,
+                               const TTNNLayoutAttr &output_layout) {
   // TODO(mbezulj) wire to tt-metal once we have API
   return 5;
 }
 
 std::tuple<size_t, size_t, size_t>
-ReluOp::getOpL1Usage(const std::vector<tt::LayoutAttr> &input_layouts,
-                     const tt::LayoutAttr &output_layout) {
+ReluOp::getOpL1Usage(const std::vector<TTNNLayoutAttr> &input_layouts,
+                     const TTNNLayoutAttr &output_layout) {
   // TODO(mbezulj) wire to tt-metal once we have API
   return std::make_tuple(1024, 2048, 1024);
 }
 
-bool ReluOp::isOpLegal(const std::vector<tt::LayoutAttr> &input_layouts,
-                       const tt::LayoutAttr &output_layout) {
+bool ReluOp::isOpLegal(const std::vector<TTNNLayoutAttr> &input_layouts,
+                       const TTNNLayoutAttr &output_layout) {
   // TODO(mbezulj) wire to tt-metal once we have API
   return true;
 }

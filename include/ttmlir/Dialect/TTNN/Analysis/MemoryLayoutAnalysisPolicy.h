@@ -14,7 +14,7 @@ class MemoryLayoutAnalysisPolicy {
 protected:
   Operation *rootOp;
   std::vector<L1ChainConfig> *l1ChainConfigs;
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> *schedule;
   unsigned usableL1CacheSize = 0;
 
@@ -23,7 +23,7 @@ public:
 
   MemoryLayoutAnalysisPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
       llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> &schedule,
       unsigned usableL1CacheSize)

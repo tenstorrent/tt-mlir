@@ -69,6 +69,13 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
+std::string getOpDebugString(OpContext opContextHandle);
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle);
+
+std::vector<float> getTensorData(Tensor tensor);
+
 } // namespace tt::runtime
 
 #endif
