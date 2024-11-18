@@ -38,10 +38,10 @@ public:
     //                                            op.getOperand(1));
     rewriter.create<func::ReturnOp>(loc, op.getResults());
 
-    SymbolRefAttr funcAttr =
-        SymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
-    auto callOp = rewriter.create<func::CallOp>(loc, funcAttr, op.getOperand(0),
-                                                op.getOperand(1));
+    auto funcAttr =
+        FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
+    auto callOp = rewriter.create<func::CallOp>(
+        loc, funcAttr, {resultTy}, {op.getOperand(0), op.getOperand(1)});
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
