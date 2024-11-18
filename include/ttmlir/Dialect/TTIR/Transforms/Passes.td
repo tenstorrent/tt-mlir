@@ -125,4 +125,12 @@ def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
+{
+  let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
+  let description = [{
+    ..
+  }];
+}
+
 #endif
