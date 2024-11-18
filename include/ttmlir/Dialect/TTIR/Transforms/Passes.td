@@ -112,4 +112,14 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
+def TTIRHoistCPUOps: Pass<"ttir-to-ttir-cpu", "::mlir::ModuleOp">
+{
+  let summary = "Hoist any CPU-capable functions ops into separate function.";
+  let description = [{
+    Placeholder to test out proof-of-concept for hoisting specific IR functions that can
+    run on CPU to separate functions (which we can target to CPU instead).
+  }];
+  // TODO: we could have some options to specify which op or something? Not easy to do reasonably I guess
+}
+
 #endif
