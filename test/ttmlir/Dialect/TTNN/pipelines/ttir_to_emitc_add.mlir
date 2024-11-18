@@ -3,6 +3,7 @@
 // RUN: diff %direct.mlir %indirect.mlir
 //
 // This test checks that the (TTIR to EmitC pipeline) is equivalent to (TTIR to TTNN pipeline + dialect conversion from TTNN to EmitC).
+// The `diff` command will return 0 if files are identical, otherwise it will return the diff, which will make `llvm-lit` treat the test as failed.
 
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 
