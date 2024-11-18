@@ -6,8 +6,8 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: FileCheck --input-file=%t.mlir %s
 
-module @jit_dot_general attributes {} {
-  func.func public @test_dot_general(%arg0 : tensor<16x32xf32>, %arg1 : tensor<32x8xf32>) -> tensor<16x8xf32> {
+module @jit_dot_general_2d attributes {} {
+  func.func public @test_dot_general_2d(%arg0 : tensor<16x32xf32>, %arg1 : tensor<32x8xf32>) -> tensor<16x8xf32> {
     // CHECK-LABEL: func.func public @test_dot_general
     // CHECK: ttnn.empty
     // CHECK: ttnn.matmul
