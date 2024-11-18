@@ -259,7 +259,7 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
 }
 
 def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpL1Usage", "isOpLegal"]>]
       > {
     let summary = "Eltwise ReLU.";
     let description = [{
@@ -325,7 +325,9 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
-def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
+def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpL1Usage", "isOpLegal"]>]
+      > {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
@@ -509,7 +511,9 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let hasVerifier = 1;
 }
 
-def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
+def TTNN_SoftmaxOp : TTNN_Op<"softmax",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpL1Usage", "isOpLegal"]>]
+      > {
     let summary = "Softmax op.";
     let description = [{
       Softmax operation.
@@ -594,7 +598,9 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
 }
 
 // ANCHOR: adding_an_op_matmul_ttnn
-def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
+def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpL1Usage", "isOpLegal"]>]
+      > {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          AnyRankedTensor:$output);

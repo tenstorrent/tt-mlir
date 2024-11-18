@@ -48,11 +48,18 @@
 
 #define FMT_HEADER_ONLY
 #include "tt_metal/common/core_coord.hpp"
+#include "tt_metal/host_api.hpp"
 #include "tt_metal/impl/buffers/buffer.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 
+#include "ttnn/operations/eltwise/binary/binary.hpp"
+#include "ttnn/operations/eltwise/binary/binary_compiler_interface.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/eltwise/unary/unary_compiler_interface.hpp"
+#include "ttnn/operations/matmul/matmul.hpp"
+#include "ttnn/operations/matmul/matmul_compiler_interface.hpp"
+#include "ttnn/operations/normalization/softmax/softmax.hpp"
+#include "ttnn/operations/normalization/softmax/softmax_compiler_interface.hpp"
 
 #pragma clang diagnostic pop
