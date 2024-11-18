@@ -47,8 +47,7 @@ public:
 
 class TTIRHoistCPUOps : public impl::TTIRHoistCPUOpsBase<TTIRHoistCPUOps> {
 public:
-  using impl::TTIRConstantAsFillBase<
-      TTIRConstantAsFill>::TTIRConstantAsFillBase;
+  using impl::TTIRHoistCPUOpsBase<TTIRConstantAsFill>::TTIRHoistCPUOpsBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
