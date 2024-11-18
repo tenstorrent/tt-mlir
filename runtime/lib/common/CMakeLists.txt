@@ -32,7 +32,7 @@ target_include_directories(TTRuntimeSysDesc
     ${PROJECT_SOURCE_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
-target_include_directories(TTRuntimeSysDesc PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+target_include_directories(TTRuntimeSysDesc SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 add_dependencies(TTRuntimeSysDesc tt-metal FBS_GENERATION)
 
 add_library(TTRuntimeDebug STATIC debug.cpp)
