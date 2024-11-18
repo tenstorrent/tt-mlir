@@ -23,7 +23,7 @@ class AttrHandler:
 
     @staticmethod
     def default_parser(attr):
-        return graph_builder.KeyValue(key=attr.name, value=str(attr.attr))
+        return [graph_builder.KeyValue(key=attr.name, value=str(attr.attr))]
 
     @staticmethod
     def parse_attr(attr):
@@ -186,7 +186,10 @@ def parse_tt_system_desc(attr):
             graph_builder.KeyValue(
                 key=f"chip#{i}-supported-data-types",
                 value=", ".join(
-                    [str(tt.DataType(dt)) for dt in chip_desc.supported_data_types]
+                    [
+                        str(tt.DataType(dt.data_type_as_int))
+                        for dt in chip_desc.supported_data_types
+                    ]
                 ),
             )
         )
@@ -196,7 +199,7 @@ def parse_tt_system_desc(attr):
                 value=", ".join(
                     [
                         "x".join(map(str, (tsize.y, tsize.x)))
-                        for tsize in chip_desc.supported_data_types
+                        for tsize in chip_desc.supported_tile_sizes
                     ]
                 ),
             )
@@ -365,6 +368,37 @@ def parse_tt_layout(attr):
     return result
 
 
+@AttrHandler.register_handler("ttnn_layout")
+def parse_ttnn_ttnn_layout(attr):
+    layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(attr)
+    result = []
+    result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
+    result.append(
+        graph_builder.KeyValue(
+            key="memory_layout",
+            value=str(ttnn.TensorMemoryLayout(layout.memory_layout_as_int)),
+        )
+    )
+    result.append(
+        graph_builder.KeyValue(
+            key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+        )
+    )
+    result.append(
+        graph_builder.KeyValue(key="memref_shape", value=str(layout.memref.shape))
+    )
+    result.append(
+        graph_builder.KeyValue(key="memref_rank", value=str(layout.memref.rank))
+    )
+    buffer_attr = ttnn.ir.BufferTypeAttr.maybe_downcast(layout.memref.memory_space)
+    result.append(
+        graph_builder.KeyValue(
+            key="memref_memory_space", value=str(ttnn.BufferType(buffer_attr.value))
+        )
+    )
+    return result
+
+
 class OpHandler:
     def __init__(self, op):
         self.op = op
@@ -436,7 +470,7 @@ def build_graph(module):
                     operation = OpHandler(op)
                     graph_node = operation.make_graph_node(name_dict)
 
-                    if op.name in "tensor.empty":
+                    if op.name in EMPTY_OPS:
                         append_later.append(graph_node)
                     elif op.name not in FILTERED_OPS:
                         graph.nodes.append(graph_node)
@@ -488,11 +522,19 @@ def build_graph(module):
                                 ),
                             ]
                         if hasattr(operand.type, "encoding"):
-                            output_attrs.extend(
-                                AttrHandler.parse_attr(
-                                    operand.type.encoding.get_named("tt.layout")
+                            if "ttnn_layout" in str(operand.type.encoding):
+                                output_attrs.extend(
+                                    AttrHandler.parse_attr(
+                                        operand.type.encoding.get_named("ttnn_layout")
+                                    )
                                 )
-                            )
+                            else:
+                                # Parse as a standard layout
+                                output_attrs.extend(
+                                    AttrHandler.parse_attr(
+                                        operand.type.encoding.get_named("tt.layout")
+                                    )
+                                )
                         source_node.outputsMetadata.append(
                             graph_builder.MetadataItem(
                                 id=str(output_connections[source_node.id]),

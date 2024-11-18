@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/CAPI/AffineMap.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 namespace mlir::ttmlir::python {
@@ -127,5 +128,27 @@ void populateTTNNModule(py::module &m) {
                   })
       .def_property_readonly("y", &tt::ttnn::MeshShapeAttr::getY)
       .def_property_readonly("x", &tt::ttnn::MeshShapeAttr::getX);
+
+  tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
+      .def_static("get",
+                  [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
+                     MlirType memref, unsigned memLayout) {
+                    return wrap(tt::ttnn::TTNNLayoutAttr::get(
+                        unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
+                        mlir::cast<tt::GridAttr>(unwrap(grid)),
+                        mlir::cast<MemRefType>(unwrap(memref)),
+                        static_cast<tt::ttnn::TensorMemoryLayout>(memLayout)));
+                  })
+      .def_property_readonly(
+          "linear",
+          [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
+      .def_property_readonly("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
+      .def_property_readonly(
+          "memref",
+          [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
+      .def_property_readonly(
+          "memory_layout_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
+            return static_cast<uint32_t>(self.getMemLayout());
+          });
 }
 } // namespace mlir::ttmlir::python
