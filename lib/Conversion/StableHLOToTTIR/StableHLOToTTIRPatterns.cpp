@@ -471,11 +471,41 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     auto dimNums = adaptor.getDimensionNumbers();
+    uint64_t numSpatialDims = dimNums.getInputSpatialDimensions().size();
+
+    // These are the defaults intended by stablehlo when the attrs are not
+    // populated
+    DenseI64ArrayAttr windowStridesAttr =
+        adaptor.getWindowStridesAttr()
+            ? adaptor.getWindowStridesAttr()
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(numSpatialDims, 1));
+    DenseI64ArrayAttr paddingAttr =
+        adaptor.getPaddingAttr()
+            ? rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
+                  adaptor.getPaddingAttr().getValues<int64_t>()))
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(numSpatialDims * 2, 0));
+    DenseI64ArrayAttr inputDilationAttr =
+        adaptor.getLhsDilationAttr()
+            ? adaptor.getLhsDilationAttr()
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(numSpatialDims, 1));
+    DenseI64ArrayAttr kernelDilationAttr =
+        adaptor.getRhsDilationAttr()
+            ? adaptor.getRhsDilationAttr()
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(numSpatialDims, 1));
+    DenseBoolArrayAttr windowReversalAttr =
+        adaptor.getWindowReversalAttr()
+            ? adaptor.getWindowReversalAttr()
+            : rewriter.getDenseBoolArrayAttr(
+                  SmallVector<bool>(numSpatialDims, false));
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConvolutionOp>(
         srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-        mlir::Value(nullptr), outputTensor, adaptor.getWindowStridesAttr(),
-        adaptor.getPaddingAttr(), adaptor.getLhsDilationAttr(),
-        adaptor.getRhsDilationAttr(), adaptor.getWindowReversalAttr(),
+        mlir::Value(nullptr), outputTensor, windowStridesAttr, paddingAttr,
+        inputDilationAttr, kernelDilationAttr, windowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
             getContext(), dimNums.getInputBatchDimension(),
             dimNums.getInputFeatureDimension(),

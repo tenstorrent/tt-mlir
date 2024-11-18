@@ -81,10 +81,9 @@ template <uint32_t NDims>
 using PaddingMatrix = std::array<std::array<int64_t, 2>, NDims>;
 
 template <uint32_t NDims>
-static PaddingMatrix<NDims> getPaddingMatrix(DenseIntElementsAttr paddingAttr) {
+static PaddingMatrix<NDims> getPaddingMatrix(ArrayRef<int64_t> padding) {
   PaddingMatrix<NDims> paddingMatrix;
-  std::vector<int64_t> paddingFlattened(paddingAttr.value_begin<int64_t>(),
-                                        paddingAttr.value_end<int64_t>());
+  std::vector<int64_t> paddingFlattened = padding.vec();
 
   for (uint32_t i = 0; i < 2 * NDims; i += 2) {
     paddingMatrix[i / 2] = {paddingFlattened[i], paddingFlattened[i + 1]};
