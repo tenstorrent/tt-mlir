@@ -22,6 +22,6 @@
 /python/test_infra/ @nsmithtt @tapspatel @vprajapati-tt
 /runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
 /runtime/tools/ @tapspatel @nsmithtt
-/tools/explorer/ @odjuricicTT @nobradovictt @vprajapati-tt
 /test/ttmlir/Dialect/TTNN/optimizer/ @nobradovictt @odjuricicTT
 /test/ttmlir/Silicon/TTNN/optimizer/ @nobradovictt @odjuricicTT
+/tools/explorer/ @odjuricicTT @nobradovictt @vprajapati-tt
