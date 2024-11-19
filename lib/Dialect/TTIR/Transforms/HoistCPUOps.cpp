@@ -85,6 +85,8 @@ public:
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
     rewriter.setInsertionPoint(op);
+    llvm::outs() << "module name: " << cpuModule.getName().has_value() << "\n";
+    llvm::outs() << "module name: " << cpuModule.getName().value() << "\n";
     auto qualifiedFuncName =
         (cpuModule.getName().value() + "::" + hoistFunc.getName()).str();
 
