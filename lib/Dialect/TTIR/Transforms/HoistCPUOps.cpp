@@ -63,6 +63,7 @@ public:
     rewriter.setInsertionPointToEnd(cpuModule.getBody());
     auto hoistFunc =
         rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
+    hoistFunc.setVisibility(mlir::SymbolTable::Visibility::Public);
     hoistFunc->setAttr("target", rewriter.getStringAttr("CPU"));
 
     // Create the function entry block, defining the operands as function
