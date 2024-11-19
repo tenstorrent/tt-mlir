@@ -65,7 +65,7 @@ public:
     rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
     auto cpuMaxOp = rewriter.create<MaximumOp>(
         loc, TypeRange{resultTy},
-        ArrayRef<Value>{op.getOperand(0), op.getOperand(1)});
+        ArrayRef<Value>{op.getOperand(0), op.getOperand(1), op.getOperand(2)});
     cpuMaxOp->setAttrs(op->getAttrs());
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
@@ -74,7 +74,7 @@ public:
         FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
     auto callOp = rewriter.create<func::CallOp>(
         loc, funcAttr, TypeRange{resultTy},
-        ArrayRef<Value>{op.getOperand(0), op.getOperand(1)});
+        ArrayRef<Value>{op.getOperand(0), op.getOperand(1), op.getOperand(2)});
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
