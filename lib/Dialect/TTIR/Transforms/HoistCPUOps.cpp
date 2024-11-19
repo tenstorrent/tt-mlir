@@ -65,9 +65,9 @@ public:
                                                 {resultTy});
 
     // Create an external function declaration in the current module
-    auto externalFunc =
-        rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
-    externalFunc.setVisibility(mlir::SymbolTable::Visibility::Public);
+    auto externalFunc = rewriter.create<func::FuncOp>(
+        loc, "external_cpu_maximum_func", hoistFuncTy);
+    externalFunc.setVisibility(mlir::SymbolTable::Visibility::Private);
     externalFunc->setAttr("external",
                           rewriter.getUnitAttr()); // Mark it as external
 
@@ -103,8 +103,8 @@ public:
     llvm::outs() << "module name: " << cpuModule.getName().has_value() << "\n";
     llvm::outs() << "module name: " << cpuModule.getName().value() << "\n";
 
-    auto funcAttr =
-        FlatSymbolRefAttr::get(rewriter.getContext(), "cpu_maximum_func");
+    auto funcAttr = FlatSymbolRefAttr::get(rewriter.getContext(),
+                                           "external_cpu_maximum_func");
     auto callOp = rewriter.create<func::CallOp>(
         loc, funcAttr, TypeRange{resultTy}, op.getOperands());
     llvm::outs() << "Function Symbol: " << funcAttr.getValue() << "\n";
