@@ -783,6 +783,91 @@ public:
   }
 };
 
+struct SelectToSliceConversionPattern
+    : public OpConversionPattern<ttir::SelectOp> {
+public:
+  using OpConversionPattern<ttir::SelectOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SelectOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getType());
+
+    auto inputShape = inputType.getShape();
+
+    int32_t dim =
+        op.getDim() < 0 ? inputType.getRank() + op.getDim() : op.getDim();
+
+    int32_t begin = op.getBegin();
+    int32_t length = op.getLength();
+    int32_t stride = op.getStride();
+
+    int32_t inputDimSize = inputType.getShape()[dim];
+    int32_t numSlices = (inputDimSize - begin) / stride;
+
+    llvm::SmallVector<int32_t, 4> begins, ends, steps;
+    for (int32_t i = 0; i < inputType.getRank(); ++i) {
+      if (i == dim) {
+        // Push placeholder values for now which will be updated later.
+        begins.push_back(0);
+        ends.push_back(0);
+        steps.push_back(0);
+        continue;
+      }
+
+      // For non-sliced dimensions, begin=0, end=dimSize, step=1.
+      begins.push_back(0);
+      ends.push_back(inputType.getDimSize(i));
+      steps.push_back(1);
+    }
+
+    // Create a slice for each slice of the input tensor. The slices are then
+    // concatenated. The slices are created by updating the begin and end values
+    // for the sliced dimension.
+    llvm::SmallVector<Value> slices;
+    for (int32_t i = 0; i < numSlices; ++i) {
+      int32_t newBegin = begin + i * stride;
+      int32_t newEnd = std::min(newBegin + length, inputDimSize);
+
+      // Make a copy of the input shape and update the dim size.
+      llvm::SmallVector<int64_t> resultShape(inputShape);
+      resultShape[dim] = newEnd - newBegin;
+      auto resultType =
+          RankedTensorType::get(resultShape, inputType.getElementType());
+
+      auto sliceDpsResult = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), resultShape, inputType.getElementType());
+
+      begins[dim] = newBegin;
+      ends[dim] = newEnd;
+      steps[dim] = 1;
+
+      auto newOp = rewriter.create<ttir::SliceOp>(
+          op.getLoc(), resultType, adaptor.getInput(), sliceDpsResult,
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(steps), adaptor.getOperandConstraints());
+      slices.push_back(newOp->getResult(0));
+    }
+
+    assert(!slices.empty());
+    if (slices.size() > 1) {
+      auto concatDpsResult = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), outputType.getShape(), outputType.getElementType());
+      auto concatOp = rewriter.create<ttir::ConcatOp>(
+          op.getLoc(), outputType, slices, concatDpsResult,
+          rewriter.getSI32IntegerAttr(dim), adaptor.getOperandConstraints());
+
+      rewriter.replaceOp(op, concatOp.getResult());
+    } else {
+      rewriter.replaceOp(op, slices[0]);
+    }
+
+    return success();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -791,6 +876,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
   patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
+  patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

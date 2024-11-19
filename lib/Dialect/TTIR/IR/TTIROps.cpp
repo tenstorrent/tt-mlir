@@ -597,6 +597,99 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // ANCHOR_END: decomposing_an_op_index_ttir_verify
 
 //===----------------------------------------------------------------------===//
+// SelectOp
+//===----------------------------------------------------------------------===//
+
+// SelectOp verification
+::mlir::LogicalResult mlir::tt::ttir::SelectOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input and output tensors must have the same rank.");
+  }
+
+  if (inputType.getElementType() != outputType.getElementType()) {
+    return emitOpError("Input and output tensors must have the same element "
+                       "type.");
+  }
+
+  int32_t dim = getDim();
+  if (dim < 0) {
+    dim += inputType.getRank();
+  }
+
+  if (dim < 0 || dim >= inputType.getRank()) {
+    return emitOpError() << "Invalid dimension " << dim
+                         << " for select op with input tensor rank "
+                         << inputType.getRank();
+  }
+
+  int32_t dimSize = inputType.getDimSize(dim);
+
+  int32_t stride = getStride();
+  if (stride == 0) {
+    stride = dimSize;
+  }
+
+  if (stride < 0) {
+    return emitOpError() << "Invalid stride " << stride << " for dimension "
+                         << dim << ", stride must be non-negative";
+  }
+
+  if (stride > dimSize) {
+    return emitOpError() << "Invalid stride " << stride << " for dimension "
+                         << dim << " with size " << dimSize
+                         << ". stride must be less than or equal to the "
+                            "dimension size";
+  }
+
+  int32_t begin = getBegin();
+  int32_t length = getLength();
+  if (begin < 0 || begin >= dimSize) {
+    return emitOpError() << "Invalid begin index " << begin << " for dimension "
+                         << dim << " with size " << dimSize
+                         << ". begin must be "
+                            "in the range [0, dimSize)";
+  }
+
+  if (begin + length > dimSize) {
+    return emitOpError() << "Invalid length " << length << " for begin index "
+                         << begin << " and dimension " << dim << " with size "
+                         << dimSize
+                         << ". begin + length must be less than or "
+                            "equal to the dimension size";
+  }
+
+  if (length < 1 || length > stride) {
+    return emitOpError() << "Invalid length " << length << " for begin index "
+                         << begin << " and stride " << stride
+                         << " for dimension " << dim << " with size " << dimSize
+                         << ". stride must be greater than or equal to length";
+  }
+
+  // Get the number of slices as the number of times the stride fits in the
+  // dimension size starting from the begin index.
+  int32_t numSlices = (dimSize - begin + stride - 1) / stride;
+  int32_t totalLength = 0;
+  for (int32_t i = 0; i < numSlices; i++) {
+    int32_t newBegin = begin + i * stride;
+    int32_t newEnd = std::min(newBegin + length, dimSize);
+    totalLength += newEnd - newBegin;
+  }
+
+  if (totalLength != outputType.getDimSize(dim)) {
+    return emitOpError() << "Sum of all slices must be equal to the output "
+                            "dimension size for the given dimension. Expected "
+                            "output dimension size: "
+                         << outputType.getDimSize(dim) << ", but got "
+                         << totalLength;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SqueezeOp
 //===----------------------------------------------------------------------===//
 

@@ -925,6 +925,33 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SelectOp: TTIR_DPSOp<"select"> {
+    let summary = "Select op.";
+    let description = [{
+      Extracts a sub-tensor (slice) from the input tensor along a specified dimension in few steps defined by the
+      `begin`, `length`, and `stride` attributes.
+      The `begin` specifies the start index for the selected dimension of the tensor.
+      The `length` specifies the number of elements to extract from the input tensor along the selected dimension.
+      The `stride` specifies the step size for the start index.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         SI32Attr:$begin,
+                         SI32Attr:$length,
+                         SI32Attr:$stride,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: decomposing_an_op_index_ttir
 def TTIR_IndexOp: TTIR_DPSOp<"index"> {
     let summary = "Index op.";
