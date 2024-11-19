@@ -54,7 +54,10 @@ public:
     }
 
     auto resultTy = op.getResultTypes();
-    auto hoistFuncTy = rewriter.getFunctionType({resultTy}, {resultTy});
+    auto hoistFuncTy = rewriter.getFunctionType({op.getOperand(0).getType(),
+                                                 op.getOperand(1).getType(),
+                                                 op.getOperand(2).getType()},
+                                                {resultTy});
 
     // define hoisted func, w placeholder attr for CPU execution
     rewriter.setInsertionPointToEnd(cpuModule.getBody());
@@ -80,7 +83,9 @@ public:
     auto funcAttr =
         FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
     auto callOp = rewriter.create<func::CallOp>(
-        loc, funcAttr, TypeRange{resultTy}, op.getOperands());
+        loc, funcAttr, TypeRange{resultTy},
+        TypeRange{op.getOperand(0).getType(), op.getOperand(1).getType(),
+                  op.getOperand(2).getType()});
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
