@@ -9,6 +9,7 @@ from ._C import (
     load_system_desc_from_path,
     Flatbuffer,
 )
+from . import stats
 
 import json
 
