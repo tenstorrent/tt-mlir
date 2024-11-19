@@ -6,6 +6,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/ones.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
