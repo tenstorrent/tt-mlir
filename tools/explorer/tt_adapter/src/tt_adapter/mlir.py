@@ -313,6 +313,8 @@ def parse_dtype(attr):
 @AttrHandler.register_handler("shape")
 def parse_shape(attr):
     shape = ttnn.ir.ShapeAttr.maybe_downcast(attr)
+    if not shape:
+        return [graph_builder.KeyValue(key="shape", value=str(attr))]
     return [graph_builder.KeyValue(key="shape", value="x".join(map(str, shape.shape)))]
 
 
@@ -411,11 +413,11 @@ class OpHandler:
         names[name] += 1
         return id
 
-    @staticmethod
-    def get_namespace(op):
+    def get_namespace(self, parent_op=None):
+        op = self.op if not parent_op else parent_op
         name = get_loc_str(op.location)
         if op.parent and op.parent.name != "builtin.module":
-            return OpHandler.get_namespace(op.parent) + "/" + name
+            return self.get_namespace(op.parent) + "/" + name
         return name
 
     def get_attributes(self):
@@ -428,7 +430,7 @@ class OpHandler:
         return graph_builder.GraphNode(
             id=self.get_id(name_dict),
             label=self.op.name,
-            namespace=OpHandler.get_namespace(self.op),
+            namespace=self.get_namespace(),
             attrs=self.attrs,
         )
 
@@ -436,7 +438,7 @@ class OpHandler:
         return graph_builder.GraphNode(
             id=self.get_id(name_dict),
             label=constant_name,
-            namespace=OpHandler.get_namespace(self.op),
+            namespace=self.get_namespace(),
         )
 
 
@@ -521,7 +523,7 @@ def build_graph(module):
                                     key="rank", value=str(operand.type.rank)
                                 ),
                             ]
-                        if hasattr(operand.type, "encoding"):
+                        if hasattr(operand.type, "encoding") and operand.type.encoding:
                             if "ttnn_layout" in str(operand.type.encoding):
                                 output_attrs.extend(
                                     AttrHandler.parse_attr(
