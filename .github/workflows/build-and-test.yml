@@ -504,6 +504,21 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
 
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- ttrt
+
+    - name: Generate tests
+      shell: bash
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
+        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
+
     - name: Run tt-explorer tests
       shell: bash
       run: |
