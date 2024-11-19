@@ -53,6 +53,8 @@ public:
       cpuModule->setAttr("ttir.cpu_module", rewriter.getUnitAttr());
       cpuModule->setAttr(mlir::SymbolTable::getSymbolAttrName(),
                          rewriter.getStringAttr("cpu_module"));
+      // try to make cpu module global
+      mlir::SymbolTable::insert(cpuModule);
     }
 
     auto resultTy = op.getResultTypes();
