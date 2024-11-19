@@ -72,9 +72,6 @@ public:
     externalFunc->setAttr("external",
                           rewriter.getUnitAttr()); // Mark it as external
 
-    // Insert this declaration into the current module
-    // parentModule.push_back(externalFunc);
-
     // define hoisted func, w placeholder attr for CPU execution, in cpu module
     rewriter.setInsertionPointToEnd(cpuModule.getBody());
     auto hoistFunc =
@@ -104,8 +101,8 @@ public:
     llvm::outs() << "module name: " << cpuModule.getName().has_value() << "\n";
     llvm::outs() << "module name: " << cpuModule.getName().value() << "\n";
 
-    auto funcAttr = FlatSymbolRefAttr::get(rewriter.getContext(),
-                                           "external_cpu_maximum_func");
+    auto funcAttr =
+        FlatSymbolRefAttr::get(rewriter.getContext(), "cpu_maximum_func");
     auto callOp = rewriter.create<func::CallOp>(
         loc, funcAttr, TypeRange{resultTy}, op.getOperands());
     llvm::outs() << "Function Symbol: " << funcAttr.getValue() << "\n";
