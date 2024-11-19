@@ -242,7 +242,9 @@ private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     // Check if the output tensor is used by an op that only supports row major.
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user)) {
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
+          (isa<ttir::EmbeddingBackwardOp>(user) &&
+           (user->getOperand(0) == op || user->getOperand(1) == op)) || isa<ttir::UpsampleOp>(user)) {
         return true;
       }
     }
@@ -1343,6 +1345,40 @@ public:
   }
 };
 
+class UpsampleOpConversionPattern
+    : public OpConversionPattern<ttir::UpsampleOp> {
+public:
+  using OpConversionPattern<ttir::UpsampleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::UpsampleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!op.getChannelLast()) {
+      op.emitOpError("TTNN only supports NHWC format for UpsampleOp");
+    }
+
+    int32_t scaleH = 1, scaleW = 1;
+    if (const auto scale =
+            mlir::dyn_cast_if_present<IntegerAttr>(adaptor.getScaleFactor())) {
+      scaleH = scale.getSInt();
+      scaleW = scale.getSInt();
+    } else if (const auto scales = mlir::dyn_cast<::mlir::DenseI32ArrayAttr>(
+                   op.getScaleFactor());
+               scales.size() == 2) {
+      scaleH = scales[0];
+      scaleW = scales[1];
+    }
+
+    // TODO (azecevic): Waiting for #1385
+    llvm::SmallVector<int32_t, 4> scaleFactor = {1, scaleH, scaleW, 1};
+    rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), scaleFactor, adaptor.getMode());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -1432,7 +1468,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
-           PermuteOpConversionPattern
+           PermuteOpConversionPattern,
+           UpsampleOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

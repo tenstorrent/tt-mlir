@@ -63,6 +63,9 @@ struct TTIRToTTIRDecompositionPass
               shape[2] == 1);
     });
 
+    target.addDynamicallyLegalOp<ttir::UpsampleOp>(
+        [](ttir::UpsampleOp op) { return op.getChannelLast(); });
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

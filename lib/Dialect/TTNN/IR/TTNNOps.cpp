@@ -3,20 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
-
-#include <cstdint>
-#include <numeric>
-#include <optional>
 
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
+
+#include <numeric>
+#include <optional>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -1543,6 +1542,79 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
                        ttmlir::utils::join(expectedResultShape, ", ") +
                        "), got (" + ttmlir::utils::join(resultShape, ", ") +
                        ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// UpsampleOp
+//===----------------------------------------------------------------------===//
+
+// UpsampleOp verification
+::mlir::LogicalResult UpsampleOp::verify() {
+  // Due to inconsistent interface of upsample op in the TTNN, current interface
+  // is restricted to scale_factor of 4 elements where the first and last
+  // elements are 1 and the second and third elements are the scale factor for
+  // height and width, respectively.
+  // TODO (azecevic): Revise the interface restrictions once the
+  // #1385 is addressed.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  auto scaleFactor{getScaleFactor()};
+  if (scaleFactor.size() != 4) {
+    return emitOpError("Scale factor must have 4 elements, got " +
+                       std::to_string(scaleFactor.size()) + " elements");
+  }
+  if (scaleFactor[DIM_N] != 1) {
+    return emitOpError(
+        "Scale factor must be 1 in the batch (N) dimension, got " +
+        std::to_string(scaleFactor[DIM_N]));
+  }
+  if (scaleFactor[DIM_C] != 1) {
+    return emitOpError(
+        "Scale factor must be 1 in the channel (C) dimension, got " +
+        std::to_string(scaleFactor[DIM_C]));
+  }
+
+  // Verify that scale factors are positive.
+  if (!llvm::all_of(scaleFactor, [](auto scale) { return scale > 0; })) {
+    return emitOpError("Scale factors must be positive integers, got (" +
+                       ttmlir::utils::join(scaleFactor, ", ") + ")");
+  }
+
+  // Verify that input and output tensors are 4D tensors.
+  auto inputShape = getInput().getType().getShape();
+  if (inputShape.size() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputShape.size()));
+  }
+  auto outputShape = getResult().getType().getShape();
+  if (outputShape.size() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputShape.size()));
+  }
+
+  // Verify that the output shape is the same as the input shape scaled by the
+  // scale factor.
+  llvm::SmallVector<int64_t> expectedOutputShape{
+      llvm::map_range(llvm::zip(inputShape, scaleFactor), [](auto pair) {
+        return std::get<0>(pair) * std::get<1>(pair);
+      })};
+  if (!llvm::equal(outputShape, expectedOutputShape)) {
+    return emitOpError("Expected output shape is (" +
+                       ttmlir::utils::join(expectedOutputShape, ", ") +
+                       "), got (" + ttmlir::utils::join(outputShape, ", ") +
+                       ")");
+  }
+
+  // Verify that the mode attribute is one of the legal modes. These two modes
+  // are currently only supported modes in TTNN.
+  llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("Expected modes are (" +
+                       ttmlir::utils::join(legalModes, ", ") + "), got \"" +
+                       getMode() + "\"");
   }
 
   return success();

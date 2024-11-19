@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -1341,7 +1342,19 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ProdOp>(
         op, reduceOutputType, op.getInput(), reduceOutputTensor,
         op.getKeepDim(), op.getDimArgAttr());
+    return success();
+  }
+};
 
+class UpsampleToUpsampleConversionPattern
+    : public OpConversionPattern<ttir::UpsampleOp> {
+public:
+  using OpConversionPattern<ttir::UpsampleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::UpsampleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // TODO (azecevic): Waiting for the implementation of PermuteOp (#652)
     return success();
   }
 };
@@ -1358,6 +1371,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
+  patterns.add<UpsampleToUpsampleConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

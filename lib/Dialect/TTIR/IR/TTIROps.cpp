@@ -1577,6 +1577,94 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
 //===----------------------------------------------------------------------===//
+// UpsampleOp
+//===----------------------------------------------------------------------===//
+
+// UpsampleOp verification
+::mlir::LogicalResult mlir::tt::ttir::UpsampleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Input tensor is assumed to be 4D tensor.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
+
+  int32_t scaleH = 1, scaleW = 1;
+  // If scale factor is an integer, it's interpreted as a uniform scale factor.
+  if (const auto scale =
+          mlir::dyn_cast_if_present<IntegerAttr>(getScaleFactor())) {
+    scaleH = scale.getSInt();
+    scaleW = scale.getSInt();
+    // If scale factor is a pair of integers, it's interpreted as a non-uniform
+    // scale factors for H and W resprectively.
+  } else if (const auto scales =
+                 mlir::dyn_cast<::mlir::DenseI32ArrayAttr>(getScaleFactor());
+             scales.size() == 2) {
+    scaleH = scales[0];
+    scaleW = scales[1];
+    // Otherwise, it's an error.
+  } else {
+    return emitOpError("Expected int or pair of ints, got tuple of size " +
+                       std::to_string(scales.size()));
+  }
+
+  if (scaleH <= 0 || scaleW <= 0) {
+    return emitOpError("Scale factors H = " + std::to_string(scaleH) +
+                       " and W = " + std::to_string(scaleW) +
+                       " must be positive integers");
+  }
+
+  const bool channelLast = getChannelLast();
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  // Input tensor is assumed to be in NHWC or NCHW format depending on
+  // channel_last attribute. Enum `Dimensions` assumes NCHW format.
+  enum Dimensions { DIM_N = 0, DIM_C = 1, DIM_H = 2, DIM_W = 3 };
+  const int dimH = DIM_H - channelLast;
+  const int dimW = DIM_W - channelLast;
+  const int dimC = DIM_C + 2 * channelLast;
+  if (inputShape[dimH] * scaleH != outputShape[dimH]) {
+    return emitOpError(
+        "Expected output H dimension to be input H dimension * scaleH = " +
+        std::to_string(inputShape[dimH] * scaleH) + ", got " +
+        std::to_string(outputShape[dimH]));
+  }
+  if (inputShape[dimW] * scaleW != outputShape[dimW]) {
+    return emitOpError(
+        "Expected output W dimension to be input W dimension * scaleW = " +
+        std::to_string(inputShape[dimW] * scaleW) + ", got " +
+        std::to_string(outputShape[dimW]));
+  }
+  if (inputShape[DIM_N] != outputShape[DIM_N]) {
+    return emitOpError("Expected output N dimension to be " +
+                       std::to_string(inputShape[DIM_N]) + ", got " +
+                       std::to_string(outputShape[DIM_N]));
+  }
+  if (inputShape[dimC] != outputShape[dimC]) {
+    return emitOpError("Expected output C dimension to be " +
+                       std::to_string(inputShape[dimC]) + ", got " +
+                       std::to_string(outputShape[dimC]));
+  }
+
+  // Verify that the mode attribute is one of the legal modes. These two modes
+  // are currently only supported modes in TTNN.
+  llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("Expected modes are (" + llvm::join(legalModes, ", ") +
+                       "), got \"" + getMode() + "\"");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 

@@ -371,6 +371,14 @@ table MeshShardOp {
   shard_shape: [int64];
 }
 
+table UpsampleOp {
+  in: tt.target.TensorRef;
+  // TODO (azecevic): #1385
+  scale_factor: [int32];
+  mode: string;
+  out: tt.target.TensorRef;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -407,6 +415,7 @@ union OpType {
   FillCacheOp,
   PermuteOp,
   RepeatOp,
+  UpsampleOp,
 }
 
 table Operation {
