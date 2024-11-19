@@ -53,6 +53,14 @@ struct TTIRToTTIRDecompositionPass
     target.addIllegalOp<ttir::GatherOp>();
     target.addIllegalOp<ttir::SelectOp>();
 
+    // These are the ops that must satisfy some conditions after this pass
+    target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {
+      auto shape = op.getResult().getType().getShape();
+      return (static_cast<int64_t>(op.getArangeDimension()) == 3 &&
+              shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
+              shape[2] == 1);
+    });
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

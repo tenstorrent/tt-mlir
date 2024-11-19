@@ -668,8 +668,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Tensor ops
   //
   patterns
-      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>>(
-          typeConverter, ctx);
+      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>,
+           DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
 
   // Eltwise unary ops
   //

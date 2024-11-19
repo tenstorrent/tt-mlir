@@ -46,6 +46,37 @@
 }
 
 //===----------------------------------------------------------------------===//
+// ArangeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ArangeOp::verify() {
+  int64_t start = getStart();
+  int64_t end = getEnd();
+  int64_t step = getStep();
+
+  if (step == 0) {
+    return emitOpError("Step value cannot be zero");
+  }
+
+  int64_t numValues = (end - start) / step;
+
+  if (numValues <= 0) {
+    return emitOpError() << "Invalid range: start=" << start << ", end=" << end
+                         << ", step=" << step;
+  }
+
+  if (numValues != getType().getDimSize(getArangeDimension())) {
+    return emitOpError() << "Output tensor shape must be " << numValues
+                         << " at dim " << getArangeDimension()
+                         << " (since start=" << start << ", end=" << end
+                         << ", step=" << step << "), but got "
+                         << getType().getDimSize(getArangeDimension());
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 

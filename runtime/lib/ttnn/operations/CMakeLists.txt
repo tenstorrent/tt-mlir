@@ -5,6 +5,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/operations/eltwise/ternary/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/empty.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
