@@ -66,8 +66,8 @@ public:
 
     // Create an external function declaration in the current module
     rewriter.setInsertionPointToStart(parentModule.getBody());
-    auto externalFunc = rewriter.create<func::FuncOp>(
-        loc, "external_cpu_maximum_func", hoistFuncTy);
+    auto externalFunc =
+        rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
     externalFunc.setVisibility(mlir::SymbolTable::Visibility::Private);
     externalFunc->setAttr("external",
                           rewriter.getUnitAttr()); // Mark it as external
