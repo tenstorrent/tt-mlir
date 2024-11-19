@@ -66,6 +66,7 @@ public:
     auto cpuMaxOp = rewriter.create<MaximumOp>(
         loc, TypeRange{resultTy},
         ArrayRef<Value>{op.getOperand(0), op.getOperand(1)});
+    cpuMaxOp->setAttrs(op->getAttrs());
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
     rewriter.setInsertionPoint(op);
