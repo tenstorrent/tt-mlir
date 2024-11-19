@@ -29,7 +29,7 @@ public:
 
     // Skip transformation if the op is already in the CPU module
     if (parentModule) {
-      if (parentModule->hasAttr("cpu_module")) {
+      if (parentModule->hasAttr("ttir.cpu_module")) {
         return failure();
       }
     }
@@ -39,7 +39,7 @@ public:
     mlir::ModuleOp cpuModule;
     for (auto &op : parentModule.getBody()->getOperations()) {
       if (auto module = llvm::dyn_cast<mlir::ModuleOp>(&op)) {
-        if (module->hasAttr("cpu_module")) {
+        if (module->hasAttr("ttir.cpu_module")) {
           cpuModule = module;
           break;
         }
@@ -50,7 +50,7 @@ public:
     if (!cpuModule) {
       rewriter.setInsertionPointToEnd(parentModule.getBody());
       cpuModule = rewriter.create<mlir::ModuleOp>(loc);
-      cpuModule->setAttr("cpu_module", rewriter.getUnitAttr());
+      cpuModule->setAttr("ttir.cpu_module", rewriter.getUnitAttr());
     }
 
     auto resultTy = op.getResultTypes();
