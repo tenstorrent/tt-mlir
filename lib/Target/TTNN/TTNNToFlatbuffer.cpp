@@ -24,18 +24,14 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/LogicalResult.h"
-#include "types_generated.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <cassert>
-#include <fstream>
-#include <optional>
 
 namespace mlir::tt {
 
@@ -419,6 +415,18 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
                                   kHostAllocatedAddress, kHostAllocatedSize);
   return ::tt::target::ttnn::CreateAllGatherOp(*cache.fbb, input, output,
                                                op.getDim(), op.getNumLinks());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
+createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto scaleFactor = toFlatbuffer(cache, op.getScaleFactor());
+  auto mode = toFlatbuffer(cache, op.getMode());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateUpsampleOp(*cache.fbb, input, scaleFactor,
+                                              mode, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -907,6 +915,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
     return createOperation(cache, createOp(cache, arangeOp), debugString);
+  }
+  if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
+    return createOperation(cache, createOp(cache, upsampleOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
