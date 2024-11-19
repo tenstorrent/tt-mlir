@@ -1,0 +1,10 @@
+// REQUIRES: stablehlo
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
+#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
+
+module @jit_eltwise_reverse attributes {} {
+  func.func @reverse_op(%arg0: tensor<32x64xf32>) -> tensor<32x64xf32> {
+    %0 = "stablehlo.reverse"(%arg0) {dimensions = array<i64: 1, 0>} : (tensor<32x64xf32>) -> tensor<32x64xf32>
+    return %0 : tensor<32x64xf32>
+  }
+}
