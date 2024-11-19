@@ -24,17 +24,14 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/LogicalResult.h"
-#include "types_generated.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <cassert>
-#include <optional>
 
 namespace mlir::tt {
 
@@ -532,6 +529,18 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
       memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
                    : 0,
       padValue, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
+createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto scaleFactor = toFlatbuffer(cache, op.getScaleFactor());
+  auto mode = toFlatbuffer(cache, op.getMode());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateUpsampleOp(*cache.fbb, input, scaleFactor,
+                                              mode, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -1188,8 +1197,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
-    return createOperation(cache, createOp(cache, permuteOp), debugString,
-                           locInfo);
+    return createOperation(cache, createOp(cache, permuteOp), debugString, locInfo);
+  }
+  if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
+    return createOperation(cache, createOp(cache, upsampleOp), debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
