@@ -50,7 +50,6 @@ struct TTIRToTTIRDecompositionPass
     target.addIllegalOp<ttir::ConvolutionOp>();
     target.addIllegalOp<ttir::GetDimensionSizeOp>();
     target.addIllegalOp<ttir::PoolingOp>();
-    target.addIllegalOp<ttir::GatherOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

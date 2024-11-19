@@ -775,6 +775,21 @@ public:
   }
 };
 
+class ReshapeOpOmissionPattern : public OpConversionPattern<ttir::ReshapeOp> {
+public:
+  using OpConversionPattern<ttir::ReshapeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op.getType() == op->getOperand(0).getType()) {
+      rewriter.replaceOp(op, op->getOperand(0));
+      return success();
+    }
+    return failure();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
