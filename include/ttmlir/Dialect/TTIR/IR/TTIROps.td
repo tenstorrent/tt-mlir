@@ -379,6 +379,50 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
+class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_ElementwiseUnaryOp<mnemonic, traits> {
+    let summary = "Eltwise unary op with the float parameter.";
+    let description = [{
+      Eltwise unary op with the float parameter.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         F32Attr:$parameter,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter, "ArrayAttr": $operand_constraints),
+      [{
+        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter, operand_constraints);
+      }]>
+    ];
+}
+
+def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
+    let summary = "Eltwise leaky relu operation.";
+    let description = [{
+      The Leaky ReLU (Rectified Linear Unit) operation computes an element-wise
+      activation function over its input tensor. It is defined as:
+
+      y = x if x > 0
+      y = parameter * x if x <= 0
+
+      where `parameter` is a small, user-defined constant that determines the slope for
+      negative inputs.
+
+      Attributes:
+      - `parameter` (float): The slope for negative values.
+
+      Inputs:
+      - `input` (Tensor): The input tensor to be activated.
+
+      Outputs:
+      - `output` (Tensor): The tensor after applying the Leaky ReLU activation.
+    }];
+}
+
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseOp<mnemonic, traits> {
     let summary = "Eltwise binary op.";
@@ -740,16 +784,12 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
     AnyRankedTensor:$weight,
     Optional<AnyRankedTensor>:$bias,
     AnyRankedTensor:$output,
-    // Default value: one for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$window_strides,
-    // Default value: two zeros for each of the spatial dimension.
-    DefaultValuedOptionalAttr<I64ElementsAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size()*2, 0)">:$padding,
-    // Default value: one for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$input_dilation,
-    // Default value: one for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "SmallVector<int64_t>(getConvolutionLayout().getInputSpatialDimensions().size(), 1)">:$weight_dilation,
-    // Default value: false for each of the spatial dimension.
-    DefaultValuedOptionalAttr<DenseBoolArrayAttr, "SmallVector<bool>(getConvolutionLayout().getInputSpatialDimensions().size(), false)">:$window_reversal,
+
+    DenseI64ArrayAttr:$window_strides,
+    DenseI64ArrayAttr:$padding,
+    DenseI64ArrayAttr:$input_dilation,
+    DenseI64ArrayAttr:$weight_dilation,
+    DenseBoolArrayAttr:$window_reversal,
     TTIR_ConvolutionLayoutAttr:$convolution_layout,
     ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
     ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count,

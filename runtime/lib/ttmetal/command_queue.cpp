@@ -370,9 +370,13 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
       cbRef->desc()->memory_desc()->size() * cbRef->desc()->num_buffers();
   ::tt::DataFormat dataFormat =
       toDataFormat(cbRef->desc()->memory_desc()->data_type());
-  LOG_ASSERT(cbRef->tensor_ref());
-  LOG_ASSERT(cbRef->tensor_ref()->address() == cbRef->address(),
-             "Address mismatch between tensor ref and cb ref");
+
+  if (!cbRef->tensor_ref()) {
+    return CircularBufferConfig(totalSize,
+                                {{cbRef->desc()->port(), dataFormat}})
+        .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  }
+
   return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
                               *buffers.at(cbRef->tensor_ref()->global_id()))
       .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
@@ -463,7 +467,19 @@ void CQExecutor::execute(
       }
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
-      ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      CBHandle cbHandle =
+          ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+
+      if (!cbRef->tensor_ref()) {
+        // Internally allocated CBs are not associated with any tensor ref. We
+        // need to set the address of the CB manually.
+        std::shared_ptr<CircularBuffer> cbPtr =
+            tt_metal::detail::GetCircularBuffer(program, cbHandle);
+        assert(!cbPtr->globally_allocated() &&
+               "CB should not be globally allocated");
+        cbPtr->set_locally_allocated_address(cbRef->address());
+      }
+
       createdCBs.insert(cbRef->desc()->port());
     }
 

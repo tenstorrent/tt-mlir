@@ -3,11 +3,6 @@ include "Common/debug_info.fbs";
 
 namespace tt.target.ttnn;
 
-table ClampOpParams {
-  min: float;
-  max: float;
-}
-
 table GetDeviceOp {
   mesh: Dim2d;
   chip_ids: [uint32];
@@ -106,10 +101,21 @@ enum EltwiseOpType: uint32 {
   Gelu = 36,
   LogicalXor = 37,
   Clamp = 38,
+  LeakyRelu = 39,
+}
+
+table ClampOpParams {
+  min: float;
+  max: float;
+}
+
+table EltwiseOpWithFloatParams {
+  parameter: float;
 }
 
 union EltwiseOpParams {
   ClampOpParams,
+  EltwiseOpWithFloatParams,
 }
 
 table EltwiseOp {

@@ -14,9 +14,9 @@ namespace mlir::tt::ttnn {
 
 struct OutputLayoutOverrideParams {
   SmallVector<int64_t, 2> grid;
-  tt::MemorySpace memorySpace;
-  tt::TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
-  tt::ttnn::Layout memoryLayout;             // ROW_MAJOR / TILE
+  BufferType bufferType;
+  TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
+  Layout memoryLayout;                   // ROW_MAJOR / TILE
   tt::DataType dataType;
 };
 

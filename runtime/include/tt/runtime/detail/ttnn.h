@@ -56,6 +56,7 @@
 #include "ttnn/operations/creation.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
+#include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/ternary/where.hpp"
@@ -120,8 +121,15 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
 
 void wait(Event event);
 
-void runProgram(::ttnn::MeshDevice &meshDevice,
-                ::tt::target::ttnn::Program const *program,
+std::string getOpDebugString(OpContext opContextHandle);
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle);
+
+std::vector<float> getTensorData(Tensor tensor);
+
+void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
+                std::uint32_t programIndex,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs);
 

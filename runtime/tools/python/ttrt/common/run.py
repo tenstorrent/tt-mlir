@@ -18,6 +18,7 @@ import atexit
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
+from ttrt.common.golden import golden
 
 
 class Run:
@@ -164,6 +165,13 @@ class Run:
             default="run_results.json",
             choices=None,
             help="test file to save results to",
+        )
+        Run.register_arg(
+            name="--golden",
+            type=bool,
+            default=True,
+            choices=[True, False],
+            help="run golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="binary",
@@ -354,6 +362,9 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
+            if self["--golden"]:
+                callback_env = ttrt.runtime.DebugHooks.get(golden)
+
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
@@ -389,8 +400,21 @@ class Run:
                             )
 
                             program = bin.get_program(program_index)
+                            golden_inputs = []
+
+                            for i in range(len(program.program["inputs"])):
+                                golden_tensor = bin.fbb.get_debug_info_golden(
+                                    f"input_{i}"
+                                )
+
+                                if len(golden_tensor) != 0:
+                                    golden_inputs.append(
+                                        torch.tensor(golden_tensor, dtype=torch.float32)
+                                    )
+
                             program.populate_inputs(
-                                Run.TorchInitializer.get_initilizer(self["--init"])
+                                Run.TorchInitializer.get_initilizer(self["--init"]),
+                                golden_inputs,
                             )
                             program.populate_outputs(
                                 Run.TorchInitializer.get_initilizer("zeros")

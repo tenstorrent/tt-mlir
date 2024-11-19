@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRTTNNDialect
+        TTNNOpsAttrs.cpp
         TTNNDialect.cpp
         TTNNOps.cpp
         TTNNOpModelInterface.cpp

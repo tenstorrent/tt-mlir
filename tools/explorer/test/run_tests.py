@@ -19,6 +19,7 @@ TEST_LOAD_MODEL_PATHS = [
     "tools/explorer/test/models/resnet_ttir.mlir",
     "tools/explorer/test/models/llama_attention_no_rot_emb_ttir.mlir",
     "tools/explorer/test/models/open_llama_3b_single_layer.mlir",
+
 ]
 MNIST_SHARDING_TILED_PATH = (
     "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir"

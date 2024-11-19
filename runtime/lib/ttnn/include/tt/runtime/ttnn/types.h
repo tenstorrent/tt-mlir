@@ -46,6 +46,11 @@ public:
     return *liveTensors.at(globalId);
   }
 
+  const ::ttnn::Tensor &at(std::uint32_t globalId) const {
+    assert(liveTensors.contains(globalId));
+    return *liveTensors.at(globalId);
+  }
+
   size_t erase(std::uint32_t globalId) {
     assert(liveTensors.contains(globalId) &&
            intermedTensors.contains(globalId));
@@ -161,6 +166,7 @@ public:
   // Tensor Pool Operations
   //
   ProgramTensorPool &getTensorPool() { return tensorPool; }
+  const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
 private:
   ProgramTensorPool tensorPool;

@@ -10,6 +10,7 @@
 
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/ttnn/types.h"
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -242,6 +243,55 @@ void wait(Event event) {
     return ::tt::runtime::ttmetal::wait(event);
   }
 #endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
+std::string getOpDebugString(OpContext opContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getOpDebugString(opContextHandle);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getOpDebugString(opContextHandle);
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
+                                                  programContextHandle);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
+                                                     programContextHandle);
+  }
+#endif
+  throw std::runtime_error("runtime is not enabled");
+}
+
+std::vector<float> getTensorData(Tensor tensor) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getTensorData(tensor);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getTensorData(tensor);
+  }
+#endif
+
   throw std::runtime_error("runtime is not enabled");
 }
 

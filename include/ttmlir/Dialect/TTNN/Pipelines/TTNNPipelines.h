@@ -5,9 +5,10 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
-#include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+
+#include "mlir/Pass/PassOptions.h"
 
 namespace mlir::tt::ttnn {
 
@@ -112,6 +113,11 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 };
 
+// TTIR to EmitC pipeline options.
+// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+//
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
@@ -144,6 +150,9 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTIRToEmitCPipeline(OpPassManager &pm,
+                               const TTIRToEmitCPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".

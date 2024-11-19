@@ -25,7 +25,7 @@ func.func @clamp(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
   // CHECK: %[[LAYOUT:.*]] = "ttnn.to_layout"(%[[DEVICE]])
   // CHECK: = "ttnn.clamp"(%[[LAYOUT]])
   // CHECK-SAME: {max = 3.000000e+00 : f32, min = 2.000000e+00 : f32}
-  // CHECK-SAME: [[TENSOR:tensor<64x128xbf16]], #layout{{[0-9]+}}>) -> [[TENSOR]]
+  // CHECK-SAME: [[TENSOR:tensor<64x128xbf16]], #ttnn_layout{{[0-9]+}}>) -> [[TENSOR]]
   %1 = "ttir.clamp"(%arg0, %0) <{max = 3.000000e+00 : f32, min = 2.000000e+00 : f32, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile, #any_device_tile]}> : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
   return %1 : tensor<64x128xbf16>
 }
@@ -135,6 +135,14 @@ func.func @relu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: %[[C:.*]] = "ttnn.relu"[[C:.*]]
   %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
+}
+
+func.func @leaky_relu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    // CHECK: %[[C:.*]] = "ttnn.empty"
+    %0 = tensor.empty() : tensor<64x128xf32>
+    // CHECK: %[[C:.*]] = "ttnn.leaky_relu"
+    %1 = "ttir.leaky_relu"(%arg0, %0) <{parameter = 0.01 : f32, operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    return %1 : tensor<64x128xf32>
 }
 
 func.func @reshape(%arg0: tensor<4x2x32x32xbf16>) -> tensor<2x4x32x32xbf16> {

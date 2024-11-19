@@ -41,6 +41,7 @@
 #pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
+#include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
 #include "tt_metal/host_api.hpp"
 #pragma clang diagnostic pop
@@ -78,6 +79,13 @@ Event submit(Device device, Binary executable, std::uint32_t programIndex,
              std::vector<Tensor> const &outputs);
 
 void wait(Event event);
+
+std::string getOpDebugString(OpContext opContextHandle);
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle);
+
+std::vector<float> getTensorData(Tensor tensor);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,

@@ -10,11 +10,21 @@
 
 #include "flatbuffers/flatbuffers.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt {
+
+flatbuffers::Offset<::tt::target::LayoutDesc>
+layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, LayoutAttr attr,
+                       ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr);
+
+flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
+    FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr attr,
+    ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr);
+
 struct GoldenTensor {
   std::string name;
   std::vector<int64_t> shape;
@@ -293,16 +303,34 @@ toFlatbuffer(FlatbufferObjectCache &cache, ChipDescAttr chipDesc) {
       chipDesc.getNumCBs());
 }
 
+inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
+                                          CPURole memLayout) {
+  switch (memLayout) {
+  case CPURole::Host:
+    return ::tt::target::CPURole::Host;
+  case CPURole::Device:
+    return ::tt::target::CPURole::Device;
+  }
+}
+
+inline flatbuffers::Offset<::tt::target::CPUDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, CPUDescAttr cpuDesc) {
+  return ::tt::target::CreateCPUDesc(
+      *cache.fbb, toFlatbuffer(cache, cpuDesc.getRole()),
+      cache.fbb->CreateString(cpuDesc.getTargetTriple().getValue().str()));
+}
+
 inline flatbuffers::Offset<::tt::target::SystemDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, SystemDescAttr systemDesc) {
+  auto cpuDescs = toFlatbuffer(cache, systemDesc.getCpuDescs());
   auto chipDescs = toFlatbuffer(cache, systemDesc.getChipDescs());
   auto chipDescIndices = toFlatbuffer(cache, systemDesc.getChipDescIndices());
   auto chipCapabilities = toFlatbuffer(cache, systemDesc.getChipCapabilities());
   auto chipCoords = toFlatbuffer(cache, systemDesc.getChipCoords());
   auto chipChannels = toFlatbuffer(cache, systemDesc.getChipChannels());
-  return ::tt::target::CreateSystemDesc(*cache.fbb, chipDescs, chipDescIndices,
-                                        chipCapabilities, chipCoords,
-                                        chipChannels);
+  return ::tt::target::CreateSystemDesc(*cache.fbb, cpuDescs, chipDescs,
+                                        chipDescIndices, chipCapabilities,
+                                        chipCoords, chipChannels);
 }
 
 inline std::vector<::tt::target::Dim2dRange>
@@ -407,59 +435,17 @@ toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
   return toFlatbuffer(cache, ArrayRef<uint32_t>(data));
 }
 
-inline flatbuffers::Offset<::tt::target::MemoryDesc>
-memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
-                       ::mlir::tt::TensorMemoryLayout memLayout) {
-  auto shapeInt64 = memref.getShape();
-  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
-  DataType dtype = DataType::Float32;
-  ::tt::target::Dim2d tileShape(1, 1);
-  Type elementType = memref.getElementType();
-  std::uint64_t elementSize = 0;
-  if (isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
-    elementSize = tileType.getSizeBytes();
-  } else {
-    dtype = elementTypeToDataType(elementType);
-    elementSize = getElementSizeBytes(dtype);
-  }
-
-  std::uint64_t size = elementSize;
-  for (auto dim : shapeInt64) {
-    size *= dim;
-  }
-
-  return ::tt::target::CreateMemoryDescDirect(
-      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
-      toFlatbuffer(
-          cache,
-          mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
-      toFlatbuffer(cache, memLayout), size);
-}
-
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
-layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
-                       ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
-  assert(isa<LayoutAttr>(attr) && "expected a tensor type");
-  auto layoutAttr = mlir::cast<LayoutAttr>(attr);
-  auto strideInt64 = layoutAttr.getStride(logicalShape);
-  std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
-  auto coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
-  ::tt::target::DistributedTensorConfig distributionType =
-      ::tt::target::DistributedTensorConfig::NONE;
-  ::flatbuffers::Offset<void> distribution = 0;
-  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
-      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
-                                               distribution);
-  return ::tt::target::CreateLayoutDescDirect(
-      *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
-      &coreRangeSet,
-      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
-                        layoutAttr.getMemLayout()),
-      strategy);
+encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
+                     ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  if (isa<LayoutAttr>(attr)) {
+    return layoutAttrToFlatbuffer(cache, cast<LayoutAttr>(attr), logicalShape,
+                                  deviceAttr);
+  }
+
+  assert(isa<ttnn::TTNNLayoutAttr>(attr) && "unsupported layout attr");
+  return ttnnLayoutAttrToFlatbuffer(cache, cast<ttnn::TTNNLayoutAttr>(attr),
+                                    logicalShape, deviceAttr);
 }
 
 inline flatbuffers::Offset<::tt::target::TensorDesc>
@@ -470,7 +456,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   return ::tt::target::CreateTensorDescDirect(
       *cache.fbb, &shape,
-      cache.getOrCreate(tensorType.getEncoding(), layoutAttrToFlatbuffer,
+      cache.getOrCreate(tensorType.getEncoding(), encodingToFlatbuffer,
                         shapeInt64, deviceAttr));
 }
 
