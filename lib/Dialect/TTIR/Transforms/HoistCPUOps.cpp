@@ -68,9 +68,12 @@ public:
     // Create the function entry block, defining the operands as function
     // arguments
     auto entryBlock = hoistFunc.addEntryBlock();
-    auto operand0 = entryBlock->addArgument(op.getOperand(0).getType(), loc);
-    auto operand1 = entryBlock->addArgument(op.getOperand(1).getType(), loc);
-    auto operand2 = entryBlock->addArgument(op.getOperand(2).getType(), loc);
+    auto args = entryBlock->getArguments();
+    assert(args.size() == 3 &&
+           "Expected 3 arguments in the function entry block!");
+    // auto operand0 = entryBlock->addArgument(op.getOperand(0).getType(), loc);
+    // auto operand1 = entryBlock->addArgument(op.getOperand(1).getType(), loc);
+    // auto operand2 = entryBlock->addArgument(op.getOperand(2).getType(), loc);
 
     rewriter.setInsertionPointToEnd(entryBlock); // Set to the entry block
     auto cpuMaxOp = rewriter.create<MaximumOp>(
@@ -83,7 +86,7 @@ public:
     auto funcAttr =
         FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
     auto callOp = rewriter.create<func::CallOp>(
-        loc, funcAttr, TypeRange{resultTy}, op.getOperands().drop_back(1));
+        loc, funcAttr, TypeRange{resultTy}, op.getOperands());
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
