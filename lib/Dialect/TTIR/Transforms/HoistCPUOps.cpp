@@ -51,6 +51,8 @@ public:
       rewriter.setInsertionPointToEnd(parentModule.getBody());
       cpuModule = rewriter.create<mlir::ModuleOp>(loc);
       cpuModule->setAttr("ttir.cpu_module", rewriter.getUnitAttr());
+      cpuModule->setAttr(mlir::SymbolTable::getSymbolAttrName(),
+                         rewriter.getStringAttr("cpu_module"));
     }
 
     auto resultTy = op.getResultTypes();
