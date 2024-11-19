@@ -1,7 +1,11 @@
+
+#pragma clang diagnostic ignored "-Wunused-variable"
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Dialect/TT/Utils/PhysicalCoreCoord.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -258,18 +262,82 @@ public:
   }
 
   void gatherIn0Tensor(ttmetal::DispatchOp &metalDispatch, OpBuilder &readerBuilder, PatternRewriter &rewriter,
-                       SmallVector<ttkernel::CBType, 3> &cbs, Value in0, Value out0,
-                       DeviceAttr &device, SystemDescAttr &sysDesc) const {
-    // auto data_movements = calculateDataMovement(mlir::cast<RankedTensorType>(in0.getType()),
-    //                                             mlir::cast<RankedTensorType>(out0.getType()), device);
+                       SmallVector<ttkernel::CBType, 3> &cbs, Value in0, Value out0, DeviceAttr &device,
+                       SystemDescAttr &sysDesc, SmallVector<Value> &rt_args) const {
+    RankedTensorType in0Type = mlir::cast<RankedTensorType>(in0.getType());
+    LayoutAttr in0Encoding = mlir::cast<LayoutAttr>(in0Type.getEncoding());
 
-    // for (auto [coreCoord, txs] : data_movements) {
-    //   createDataMovementThread(metalDispatch->getLoc(), readerBuilder, lookupAddress(metalDispatch.getInputs()[0]),
-    //                            mlir::cast<ttkernel::CBType>(readerBuilder.getBlock()->getArgument(0).getType()).getAddress(), txs,
-    //                            PhysicalCoreCoordMapping::getMemorySpaceMapping(
-    //                                device.getChipIds(), sysDesc.getChipDescs(), MemorySpace::DeviceL1),
-    //                            sysDesc.getAddressAlignBytes());
-    // }
+    RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
+    LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
+    
+    // in0 CB Initialization
+    auto in0Cb = readerBuilder.getBlock()->getArgument(0);
+    auto in0CbType = mlir::cast<ttkernel::CBType>(in0Cb.getType());
+    
+    // Which block to start reading from per core 
+    auto start_block_id =
+        readerBuilder.create<ttkernel::GetArgValOp>(metalDispatch.getLoc(), i32(rt_args.size(), readerBuilder));
+    
+    // Block dimensions
+    auto block_k = readerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(in0Type.getShape().back()/TILE_WIDTH));
+    auto block_h = readerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(in0Type.getShape().front()/TILE_HEIGHT/out0Encoding.getGrid().getShape().front()));
+    
+    // Size of one tile in bytes - this is wrong atm idk why... need tile size * datatype size
+    auto tile_size_bytes = readerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(TILE_HEIGHT * TILE_WIDTH * in0Encoding.getElementSizeBytes()));
+    auto block_size = readerBuilder.create<arith::MulIOp>(
+        metalDispatch.getLoc(), block_k, block_h);
+    // Size of block in bytes
+    auto block_size_bytes = readerBuilder.create<arith::MulIOp>(
+        metalDispatch.getLoc(), block_size, tile_size_bytes);
+    
+    // Remote address for in0 
+    auto start_in0_addr = readerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(lookupAddress(in0)));
+    // Use the start_block_id for in0 to get stride & address
+    auto start_block_stride = readerBuilder.create<arith::MulIOp>(
+        metalDispatch.getLoc(), start_block_id, block_size_bytes);
+    auto in0_addr = readerBuilder.create<arith::AddIOp>(
+        metalDispatch.getLoc(), start_in0_addr, start_block_stride);
+
+    // Reserve space in in0 CB for the block
+    auto in0_block_size_tiles = readerBuilder.create<arith::MulIOp>(
+        metalDispatch.getLoc(), block_k, block_h);
+    auto in0CbReserve = readerBuilder.create<ttkernel::CBReserveBackOp>(
+        metalDispatch.getLoc(), in0Cb, in0_block_size_tiles);
+
+    // Initial values for NoC and CB addresses for read loop
+    auto start_core_x = readerBuilder.create<arith::ConstantOp>(metalDispatch.getLoc(), readerBuilder.getI32Type(),
+                                                          readerBuilder.getI32IntegerAttr(0));
+    auto start_in0_cb_addr = readerBuilder.create<ttkernel::GetWritePtrOp>(metalDispatch.getLoc(),
+                                                                   i32(static_cast<uint32_t>(in0CbType.getPort()), readerBuilder));
+    llvm::SmallVector<mlir::Value, 2> iter_args = {start_core_x, start_in0_cb_addr};
+
+    // Read loop
+    auto coreReadLoop = readerBuilder.create<scf::ForOp>(metalDispatch.getLoc(), i32(0, readerBuilder),
+                                                         i32(static_cast<uint32_t>(in0Encoding.getGrid().getShape().back()), readerBuilder), i32(1, readerBuilder), iter_args);
+
+    readerBuilder.setInsertionPointToStart(coreReadLoop.getBody());
+    // Begin Read Loop
+    auto noc_addr = readerBuilder.create<ttkernel::GetNocAddrOp>(
+        metalDispatch.getLoc(), coreReadLoop.getRegionIterArg(0), i32(0, readerBuilder), in0_addr);
+    auto noc_read = readerBuilder.create<ttkernel::NocAsyncReadOp>(metalDispatch->getLoc(), noc_addr, coreReadLoop.getRegionIterArg(1),
+                                                                   tile_size_bytes); // this is not always tile_size_bytes CHANGE ME
+    auto inc_core_x = readerBuilder.create<arith::AddIOp>(metalDispatch.getLoc(), coreReadLoop.getRegionIterArg(0),
+                                                          i32(1, readerBuilder)); // increment core_x by 1 core
+    auto inc_l1_addr = readerBuilder.create<arith::AddIOp>(
+        metalDispatch.getLoc(), coreReadLoop.getRegionIterArg(1),
+        tile_size_bytes); // inc local l1 addr by tile_size ?  (probably subblock_h * tile_size more generally)
+    auto yield = readerBuilder.create<scf::YieldOp>(metalDispatch.getLoc(), llvm::SmallVector<mlir::Value>{inc_core_x.getResult(), inc_l1_addr.getResult()});
+    // End Read Loop
+    readerBuilder.setInsertionPointAfter(coreReadLoop);
+
+    auto readBarrier = readerBuilder.create<ttkernel::NocAsyncReadBarrierOp>(metalDispatch.getLoc());
+    auto in0CbPushBack = readerBuilder.create<ttkernel::CBPushBackOp>(metalDispatch.getLoc(), in0Cb, block_h); // this is not block_h CHANGE ME
+
+    // mcast logic here 
 
     return;
   }
@@ -299,7 +367,10 @@ public:
       auto semaphores = addSemaphores(metalDispatch, readerBuilder, rt_args);
 
       // kernels for each block here (use createDataMovementThread / buildNocAsyncTx, etc. (TTIRToTTMetal.cpp))
-      // gatherIn0Tensor(metalDispatch, readerBuilder, rewriter, cbs,metalDispatch.getInputs()[0], metalDispatch.getOutputs()[0], device, sysDesc);
+      if (i == 1) {
+        gatherIn0Tensor(metalDispatch, readerBuilder, rewriter, cbs, metalDispatch.getInputs()[0],
+                        metalDispatch.getOutputs()[0], device, sysDesc, rt_args);
+      }
 
       readerBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
     }
