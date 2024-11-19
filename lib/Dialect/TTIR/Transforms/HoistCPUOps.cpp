@@ -71,9 +71,9 @@ public:
     auto args = entryBlock->getArguments();
     assert(args.size() == 3 &&
            "Expected 3 arguments in the function entry block!");
-    // auto operand0 = entryBlock->addArgument(op.getOperand(0).getType(), loc);
-    // auto operand1 = entryBlock->addArgument(op.getOperand(1).getType(), loc);
-    // auto operand2 = entryBlock->addArgument(op.getOperand(2).getType(), loc);
+    auto operand0 = args[0];
+    auto operand1 = args[1];
+    auto operand2 = args[2];
 
     rewriter.setInsertionPointToEnd(entryBlock); // Set to the entry block
     auto cpuMaxOp = rewriter.create<MaximumOp>(
