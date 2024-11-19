@@ -443,6 +443,26 @@ def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     let results = (outs TTKernel_NocAddr:$nocAddr);
 }
 
+def TTKernel_GetReadPtrOp : TTKernel_Op<"get_read_ptr"> {
+    let summary = "GetReadPtr";
+    let description = [{
+      GetReadPtr
+    }];
+
+    let arguments = (ins I32:$cbPort);
+    let results = (outs I32:$readPtr);
+}
+
+def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
+    let summary = "GetWritePtr";
+    let description = [{
+      GetWritePtr
+    }];
+
+    let arguments = (ins I32:$cbPort);
+    let results = (outs I32:$writePtr);
+}
+
 def TTKernel_NocAsyncReadOp : TTKernel_Op<"noc_async_read"> {
     let summary = "NocAsyncRead";
     let description = [{
