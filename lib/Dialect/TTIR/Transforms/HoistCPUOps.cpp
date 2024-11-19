@@ -69,7 +69,7 @@ public:
     auto operand1 = entryBlock->addArgument(op.getOperand(1).getType(), loc);
     auto operand2 = entryBlock->addArgument(op.getOperand(2).getType(), loc);
 
-    // rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
+    rewriter.setInsertionPointToEnd(entryBlock); // Set to the entry block
     auto cpuMaxOp = rewriter.create<MaximumOp>(
         loc, TypeRange{resultTy},
         ArrayRef<Value>{operand0, operand1, operand2});
