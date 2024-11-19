@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
@@ -26,6 +27,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <llvm/Support/LogicalResult.h>
 
 #include <cstdint>
 
@@ -883,6 +885,105 @@ public:
   }
 };
 
+class ConvTranspose2dOpConversionPattern
+    : public OpConversionPattern<ttir::ConvTranspose2dOp> {
+public:
+  using OpConversionPattern<ttir::ConvTranspose2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+
+    std::function<int64_t(const RankedTensorType &, int)> getLastDim =
+        [](const RankedTensorType &ty, int offset = 1) {
+          return ty.getShape()[ty.getRank() - offset];
+        };
+
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 1));
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(getLastDim(outputTy, 1));
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 4));
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 3));
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(getLastDim(inputTy, 2));
+
+    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(getLastDim(kernelTy, 2)),
+         static_cast<int32_t>(getLastDim(kernelTy, 1))});
+
+    auto strideAttr = attrToDenseI32ArrayAttr(adaptor.getStride(), rewriter);
+    if (auto error = strideAttr.takeError()) {
+      return LogicalResult::failure();
+    }
+
+    auto paddingAttr = attrToDenseI32ArrayAttr(adaptor.getPadding(), rewriter);
+    if (auto error = paddingAttr.takeError()) {
+      return LogicalResult::failure();
+    }
+
+    auto outputPaddingAttr =
+        attrToDenseI32ArrayAttr(adaptor.getOutputPadding(), rewriter);
+    if (auto error = outputPaddingAttr.takeError()) {
+      return LogicalResult::failure();
+    }
+
+    auto dilationAttr =
+        attrToDenseI32ArrayAttr(adaptor.getDilation(), rewriter);
+    if (auto error = dilationAttr.takeError()) {
+      return LogicalResult::failure();
+    }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // Transposed convolution in ttnn returns a tensor in a flattened shape
+    // (1 x 1 x N * H * W x C)
+    llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
+    llvm::SmallVector<std::int64_t, 4> flattenedOutputShape = {
+        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
+        output_shape[3]};
+    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
+
+    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
+    // attribute determination
+    auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
+        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
+        outputTy.getElementType());
+
+    // Must set the type to the output type to maintain the layout attributes
+    convDPSOutput.getResult().setType(outputTy);
+
+    ttnn::ConvTranspose2dOp new_conv = rewriter.create<ttnn::ConvTranspose2dOp>(
+        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), convDPSOutput, device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
+        kernelSizeAttr, *strideAttr, *paddingAttr, *outputPaddingAttr,
+        *dilationAttr, groupsAttr);
+
+    // Restore the normal shape (N x H x W x C)
+    Value output =
+        ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
+
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+
+private:
+  llvm::Expected<DenseI32ArrayAttr>
+  attrToDenseI32ArrayAttr(mlir::Attribute attr,
+                          ConversionPatternRewriter &rewriter) const {
+    auto pair = ttmlir::utils::getPairOfInteger<int32_t>(attr);
+    if (auto error = pair.takeError()) {
+      return error;
+    }
+
+    return rewriter.getDenseI32ArrayAttr({pair->first, pair->second});
+  }
+};
+
 class MaxPool2dOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
 public:
@@ -1223,6 +1324,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
+           ConvTranspose2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
            MeshShardOpConversionPattern,

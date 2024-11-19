@@ -188,6 +188,154 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// ConvTranspose2dOp
+//===----------------------------------------------------------------------===//
+
+// ConvTranspose2dOp verification
+mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
+  mlir::RankedTensorType inputType = getInput().getType();
+  mlir::RankedTensorType weightType = getWeight().getType();
+  mlir::RankedTensorType outputType = getOutput().getType();
+  std::optional<mlir::RankedTensorType> bias =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input must be a 4D tensor");
+  }
+
+  if (outputType.getRank() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+
+  if (bias.has_value()) {
+    if (bias->getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+  }
+
+  if (inputType.getShape()[0] != outputType.getShape()[0]) {
+    return emitOpError("Batch size of input and output tensors must match");
+  }
+
+  auto stride = ttmlir::utils::getPairOfInteger<int32_t>(getStride());
+  if (auto error = stride.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error)) << " for stride";
+  }
+  if (stride->first < 1 || stride->second < 1) {
+    return emitOpError("Stride values must be greater than 0");
+  }
+
+  auto padding = ttmlir::utils::getPairOfInteger<int32_t>(getPadding());
+  if (auto error = padding.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error)) << " for padding";
+  }
+  if (padding->first < 0 || padding->second < 0) {
+    return emitOpError("Padding values must be greater or equal than 0");
+  }
+
+  auto outputPadding =
+      ttmlir::utils::getPairOfInteger<int32_t>(getOutputPadding());
+  if (auto error = outputPadding.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error))
+                         << " for output padding";
+  }
+  if (outputPadding->first < 0 || outputPadding->second < 0) {
+    return emitOpError("Output padding values must be greater or equal than 0");
+  }
+
+  auto dilation = ttmlir::utils::getPairOfInteger<int32_t>(getDilation());
+  if (auto error = dilation.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error)) << " for dilation";
+  }
+  if (dilation->first < 1 || dilation->second < 1) {
+    return emitOpError("Dilation values must be greater than 0");
+  }
+
+  llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
+
+  int32_t inputChannels = inputType.getDimSize(inputType.getRank() - 1);
+  int32_t outputChannels = outputType.getDimSize(outputType.getRank() - 1);
+  uint32_t groups = getGroups();
+
+  if (inputChannels % groups != 0) {
+    return emitOpError() << "Number of input channels from input tensor must "
+                            "be divisible by the number of groups. "
+                         << "Got " << inputChannels << " input channels and "
+                         << groups << " groups.";
+  }
+
+  if (outputChannels % groups != 0) {
+    return emitOpError() << "Number of output channels from output tensor must "
+                            "be divisible by the number of groups. "
+                         << "Got " << outputChannels << " output channels and "
+                         << groups << " groups.";
+  }
+
+  if (inputChannels != kernelShape[0]) {
+    return emitOpError() << "Number of input channels from input tensor must "
+                            "match the first dimension of the weight tensor. "
+                         << "Got " << inputChannels << " input channels and "
+                         << kernelShape[0] << " in the weight tensor.";
+  }
+
+  if (outputChannels / groups != kernelShape[1]) {
+    return emitOpError() << "Number of output channels per group must match "
+                            "the second dimension of the weight tensor. "
+                         << "Got " << (outputChannels / groups)
+                         << " output channels per group and " << kernelShape[1]
+                         << " in the weight tensor.";
+  }
+
+  if (bias) {
+    if (bias->getDimSize(bias->getRank() - 1) != outputChannels) {
+      return emitOpError() << "Mismatch in bias tensor dimensions. "
+                           << "Bias tensor has "
+                           << bias->getDimSize(bias->getRank() - 1)
+                           << " channels, "
+                           << "but the output tensor has " << outputChannels
+                           << " channels.";
+    }
+  }
+
+  int32_t kernelHeight = kernelShape[2];
+  int32_t kernelWidth = kernelShape[3];
+
+  int32_t Hin = inputType.getDimSize(inputType.getRank() - 3);
+  int32_t Win = inputType.getDimSize(inputType.getRank() - 2);
+
+  int32_t expectedHOut = (Hin - 1) * stride->first - 2 * padding->first +
+                         dilation->first * (kernelHeight - 1) +
+                         outputPadding->first + 1;
+  int32_t expectedWOut = (Win - 1) * stride->second - 2 * padding->second +
+                         dilation->second * (kernelWidth - 1) +
+                         outputPadding->second + 1;
+  if (expectedHOut < 0 || expectedWOut < 0) {
+    return emitOpError() << "Given input size per channel: (" << Hin << " x "
+                         << Win << "). "
+                         << "Calculated output size per channel: ("
+                         << expectedHOut << " x " << expectedWOut << "). "
+                         << "Output size is too small";
+  }
+
+  int32_t HOut = outputType.getDimSize(outputType.getRank() - 3);
+  int32_t WOut = outputType.getDimSize(outputType.getRank() - 2);
+  if (HOut != expectedHOut || WOut != expectedWOut) {
+    return emitOpError() << "Mismatch between expected output size per channel "
+                            "and got output tensor dimensions. "
+                         << "Expected: (" << expectedHOut << " x "
+                         << expectedWOut << "), "
+                         << "got: (" << HOut << " x " << WOut << ").";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConvolutionOp
 //===----------------------------------------------------------------------===//
 
