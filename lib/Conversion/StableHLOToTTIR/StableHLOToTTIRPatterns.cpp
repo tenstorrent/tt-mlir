@@ -214,15 +214,13 @@ public:
       new_shape_i32.push_back(static_cast<int32_t>(dim));
     }
     ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
+    auto new_reshape_op = rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
         adaptor.getOperand(), outputTensor, new_shape_attr,
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
-    checkForArgumentsAndReplace(srcOp, new_reshape_op);
-    rewriter.replaceOp(srcOp, new_reshape_op);
     if (new_reshape_op.getType() == new_reshape_op->getOperand(0).getType()) {
       rewriter.replaceOp(new_reshape_op, new_reshape_op->getOperand(0));
     }
@@ -240,17 +238,6 @@ public:
     }
 
     return success();
-  }
-
-private:
-  void
-  checkForArgumentsAndReplace(mlir::stablehlo::ReshapeOp &srcOp,
-                              mlir::tt::ttir::ReshapeOp &newReshapeOp) const {
-    if (auto blockArg = mlir::cast<BlockArgument>(srcOp->getOperand(0))) {
-      newReshapeOp.setOperand(
-          0, srcOp->getParentOfType<mlir::func::FuncOp>().getArgument(
-                 blockArg.getArgNumber()));
-    }
   }
 };
 
