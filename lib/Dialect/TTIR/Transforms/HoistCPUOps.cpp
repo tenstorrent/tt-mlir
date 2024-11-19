@@ -56,8 +56,9 @@ public:
     hoistFunc->setAttr("target", rewriter.getStringAttr("CPU"));
 
     rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
-    auto cpuMaxOp = rewriter.create<MaximumOp>(loc, resultTy, op.getOperand(0),
-                                               op.getOperand(1));
+    auto cpuMaxOp = rewriter.create<MaximumOp>(
+        loc, TypeRange{resultTy},
+        ArrayRef<Value>{op.getOperand(0), op.getOperand(1)});
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
     rewriter.setInsertionPoint(op);
