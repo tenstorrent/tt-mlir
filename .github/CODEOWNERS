@@ -9,7 +9,7 @@
 /include/ttmlir/Dialect/TTKernel/ @nsmithtt @rpavlovicTT @rjakovljevicTT
 /include/ttmlir/Dialect/TTMetal/ @nsmithtt @rpavlovicTT
 /include/ttmlir/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @nobradovictt @jserbedzijaTT
-/include/ttmlir/Dialect/TTNN/Analysis/ @odjuricicTT @nobradovictt
+/include/ttmlir/Dialect/TTNN/Analysis/ @nobradovictt @odjuricicTT
 /lib/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT
 /lib/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
 /lib/Dialect/TT/ @sdjordjevicTT @nsmithtt @rpavlovicTT @svuckovicTT @mtopalovicTT @mrakitaTT @nobradovictt @jserbedzijaTT
@@ -18,8 +18,11 @@
 /lib/Dialect/TTMetal/ @nsmithtt @rpavlovicTT
 /lib/Dialect/TTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @nobradovictt @jserbedzijaTT @jnie-TT
 /lib/Dialect/TTNN/Analysis/ @odjuricicTT @nobradovictt
-/python/ @nsmithtt @tapspatel @odjuricicTT @nobradovictt @vprajapati-tt
+/python/ @nsmithtt @tapspatel @odjuricicTT @vprajapati-tt
+/python/test_infra/ @nsmithtt @tapspatel @vprajapati-tt
 /runtime/ @jnie-TT @kmabeeTT @AleksKnezevic @pilkicTT
 /runtime/tools/ @tapspatel @nsmithtt
+/test/ttmlir/Dialect/TTNN/optimizer/ @nobradovictt @odjuricicTT
+/test/ttmlir/Silicon/TTNN/optimizer/ @nobradovictt @odjuricicTT
 /test/unittests/Optimizer @nobradovictt @odjuricicTT
 /tools/explorer/ @odjuricicTT @nobradovictt @vprajapati-tt
