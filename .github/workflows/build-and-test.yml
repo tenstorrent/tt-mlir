@@ -517,10 +517,10 @@ jobs:
         ttrt query --save-artifacts
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
-        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
 
     - name: Run tt-explorer tests
       shell: bash
       run: |
         source env/activate
+        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
         pytest tools/explorer/test/run_tests.py
