@@ -180,6 +180,15 @@ def TTKernel_MulOp : TTKernel_Op<"mul"> {
     let arguments = (ins I32:$dst_index);
 }
 
+def TTKernel_MaxOp : TTKernel_Op<"max"> {
+    let summary = "Max operation";
+    let description = [{
+      Max operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
 def TTKernel_MatmulOp : TTKernel_Op<"matmul"> {
     let summary = "Matmul operation";
     let description = [{
@@ -242,6 +251,27 @@ def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
       indices and writes the result to the DST register at index dst_tile_index.
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
+}
+
+def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tiles_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before max_tiles.
+    }];
+
+    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
+}
+
+def TTKernel_MaxTilesOp : TTKernel_Op<"max_tiles"> {
+    let summary = "Max operation";
+    let description = [{
+      Performs element-wise C=max(A, B) of tiles in two CBs at given indices
+      and writes the result to the DST register at index dst_tile_index. The DST
+      register buffer must be in acquired state via *tile_regs_acquire* call. This call
+      is blocking and is only available on the compute engine.
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
