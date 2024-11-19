@@ -85,8 +85,11 @@ public:
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
     rewriter.setInsertionPoint(op);
+    auto qualifiedFuncName =
+        (cpuModule.getName() + "::" + hoistFunc.getName()).str();
+
     auto funcAttr =
-        FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
+        FlatSymbolRefAttr::get(rewriter.getContext(), qualifiedFuncName);
     auto callOp = rewriter.create<func::CallOp>(
         loc, funcAttr, TypeRange{resultTy}, op.getOperands());
     llvm::outs() << "Function Symbol: " << funcAttr.getValue() << "\n";
