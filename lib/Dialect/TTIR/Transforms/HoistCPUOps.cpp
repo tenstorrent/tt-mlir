@@ -86,7 +86,7 @@ public:
 
     rewriter.setInsertionPoint(op);
     auto qualifiedFuncName =
-        (cpuModule.getName() + "::" + hoistFunc.getName()).str();
+        (cpuModule.getName().value() + "::" + hoistFunc.getName()).str();
 
     auto funcAttr =
         FlatSymbolRefAttr::get(rewriter.getContext(), qualifiedFuncName);
