@@ -65,6 +65,7 @@ public:
                                                 {resultTy});
 
     // Create an external function declaration in the current module
+    rewriter.setInsertionPointToStart(parentModule.getBody());
     auto externalFunc = rewriter.create<func::FuncOp>(
         loc, "external_cpu_maximum_func", hoistFuncTy);
     externalFunc.setVisibility(mlir::SymbolTable::Visibility::Private);
@@ -72,7 +73,7 @@ public:
                           rewriter.getUnitAttr()); // Mark it as external
 
     // Insert this declaration into the current module
-    parentModule.push_back(externalFunc);
+    // parentModule.push_back(externalFunc);
 
     // define hoisted func, w placeholder attr for CPU execution, in cpu module
     rewriter.setInsertionPointToEnd(cpuModule.getBody());
