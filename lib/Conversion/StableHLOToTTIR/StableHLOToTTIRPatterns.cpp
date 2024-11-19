@@ -19,7 +19,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include <llvm/ADT/APFloat.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -214,13 +213,17 @@ public:
       new_shape_i32.push_back(static_cast<int32_t>(dim));
     }
     ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
-    auto new_reshape_op = rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getOperand(), outputTensor, new_shape_attr,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+    auto new_reshape_op =
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
+            srcOp, getTypeConverter()->convertType(outputTensor.getType()),
+            adaptor.getOperand(), outputTensor, new_shape_attr,
+            rewriter.getArrayAttr(
+                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                       rewriter.getAttr<OperandConstraintAttr>(
+                                           OperandConstraint::AnyDeviceTile))));
+
+    // If the reshape op is trying to reshape into the same shape, we can omit
+    // it completely.
     if (new_reshape_op.getType() == new_reshape_op->getOperand(0).getType()) {
       rewriter.replaceOp(new_reshape_op, new_reshape_op->getOperand(0));
     }
