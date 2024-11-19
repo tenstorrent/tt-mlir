@@ -64,7 +64,17 @@ public:
                                                  op.getOperand(2).getType()},
                                                 {resultTy});
 
-    // define hoisted func, w placeholder attr for CPU execution
+    // Create an external function declaration in the current module
+    auto externalFunc =
+        rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
+    externalFunc.setVisibility(mlir::SymbolTable::Visibility::Public);
+    externalFunc->setAttr("external",
+                          rewriter.getUnitAttr()); // Mark it as external
+
+    // Insert this declaration into the current module
+    parentModule.push_back(externalFunc);
+
+    // define hoisted func, w placeholder attr for CPU execution, in cpu module
     rewriter.setInsertionPointToEnd(cpuModule.getBody());
     auto hoistFunc =
         rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
@@ -92,11 +102,9 @@ public:
     rewriter.setInsertionPoint(op);
     llvm::outs() << "module name: " << cpuModule.getName().has_value() << "\n";
     llvm::outs() << "module name: " << cpuModule.getName().value() << "\n";
-    auto qualifiedFuncName =
-        (cpuModule.getName().value() + "::" + hoistFunc.getName()).str();
 
     auto funcAttr =
-        FlatSymbolRefAttr::get(rewriter.getContext(), qualifiedFuncName);
+        FlatSymbolRefAttr::get(rewriter.getContext(), "cpu_maximum_func");
     auto callOp = rewriter.create<func::CallOp>(
         loc, funcAttr, TypeRange{resultTy}, op.getOperands());
     llvm::outs() << "Function Symbol: " << funcAttr.getValue() << "\n";
