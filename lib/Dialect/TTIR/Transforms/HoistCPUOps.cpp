@@ -23,6 +23,8 @@ public:
 
   LogicalResult matchAndRewrite(MaximumOp op,
                                 PatternRewriter &rewriter) const final {
+    auto loc = op.getLoc();
+
     // Retrieve the parent module of the current operation
     auto parentModule = op->getParentOfType<mlir::ModuleOp>();
 
@@ -45,7 +47,6 @@ public:
     }
 
     auto resultTy = op.getResultTypes();
-    auto loc = op.getLoc();
     auto hoistFuncTy = rewriter.getFunctionType({resultTy}, {resultTy});
 
     // define hoisted func, w placeholder attr for CPU execution
