@@ -23,10 +23,17 @@ public:
 
   LogicalResult matchAndRewrite(MaximumOp op,
                                 PatternRewriter &rewriter) const final {
-    auto loc = op.getLoc();
 
     // Retrieve the parent module of the current operation
     auto parentModule = op->getParentOfType<mlir::ModuleOp>();
+
+    // Skip transformation if the op is already in the CPU module
+    if (parentModule) {
+      if (parentModule->hasAttr("cpu_module")) {
+        return failure();
+      }
+    }
+    auto loc = op.getLoc();
 
     // Check if a "cpu_module" already exists
     mlir::ModuleOp cpuModule;
@@ -60,6 +67,7 @@ public:
         loc, TypeRange{resultTy},
         ArrayRef<Value>{op.getOperand(0), op.getOperand(1)});
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
+    cpuMaxOp->setAttr("hoisted", rewriter.getUnitAttr());
 
     rewriter.setInsertionPoint(op);
     auto funcAttr =
