@@ -83,9 +83,7 @@ public:
     auto funcAttr =
         FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
     auto callOp = rewriter.create<func::CallOp>(
-        loc, funcAttr, TypeRange{resultTy},
-        TypeRange{op.getOperand(0).getType(), op.getOperand(1).getType(),
-                  op.getOperand(2).getType()});
+        loc, funcAttr, TypeRange{resultTy}, op.getOperands().drop_back(1));
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
