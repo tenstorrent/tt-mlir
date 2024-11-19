@@ -67,7 +67,6 @@ public:
         loc, TypeRange{resultTy},
         ArrayRef<Value>{op.getOperand(0), op.getOperand(1)});
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
-    cpuMaxOp->setAttr("hoisted", rewriter.getUnitAttr());
 
     rewriter.setInsertionPoint(op);
     auto funcAttr =
