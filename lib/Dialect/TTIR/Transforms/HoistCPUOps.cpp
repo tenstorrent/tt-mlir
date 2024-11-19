@@ -64,6 +64,7 @@ public:
     auto hoistFunc =
         rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
     hoistFunc.setVisibility(mlir::SymbolTable::Visibility::Public);
+    cpuModule.dump();
     hoistFunc->setAttr("target", rewriter.getStringAttr("CPU"));
 
     // Create the function entry block, defining the operands as function
@@ -88,6 +89,8 @@ public:
         FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
     auto callOp = rewriter.create<func::CallOp>(
         loc, funcAttr, TypeRange{resultTy}, op.getOperands());
+    llvm::outs() << "Function Symbol: " << funcAttr.getValue() << "\n";
+
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
