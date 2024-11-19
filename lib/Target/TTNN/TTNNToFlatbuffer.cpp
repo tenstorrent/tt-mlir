@@ -411,6 +411,30 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       op.getGroups());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
+createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto in1 = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto in2 = op.getODSOperands(2).empty()
+                 ? flatbuffers::Offset<::tt::target::TensorRef>()
+                 : cache.at<::tt::target::TensorRef>(
+                       getOperandThroughDPSOps(op.getBias()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  return ::tt::target::ttnn::CreateConvTranspose2dOp(
+      *cache.fbb, in0, in1, in2, output,
+      cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
+      op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
+      op.getOutputPaddingHeight(), op.getOutputPaddingWidth(), op.getPaddingWidth(),
+       op.getDilationHeight(), op.getDilationWidth(), op.getGroups());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
 createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input =
@@ -876,6 +900,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString);
+  }
+  if (auto conv_transpose2dOp = dyn_cast<ConvTranspose2dOp>(op); conv_transpose2dOp) {
+    return createOperation(cache, createOp(cache, conv_transpose2dOp), debugString);
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString);

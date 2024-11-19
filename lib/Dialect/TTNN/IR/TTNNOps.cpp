@@ -80,6 +80,36 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// ConvTranspose2dOp
+//===----------------------------------------------------------------------===//
+
+// ConvTranspose2dOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ConvTranspose2dOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias().getImpl() ? std::make_optional(getBias().getType())
+                          : std::nullopt;
+
+  if (inputType.getRank() < 3) {
+    return emitOpError("Input must be at least a 3D tensor");
+  }
+  if (weightType.getRank() != 4) {
+    return emitOpError("Weight must be a 4D tensor");
+  }
+  if (biasType.has_value()) {
+    if (biasType->getRank() != 4) {
+      return emitOpError("Bias must be a 4D tensor");
+    }
+    auto biasShape = biasType->getShape();
+    if (biasShape[0] != 1 || biasShape[1] != 1 || biasShape[2] != 1) {
+      return emitOpError("Bias must only have data on the final dimenstion");
+    }
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 

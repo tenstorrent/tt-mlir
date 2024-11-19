@@ -714,6 +714,43 @@ def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
+    let summary = "ConvTranspose2d operation.";
+    let description = [{
+      Applies a 2D convolution over an input image composed of several input planes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         TT_Device:$device,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         I32Attr:$kernel_height,
+                         I32Attr:$kernel_width,
+                         I32Attr:$stride_height,
+                         I32Attr:$stride_width,
+                         I32Attr:$padding_height,
+                         I32Attr:$padding_width,
+                         I32Attr:$output_padding_height,
+                         I32Attr:$output_padding_width,
+                         I32Attr:$dilation_height,
+                         I32Attr:$dilation_width,
+                         I32Attr:$groups);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let summary = "Applies a 2D max pooling over an input signal composed of several input planes.";
     let description = [{
