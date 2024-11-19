@@ -62,10 +62,17 @@ public:
         rewriter.create<func::FuncOp>(loc, "cpu_maximum_func", hoistFuncTy);
     hoistFunc->setAttr("target", rewriter.getStringAttr("CPU"));
 
-    rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
+    // Create the function entry block, defining the operands as function
+    // arguments
+    auto entryBlock = hoistFunc.addEntryBlock();
+    auto operand0 = entryBlock->addArgument(op.getOperand(0).getType(), loc);
+    auto operand1 = entryBlock->addArgument(op.getOperand(1).getType(), loc);
+    auto operand2 = entryBlock->addArgument(op.getOperand(2).getType(), loc);
+
+    // rewriter.setInsertionPointToEnd(hoistFunc.addEntryBlock());
     auto cpuMaxOp = rewriter.create<MaximumOp>(
         loc, TypeRange{resultTy},
-        ArrayRef<Value>{op.getOperand(0), op.getOperand(1), op.getOperand(2)});
+        ArrayRef<Value>{operand0, operand1, operand2});
     cpuMaxOp->setAttrs(op->getAttrs());
     rewriter.create<func::ReturnOp>(loc, cpuMaxOp.getResults());
 
@@ -73,8 +80,7 @@ public:
     auto funcAttr =
         FlatSymbolRefAttr::get(rewriter.getContext(), hoistFunc.getName());
     auto callOp = rewriter.create<func::CallOp>(
-        loc, funcAttr, TypeRange{resultTy},
-        ArrayRef<Value>{op.getOperand(0), op.getOperand(1), op.getOperand(2)});
+        loc, funcAttr, TypeRange{resultTy}, op.getOperands());
     rewriter.replaceOp(op, callOp.getResults());
 
     return success();
