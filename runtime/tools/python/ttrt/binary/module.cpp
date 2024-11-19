@@ -37,16 +37,9 @@ PYBIND11_MODULE(_C, m) {
         const ::tt::target::GoldenTensor *goldenTensor =
             binary.getDebugInfoGolden(loc);
         if (goldenTensor == nullptr) {
-          return std::vector<float>();
+          throw std::runtime_error("`getDebugInfoGolden` returned a `nullptr`");
         }
-
-        int totalDataSize = std::accumulate((*goldenTensor->shape()).begin(),
-                                            (*goldenTensor->shape()).end(), 1,
-                                            std::multiplies<int64_t>());
-        std::vector<float> dataVec(totalDataSize);
-        std::memcpy(dataVec.data(), goldenTensor->data()->data(),
-                    totalDataSize * sizeof(float));
-        return dataVec;
+        return goldenTensor;
       });
   py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_property_readonly("version", &tt::runtime::SystemDesc::getVersion)
@@ -66,4 +59,71 @@ PYBIND11_MODULE(_C, m) {
             .handle); // Dereference capsule, and then dereference shared_ptr*
   });
   m.def("load_system_desc_from_path", &tt::runtime::SystemDesc::loadFromPath);
+
+  /**
+   * Binding for the `GoldenTensor` type
+   */
+  py::class_<tt::target::GoldenTensor>(m, "GoldenTensor", py::buffer_protocol())
+      .def_buffer([](tt::target::GoldenTensor const *t) -> py::buffer_info {
+        // NULL checks
+        if (t == nullptr) {
+          throw std::runtime_error("Cannot bind a null pointer");
+        }
+
+        if (t->data() == nullptr) {
+          throw std::runtime_error("GoldenTensor `data` pointer is null!");
+        }
+
+        if (t->shape() == nullptr) {
+          throw std::runtime_error("GoldenTensor `shape` pointer is null!");
+        }
+
+        if (t->stride() == nullptr) {
+          throw std::runtime_error("GoldenTensor `stride` pointer is null!");
+        }
+
+        // Format string to be passed to `py::buffer_info`
+        std::string format;
+
+        // Element size to be passed to `py::buffer_info`
+        size_t size;
+
+        switch (t->dtype()) {
+
+        case tt::target::DataType::UInt8:
+          format = py::format_descriptor<uint8_t>::format();
+          size = sizeof(uint8_t);
+          break;
+
+        case tt::target::DataType::UInt16:
+          format = py::format_descriptor<uint16_t>::format();
+          size = sizeof(uint16_t);
+          break;
+
+        case tt::target::DataType::UInt32:
+          format = py::format_descriptor<uint32_t>::format();
+          size = sizeof(uint32_t);
+          break;
+
+        case tt::target::DataType::Float32:
+          format = py::format_descriptor<float>::format();
+          size = sizeof(float);
+          break;
+
+        default:
+          throw std::runtime_error(
+              "Only 32-bit floats and unsigned ints are currently supported "
+              "for GoldenTensor bindings");
+        }
+
+        return py::buffer_info(
+            (void *)t->data()->data(), /* ptr to underlying data */
+            size,                      /* size of element */
+            format,                    /* format */
+            t->shape()->size(),        /* rank */
+            *(t->shape()),             /* shape */
+            *(t->stride()),            /* stride of buffer */
+            true                       /* read only */
+        );
+      });
 }
