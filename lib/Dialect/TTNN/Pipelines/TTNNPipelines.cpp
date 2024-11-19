@@ -4,12 +4,13 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
-#include "mlir/Pass/PassManager.h"
-
-#include "mlir/Transforms/Passes.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -115,15 +116,32 @@ void createTTIRToTTNNBackendPipeline(
   createTTNNPipelineDeallocPass(pm, options);
 }
 
+void createTTIRToEmitCPipeline(OpPassManager &pm,
+                               const TTIRToEmitCPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(createConvertTTNNToEmitCPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
 
 void registerTTNNPipelines() {
+  // TTIR to TTNN backend pipeline.
+  //
   mlir::PassPipelineRegistration<
       mlir::tt::ttnn::TTIRToTTNNBackendPipelineOptions>(
       "ttir-to-ttnn-backend-pipeline",
-      "Pipeline lowering ttir to ttnn backend.",
+      "Pipeline lowering TTIR to TTNN backend.",
       mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
+
+  // TTIR to EmitC pipeline.
+  //
+  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitCPipelineOptions>(
+      "ttir-to-emitc-pipeline",
+      "Pipeline lowering TTIR to EmitC. Under the hood, it runs "
+      "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
+      "dialect to EmitC.",
+      mlir::tt::ttnn::createTTIRToEmitCPipeline);
 }
 } // namespace mlir::tt::ttnn
