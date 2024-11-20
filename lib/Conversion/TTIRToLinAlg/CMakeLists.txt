@@ -11,5 +11,5 @@ add_mlir_library(TTMLIRTTIRToLinAlg
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
-  MLIRLinalgOps     # Add LinalgOps to the link libraries
+  MLIRLinalg
 )
