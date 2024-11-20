@@ -142,7 +142,8 @@ public:
           ValueRange{negEmptyOp}, srcOp->getAttrs());
 
       rewriter.replaceOpWithNewOp<linalg::AddOp>(
-          srcOp, {adaptor.getInputs().front(), negOp.getResults().front()},
+          srcOp,
+          ValueRange{adaptor.getInputs().front(), negOp.getResults().front()},
           adaptor.getOutputs(), srcOp->getAttrs());
     }
 
