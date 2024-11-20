@@ -799,7 +799,7 @@ private:
 
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     auto srcType =
-        getTypeConverter()->convertType(srcOp.getOperand().getType());
+        getTypeConverter()->convertType(adaptor.getOperand().getType());
     auto inputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
     auto outputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
 
@@ -945,8 +945,8 @@ private:
                                          "ConcatOp dimension is too large.");
     }
 
-    auto rankedTensorType =
-        mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getOperand(0).getType());
+    auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(
+        adaptor.getOperands()[0].getType());
     if (static_cast<int64_t>(adaptor.getDimension()) >=
         rankedTensorType.getRank()) {
       return rewriter.notifyMatchFailure(srcOp,
@@ -1134,8 +1134,8 @@ public:
     auto dimensionNumbers = srcOp.getDimensionNumbers();
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::GatherOp>(
-        srcOp, outputType, srcOp.getOperands()[0],
-        srcOp.getOperands()[1], // Start indices
+        srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getOperands()[1], // Start indices
         Value(outputTensor), dimensionNumbers.getOffsetDims(),
         dimensionNumbers.getCollapsedSliceDims(),
         dimensionNumbers.getOperandBatchingDims(),
