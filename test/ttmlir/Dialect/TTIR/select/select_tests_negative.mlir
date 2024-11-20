@@ -2,6 +2,19 @@
 
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
+  func.func @select_negative_invalid_dim(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
+    %0 = tensor.empty() : tensor<4x4xf32>
+    // CHECK: {{.*error.*Invalid dimension}}
+    %1 = "ttir.select"(%arg0, %0) <{dim = -3: si32, begin = 0: si32, length = 4: si32, stride = 4: si32, operand_constraints = [#any_device_tile, #any_device_tile]}>  :
+        (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+    return %1 : tensor<4x4xf32>
+  }
+}
+
+// -----
+
+#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
+module attributes {} {
   func.func @select_negative_invalid_stride(%arg0: tensor<4x4xf32>) -> tensor<4x4xf32> {
     %0 = tensor.empty() : tensor<4x4xf32>
     // CHECK: {{.*error.*Invalid stride.*}}

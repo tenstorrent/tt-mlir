@@ -783,6 +783,36 @@ public:
   }
 };
 
+// SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
+// the sliced dimension is sliced multiple times. For example, if the input
+// tensor is
+//    [[[1, 2, 3],
+//      [4, 5, 6],
+//      [7, 8, 9],
+//      [10, 11, 12],
+//      [13, 14, 15],
+//      [16, 17, 18]],
+//     [[19, 20, 21],
+//      [22, 23, 24],
+//      [25, 26, 27],
+//      [28, 29, 30],
+//      [31, 32, 33],
+//      [34, 35, 36]]],
+//    shape = [2, 6, 3]
+// and the SelectOp is dim=1, begin=0, length=2, stride=4, the output tensor
+// will be
+//    [[[1, 2, 3],
+//      [4, 5, 6],
+//      [13, 14, 15],
+//      [16, 17, 18]],
+//     [[19, 20, 21],
+//      [22, 23, 24],
+//      [31, 32, 33],
+//      [34, 35, 36]]],
+//    shape = [2, 4, 3]
+// In this case 2 slices are created and concatenated to form the output tensor.
+// First slice has begins=[0, 0, 0], ends=[2, 2, 3], steps=[1, 1, 1], and the
+// second slice has begins=[0, 4, 0], ends=[2, 6, 3], steps=[1, 1, 1].
 struct SelectToSliceConversionPattern
     : public OpConversionPattern<ttir::SelectOp> {
 public:
@@ -805,22 +835,22 @@ public:
     int32_t stride = op.getStride();
 
     int32_t inputDimSize = inputType.getShape()[dim];
-    int32_t numSlices = (inputDimSize - begin) / stride;
+    int32_t numSlices = (inputDimSize - begin + stride - 1) / stride;
 
     llvm::SmallVector<int32_t, 4> begins, ends, steps;
     for (int32_t i = 0; i < inputType.getRank(); ++i) {
+      // Always slicing with step 1.
+      steps.push_back(1);
       if (i == dim) {
         // Push placeholder values for now which will be updated later.
         begins.push_back(0);
         ends.push_back(0);
-        steps.push_back(0);
         continue;
       }
 
       // For non-sliced dimensions, begin=0, end=dimSize, step=1.
       begins.push_back(0);
       ends.push_back(inputType.getDimSize(i));
-      steps.push_back(1);
     }
 
     // Create a slice for each slice of the input tensor. The slices are then
@@ -842,7 +872,6 @@ public:
 
       begins[dim] = newBegin;
       ends[dim] = newEnd;
-      steps[dim] = 1;
 
       auto newOp = rewriter.create<ttir::SliceOp>(
           op.getLoc(), resultType, adaptor.getInput(), sliceDpsResult,

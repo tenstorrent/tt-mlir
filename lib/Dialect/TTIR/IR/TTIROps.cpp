@@ -615,12 +615,13 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   int32_t dim = getDim();
+  int32_t origDim = dim;
   if (dim < 0) {
     dim += inputType.getRank();
   }
 
   if (dim < 0 || dim >= inputType.getRank()) {
-    return emitOpError() << "Invalid dimension " << dim
+    return emitOpError() << "Invalid dimension " << origDim
                          << " for select op with input tensor rank "
                          << inputType.getRank();
   }
@@ -653,19 +654,19 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
                             "in the range [0, dimSize)";
   }
 
+  if (length < 1 || length > stride) {
+    return emitOpError() << "Invalid length " << length << " for begin index "
+                         << begin << " and stride " << stride
+                         << " for dimension " << dim << " with size " << dimSize
+                         << ". stride must be greater than or equal to length";
+  }
+
   if (begin + length > dimSize) {
     return emitOpError() << "Invalid length " << length << " for begin index "
                          << begin << " and dimension " << dim << " with size "
                          << dimSize
                          << ". begin + length must be less than or "
                             "equal to the dimension size";
-  }
-
-  if (length < 1 || length > stride) {
-    return emitOpError() << "Invalid length " << length << " for begin index "
-                         << begin << " and stride " << stride
-                         << " for dimension " << dim << " with size " << dimSize
-                         << ". stride must be greater than or equal to length";
   }
 
   // Get the number of slices as the number of times the stride fits in the

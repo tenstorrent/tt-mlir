@@ -940,7 +940,7 @@ def TTIR_SelectOp: TTIR_DPSOp<"select"> {
                          SI32Attr:$dim,
                          SI32Attr:$begin,
                          SI32Attr:$length,
-                         SI32Attr:$stride,
+                         DefaultValuedOptionalAttr<SI32Attr, "0">:$stride,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
