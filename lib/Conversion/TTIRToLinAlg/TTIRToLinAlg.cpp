@@ -127,8 +127,7 @@ public:
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<linalg::SubOp>(
-          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
-          adaptor.getOutputs().front());
+          srcOp, adaptor.getInputs(), adaptor.getOutputs(), adaptor.getAttrs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
