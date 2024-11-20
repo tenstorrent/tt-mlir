@@ -4,7 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToLinAlg/TTIRToLinAlg.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
