@@ -136,7 +136,7 @@ public:
 
     } else {
       auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType));
+          srcOp.getLoc(), rhsType.getShape(), rhsType.getElementType());
       auto negOp = rewriter.create<linalg::NegFOp>(
           srcOp.getLoc(), adaptor.getInputs().back(), negEmptyOp);
 
