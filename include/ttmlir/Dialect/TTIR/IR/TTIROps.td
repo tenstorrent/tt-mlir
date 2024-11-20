@@ -932,7 +932,7 @@ def TTIR_SelectOp: TTIR_DPSOp<"select"> {
       `begin`, `length`, and `stride` attributes.
       The `begin` specifies the start index for the selected dimension of the tensor.
       The `length` specifies the number of elements to extract from the input tensor along the selected dimension.
-      The `stride` specifies the step size for the start index.
+      The `stride` specifies the step size for the start index. The default value is 0. 0 means no stride.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
