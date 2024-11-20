@@ -125,7 +125,10 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
   ::tt::tt_metal::BufferType ttnnBufferType =
       ::tt::runtime::ttnn::utils::toTTNNBufferType(targetMemorySpace);
 
-  return {ttnnMemLayout, ttnnBufferType, shardSpec};
+  return {ttnnMemLayout, ttnnBufferType,
+          ttnnMemLayout == tt_metal::TensorMemoryLayout::INTERLEAVED
+              ? std::nullopt
+              : std::make_optional(shardSpec)};
 }
 
 // Prefer to use this method over the one above
@@ -169,8 +172,11 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
       ttnnCoreRangeSet, ttnnShardShape,
       ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
 
-  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
-                                       shardSpec};
+  ::ttnn::MemoryConfig memoryConfig = {
+      tensorMemoryLayout, bufferType,
+      tensorMemoryLayout == tt_metal::TensorMemoryLayout::INTERLEAVED
+          ? std::nullopt
+          : std::make_optional(shardSpec)};
   return memoryConfig;
 }
 
