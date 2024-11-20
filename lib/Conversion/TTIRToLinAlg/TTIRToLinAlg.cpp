@@ -105,7 +105,9 @@ public:
       return failure();
     }
 
-    llvm::outs() << "Converting operation: " << op.getOperationName() << "\n";
+    llvm::outs() << "Converting operation: " << op.getOperationName()
+                 << " to: " << llvm::TypeID::get<LinAlgOpTy>().getName()
+                 << "\n";
 
     rewriter.replaceOpWithNewOp<LinAlgOpTy>(
         op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
