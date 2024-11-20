@@ -10,7 +10,7 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+// #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 
 namespace mlir::tt {
 
