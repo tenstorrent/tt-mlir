@@ -138,8 +138,8 @@ public:
       auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), rhsType.getShape(), rhsType.getElementType());
       auto negOp = rewriter.create<linalg::NegFOp>(
-          srcOp.getLoc(), {adaptor.getInputs().back()}, {negEmptyOp},
-          srcOp->getAttrs());
+          srcOp.getLoc(), ValueRange{adaptor.getInputs().back()},
+          ValueRange{negEmptyOp}, srcOp->getAttrs());
 
       rewriter.replaceOpWithNewOp<linalg::AddOp>(
           srcOp, {adaptor.getInputs().front(), negOp.getResults().front()},
