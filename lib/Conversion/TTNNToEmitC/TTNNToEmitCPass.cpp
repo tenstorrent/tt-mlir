@@ -4,6 +4,11 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -11,11 +16,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -48,14 +48,20 @@ struct ConvertTTNNToEmitCPass
   void runOnOperation() override {
     mlir::ConversionTarget target(getContext());
 
+    // EmitC is legal, TTNN is illegal
+    //
     target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<ttnn::TTNNDialect>();
-    target.addLegalOp<mlir::ModuleOp>();
+
+    // mlir::ModuleOp is legal only if no attributes are present on it
+    //
+    target.addDynamicallyLegalOp<mlir::ModuleOp>(
+        [&](mlir::ModuleOp op) { return op->getAttrs().empty(); });
 
     // Add header imports to front of module
     //
     {
-      auto module = getOperation();
+      mlir::ModuleOp module = getOperation();
       OpBuilder builder(module);
 
       if (module.getBodyRegion().empty()) {
@@ -107,7 +113,7 @@ struct ConvertTTNNToEmitCPass
         return;
       }
     }
-  };
+  }
 };
 
 } // namespace
