@@ -39,7 +39,6 @@ public:
 
     auto newOp = rewriter.replaceOpWithNewOp<LinAlgOpTy>(
         op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
-    newOp.dump();
     return success();
   }
 };
