@@ -978,7 +978,7 @@ def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
       Unsqueeze tensor.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
+    let arguments = (ins AnyRankedTensor:$input,a
                          AnyRankedTensor:$output,
                          SI32Attr:$dim,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
