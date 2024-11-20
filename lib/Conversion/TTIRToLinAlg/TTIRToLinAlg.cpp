@@ -136,11 +136,9 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      Value device = getOrInsertDevice(rewriter, srcOp);
-      tensor::EmptyOp negEmptyOp = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
-          device);
-      linalg::NegOp negOp = rewriter.create<linalg::NegOp>(
+      auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType));
+      auto negOp = rewriter.create<linalg::NegFOp>(
           srcOp.getLoc(), adaptor.getInputs().back(), negEmptyOp);
 
       rewriter.replaceOpWithNewOp<linalg::AddOp>(
