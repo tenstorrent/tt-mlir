@@ -51,8 +51,8 @@ struct ConvertTTIRToLinAlgPass
 
     // Apply full conversion
     //
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+    if (failed(applyPartialConversion(getOperation(), target,
+                                      std::move(patterns)))) {
       llvm::outs() << "failed to apply full TTIR to LinAlg conversion!\n";
 
       llvm::outs() << "Conversion failed. Remaining IR:\n";
