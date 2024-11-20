@@ -224,7 +224,6 @@ public:
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
-
     return success();
   }
 
