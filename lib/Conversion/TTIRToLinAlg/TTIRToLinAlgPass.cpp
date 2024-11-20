@@ -36,6 +36,8 @@ struct ConvertTTIRToLinAlgPass
     target.addLegalDialect<linalg::LinalgDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
+    target.dump();
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
@@ -51,8 +53,8 @@ struct ConvertTTIRToLinAlgPass
 
     // Apply full conversion
     //
-    if (failed(applyPartialConversion(getOperation(), target,
-                                      std::move(patterns)))) {
+    if (failed(
+            applyFullConversion(getOperation(), target, std::move(patterns)))) {
       llvm::outs() << "failed to apply full TTIR to LinAlg conversion!\n";
 
       llvm::outs() << "Conversion failed. Remaining IR:\n";
