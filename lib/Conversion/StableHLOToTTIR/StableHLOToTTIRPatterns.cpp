@@ -279,30 +279,81 @@ private:
     ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
         adaptor.getDotDimensionNumbers();
 
-    if (dimensions.getLhsContractingDimensions().empty() ||
-        dimensions.getRhsContractingDimensions().empty()) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Contracting dimension is missing.");
+    if (dimensions.getLhsContractingDimensions().size() != 1 ||
+        dimensions.getRhsContractingDimensions().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "LHS and RHS must have exactly 1 contracting dimension each. "
+          "Received LHS contracting dims: " +
+              std::to_string(dimensions.getLhsContractingDimensions().size()) +
+              ", RHS contracting dims: " +
+              std::to_string(dimensions.getRhsContractingDimensions().size()));
     }
 
-    if (dimensions.getLhsContractingDimensions()[0] != 1) {
+    // Use negative indexing to determine if this is a valid matmul since math
+    // is done over the final two dimensions.
+    int64_t lhsContractingDim = dimensions.getLhsContractingDimensions()[0] -
+                                srcOp.getLhs().getType().getRank();
+    int64_t rhsContractingDim = dimensions.getRhsContractingDimensions()[0] -
+                                srcOp.getRhs().getType().getRank();
+
+    if (lhsContractingDim != -1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "Only support contracting dimensions that correspond to valid "
+                 "matmuls. LHS contracting dimension must be " +
+                     std::to_string(srcOp.getLhs().getType().getRank() - 1) +
+                     ". Got " + std::to_string(lhsContractingDim));
     }
 
-    if (dimensions.getRhsContractingDimensions()[0] != 0) {
+    if (rhsContractingDim != -2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "Only support contracting dimensions that correspond to valid "
+                 "matmuls. RHS contracting dimension must be " +
+                     std::to_string(srcOp.getRhs().getType().getRank() - 2) +
+                     ". Got " + std::to_string(rhsContractingDim));
     }
 
-    if (!dimensions.getLhsBatchingDimensions().empty()) {
+    if (dimensions.getLhsBatchingDimensions() !=
+        dimensions.getRhsBatchingDimensions()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "LHS and RHS must have same batching dimensions.");
     }
 
-    if (!dimensions.getRhsBatchingDimensions().empty()) {
+    // For the RHS, all dimensions which are not the row and column dimensions
+    // must be 1 OR they must be equal to the corresponding dimension in the
+    // LHS. If the RHS has less dimensions than the LHS we will assume that the
+    // missing dimensions are 1.
+
+    auto lhsShape = srcOp.getLhs().getType().getShape().vec();
+    auto rhsShape = srcOp.getRhs().getType().getShape().vec();
+
+    if (rhsShape.size() > lhsShape.size()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "RHS must not be a higher rank than LHS.");
+    }
+
+    while (rhsShape.size() < lhsShape.size()) {
+      rhsShape.insert(rhsShape.begin(), 1);
+    }
+
+    // Need only to check dims to the left of dim -2 on the RHS
+    bool allOnes = true;
+    bool mismatchedDims = false;
+    for (int32_t i = rhsShape.size() - 3; i >= 0; i--) {
+      if (rhsShape[i] != 1) {
+        allOnes = false;
+      }
+
+      if (rhsShape[i] != lhsShape[i]) {
+        mismatchedDims = true;
+      }
+    }
+
+    if (mismatchedDims && !allOnes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "All dimensions in the RHS that are not the row and column "
+                 "dimensions must be 1 OR they must all be equal to the "
+                 "corresponding dimensions in the LHS.");
     }
 
     return success();
