@@ -481,6 +481,8 @@ public:
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/eltwise_binary.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api.h", // max ops
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/tile_move_copy.h",
                                         /*isStandard=*/false);
