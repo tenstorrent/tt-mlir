@@ -8,6 +8,10 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
+#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+
 namespace mlir::tt {
 
 void populateTTIRToLinAlgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
