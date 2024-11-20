@@ -107,8 +107,21 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
+void createTTNNPipelineTTIRBroadcastFoldPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRBroadcastFold());
+}
+
+void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
+                                                       std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineDeallocPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineTTIRPasses(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);

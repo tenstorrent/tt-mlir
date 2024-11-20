@@ -812,46 +812,6 @@ public:
   }
 };
 
-class BroadcastOpConversionPattern
-    : public OpConversionPattern<ttir::BroadcastOp> {
-  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(ttir::BroadcastOp srcOp, ttir::BroadcastOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    // Fold this operation into all consumer ops. It will only work with TTNN
-    // ops that support implicit broadcasting. We expect each Op's verify
-    // function to assert their arguments to verify that they can broadcast.
-
-    if (srcOp->getUsers().empty()) {
-      // This broadcast chain has already been replaced.
-      rewriter.eraseOp(srcOp);
-      return success();
-    }
-
-    mlir::Value input = srcOp.getOperand(0);
-
-    mlir::Operation *nextOp = srcOp;
-    while (isa<ttir::BroadcastOp>(*nextOp->getUsers().begin())) {
-      assert(nextOp->hasOneUse() &&
-             "Broadcast with multiple uses are not supported");
-      nextOp = *nextOp->getUsers().begin();
-      if (nextOp->getUsers().empty()) {
-        // This broadcast chain has already been replaced.
-        rewriter.eraseOp(srcOp);
-        return success();
-      }
-    }
-
-    rewriter.replaceAllOpUsesWith(nextOp, input);
-    rewriter.eraseOp(srcOp);
-
-    return success();
-  }
-};
-
 class SubtractOpConversionPattern
     : public OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
@@ -1019,7 +979,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
-           BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,

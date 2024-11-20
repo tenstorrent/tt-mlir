@@ -112,4 +112,11 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
+def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
+  let summary = "Broadcast operation is folded to all the consumers.";
+  let description = [{
+    As TTNN does not support fold operation, this pass folds the broadcast operations to all consumers.
+  }];
+}
+
 #endif
