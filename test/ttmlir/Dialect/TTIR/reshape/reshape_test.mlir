@@ -8,4 +8,3 @@ module @jit_ravel attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas =
     return %1 : tensor<1xi32>
   }
 }
-
