@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -27,27 +28,6 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-
-// Gets or inserts a GetDeviceOp at the top of the current block of the given
-// operation.
-static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
-                               Operation *op) {
-  Block *block = op->getBlock();
-  for (auto &op : block->getOperations()) {
-    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
-      return deviceOp.getResult();
-    }
-  }
-
-  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
-  auto currentInsertionPoint = rewriter.saveInsertionPoint();
-  rewriter.setInsertionPoint(block, block->begin());
-  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
-      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr),
-      ttnn::MeshShapeAttr::get(op->getContext(), 1, 1));
-  rewriter.restoreInsertionPoint(currentInsertionPoint);
-  return deviceOp.getResult();
-}
 
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
@@ -95,7 +75,7 @@ public:
 
     // Create MemoryConfigAttr
     //
-    auto device = getOrInsertDevice(rewriter, op);
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     llvm::SmallVector<int64_t> shardShape = layoutAttr.getShardShape();
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
@@ -193,7 +173,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
         outputLayout, outputDataType, outputMemConfigAttr,
-        isOutputOnHost ? nullptr : getOrInsertDevice(rewriter, op));
+        isOutputOnHost ? nullptr
+                       : ::ttnn::utils::getOrInsertDevice(rewriter, op));
 
     return success();
   }
@@ -520,7 +501,7 @@ public:
     }
 
     if (valueAttr.isSplat()) {
-      Value device = getOrInsertDevice(rewriter, op);
+      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
       float fillValue =
           valueAttr.getElementType().isInteger()
               ? getIntegerValue(valueAttr)
@@ -634,7 +615,7 @@ public:
   matchAndRewrite(ttir::Conv2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto device = getOrInsertDevice(rewriter, op);
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     auto kernel_ty =
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
@@ -732,7 +713,7 @@ public:
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
 
-    auto device = getOrInsertDevice(rewriter, op);
+    auto device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
     auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
 
@@ -836,7 +817,7 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      Value device = getOrInsertDevice(rewriter, srcOp);
+      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
       tensor::EmptyOp negEmptyOp = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
           device);
@@ -862,7 +843,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType type =
         mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    Value device = getOrInsertDevice(rewriter, op);
+    Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     tensor::EmptyOp emptyOp = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), this->getTypeConverter()->convertType(type), device);
 
@@ -895,7 +876,7 @@ public:
 
     DataTypeAttr dtypeAttr = rewriter.getAttr<DataTypeAttr>(
         elementTypeToDataType(outputType.getElementType()));
-    Value device = getOrInsertDevice(rewriter, op);
+    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(

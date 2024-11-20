@@ -112,6 +112,12 @@ struct TTIRToTTNNBackendPipelineOptions
 
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  // Option to enable/disable the workaround pass.
+  //
+  Option<bool> workaroundPassEnabled{*this, "enable-workaround-pass",
+                                     llvm::cl::desc("Enable workaround pass."),
+                                     llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.
