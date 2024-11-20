@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToLinAlg/TTIRToLinAlg.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
@@ -12,6 +13,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 
 using namespace mlir;
@@ -33,6 +35,7 @@ struct ConvertTTIRToLinAlgPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<tensor::TensorDialect>();
+    target.addLegalDialect<linalg::LinalgDialect>();
     target.addLegalDialect<linalg::LinalgDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
