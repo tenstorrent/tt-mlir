@@ -45,11 +45,20 @@ struct ConvertTTIRToLinAlgPass
     populateTTIRToLinAlgPatterns(&getContext(), patterns, typeConverter);
     llvm::outs() << "post populateTTIRToLinAlgPatterns!\n";
 
+    llvm::outs() << "IR before conversion:\n";
+    getOperation()->print(llvm::outs());
+    llvm::outs() << "\n";
+
     // Apply full conversion
     //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       llvm::outs() << "failed to apply full TTIR to LinAlg conversion!\n";
+
+      llvm::outs() << "Conversion failed. Remaining IR:\n";
+      getOperation()->print(llvm::outs());
+      llvm::outs() << "\n";
+
       signalPassFailure();
       return;
     }
