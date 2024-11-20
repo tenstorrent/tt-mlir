@@ -11,5 +11,5 @@ add_mlir_library(TTMLIRTTIRToLinAlg
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
-  MLIRLinalg
+  MLIRLinalgDialect
 )
