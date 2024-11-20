@@ -72,6 +72,11 @@ void createTTNNPipelineDeallocPass(
   pm.addPass(createTTNNDeallocate());
 }
 
+void createTTIRReshapeFoldPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRReshapeFold());
+}
+
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
                                             std::string options) {
   auto optionsStruct =
@@ -107,8 +112,16 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
+void createTTIRReshapeFoldPassFromString(OpPassManager &pm,
+                                         std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineDeallocPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTIRReshapeFoldPass(pm, options);
   createTTNNPipelineTTIRPasses(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);
