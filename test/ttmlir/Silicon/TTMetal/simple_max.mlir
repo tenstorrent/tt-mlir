@@ -4,7 +4,7 @@
 
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 
-func.func @vladMAX(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+func.func @maximum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
   %0 = tensor.empty() : tensor<64x128xf32>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
