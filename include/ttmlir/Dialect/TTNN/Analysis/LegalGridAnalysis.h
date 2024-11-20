@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
+// TODO RENAME FILE.
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALLAYOUTANALYSIS_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALLAYOUTANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
@@ -12,46 +13,49 @@
 
 namespace mlir::tt::ttnn {
 
-struct LegalGridAnalysisInput {
+struct LegalLayoutAnalysisInput {
   ChipDescAttr chipDesc;
   GridAttr maxGrid;
   RankedTensorType tensorType;
   int64_t maxShardedGrids;
   llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides;
+  bool rowMajorEnabled;
 
-  LegalGridAnalysisInput()
+  LegalLayoutAnalysisInput()
       : chipDesc(nullptr), maxGrid(nullptr), tensorType(nullptr),
-        outputLayoutOverrides(nullptr) {}
+        outputLayoutOverrides(nullptr), rowMajorEnabled(false) {}
 
-  LegalGridAnalysisInput(
+  LegalLayoutAnalysisInput(
       ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
       int64_t maxShardedGrids,
-      llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides)
+      llvm::StringMap<OutputLayoutOverrideParams> *outputLayoutOverrides,
+      bool rowMajorEnabled)
       : chipDesc(chipDesc), maxGrid(maxGrid), tensorType(tensorType),
         maxShardedGrids(maxShardedGrids),
-        outputLayoutOverrides(outputLayoutOverrides) {}
+        outputLayoutOverrides(outputLayoutOverrides),
+        rowMajorEnabled(rowMajorEnabled) {}
 
-  bool operator==(const LegalGridAnalysisInput &rhs) const {
+  bool operator==(const LegalLayoutAnalysisInput &rhs) const {
     return chipDesc == rhs.chipDesc && maxGrid == rhs.maxGrid &&
            tensorType == rhs.tensorType &&
            outputLayoutOverrides == rhs.outputLayoutOverrides;
   }
 
-  bool operator!=(const LegalGridAnalysisInput &rhs) const {
+  bool operator!=(const LegalLayoutAnalysisInput &rhs) const {
     return !(*this == rhs);
   }
 };
 
-class LegalGridAnalysis
-    : public TTNNAnalysis<LegalGridAnalysisInput, std::vector<tt::LayoutAttr>> {
+class LegalLayoutAnalysis : public TTNNAnalysis<LegalLayoutAnalysisInput,
+                                                std::vector<tt::LayoutAttr>> {
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;
 
 public:
-  LegalGridAnalysis(Operation *op) : TTNNAnalysis(op) {}
+  LegalLayoutAnalysis(Operation *op) : TTNNAnalysis(op) {}
 };
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALLAYOUTANALYSIS_H

@@ -110,6 +110,12 @@ struct TTIRToTTNNBackendPipelineOptions
 
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  Option<bool> rowMajorEnabled{
+      *this, "row-major-enabled",
+      llvm::cl::desc(
+          "Enable row major layout generation in legal layout analysis."),
+      llvm::cl::init(false)};
 };
 
 void createTTNNPipelineTTIRPasses(

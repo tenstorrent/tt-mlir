@@ -23,6 +23,7 @@ struct TTNNOptimizerOptions {
       MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
+  bool rowMajorEnabled = false;
 };
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer(TTNNOptimizerOptions options);
@@ -99,6 +100,7 @@ public:
     memReconfigEnabled = std::move(options.memReconfigEnabled);
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
+    rowMajorEnabled = std::move(options.rowMajorEnabled);
   }
 
 protected:
@@ -134,6 +136,11 @@ protected:
       ::llvm::cl::desc(
           "Override maximum number of legal layouts for grid analysis."),
       ::llvm::cl::init(64)};
+  ::mlir::Pass::Option<bool> rowMajorEnabled{
+      *this, "row-major-enabled",
+      ::llvm::cl::desc(
+          "Enable row major layout generation in legal layout analysis."),
+      ::llvm::cl::init(false)};
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {

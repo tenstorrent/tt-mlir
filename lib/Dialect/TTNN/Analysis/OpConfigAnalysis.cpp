@@ -19,9 +19,7 @@ void OpConfigAnalysis::analysisImplementation() {
   // Placeholder: pick the first legal grid.
   //
   for (auto opGrids : analysisInput.legalGrids) {
-    if (not opGrids.second.empty()) {
-      analysisResult[opGrids.first] = opGrids.second[0];
-    }
+    analysisResult[opGrids.first] = opGrids.second[0];
   }
 }
 } // namespace mlir::tt::ttnn

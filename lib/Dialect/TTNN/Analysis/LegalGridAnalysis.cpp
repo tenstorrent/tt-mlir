@@ -20,38 +20,35 @@ bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
 }
 
 bool tensor_shape_compatible_with_shard(Operation *op, tt::LayoutAttr layout) {
-
-  if (not layout.isTiled()) {
-    // TODO: What do we do with ROW_MAJOR :)?
-    return false;
-  }
-
   // These constraints are implemented seperatelly in every TTNN op.
   // Almost nothing seems to be shared between EVERY op, so is hard to have any
   // logic here without the risk of discarding a valid configuraiton or modeling
-  // the constraint for each op. This logic may be offloaded to the TTNN op
-  // interface.
+  // the constraint for each op.
 
-  // For now we will check if the tilised tensor dims are divisible by the grid
-  // dims. This will definitly discard possible valid configurations, but is a
-  // start.
+  // For now just check if we have enough tiles to shard the tensor to the
+  // desired grid.
 
-  // TODO rewrite
-  RankedTensorType tensorType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-
-  int64_t MTiles = 1;
-  if (tensorType.getRank() >= 2) {
-    MTiles = (tensorShape.rbegin()[1] + 31) / 32;
+  if (not layout.hasShardedTensorMemoryLayout()) {
+    return true;
   }
 
-  int64_t KTIles = (tensorShape.back() + 31) / 32;
+  if (layout.isTiled()) {
+    RankedTensorType tensorType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+    // NEED to test this for tensor dim > 2.
+    auto physicalShape = layout.getPhysicalShape(tensorShape);
+    auto tilesM = (physicalShape[0] + 31) / 32;
+    auto tilesN = (physicalShape[1] + 31) / 32;
+    return tilesM >= layout.getGrid().getShape()[0] &&
+           tilesN >= layout.getGrid().getShape()[1];
 
-  int64_t gridR = layout.getGrid().getShape()[0];
-  int64_t gridC = layout.getGrid().getShape()[1];
-
-  return (MTiles % gridR == 0) && (KTIles % gridC == 0);
+  } else {
+    // TODO(odjuricic): For row major there are no constraints on how the tensor
+    // can be sharded. We need some kind of a heuristic to reduce the search
+    // space.
+    return true;
+  }
 }
 
 bool cantChangeOutputLayout(Operation *op) {
@@ -72,7 +69,7 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
-bool LegalGridAnalysis::applyOverrides() {
+bool LegalLayoutAnalysis::applyOverrides() {
   // Lookup layout overrides based on location information for current
   // operation.
   //
@@ -132,7 +129,7 @@ bool LegalGridAnalysis::applyOverrides() {
   return true;
 }
 
-void LegalGridAnalysis::analysisImplementation() {
+void LegalLayoutAnalysis::analysisImplementation() {
   // A first incomplete implementation of the LegalGridAnalysis.
   // This implementation is a placeholder and is meant to just enable testing of
   // other components.
@@ -163,81 +160,6 @@ void LegalGridAnalysis::analysisImplementation() {
     }
   }
 
-  // std::tuple<MemorySpace, TensorMemoryLayout, GridAttr> searchSpace;
-
-  // // // Define the search space for every layout parameter.
-  // std::vector<GridAttr> grids;
-  // if (override.has_value() and override->grid.has_value()) {
-  //   grids = {GridAttr::get(op->getContext(), override->grid.value())};
-  // } else {
-  //   assert(analysisInput.maxGrid.getShape().size() == 2 &&
-  //          "Max device grid is expected to be 2D.");
-  //   for (auto width = 1; width <= analysisInput.maxGrid.getShape()[0];
-  //        ++width) {
-  //     for (auto height = 1; height <= analysisInput.maxGrid.getShape()[1];
-  //          ++height) {
-  //       // Block sharded grids.
-  //       grids.push_back(GridAttr::get(op->getContext(), {width, height}));
-  //     }
-  //   }
-  //   for (uint64_t dim = 1; dim <= analysisInput.maxGrid.getGridVolume();
-  //        ++dim) {
-  //     // Width sharded grids.
-  //     grids.push_back(
-  //         GridAttr::get(op->getContext(), {1, static_cast<int64_t>(dim)}));
-  //     // Height sharded grids.
-  //     grids.push_back(
-  //         GridAttr::get(op->getContext(), {static_cast<int64_t>(dim), 1}));
-  //   }
-  // }
-
-  // std::vector<MemorySpace> memorySpaces;
-  // if (override.has_value() and override->memorySpace.has_value()) {
-  //   memorySpaces = {override->memorySpace.value()};
-  // } else {
-  //   memorySpaces = {MemorySpace::DeviceDRAM, MemorySpace::DeviceL1};
-  // }
-
-  // std::vector<tt::TensorMemoryLayout> tensorMemoryLayouts;
-  // if (override.has_value() and override->tensorMemoryLayout.has_value()) {
-  //   tensorMemoryLayouts = {override->tensorMemoryLayout.value()};
-  // } else {
-  //   // tt::TensorMemoryLayout::SingleBank not supported for now.
-  //   tensorMemoryLayouts = {tt::TensorMemoryLayout::Interleaved,
-  //                          tt::TensorMemoryLayout::BlockSharded,
-  //                          tt::TensorMemoryLayout::HeightSharded,
-  //                          tt::TensorMemoryLayout::WidthSharded};
-  // }
-
-  // std::vector<Layout> memoryLayouts;
-  // if (override.has_value() and override->memoryLayout.has_value()) {
-  //   memoryLayouts = {override->memoryLayout.value()};
-  // } else {
-  //   memoryLayouts = {Layout::RowMajor, Layout::Tile};
-  // }
-
-  // std::vector<Type> scalarElementType;
-  // if (override.has_value() and override->dataType.has_value()) {
-  //   scalarElementType = {utils::createRowMajorTypeFromDtype(
-  //       op->getContext(), override->dataType.value())};
-
-  // } else {
-  //   // No search space for data type for now. Just use default.
-  //   scalarElementType = {layout.getScalarElementType()};
-  // }
-
-  // for (Type elementType : scalarElementType) {
-  //   for (Layout memoryLayout : memoryLayouts) {
-  //     for (MemorySpace memorySpace : memorySpaces) {
-  //       for (tt::TensorMemoryLayout tensorMemoryLayout : tensorMemoryLayouts)
-  //       {
-  //         for (GridAttr grid : grids) {
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
-
   Type scalarElementType;
   if (override.has_value() and override->dataType.has_value()) {
     scalarElementType = {utils::createRowMajorTypeFromDtype(
@@ -253,8 +175,10 @@ void LegalGridAnalysis::analysisImplementation() {
   std::vector<tt::LayoutAttr> shardedResults;
 
   // Generate both TILE and ROW_MAJOR layouts for all possibilities.
-  // for (Type elementType : {scalarElementType, tileElementType}) {
-  for (Type elementType : {tileElementType}) {
+  for (Type elementType : {scalarElementType, tileElementType}) {
+    if (not analysisInput.rowMajorEnabled && elementType == scalarElementType) {
+      continue;
+    }
     // DRAM
     analysisResult.push_back(
         tt::LayoutAttr::get(op->getContext(), tensorType,
@@ -334,6 +258,7 @@ void LegalGridAnalysis::analysisImplementation() {
                    static_cast<int64_t>(shardedResults.size())));
 
   // Apply overrides.
+  // TODO check if row major is enabled.
   if (override.has_value()) {
     analysisResult.erase(
         std::remove_if(analysisResult.begin(), analysisResult.end(),

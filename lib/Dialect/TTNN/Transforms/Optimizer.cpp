@@ -52,12 +52,12 @@ public:
 
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
-      LegalGridAnalysis legalGridAnalysis =
-          getChildAnalysis<LegalGridAnalysis>(op);
-      legalGridAnalysis.init(LegalGridAnalysisInput(chipDesc, max_grid,
-                                                    tensorType, maxLegalLayouts,
-                                                    &overrideOutputLayout));
-      legalLayouts[op] = legalGridAnalysis.getResult();
+      LegalLayoutAnalysis legalLayoutAnalysis =
+          getChildAnalysis<LegalLayoutAnalysis>(op);
+      legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
+          chipDesc, max_grid, tensorType, maxLegalLayouts,
+          &overrideOutputLayout, rowMajorEnabled));
+      legalLayouts[op] = legalLayoutAnalysis.getResult();
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
