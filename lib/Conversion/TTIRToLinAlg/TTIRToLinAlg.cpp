@@ -7,11 +7,6 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -110,8 +105,12 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<LinAlgOpTy>(
+    llvm::outs() << "Converting operation: " << op.getOperationName()
+                 << " to: " << LinAlgOpTy::getOperationName() << "\n";
+
+    auto newOp = rewriter.replaceOpWithNewOp<LinAlgOpTy>(
         op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
+    newOp.dump();
     return success();
   }
 };
@@ -131,8 +130,7 @@ public:
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<linalg::SubOp>(
-          srcOp, adaptor.getInputs().front(), adaptor.getInputs().back(),
-          adaptor.getOutputs().front());
+          srcOp, adaptor.getInputs(), adaptor.getOutputs(), srcOp->getAttrs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -140,16 +138,16 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      Value device = getOrInsertDevice(rewriter, srcOp);
-      tensor::EmptyOp negEmptyOp = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
-          device);
-      linalg::NegOp negOp = rewriter.create<linalg::NegOp>(
-          srcOp.getLoc(), adaptor.getInputs().back(), negEmptyOp);
+      auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), rhsType.getShape(), rhsType.getElementType());
+      auto negOp = rewriter.create<linalg::NegFOp>(
+          srcOp.getLoc(), ValueRange{adaptor.getInputs().back()},
+          ValueRange{negEmptyOp}, srcOp->getAttrs());
 
       rewriter.replaceOpWithNewOp<linalg::AddOp>(
-          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
-          adaptor.getOutputs().front());
+          srcOp,
+          ValueRange{adaptor.getInputs().front(), negOp.getResults().front()},
+          adaptor.getOutputs(), srcOp->getAttrs());
     }
 
     return success();

@@ -11,10 +11,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 
-// #include "lld/Common/Driver.h"
-// #include "lld/Common/ErrorHandler.h"
-// #include "lld/Common/Memory.h"
-
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
@@ -23,6 +19,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
@@ -32,6 +29,27 @@
 
 // a lot of this code is adapted from IREE's LLVMCPU target code
 namespace mlir::tt::llvm_to_cpu {
+
+llvm::SmallString<128> createTempDir() {
+  llvm::SmallString<128> tempDir;
+  if (llvm::sys::fs::createUniqueDirectory("ttmlir_tmp", tempDir)) {
+    llvm::errs() << "Error: Could not create temporary directory.\n";
+    exit(1);
+  }
+  return tempDir;
+}
+
+llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
+                                      llvm::StringRef prefix,
+                                      llvm::StringRef extension) {
+  llvm::SmallString<128> tempFile;
+  llvm::sys::path::append(tempFile, tempDir, prefix + "-%%%%%%" + extension);
+  if (llvm::sys::fs::createUniqueFile(tempFile, tempFile)) {
+    llvm::errs() << "Error: Could not create temporary file.\n";
+    exit(1);
+  }
+  return tempFile;
+}
 
 // Function to convert MLIR ModuleOp to LLVM Module
 std::unique_ptr<llvm::Module>
@@ -55,7 +73,7 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
 }
 
 std::unique_ptr<llvm::TargetMachine>
-createTargetMachine(const std::string &targetTriple) {
+createTargetMachine(llvm::StringRef targetTriple) {
   std::string errorMessage;
   auto llvmTarget =
       llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
@@ -75,7 +93,7 @@ createTargetMachine(const std::string &targetTriple) {
 
 llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::LLVMContext &context,
-                                    const std::string &outputFilename) {
+                                    llvm::StringRef outputFilename) {
   // Initialize LLVM targets
   LLVMInitializeX86Target();
   LLVMInitializeX86TargetMC();
@@ -96,15 +114,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     module.setTargetTriple(defaultTriple);
   }
 
-  // auto relocModel = llvm::Optional<llvm::Reloc::Model>();
-
   // Look up the target
-  llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
-               << "\n";
-  llvm::SmallVector<std::string, 0> attrs; // Empty feature list
-
-  // llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
-  // llvm::Triple(module.getTargetTriple()), "x86-64", "generic", attrs);
   auto targetMachine = createTargetMachine(module.getTargetTriple());
   if (!targetMachine) {
     llvm::errs() << "Failed to create TargetMachine for triple: "
@@ -114,12 +124,6 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
-
-  // debug info:
-  llvm::outs() << "TargetMachine Info: \n";
-  llvm::outs() << "Triple: " << targetMachine->getTargetTriple().str() << "\n";
-  llvm::outs() << "DataLayout: "
-               << module.getDataLayout().getStringRepresentation() << "\n";
 
   // Create an output file stream to write the object file
   std::error_code EC;
@@ -144,7 +148,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
-llvm::LogicalResult runLinkCommand(std::string commandLine) {
+llvm::LogicalResult runLinkCommand(const std::string &commandLine) {
   llvm::dbgs() << "Running linker command:\n" << commandLine << "\n";
   const auto exitCode = system(commandLine.c_str());
   if (exitCode == 0) {
@@ -156,14 +160,14 @@ llvm::LogicalResult runLinkCommand(std::string commandLine) {
   return llvm::failure();
 }
 
-// TODO: decide if we have any use cases where we actually need multiple .o
-// files, or we should just pass in a single 1
-llvm::LogicalResult linkDynamicLibrary(const std::string &libraryName,
-                                       ArrayRef<std::string> objectFileNames,
-                                       bool removeDebugSymbols) {
+// Note: we don't really expect to ever need multiple .o files, but seems more
+// future-proof to leave support for it
+llvm::LogicalResult
+linkDynamicLibrary(llvm::StringRef libraryName,
+                   ArrayRef<llvm::StringRef> objectFileNames) {
   SmallVector<std::string, 8> flags = {
       "ld.lld-17",
-      "-o " + libraryName,
+      "-o " + libraryName.str(),
   };
 
   // Avoids including any libc/startup files that initialize the CRT as
@@ -191,14 +195,14 @@ llvm::LogicalResult linkDynamicLibrary(const std::string &libraryName,
   flags.push_back("-shared");
 
   // Strip debug information (only, no relocations) when not requested.
-  if (removeDebugSymbols) {
-    flags.push_back("--strip-debug");
-  }
+  // In our case, we probably don't gain much useful info from debug symbols
+  // anyway
+  flags.push_back("--strip-debug");
 
   // Link all input objects. Note that we are not linking whole-archive as
   // we want to allow dropping of unused codegen outputs.
-  for (auto &objectFile : objectFileNames) {
-    flags.push_back(objectFile);
+  for (const auto &objectFile : objectFileNames) {
+    flags.push_back(objectFile.str());
   }
 
   auto commandLine = llvm::join(flags, " ");
@@ -246,9 +250,9 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
     return std::nullopt;
   }
 
-  if (llvm::failed(
-          linkDynamicLibrary("/home/vwells/sources/tt-mlir/generated.so",
-                             {tmpObjFileName}, false))) {
+  const auto dylibName = createTempFile(tmpDirName, module.getName(), ".so");
+  // Link to dynamic library
+  if (llvm::failed(linkDynamicLibrary(dylibName, {tmpObjFileName}))) {
     llvm::errs() << "Failed to link object code to dynamic library\n";
     return std::nullopt;
   }

@@ -57,11 +57,14 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
+  bufferizationOptions.allowReturnAllocsFromLoops = true;
+
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
-  mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
-  mlir::bufferization::buildBufferDeallocationPipeline(manager,
-                                                       deallocationOptions);
+
+  // this wasn't in original example, but need to eliminate some nasty
+  // bufferization::clone() calls
+  manager.addPass(mlir::createBufferizationToMemRefPass());
 
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
 
