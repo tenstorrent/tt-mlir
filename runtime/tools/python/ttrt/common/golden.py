@@ -162,10 +162,10 @@ def golden_partial_function(
             )
             return
 
-        golden_tensor_torch = torch.tensor(
+        golden_tensor_torch = torch.frombuffer(
             op_golden_tensor, dtype=torch.float32
         ).flatten()
-        output_tensor_torch = torch.tensor(
+        output_tensor_torch = torch.frombuffer(
             op_output_tensor, dtype=torch.float32
         ).flatten()
 
