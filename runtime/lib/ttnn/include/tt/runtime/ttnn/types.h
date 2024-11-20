@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_TYPES_H
-#define TTNN_RUNTIME_TYPES_H
+#ifndef TT_RUNTIME_TTNN_TYPES_H
+#define TT_RUNTIME_TTNN_TYPES_H
 
 #include "tt/runtime/detail/ttnn.h"
 
@@ -42,6 +42,11 @@ public:
   }
 
   ::ttnn::Tensor &at(std::uint32_t globalId) {
+    assert(liveTensors.contains(globalId));
+    return *liveTensors.at(globalId);
+  }
+
+  const ::ttnn::Tensor &at(std::uint32_t globalId) const {
     assert(liveTensors.contains(globalId));
     return *liveTensors.at(globalId);
   }
@@ -161,6 +166,7 @@ public:
   // Tensor Pool Operations
   //
   ProgramTensorPool &getTensorPool() { return tensorPool; }
+  const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
 private:
   ProgramTensorPool tensorPool;

@@ -10,16 +10,17 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include <mlir/IR/Types.h>
+#include <mlir/IR/Visitors.h>
 #include <optional>
 
 namespace mlir::tt::ttnn {
 
-bool mock_is_output_tensor_legal_for_op(Operation *op, tt::LayoutAttr layout) {
+bool mock_is_output_tensor_legal_for_op(Operation *op, TTNNLayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
   return true;
 }
 
-bool tensor_shape_compatible_with_shard(Operation *op, tt::LayoutAttr layout) {
+bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
   // These constraints are implemented seperatelly in every TTNN op.
   // Almost nothing seems to be shared between EVERY op, so is hard to have any
   // logic here without the risk of discarding a valid configuraiton or modeling
@@ -69,6 +70,23 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
+Type getFinalScalarElementType(Operation *op, Type elementType,
+                               std::optional<DataType> override) {
+  Type scalarElementType;
+  if (override.has_value()) {
+    scalarElementType = {
+        utils::createRowMajorTypeFromDtype(op->getContext(), override.value())};
+
+  } else {
+    if (mlir::isa<TileType>(elementType)) {
+      scalarElementType = mlir::cast<TileType>(elementType).getElementType();
+    } else {
+      scalarElementType = elementType;
+    }
+  }
+  return scalarElementType;
+}
+
 bool LegalLayoutAnalysis::applyOverrides() {
   // Lookup layout overrides based on location information for current
   // operation.
@@ -97,23 +115,14 @@ bool LegalLayoutAnalysis::applyOverrides() {
 
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  tt::LayoutAttr layout = mlir::cast<tt::LayoutAttr>(tensorType.getEncoding());
-
-  Type scalarElementType;
-  if (override.dataType.has_value()) {
-    scalarElementType = {utils::createRowMajorTypeFromDtype(
-        op->getContext(), override.dataType.value())};
-
-  } else {
-    // No search space for data type for now. Just use default.
-    scalarElementType = {layout.getScalarElementType()};
-  }
+  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   GridAttr grid =
       GridAttr::get(op->getContext(), ArrayRef<int64_t>(override.grid.value()));
 
   // Create element type for the new layout.
-  Type elementType = scalarElementType;
+  Type elementType =
+      getFinalScalarElementType(op, layout.getElementType(), override.dataType);
   if (override.memoryLayout == Layout::Tile) {
     elementType = TileType::get(op->getContext(), elementType);
   }
@@ -121,7 +130,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // TODO rewrite like below.
   analysisResult.push_back(
       layout.withGrid(op->getContext(), tensorType, grid)
-          .withMemorySpace(op->getContext(), override.memorySpace.value())
+          .withBufferType(op->getContext(), override.bufferType.value())
           .withMemoryLayout(op->getContext(),
                             override.tensorMemoryLayout.value())
           .withElementType(op->getContext(), elementType));
@@ -142,7 +151,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
   // Get output tensor type.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  tt::LayoutAttr layout = mlir::cast<tt::LayoutAttr>(tensorType.getEncoding());
+  auto tensorShape = tensorType.getShape();
+  TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   // Return existing layout if it is not possible to change it.
   if (cantChangeOutputLayout(op)) {
@@ -160,19 +170,12 @@ void LegalLayoutAnalysis::analysisImplementation() {
     }
   }
 
-  Type scalarElementType;
-  if (override.has_value() and override->dataType.has_value()) {
-    scalarElementType = {utils::createRowMajorTypeFromDtype(
-        op->getContext(), override->dataType.value())};
-
-  } else {
-    // No search space for data type for now. Just use default.
-    scalarElementType = {layout.getScalarElementType()};
-  }
+  Type scalarElementType = getFinalScalarElementType(
+      op, layout.getElementType(), override->dataType);
 
   Type tileElementType = TileType::get(op->getContext(), scalarElementType);
 
-  std::vector<tt::LayoutAttr> shardedResults;
+  std::vector<TTNNLayoutAttr> shardedResults;
 
   // Generate both TILE and ROW_MAJOR layouts for all possibilities.
   for (Type elementType : {scalarElementType, tileElementType}) {
@@ -180,20 +183,18 @@ void LegalLayoutAnalysis::analysisImplementation() {
       continue;
     }
     // DRAM
-    analysisResult.push_back(
-        tt::LayoutAttr::get(op->getContext(), tensorType,
-                            MemorySpace::DeviceDRAM, analysisInput.maxGrid,
-                            elementType, tt::TensorMemoryLayout::Interleaved));
+    analysisResult.push_back(TTNNLayoutAttr::get(
+        op->getContext(), tensorShape, elementType, BufferType::DRAM,
+        analysisInput.maxGrid, TensorMemoryLayout::Interleaved));
 
     // L1 Interleaved (same as above).
-    analysisResult.push_back(
-        tt::LayoutAttr::get(op->getContext(), tensorType, MemorySpace::DeviceL1,
-                            analysisInput.maxGrid, elementType,
-                            tt::TensorMemoryLayout::Interleaved));
+    analysisResult.push_back(TTNNLayoutAttr::get(
+        op->getContext(), tensorShape, elementType, BufferType::L1,
+        analysisInput.maxGrid, TensorMemoryLayout::Interleaved));
 
     // L1 Sharded
-    tt::LayoutAttr shardedBase =
-        layout.withMemorySpace(op->getContext(), MemorySpace::DeviceL1)
+    TTNNLayoutAttr shardedBase =
+        layout.withBufferType(op->getContext(), BufferType::L1)
             .withElementType(op->getContext(), elementType);
 
     assert(analysisInput.maxGrid.getShape().size() == 2 &&
@@ -208,7 +209,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
                 .withGrid(op->getContext(), tensorType,
                           GridAttr::get(op->getContext(), {width, height}))
                 .withMemoryLayout(op->getContext(),
-                                  tt::TensorMemoryLayout::BlockSharded));
+                                  TensorMemoryLayout::BlockSharded));
       }
     }
 
@@ -222,7 +223,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
               .withGrid(op->getContext(), tensorType,
                         GridAttr::get(op->getContext(), {height, 1}))
               .withMemoryLayout(op->getContext(),
-                                tt::TensorMemoryLayout::HeightSharded));
+                                TensorMemoryLayout::HeightSharded));
     }
 
     // Width Sharded
@@ -232,14 +233,14 @@ void LegalLayoutAnalysis::analysisImplementation() {
               .withGrid(op->getContext(), tensorType,
                         GridAttr::get(op->getContext(), {1, width}))
               .withMemoryLayout(op->getContext(),
-                                tt::TensorMemoryLayout::WidthSharded));
+                                TensorMemoryLayout::WidthSharded));
     }
   }
 
   // Filter layouts based on output tensor legality for current op.
   shardedResults.erase(
       std::remove_if(shardedResults.begin(), shardedResults.end(),
-                     [this](tt::LayoutAttr layout) {
+                     [this](TTNNLayoutAttr layout) {
                        return !tensor_shape_compatible_with_shard(op, layout) ||
                               !mock_is_output_tensor_legal_for_op(op, layout);
                      }),
@@ -247,7 +248,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
 
   // Pick top largest sharded grids.
   std::sort(shardedResults.begin(), shardedResults.end(),
-            [](tt::LayoutAttr a, tt::LayoutAttr b) {
+            [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
               return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
             });
 
@@ -262,7 +263,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   if (override.has_value()) {
     analysisResult.erase(
         std::remove_if(analysisResult.begin(), analysisResult.end(),
-                       [override](tt::LayoutAttr layout) {
+                       [override](TTNNLayoutAttr layout) {
                          bool keepLayout = true;
                          if (override->grid.has_value()) {
                            keepLayout &= layout.getGrid().getShape()[0] ==
@@ -270,9 +271,9 @@ void LegalLayoutAnalysis::analysisImplementation() {
                                          layout.getGrid().getShape()[1] ==
                                              override->grid.value()[1];
                          }
-                         if (override->memorySpace.has_value()) {
-                           keepLayout &= layout.getMemorySpace() ==
-                                         override->memorySpace.value();
+                         if (override->bufferType.has_value()) {
+                           keepLayout &= layout.getBufferType() ==
+                                         override->bufferType.value();
                          }
                          if (override->tensorMemoryLayout.has_value()) {
                            keepLayout &= layout.getMemLayout() ==

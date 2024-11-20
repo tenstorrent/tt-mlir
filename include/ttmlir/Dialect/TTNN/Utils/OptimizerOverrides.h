@@ -5,22 +5,23 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 
+#include <llvm/Support/CommandLine.h>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include <llvm/Support/CommandLine.h>
 
 namespace mlir::tt::ttnn {
 
 struct OutputLayoutOverrideParams {
   std::optional<SmallVector<int64_t, 2>> grid;
-  std::optional<tt::MemorySpace> memorySpace;
-  std::optional<tt::TensorMemoryLayout>
-      tensorMemoryLayout;                       // INTERLEAVED / SHARDED etc...
-  std::optional<tt::ttnn::Layout> memoryLayout; // ROW_MAJOR / TILE
+  std::optional<BufferType> bufferType;
+  std::optional<TensorMemoryLayout>
+      tensorMemoryLayout;             // INTERLEAVED / SHARDED etc...
+  std::optional<Layout> memoryLayout; // ROW_MAJOR / TILE
   std::optional<tt::DataType> dataType;
 
   bool allParamsSet() const {
-    return grid.has_value() && memorySpace.has_value() &&
+    return grid.has_value() && bufferType.has_value() &&
            tensorMemoryLayout.has_value() && memoryLayout.has_value();
   }
 };

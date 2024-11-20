@@ -21,6 +21,35 @@
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
+// ClampOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ClampOp::verify() {
+  ::mlir::Operation::operand_range inputs = getInputs();
+  ::mlir::Operation::result_range outputs = getResults();
+
+  if (inputs.size() != 1) {
+    return emitOpError("expects one tensor as input.");
+  }
+
+  if (outputs.size() != 1) {
+    return emitOpError("generates one tensor as output.");
+  }
+
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(inputs.front().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(outputs.front().getType());
+
+  if (inputTensorType != outputTensorType) {
+    return emitOpError("input and output must have same shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
@@ -58,6 +87,14 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+
+  if (!inputType.getElementType().isBF16()) {
+    return emitOpError()
+           << "ttnn.max_pool2d currently only supports an input type of "
+              "bfloat16. Recieved "
+           << inputType.getElementType() << ".";
+  }
+
   if (getKernelHeight() > getInputHeight()) {
     return emitOpError() << "Kernel height " << getKernelHeight()
                          << " is greater than input height " << getInputHeight()
@@ -118,9 +155,8 @@ namespace mlir::tt::ttnn {
   assert(::llvm::isa<RankedTensorType>(getResult().getType()));
   RankedTensorType output = mlir::cast<RankedTensorType>(getResult().getType());
 
-  assert(::llvm::isa<tt::LayoutAttr>(output.getEncoding()));
-  tt::LayoutAttr ttLayoutAttr =
-      mlir::cast<tt::LayoutAttr>(output.getEncoding());
+  assert(::llvm::isa<TTNNLayoutAttr>(output.getEncoding()));
+  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
 
   // Shape
   //
@@ -128,7 +164,7 @@ namespace mlir::tt::ttnn {
 
   // DataType and Layout
   //
-  mlir::MemRefType memref = ttLayoutAttr.getMemref();
+  mlir::MemRefType memref = layoutAttr.getMemref();
   Type elementType = memref.getElementType();
   if (getLayout().has_value()) {
     ttnn::Layout ttnnLayoutEnum;
@@ -155,11 +191,8 @@ namespace mlir::tt::ttnn {
   // attrs with output tensor attrs.
   //
   if (getMemoryConfig().has_value()) {
-    ttnn::BufferType bufferType =
-        mlir::tt::ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        mlir::tt::ttnn::utils::toTTNNTensorMemoryLayout(
-            ttLayoutAttr.getMemLayout());
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    ttnn::TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
     assert(bufferType == getMemoryConfig()->getBufferType().getValue());
     assert(tensorMemoryLayout ==
            getMemoryConfig()->getTensorMemoryLayout().getValue());
@@ -396,13 +429,17 @@ namespace mlir::tt::ttnn {
     if (step == 0) {
       return emitOpError("Step value for dimension " + std::to_string(i) +
                          " cannot be zero");
-    } else if (step > 0 && adjustedBegin > adjustedEnd) {
+    }
+
+    if (step > 0 && adjustedBegin > adjustedEnd) {
       return emitOpError() << "For positive step, begin index must be less "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
                            << ", end: " << endValueMessage << ", step: " << step
                            << ", input shape: " << inputShapeStr;
-    } else if (step < 0 && adjustedBegin < adjustedEnd) {
+    }
+
+    if (step < 0 && adjustedBegin < adjustedEnd) {
       return emitOpError() << "For negative step, begin index must be greater "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
@@ -497,9 +534,9 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 // Utility methods
-static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
-  return layout == ::mlir::tt::TensorMemoryLayout::Interleaved ||
-         ::mlir::tt::isShardedMemoryLayout(layout);
+static bool isValidDeviceLayout(TensorMemoryLayout layout) {
+  return layout == TensorMemoryLayout::Interleaved ||
+         isShardedMemoryLayout(layout);
 }
 
 // ToMemoryConfigOp verification
@@ -507,31 +544,30 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getResult().getType();
   auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputTy.getEncoding());
   auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputTy.getEncoding());
   if (not inputLayout) {
     return emitOpError("Input tensor type missing layout attribute");
   }
   if (not outputLayout) {
     return emitOpError("Output tensor type missing layout attribute");
   }
-  ::mlir::tt::MemorySpace outputMemorySpace = outputLayout.getMemorySpace();
-  ::mlir::tt::TensorMemoryLayout outputMemoryLayout =
-      outputLayout.getMemLayout();
-  if (::mlir::tt::isSystemMemorySpace(outputMemorySpace) &&
-      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::None) {
+  BufferType outputBufferType = outputLayout.getBufferType();
+  TensorMemoryLayout outputMemoryLayout = outputLayout.getMemLayout();
+  if (isSystemBufferType(outputBufferType) &&
+      outputMemoryLayout != TensorMemoryLayout::None) {
     return emitOpError("System memory space only supports undef memory layout");
   }
 
-  if (::mlir::tt::isDeviceMemorySpace(outputMemorySpace) &&
+  if (isDeviceBufferType(outputBufferType) &&
       !isValidDeviceLayout(outputMemoryLayout)) {
     return emitOpError("Device memory space only supports interleaved or "
                        "sharded memory layouts");
   }
 
-  if (outputMemorySpace == ::mlir::tt::MemorySpace::DeviceDRAM &&
-      outputMemoryLayout != ::mlir::tt::TensorMemoryLayout::Interleaved) {
+  if (outputBufferType == BufferType::DRAM &&
+      outputMemoryLayout != TensorMemoryLayout::Interleaved) {
     return emitOpError(
         "Device DRAM memory space only supports interleaved memory layout");
   }
@@ -545,7 +581,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    if (outputMemoryLayout == ::mlir::tt::TensorMemoryLayout::BlockSharded) {
+    if (outputMemoryLayout == TensorMemoryLayout::BlockSharded) {
       // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
       if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
         return emitOpError(
@@ -694,7 +730,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 
 // AllocOp verification
 ::mlir::LogicalResult AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+  auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
@@ -704,20 +740,18 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
     return emitOpError("Alloc size must be non-zero");
   }
 
-  auto memref = layout.getMemref();
-  auto memspace =
-      mlir::cast<mlir::tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
-  if (memspace != getMemorySpace()) {
+  auto bufferType = layout.getBufferType();
+  if (bufferType != getBufferType()) {
     return emitOpError(
         "Input tensor layout memory space must match alloc memory space");
   }
 
-  if (isSystemMemorySpace(getMemorySpace()) and getAddress() != 0) {
+  if (isSystemBufferType(getBufferType()) and getAddress() != 0) {
     return emitOpError("Allocating from system memory space must have address "
                        "set to 0, implicitly allocated by the runtime");
   }
 
-  if (isDeviceMemorySpace(memspace) and getAddress() == 0) {
+  if (isDeviceBufferType(bufferType) and getAddress() == 0) {
     return emitOpError(
         "Allocating from a device memory space must have address "
         "set to a non-zero value, device addresses are statically allocated");
@@ -763,7 +797,7 @@ static bool isValidDeviceLayout(::mlir::tt::TensorMemoryLayout layout) {
 }
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
-  // TODO
+  // TODO(gfengTT)
   return success();
 }
 

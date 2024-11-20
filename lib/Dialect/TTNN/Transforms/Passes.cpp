@@ -214,14 +214,13 @@ private:
     LayoutInfo input, output;
 
     auto inputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
+        mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
     auto inputMemref = inputLayoutAttr.getMemref();
 
     assert(op.getMemoryConfig().has_value());
     MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
 
-    input.bufferType =
-        ttnn::utils::toTTNNBufferType(inputLayoutAttr.getMemorySpace());
+    input.bufferType = inputLayoutAttr.getBufferType();
     output.bufferType = outputMemoryConfig.getBufferType().getValue();
 
     input.layoutEnum = getLayoutFromMemRef(inputMemref);
@@ -231,8 +230,7 @@ private:
     assert(op.getDtype().has_value());
     output.dataType = op.getDtype().value();
 
-    input.tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(inputLayoutAttr.getMemLayout());
+    input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
     output.tensorMemoryLayout =
         outputMemoryConfig.getTensorMemoryLayout().getValue();
 
@@ -477,7 +475,7 @@ private:
     }
 
     /* If the output is not tilized, typecast on host */
-    else if (not output.isTilized()) {
+    if (not output.isTilized()) {
       currentInput =
           this->createTypecastOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =

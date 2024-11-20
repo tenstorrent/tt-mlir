@@ -13,8 +13,128 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNOPTIMIZER
-#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
+
+namespace impl {
+
+std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
+std::unique_ptr<::mlir::Pass> createTTNNOptimizer(TTNNOptimizerOptions options);
+
+// Go through the ops, set sharding specs for each op based on sharding
+// analysis, by updating layout attribute of each op.
+//
+template <typename DerivedT>
+class TTNNOptimizerBase : public ::mlir::OperationPass<::mlir::ModuleOp> {
+public:
+  using Base = TTNNOptimizerBase;
+
+  TTNNOptimizerBase()
+      : ::mlir::OperationPass<::mlir::ModuleOp>(
+            ::mlir::TypeID::get<DerivedT>()) {}
+  TTNNOptimizerBase(const TTNNOptimizerBase &other)
+      : ::mlir::OperationPass<::mlir::ModuleOp>(other) {}
+  TTNNOptimizerBase &operator=(const TTNNOptimizerBase &) = delete;
+  TTNNOptimizerBase(TTNNOptimizerBase &&) = delete;
+  TTNNOptimizerBase &operator=(TTNNOptimizerBase &&) = delete;
+  ~TTNNOptimizerBase() override = default;
+
+  /// Returns the command-line argument attached to this pass.
+  static constexpr ::llvm::StringLiteral getArgumentName() {
+    return ::llvm::StringLiteral("ttnn-optimizer");
+  }
+  ::llvm::StringRef getArgument() const override { return "ttnn-optimizer"; }
+
+  ::llvm::StringRef getDescription() const override {
+    return "Determine op configurations for maximum performance.";
+  }
+
+  /// Returns the derived pass name.
+  static constexpr ::llvm::StringLiteral getPassName() {
+    return ::llvm::StringLiteral("TTNNOptimizer");
+  }
+  ::llvm::StringRef getName() const override { return "TTNNOptimizer"; }
+
+  /// Support isa/dyn_cast functionality for the derived pass class.
+  static bool classof(const ::mlir::Pass *pass) {
+    return pass->getTypeID() == ::mlir::TypeID::get<DerivedT>();
+  }
+
+  /// A clone method to create a copy of this pass.
+  std::unique_ptr<::mlir::Pass> clonePass() const override {
+    return std::make_unique<DerivedT>(*static_cast<const DerivedT *>(this));
+  }
+
+  /// Return the dialect that must be loaded in the context before this pass.
+  void getDependentDialects(::mlir::DialectRegistry &registry) const override {}
+
+  /// Explicitly declare the TypeID for this class. We declare an explicit
+  /// private instantiation because Pass classes should only be visible by the
+  /// current library.
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TTNNOptimizerBase<DerivedT>)
+
+  TTNNOptimizerBase(TTNNOptimizerOptions options) : TTNNOptimizerBase() {
+    overrideInputLayout = std::move(options.overrideInputLayout);
+    overrideOutputLayout = std::move(options.overrideOutputLayout);
+    memoryLayoutAnalysisEnabled =
+        std::move(options.memoryLayoutAnalysisEnabled);
+    memReconfigEnabled = std::move(options.memReconfigEnabled);
+    memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
+    maxLegalLayouts = std::move(options.maxLegalLayouts);
+  }
+
+protected:
+  ::mlir::Pass::Option<llvm::StringMap<InputLayoutOverrideParams>,
+                       mlir::tt::ttnn::InputLayoutOverrideParser>
+      overrideInputLayout{
+          *this, "insert-memreconfig",
+          ::llvm::cl::desc(
+              "Manually insert memory reconfig op for specific op's operand."),
+          ::llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<OutputLayoutOverrideParams>,
+                       mlir::tt::ttnn::OutputLayoutOverrideParser>
+      overrideOutputLayout{
+          *this, "override-output-layout",
+          ::llvm::cl::desc("Override output tensor layout for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
+  ::mlir::Pass::Option<bool> memoryLayoutAnalysisEnabled{
+      *this, "memory-layout-analysis-enabled",
+      ::llvm::cl::desc("Enable memory layout optimization."),
+      ::llvm::cl::init(false)};
+  ::mlir::Pass::Option<bool> memReconfigEnabled{
+      *this, "memreconfig-enabled",
+      ::llvm::cl::desc("Memory layout reconfiguration pass."),
+      ::llvm::cl::init(true)};
+  ::mlir::Pass::Option<mlir::tt::MemoryLayoutAnalysisPolicyType,
+                       mlir::tt::MemoryLayoutAnalysisPolicyTypeParser>
+      memoryLayoutAnalysisPolicy{
+          *this, "memory-layout-analysis-policy",
+          llvm::cl::desc("Specify policy for memory layout analysis."),
+          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
+  ::mlir::Pass::Option<int64_t> maxLegalLayouts{
+      *this, "max-legal-layouts",
+      ::llvm::cl::desc(
+          "Override maximum number of legal layouts for grid analysis."),
+      ::llvm::cl::init(64)};
+
+private:
+  friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
+    return std::make_unique<DerivedT>();
+  }
+
+  friend std::unique_ptr<::mlir::Pass>
+  createTTNNOptimizer(TTNNOptimizerOptions options) {
+    return std::make_unique<DerivedT>(std::move(options));
+  }
+};
+} // namespace impl
+
+std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
+  return impl::createTTNNOptimizer();
+}
+
+std::unique_ptr<::mlir::Pass>
+createTTNNOptimizer(TTNNOptimizerOptions options) {
+  return impl::createTTNNOptimizer(std::move(options));
+}
 
 class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
@@ -39,7 +159,7 @@ public:
     SystemDescAttr systemDesc = mlir::cast<tt::SystemDescAttr>(
         moduleOp->getAttr(tt::SystemDescAttr::name));
     ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-    llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
+    llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
 
     moduleOp->walk([&](Operation *op) {
       if (op->getNumResults() == 0) {
@@ -141,26 +261,23 @@ public:
 
           // Update the memory space and layout of the op.
           //
-          tt::LayoutAttr ttLayoutAttr =
-              mlir::cast<tt::LayoutAttr>(newTensorType.getEncoding());
+          TTNNLayoutAttr layoutAttr =
+              mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
 
           op->getResult(0).setType(newTensorType);
 
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
-            BufferType bufferType =
-                utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-            TensorMemoryLayout tensorMemoryLayout =
-                utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+            BufferType bufferType = layoutAttr.getBufferType();
+            TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
 
             op->getOperands().back().setType(newTensorType);
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setDtype(
-                utils::getDataTypeFromMemRef(ttLayoutAttr.getMemref()));
-            if (llvm::isa<TileType>(ttLayoutAttr.getElementType())) {
+            emptyOp.setDtype(layoutAttr.getDataTypeFromMemRef());
+            if (layoutAttr.isTiled()) {
               emptyOp.setLayout(ttnn::Layout::Tile);
             } else {
               emptyOp.setLayout(ttnn::Layout::RowMajor);
@@ -173,7 +290,7 @@ public:
                 ShardSpecAttr::get(
                     op->getContext(),
                     ShapeAttr::get(op->getContext(),
-                                   ttLayoutAttr.getMemref().getShape()))));
+                                   layoutAttr.getMemref().getShape()))));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -181,10 +298,8 @@ public:
           // ToLayoutOp decomposition pass.
           //
           else if (isa<ttnn::ToLayoutOp>(op)) {
-            BufferType bufferType =
-                utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-            TensorMemoryLayout tensorMemoryLayout =
-                utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+            BufferType bufferType = layoutAttr.getBufferType();
+            TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
             // Update the device op with the new tensor type.
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
@@ -195,9 +310,8 @@ public:
                 ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
                 ttnn::ShardSpecAttr::get(
                     op->getContext(),
-                    ttnn::ShapeAttr::get(
-                        op->getContext(),
-                        ttLayoutAttr.getMemref().getShape()))));
+                    ttnn::ShapeAttr::get(op->getContext(),
+                                         layoutAttr.getMemref().getShape()))));
           }
         }
       });
@@ -305,7 +419,7 @@ private:
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
 
-      tt::LayoutAttr consumerOpOutputLayout = mlir::cast<tt::LayoutAttr>(
+      TTNNLayoutAttr consumerOpOutputLayout = mlir::cast<TTNNLayoutAttr>(
           mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType())
               .getEncoding());
 
@@ -313,8 +427,8 @@ private:
           mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
       llvm::ArrayRef<int64_t> producerOpTensorShape =
           producerOpTensorType.getShape();
-      tt::LayoutAttr producerOpLayout =
-          mlir::cast<tt::LayoutAttr>(producerOpTensorType.getEncoding());
+      TTNNLayoutAttr producerOpLayout =
+          mlir::cast<TTNNLayoutAttr>(producerOpTensorType.getEncoding());
 
       // TODO(nobradovic): Match memory space and layout of consumer op.
       // This actually needs to be properly resolved based on op type, output
@@ -325,18 +439,16 @@ private:
           producerOpLayout
               .withElementType(consumerOp->getContext(),
                                consumerOpOutputLayout.getElementType())
-              .withMemorySpace(consumerOp->getContext(),
-                               consumerOpOutputLayout.getMemorySpace())
+              .withBufferType(consumerOp->getContext(),
+                              consumerOpOutputLayout.getBufferType())
               .withMemoryLayout(consumerOp->getContext(),
                                 consumerOpOutputLayout.getMemLayout())
               .withGrid(consumerOp->getContext(), producerOpTensorType,
                         consumerOpOutputLayout.getGrid()));
 
-      BufferType outputBufferType =
-          utils::toTTNNBufferType(consumerOpOutputLayout.getMemorySpace());
+      BufferType outputBufferType = consumerOpOutputLayout.getBufferType();
       TensorMemoryLayout outputTensorMemoryLayout =
-          utils::toTTNNTensorMemoryLayout(
-              consumerOpOutputLayout.getMemLayout());
+          consumerOpOutputLayout.getMemLayout();
       MemRefType outputMemref = consumerOpOutputLayout.getMemref();
 
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(

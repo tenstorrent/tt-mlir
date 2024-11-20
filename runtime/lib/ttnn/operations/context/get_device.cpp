@@ -26,7 +26,7 @@ calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
       }
     }
   }
-  throw std::runtime_error("Could not find any desired device in parent mesh");
+  LOG_FATAL("Could not find any desired device in parent mesh");
 }
 
 static std::shared_ptr<::ttnn::MeshDevice>

@@ -1,5 +1,5 @@
 ---
-Checks:          'clang-diagnostic-*,clang-analyzer-*,llvm-*,google-global-names-in-headers,google-readability-*,cppcoreguidelines-virtual-class-destructor,cppcoreguidelines-use-default-member-init,cppcoreguidelines-owning-memory,cppcoreguidelines-interfaces-global-init,cppcoreguidelines-explicit-virtual-functions,cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-avoid-goto,cppcoreguidelines-avoid-non-const-global-variables,-clang-analyzer-unix.Malloc'
+Checks:          'clang-diagnostic-*,clang-analyzer-*,llvm-*,google-global-names-in-headers,google-readability-*,cppcoreguidelines-virtual-class-destructor,cppcoreguidelines-use-default-member-init,cppcoreguidelines-owning-memory,cppcoreguidelines-interfaces-global-init,cppcoreguidelines-explicit-virtual-functions,cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-avoid-goto,cppcoreguidelines-avoid-non-const-global-variables,-clang-analyzer-unix.Malloc,-clang-diagnostic-builtin-macro-redefined'
 WarningsAsErrors: ''
 HeaderFileExtensions:
   - h

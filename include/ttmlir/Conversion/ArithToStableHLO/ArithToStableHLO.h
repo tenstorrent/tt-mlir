@@ -16,4 +16,4 @@ std::unique_ptr<OperationPass<ModuleOp>> createConvertArithToStableHLOPass();
 
 } // namespace mlir::tt
 
-#endif // TTMLIR_CONVERSION_STABLEHLOTOTTIR_STABLEHLOTOTTIR_H
+#endif // TTMLIR_CONVERSION_ARITHTOSTABLEHLO_ARITHTOSTABLEHLO_H

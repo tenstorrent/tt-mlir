@@ -61,17 +61,16 @@ bool OutputLayoutOverrideParser::parse(
     }
 
     // Parse memory space.
-    std::optional<mlir::tt::MemorySpace> memorySpace =
-        mlir::tt::symbolizeMemorySpace(layoutParamParts[iMemorySpace]);
-    if (!memorySpace.has_value() and !layoutParamParts[iMemorySpace].empty()) {
+    std::optional<BufferType> bufferType =
+        symbolizeBufferType(layoutParamParts[iMemorySpace]);
+    if (!bufferType.has_value() and !layoutParamParts[iMemorySpace].empty()) {
       opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
       return true;
     }
 
     // Parse tensor memory layout.
-    std::optional<mlir::tt::TensorMemoryLayout> tensorMemoryLayout =
-        mlir::tt::symbolizeTensorMemoryLayout(
-            layoutParamParts[iTensorMemoryLayout]);
+    std::optional<TensorMemoryLayout> tensorMemoryLayout =
+        symbolizeTensorMemoryLayout(layoutParamParts[iTensorMemoryLayout]);
     if (!tensorMemoryLayout.has_value() and
         !layoutParamParts[iTensorMemoryLayout].empty()) {
       opt.error("Invalid tensor memory layout: " +
@@ -98,7 +97,7 @@ bool OutputLayoutOverrideParser::parse(
 
     // Set parsed op overrides.
     value[opOverrideParts[iOpName]] = OutputLayoutOverrideParams{
-        grid, memorySpace.value(), tensorMemoryLayout.value(),
+        std::move(grid), bufferType.value(), tensorMemoryLayout.value(),
         memoryLayout.value(), dataType.value()};
   }
   return false;
@@ -120,9 +119,9 @@ void OutputLayoutOverrideParser::print(
       }
     }
     // Print memory space and memory layout
-    os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace.value());
+    os << ":" << mlir::tt::ttnn::stringifyBufferType(params.bufferType.value());
     os << ":"
-       << mlir::tt::stringifyTensorMemoryLayout(
+       << mlir::tt::ttnn::stringifyTensorMemoryLayout(
               params.tensorMemoryLayout.value());
     os << ":" << mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value());
     os << ":" << mlir::tt::DataTypeEnumToString(params.dataType.value());

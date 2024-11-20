@@ -1,16 +1,16 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 #any_device = #tt.operand_constraint<any_device>
-#l1 = #tt.memory_space<l1>
-#system = #tt.memory_space<system>
-#layout = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #system>>
-#layout1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #system>>
-#layout2 = #tt.layout<(d0, d1) -> (d0, d1), undef, <8x8>, memref<8x16xf32, #l1>, interleaved>
+#l1 = #ttnn.buffer_type<l1>
+#system = #ttnn.buffer_type<system_memory>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<64x128xf32, #system>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<8x16xf32, #system>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<8x16xf32, #l1>, interleaved>
 module attributes {} {
-  func.func @forward(%arg0: tensor<64x128xf32, #layout>) -> tensor<64x128xf32, #layout1> {
+  func.func @forward(%arg0: tensor<64x128xf32, #ttnn_layout>) -> tensor<64x128xf32, #ttnn_layout1> {
     // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
-    %0 = tensor.empty() : tensor<64x128xf32, #layout1>
+    %0 = tensor.empty() : tensor<64x128xf32, #ttnn_layout1>
     // CHECK: %[[C:.*]] = "ttnn.relu"[[C:.*]]
-    %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-    return %1 : tensor<64x128xf32, #layout1>
+    %1 = "ttir.relu"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32, #ttnn_layout>, tensor<64x128xf32, #ttnn_layout1>) -> tensor<64x128xf32, #ttnn_layout1>
+    return %1 : tensor<64x128xf32, #ttnn_layout1>
   }
 }

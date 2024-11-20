@@ -100,10 +100,22 @@ enum EltwiseOpType: uint32 {
   Where = 35,
   Gelu = 36,
   LogicalXor = 37,
+  Clamp = 38,
+  LeakyRelu = 39,
+}
+
+table ClampOpParams {
+  min: float;
+  max: float;
+}
+
+table EltwiseOpWithFloatParams {
+  parameter: float;
 }
 
 union EltwiseOpParams {
-
+  ClampOpParams,
+  EltwiseOpWithFloatParams,
 }
 
 table EltwiseOp {

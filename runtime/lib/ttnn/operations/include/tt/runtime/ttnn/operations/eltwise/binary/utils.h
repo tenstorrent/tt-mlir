@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_ELTWISE_BINARY_UTILS_H
-#define TTNN_RUNTIME_ELTWISE_BINARY_UTILS_H
+#ifndef TT_RUNTIME_TTNN_OPERATIONS_ELTWISE_BINARY_UTILS_H
+#define TT_RUNTIME_TTNN_OPERATIONS_ELTWISE_BINARY_UTILS_H
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::binary {
-void getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
+void getEltwiseBinaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                     ProgramTensorPool &tensorPool,
                                     ::ttnn::Tensor **lhs, ::ttnn::Tensor **rhs);
 

@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -35,6 +36,86 @@
 #include <fstream>
 #include <optional>
 
+namespace mlir::tt {
+
+::tt::target::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
+  switch (memLayout) {
+  case ttnn::TensorMemoryLayout::SingleBank:
+    return ::tt::target::TensorMemoryLayout::SingleBank;
+  case ttnn::TensorMemoryLayout::Interleaved:
+    return ::tt::target::TensorMemoryLayout::Interleaved;
+  case ttnn::TensorMemoryLayout::HeightSharded:
+    return ::tt::target::TensorMemoryLayout::HeightSharded;
+  case ttnn::TensorMemoryLayout::WidthSharded:
+    return ::tt::target::TensorMemoryLayout::WidthSharded;
+  case ttnn::TensorMemoryLayout::BlockSharded:
+    return ::tt::target::TensorMemoryLayout::BlockSharded;
+  case ttnn::TensorMemoryLayout::None:
+    return ::tt::target::TensorMemoryLayout::None;
+  }
+}
+
+::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
+                                       ttnn::BufferType bufferType) {
+  switch (bufferType) {
+  case ttnn::BufferType::SystemMemory:
+    return ::tt::target::MemorySpace::System;
+  case ttnn::BufferType::DRAM:
+    return ::tt::target::MemorySpace::DeviceDRAM;
+  case ttnn::BufferType::L1:
+    return ::tt::target::MemorySpace::DeviceL1;
+  default:
+    llvm_unreachable("unhandled buffer type");
+  }
+}
+
+flatbuffers::Offset<::tt::target::MemoryDesc>
+memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
+                       ttnn::TensorMemoryLayout memLayout) {
+  auto shapeInt64 = memref.getShape();
+  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+  DataType dtype = DataType::Float32;
+  ::tt::target::Dim2d tileShape(1, 1);
+  mlir::Type elementType = memref.getElementType();
+  std::uint64_t elementSize = 0;
+  if (mlir::isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementSize = tileType.getSizeBytes();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+    elementSize = getElementSizeBytes(dtype);
+  }
+
+  std::uint64_t size = elementSize;
+  for (auto dim : shapeInt64) {
+    size *= dim;
+  }
+
+  return ::tt::target::CreateMemoryDescDirect(
+      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
+      toFlatbuffer(
+          cache,
+          mlir::cast<ttnn::BufferTypeAttr>(memref.getMemorySpace()).getValue()),
+      toFlatbuffer(cache, memLayout), size);
+}
+
+flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
+    FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr layoutAttr,
+    mlir::ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  auto strideInt64 = layoutAttr.getStride(logicalShape);
+  std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
+  auto coreRangeSet =
+      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+  return ::tt::target::CreateLayoutDescDirect(
+      *cache.fbb, &stride, toFlatbuffer(cache, OOBVal::Undef), &coreRangeSet,
+      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
+                        layoutAttr.getMemLayout()));
+}
+} // namespace mlir::tt
+
 namespace mlir::tt::ttnn {
 
 constexpr uint64_t kHostAllocatedSize = 0;
@@ -42,13 +123,6 @@ constexpr uint64_t kHostAllocatedAddress = 0;
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
-
-::tt::target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
-  auto offset = coreRange.getOffset();
-  auto size = coreRange.getSize();
-  return ::tt::target::Dim2dRange(::tt::target::Dim2d(offset[0], offset[1]),
-                                  ::tt::target::Dim2d(size[0], size[1]));
-}
 
 ::flatbuffers::Offset<::tt::target::ShardSpec>
 shardSpecToFlatbuffer(FlatbufferObjectCache &cache,
@@ -306,6 +380,50 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
                                                op.getDim(), op.getNumLinks());
 }
 
+template <typename EltwiseOp, typename EltwiseOpParams>
+::flatbuffers::Offset<EltwiseOpParams>
+createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
+  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
+    auto min = op.getMin().convertToFloat();
+    auto max = op.getMax().convertToFloat();
+    return ::tt::target::ttnn::CreateClampOpParams(*cache.fbb, min, max);
+  }
+  if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
+    auto parameter = op.getParameter().convertToFloat();
+    return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
+                                                              parameter);
+  }
+}
+
+template <typename EltwiseOp>
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
+createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
+  ::tt::target::ttnn::EltwiseOpType type;
+  ::tt::target::ttnn::EltwiseOpParams paramsType =
+      ::tt::target::ttnn::EltwiseOpParams::NONE;
+  ::flatbuffers::Offset<void> params = 0;
+  if constexpr (std::is_same_v<EltwiseOp, ClampOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Clamp;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::ClampOpParams;
+    params = createEltwiseOpParams<ClampOp, ::tt::target::ttnn::ClampOpParams>(
+                 cache, op)
+                 .Union();
+  } else {
+    llvm_unreachable("unhandled non-DPS EltwiseOp");
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  for (auto input : op.getInputs()) {
+    ins.push_back(
+        cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  }
+  assert(op.getResults().size() == 1);
+  auto out = cache.getOrCreate(op.getResults().front(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateEltwiseOpDirect(*cache.fbb, type, &ins, out,
+                                                   paramsType, params);
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -387,6 +505,14 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Where;
   } else if constexpr (std::is_same_v<EltwiseOp, GeluOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Gelu;
+  } else if constexpr (std::is_same_v<EltwiseOp, LeakyReluOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::LeakyRelu;
+    paramsType = ::tt::target::ttnn::EltwiseOpParams::EltwiseOpWithFloatParams;
+    params =
+        createEltwiseOpParams<LeakyReluOp,
+                              ::tt::target::ttnn::EltwiseOpWithFloatParams>(
+            cache, op)
+            .Union();
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -671,6 +797,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, remainderOp),
                            debugString);
   }
+  if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
+    return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
+                           debugString);
+  }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString);
   }
@@ -694,6 +824,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
+                           debugString);
+  }
+  if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
+    return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
                            debugString);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

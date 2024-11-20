@@ -195,7 +195,7 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
     return ::tt::tt_metal::AllGatherTensor();
   }
   case ::tt::target::DistributedTensorConfig::NONE: {
-    throw std::invalid_argument("Unsupported distributed tensor config");
+    LOG_FATAL("Unsupported distributed tensor config");
   }
   }
 }

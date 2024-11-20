@@ -43,11 +43,12 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipChannelAttrGet(
     int64_t *ethernetCoreCoord1, size_t ethernetCoreCoord1Size);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
-    MlirContext ctx, MlirAttribute *chipDescs, size_t chipDescsSize,
-    unsigned *chipDescIndices, size_t chipDescIndicesSize,
-    MlirAttribute *chipCapabilities, size_t chipCapabilitiesSize,
-    MlirAttribute *chipCoords, size_t chipCoordsSize,
-    MlirAttribute *chipChannels, size_t chipChannelsSize);
+    MlirContext ctx, MlirAttribute *cpuDescs, size_t cpuDescsSize,
+    MlirAttribute *chipDescs, size_t chipDescsSize, unsigned *chipDescIndices,
+    size_t chipDescIndicesSize, MlirAttribute *chipCapabilities,
+    size_t chipCapabilitiesSize, MlirAttribute *chipCoords,
+    size_t chipCoordsSize, MlirAttribute *chipChannels,
+    size_t chipChannelsSize);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear, unsigned oobVal,
@@ -74,6 +75,14 @@ ttmlirTTOperandConstraintAttrGet(MlirContext ctx, uint32_t OperandConstraint);
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTOperandConstraintArrayAttrGet(
     MlirContext ctx, uint32_t *OperandConstraints,
     size_t OperandConstraintsSize);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx,
+                                                         int64_t y, int64_t x);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipPhysicalCoresAttrGet(
+    MlirContext ctx, MlirAttribute *worker, size_t workerSize,
+    MlirAttribute *dram, size_t dramSize, MlirAttribute *eth, size_t ethSize,
+    MlirAttribute *eth_inactive, size_t eth_inactiveSize);
 
 #ifdef __cplusplus
 }

@@ -41,6 +41,26 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeDevice($_op);"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Return whether op can be run on CPU.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"supportsCPUExecution",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Return whether op must be run on CPU.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"supportsOnlyCPUExecution",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
   ];
 }
 

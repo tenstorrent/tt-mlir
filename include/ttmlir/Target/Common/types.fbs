@@ -195,7 +195,19 @@ table ChipPhysicalCores {
   eth_inactive: [Dim2d];
 }
 
+enum CPURole: uint8
+{
+  Host = 0,
+  Device = 1,
+}
+
+table CPUDesc {
+  role: CPURole;
+  target_triple: string;
+}
+
 table SystemDesc {
+  cpu_descs: [CPUDesc];
   chip_descs: [ChipDesc];
   chip_desc_indices: [uint32];
   chip_capabilities: [ChipCapability];

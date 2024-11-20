@@ -6,3 +6,4 @@ function(add_mlir_unittest test_dirname)
 endfunction()
 
 add_subdirectory(TestScheduler)
+add_subdirectory(Optimizer)

@@ -26,33 +26,62 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/reduction/reduction.h"
+#include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
+static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
+  bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+      binary.handle.get());
+  if (not isTTNN) {
+    throw std::runtime_error("Unsupported binary format");
+  }
+  return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
+}
+
 class ProgramExecutor {
 public:
-  ProgramExecutor(const TensorMap &liveTensors,
+  ProgramExecutor(Binary &executableHandle, const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
                   const std::unordered_set<uint32_t> &programOutputs,
                   ::ttnn::MeshDevice *meshDevice)
-      : context(ProgramContext(liveTensors, programInputs, programOutputs,
+      : executableHandle(executableHandle),
+        context(ProgramContext(liveTensors, programInputs, programOutputs,
                                meshDevice)) {}
+
+  void runCallback(Binary &executableHandle,
+                   const ::tt::target::ttnn::Operation *opContext,
+                   ProgramContext *programContext) {
+    if (auto callback = debug::Hooks::get().getOperatorCallback(); callback) {
+      std::shared_ptr<void> programContextPtr =
+          ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+      std::shared_ptr<void> opContextPtr =
+          ::tt::runtime::utils::unsafe_borrow_shared(
+              const_cast<::tt::target::ttnn::Operation *>(opContext));
+      (*callback)(executableHandle,
+                  CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                  OpContext(opContextPtr, DeviceRuntime::TTNN));
+    }
+  }
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
       runOperation(op);
+      runCallback(executableHandle, op, &context);
     }
   }
 
   ProgramContext &getContext() { return context; }
 
 private:
+  Binary executableHandle;
   ProgramContext context;
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
@@ -87,7 +116,7 @@ void ProgramExecutor::runEltwiseOperation(
     return runTernaryOp();
   }
 
-  throw std::invalid_argument("Unsupported Eltwise operation");
+  LOG_FATAL("Unsupported Eltwise operation");
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
@@ -117,8 +146,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::creation::run(op->type_as_FullOp(), context);
   }
   case ::tt::target::ttnn::OpType::EltwiseOp: {
-    const ::tt::target::ttnn::EltwiseOp *eltwiseOp = op->type_as_EltwiseOp();
-    return runEltwiseOperation(eltwiseOp);
+    return runEltwiseOperation(op->type_as_EltwiseOp());
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
@@ -159,7 +187,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
   default: {
-    throw std::runtime_error("Unsupported operation type");
+    LOG_FATAL("Unsupported operation type");
   }
   }
 }
@@ -183,10 +211,13 @@ static bool handleNopProgram(::tt::target::ttnn::Program const *program,
   return isNop;
 }
 
-void runProgram(::ttnn::MeshDevice &meshDevice,
-                ::tt::target::ttnn::Program const *program,
+void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
+                std::uint32_t programIndex,
                 std::vector<::ttnn::Tensor *> const &inputs,
                 std::vector<::ttnn::Tensor *> const &outputs) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
   if (handleNopProgram(program, inputs, outputs)) {
     return;
   }
@@ -212,8 +243,8 @@ void runProgram(::ttnn::MeshDevice &meshDevice,
     LOG_ASSERT(inserted, "Duplicate output tensor");
     programOutputs.emplace(output->global_id());
   }
-  ProgramExecutor executor(liveTensors, programInputs, programOutputs,
-                           &meshDevice);
+  ProgramExecutor executor(executableHandle, liveTensors, programInputs,
+                           programOutputs, &meshDevice);
   executor.execute(program);
 }
 

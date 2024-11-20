@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
 #include <fstream>
+#include <mlir/IR/BuiltinTypes.h>
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -23,6 +25,16 @@ using namespace mlir::tt;
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
+
+unsigned mlir::tt::ChipDescAttr::getScratchL1RegionSize() const {
+  // 4KB is the default size for the scratch L1 region.
+  constexpr uint32_t kScratchL1RegionSize = 1 << 12;
+  return kScratchL1RegionSize;
+}
+
+unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
+  return getL1Size() - getScratchL1RegionSize();
+}
 
 mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
@@ -80,6 +92,10 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
   }
   return tt::SystemDescAttr::get(
       context,
+      // CPU Descriptors
+      {tt::CPUDescAttr::get(
+          context, tt::CPURole::Host,
+          mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
       // Chip Descriptors
       {
           tt::ChipDescAttr::get(
@@ -123,12 +139,32 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Read relevant information from binary
   auto const *binary_system_desc =
       ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
+  auto const *binary_cpu_desc = binary_system_desc->cpu_descs();
   auto const *binary_chip_desc = binary_system_desc->chip_descs();
   auto const *binary_chip_desc_indices =
       binary_system_desc->chip_desc_indices();
   auto const *chip_capabilities = binary_system_desc->chip_capabilities();
   auto const *binary_chip_coords = binary_system_desc->chip_coords();
   auto const *chip_channel_connections = binary_system_desc->chip_channels();
+
+  // Acquire cpu descs
+  std::vector<tt::CPUDescAttr> cpu_desc_list;
+  for (auto const *element : *binary_cpu_desc) {
+    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::mlir::tt::CPURole::Device) ==
+                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::tt::target::CPURole::Device));
+    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::mlir::tt::CPURole::Host) ==
+                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::tt::target::CPURole::Host));
+    const auto *flatbufferTargetTripleString = element->target_triple();
+    cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
+        context, static_cast<mlir::tt::CPURole>(element->role()),
+        mlir::StringAttr::get(
+            context, std::string(flatbufferTargetTripleString->c_str(),
+                                 flatbufferTargetTripleString->size()))));
+  }
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
@@ -299,8 +335,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Generate system desc attribute
   auto system_desc_attr = tt::SystemDescAttr::get(
-      context, chip_desc_list, chip_indices_list, chip_capabilities_list,
-      chip_coordinate_list, chip_channel_list);
+      context, cpu_desc_list, chip_desc_list, chip_indices_list,
+      chip_capabilities_list, chip_coordinate_list, chip_channel_list);
 
   return system_desc_attr;
 }
@@ -339,21 +375,6 @@ unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
 }
 
-static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
-                                    ::llvm::ArrayRef<int64_t> shardShape,
-                                    ::mlir::Type elementType,
-                                    MemorySpace memorySpace) {
-  ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
-  if (mlir::isa<TileType>(elementType)) {
-    scalarShardShape =
-        mlir::cast<TileType>(elementType).getTiledShape(scalarShardShape);
-  }
-  return mlir::MemRefType::get(
-      scalarShardShape, elementType,
-      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
-      MemorySpaceAttr::get(context, memorySpace));
-}
-
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -378,7 +399,7 @@ static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
 //   - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
 //       (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 //
-static mlir::AffineMap collapsedLinearAffineMap(
+mlir::AffineMap collapsedLinearAffineMap(
     ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
     ::llvm::ArrayRef<int64_t> gridShape,
     ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -431,7 +452,7 @@ static mlir::AffineMap collapsedLinearAffineMap(
   return map;
 }
 
-static mlir::SmallVector<std::int64_t>
+mlir::SmallVector<std::int64_t>
 calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
@@ -457,7 +478,8 @@ LayoutAttr LayoutAttr::get(
   auto linear = collapsedLinearAffineMap(context, tensorShape, grid.getShape(),
                                          collapseIntervals);
   auto shardShape = calculateLogicalShardShape(tensorShape, linear, grid);
-  auto memref = buildMemRef(context, shardShape, elementType, memorySpace);
+  auto memref = buildMemRef<MemorySpace, MemorySpaceAttr>(
+      context, shardShape, elementType, memorySpace);
   return get(context, linear, oobVal, grid, memref, memLayout);
 }
 
@@ -634,7 +656,8 @@ LayoutAttr LayoutAttr::withElementType(::mlir::MLIRContext *context,
                                        Type elementType) {
   return LayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), elementType, getMemorySpace()),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+                                                elementType, getMemorySpace()),
       getMemLayout());
 }
 
@@ -642,7 +665,8 @@ LayoutAttr LayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
                                        MemorySpace memorySpace) {
   return LayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), getElementType(), memorySpace),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+                                                getElementType(), memorySpace),
       getMemLayout());
 }
 
@@ -650,7 +674,8 @@ LayoutAttr LayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
                                         TensorMemoryLayout memLayout) {
   return LayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), getElementType(), getMemorySpace()),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, getShardShape(), getElementType(), getMemorySpace()),
       memLayout);
 }
 
@@ -658,7 +683,8 @@ LayoutAttr LayoutAttr::withShardShape(::mlir::MLIRContext *context,
                                       llvm::SmallVector<int64_t> shardShape) {
   return LayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, shardShape, getElementType(), getMemorySpace()),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, shardShape, getElementType(), getMemorySpace()),
       getMemLayout());
 }
 

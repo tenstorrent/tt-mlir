@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_UTILS_H
-#define TTNN_RUNTIME_UTILS_H
+#ifndef TT_RUNTIME_TTNN_UTILS_H
+#define TT_RUNTIME_TTNN_UTILS_H
 
 #include "flatbuffers/vector.h"
 #include "ttmlir/Target/Common/types_generated.h"

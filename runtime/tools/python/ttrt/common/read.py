@@ -29,6 +29,7 @@ class Read:
         "cpp",
         "inputs",
         "outputs",
+        "op_stats",
     ]
 
     @staticmethod
@@ -429,6 +430,18 @@ class Read:
                 self.logging.info(f"\n{json.dumps(program['outputs'], indent=2)}")
         except Exception as e:
             raise Exception(f"failed to read outputs for binary={binary.file_path}")
+
+    def op_stats(self, binary):
+        try:
+            import ttrt.binary
+
+            op_stats = ttrt.binary.stats.collect_op_stats(binary.fbb)
+            self.logging.info(f"\n{json.dumps(op_stats, indent=2)}")
+
+        except Exception as e:
+            raise Exception(
+                f"failed to read operator_stats for binary={binary.file_path} with exception={str(e)}"
+            )
 
     @staticmethod
     def register_arg(name, type, default, choices, help):

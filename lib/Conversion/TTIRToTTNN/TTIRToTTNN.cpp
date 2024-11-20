@@ -58,14 +58,14 @@ public:
   matchAndRewrite(tensor::EmptyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Get tt::LayoutAttr of the result type
+    // Get ttnn::TTNNLayoutAttr of the result type
     //
-    tt::LayoutAttr ttLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
 
     // Get the shape of the tensor, tensor layout, and data type
     //
-    mlir::MemRefType memref = ttLayoutAttr.getMemref();
+    mlir::MemRefType memref = layoutAttr.getMemref();
     ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
@@ -87,8 +87,8 @@ public:
     // If the tensor is not going to device, we can create the op without
     // device-specific attributes
     //
-    tt::TensorMemoryLayout ttTensorMemoryLayout = ttLayoutAttr.getMemLayout();
-    if (ttTensorMemoryLayout == TensorMemoryLayout::None) {
+    ttnn::TensorMemoryLayout memLayout = layoutAttr.getMemLayout();
+    if (memLayout == ttnn::TensorMemoryLayout::None) {
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
           op, this->getTypeConverter()->convertType(op.getType()), nullptr,
           shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
@@ -96,17 +96,14 @@ public:
       return success();
     }
 
-    ttnn::BufferType bufferType =
-        ttnn::utils::toTTNNBufferType(ttLayoutAttr.getMemorySpace());
-    ttnn::TensorMemoryLayout tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(ttLayoutAttr.getMemLayout());
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
 
     // Create MemoryConfigAttr
     //
     auto device = getOrInsertDevice(rewriter, op);
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), tensorMemoryLayout),
+        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), memLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
         ttnn::ShardSpecAttr::get(
             op.getContext(),
@@ -137,8 +134,8 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
-    auto outputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getResult().getType().getEncoding());
+    auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
 
     auto outputMemref = outputLayoutAttr.getMemref();
 
@@ -148,8 +145,7 @@ public:
         DataTypeAttr::get(rewriter.getContext(), dtype);
 
     // Determine the output layout (tile or row major)
-    ttnn::BufferType outputBufferType =
-        ttnn::utils::toTTNNBufferType(outputLayoutAttr.getMemorySpace());
+    ttnn::BufferType outputBufferType = outputLayoutAttr.getBufferType();
 
     ttnn::Layout outputLayoutEnum =
         ttnn::utils::getLayoutFromMemRef(outputMemref);
@@ -178,7 +174,8 @@ public:
         result =
             getLayoutForcedResultTensor(rewriter, result, newOutputLayoutEnum);
         op.getResult().setType(result);
-        outputLayoutAttr = mlir::cast<tt::LayoutAttr>(result.getEncoding());
+        outputLayoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(result.getEncoding());
         outputMemref = outputLayoutAttr.getMemref();
         outputLayoutEnum = newOutputLayoutEnum;
       }
@@ -189,7 +186,7 @@ public:
 
     // Determine output memory config attr
     ttnn::TensorMemoryLayout outputTensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(outputLayoutAttr.getMemLayout());
+        outputLayoutAttr.getMemLayout();
     ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
         rewriter.getContext(),
         ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
@@ -224,7 +221,7 @@ private:
                               RankedTensorType oldOutput,
                               ttnn::Layout newOutputLayoutEnum) const {
     auto oldOutputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(oldOutput.getEncoding());
+        mlir::cast<ttnn::TTNNLayoutAttr>(oldOutput.getEncoding());
     auto oldOutputMemref = oldOutputLayoutAttr.getMemref();
     DataType outputDtype = ttnn::utils::getDataTypeFromMemRef(oldOutputMemref);
     llvm::ArrayRef<std::int64_t> oldShardShape = oldOutputMemref.getShape();
@@ -343,6 +340,37 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::TransposeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getDim0(), adaptor.getDim1());
+    return success();
+  }
+};
+
+class ClampOpConversionPattern : public OpConversionPattern<ttir::ClampOp> {
+public:
+  using OpConversionPattern<ttir::ClampOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ClampOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ClampOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
+    return success();
+  }
+};
+
+template <typename TTIROpTy, typename TTNNOpTy,
+          typename OpAdaptor = typename TTIROpTy::Adaptor>
+class ElementwiseUnaryWithFloatParameterOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+        op, this->getTypeConverter()->convertType(op.getType(0)),
+        adaptor.getInputs(), adaptor.getOutputs(), adaptor.getParameter());
     return success();
   }
 };
@@ -761,8 +789,8 @@ public:
     auto result = ::llvm::cast<::mlir::TypedValue<::mlir::RankedTensorType>>(
         *op.getResults().begin());
 
-    tt::LayoutAttr outputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(result.getType().getEncoding());
+    ttnn::TTNNLayoutAttr outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(result.getType().getEncoding());
 
     mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
 
@@ -925,6 +953,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::Expm1Op, ttnn::Expm1Op>,
            ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
            ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
+           ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
@@ -933,6 +962,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,
+           ClampOpConversionPattern,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
            SliceOpConversionPattern,

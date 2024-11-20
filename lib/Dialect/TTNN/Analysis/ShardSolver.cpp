@@ -14,7 +14,7 @@ namespace mlir::tt::ttnn {
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
 ShardSolver::ShardSolver(
-    const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+    const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
         &legalLayouts,
     const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
@@ -73,7 +73,7 @@ bool ShardSolver::resolveStep() {
   for (const auto shardSpec : *shardSpecs) {
     Operation *consumerOp = shardSpec.op;
     Bitset *consumerBitset = getOrInsertBitset(consumerOp, kBitsetAll);
-    std::vector<tt::LayoutAttr> const &consumerLayouts =
+    std::vector<TTNNLayoutAttr> const &consumerLayouts =
         getLegalLayouts(consumerOp);
 
     for (Edge edge : operandOpEdges[consumerOp]) {
@@ -82,7 +82,7 @@ bool ShardSolver::resolveStep() {
 
       Operation *producerOp = edge.producerOp;
       Bitset *producerBitset = getOrInsertBitset(producerOp, kBitsetAll);
-      std::vector<tt::LayoutAttr> const &producerLayouts =
+      std::vector<TTNNLayoutAttr> const &producerLayouts =
           getLegalLayouts(producerOp);
 
       assert(not(consumerLayouts.empty() && producerLayouts.empty()));
@@ -97,7 +97,7 @@ bool ShardSolver::resolveStep() {
       for (std::uint64_t producerId = 0; producerId < producer_count;
            ++producerId) {
         // If the producer cannot accomodate this path, continue.
-        // Also if this is not the tt::LayoutAttr we selected, continue.
+        // Also if this is not the TTNNLayoutAttr we selected, continue.
         //
         if (!producerBitset->test(producerId)) {
           continue;
@@ -205,13 +205,13 @@ void ShardSolver::preprocessFirstOp() {
   }
 
   Bitset *firstOpBitset = getOrInsertBitset(firstOp, kBitsetAll);
-  std::vector<tt::LayoutAttr> const &firstOpLayouts = getLegalLayouts(firstOp);
+  std::vector<TTNNLayoutAttr> const &firstOpLayouts = getLegalLayouts(firstOp);
   Operation *operandOp = firstOp->getOperand(0).getDefiningOp();
 
   RankedTensorType firstOpInputTensorType =
       mlir::cast<RankedTensorType>(operandOp->getResult(0).getType());
-  tt::LayoutAttr firstOpInputLayout =
-      mlir::cast<tt::LayoutAttr>(firstOpInputTensorType.getEncoding());
+  TTNNLayoutAttr firstOpInputLayout =
+      mlir::cast<TTNNLayoutAttr>(firstOpInputTensorType.getEncoding());
   constexpr float tensorL1UsageCap = 0.8;
 
   for (size_t i = 0; i < firstOpLayouts.size(); ++i) {
@@ -219,25 +219,24 @@ void ShardSolver::preprocessFirstOp() {
       continue;
     }
 
-    tt::LayoutAttr firstOpLayout = firstOpLayouts[i];
+    TTNNLayoutAttr firstOpLayout = firstOpLayouts[i];
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
-    tt::LayoutAttr firstOpInputShardedLayout =
+    TTNNLayoutAttr firstOpInputShardedLayout =
         firstOpInputLayout
-            .withMemorySpace(firstOp->getContext(),
-                             firstOpLayout.getMemorySpace())
+            .withBufferType(firstOp->getContext(),
+                            firstOpLayout.getBufferType())
             .withMemoryLayout(firstOp->getContext(),
                               firstOpLayout.getMemLayout())
             .withGrid(firstOp->getContext(), firstOpInputTensorType,
                       firstOpLayout.getGrid());
 
-    uint64_t firstInputL1Usage = deviceAttr.getLayoutSizeBytes(
-        firstOpInputTensorType.getShape(), firstOpInputShardedLayout,
-        firstOpInputShardedLayout.getMemorySpace());
-    uint64_t firstOpL1OutputUsage = deviceAttr.getLayoutSizeBytes(
+    uint64_t firstInputL1Usage = firstOpInputShardedLayout.getTensorSizeInBytes(
+        firstOpInputTensorType.getShape(), deviceAttr);
+    uint64_t firstOpL1OutputUsage = firstOpLayout.getTensorSizeInBytes(
         mlir::cast<RankedTensorType>(firstOp->getResult(0).getType())
             .getShape(),
-        firstOpLayout, firstOpLayout.getMemorySpace());
+        deviceAttr);
 
     if ((firstInputL1Usage + firstOpL1OutputUsage) >=
         tensorL1UsageCap * usableL1CacheSize) {
@@ -457,9 +456,9 @@ ShardSolver::Bitset *ShardSolver::getOrInsertBitset(Operation *op,
 
 // Returns vector of legal LayoutAttrs for passed in op.
 //
-const std::vector<tt::LayoutAttr> &
+const std::vector<TTNNLayoutAttr> &
 ShardSolver::getLegalLayouts(Operation *op) const {
-  static std::vector<tt::LayoutAttr> nullLayouts;
+  static std::vector<TTNNLayoutAttr> nullLayouts;
 
   const auto legalIt = legalLayouts->find(op);
 
@@ -476,7 +475,7 @@ ShardSolver::RemainingLayoutAttrs ShardSolver::at(Operation *op) const {
   return layouts;
 }
 
-void ShardSolver::set(Operation *op, tt::LayoutAttr const &layout) {
+void ShardSolver::set(Operation *op, TTNNLayoutAttr const &layout) {
   assert(selectedOpLayout.count(op) == 0);
 
   selectedOpLayout[op] = layout;
@@ -503,13 +502,13 @@ void ShardSolver::set(Operation *op, tt::LayoutAttr const &layout) {
 }
 
 bool ShardSolver::checkShardCompatible(
-    Operation *producerOp, tt::LayoutAttr const &producerLayout,
-    Operation *consumerOp, tt::LayoutAttr const &consumerLayout) const {
+    Operation *producerOp, TTNNLayoutAttr const &producerLayout,
+    Operation *consumerOp, TTNNLayoutAttr const &consumerLayout) const {
 
   // TEMP : Dummy mock implementation, will be replaced.
   //
 
-  if (TTNNOpBackend backend = dyn_cast<TTNNOpBackend>(consumerOp)) {
+  if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
     if (false ==
         backend.isOpLegal(std::vector{producerLayout}, consumerLayout)) {
       return false;
@@ -530,26 +529,29 @@ bool ShardSolver::checkShardCompatible(
   //
   assert(producerLayout.hasShardedL1TensorMemoryLayout() &&
          consumerLayout.hasShardedL1TensorMemoryLayout());
-  RankedTensorType producerTensorType =
-      mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
-  uint64_t producerL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-      producerTensorType.getShape(), producerLayout,
-      producerLayout.getMemorySpace());
 
-  RankedTensorType consumerTensorType =
-      mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
-  uint64_t consumerL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-      consumerTensorType.getShape(), consumerLayout,
-      consumerLayout.getMemorySpace());
-  // Figure out this const based on exec data, but will be replaced
-  // with API.
+  // Perform L1 usage check only if deviceAttr is available.
   //
-  constexpr float tensorL1UsageCap = 0.8;
-  bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <
-                      tensorL1UsageCap * usableL1CacheSize;
+  if (deviceAttr) {
+    RankedTensorType producerTensorType =
+        mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+    uint64_t producerL1OutputUsage = producerLayout.getTensorSizeInBytes(
+        producerTensorType.getShape(), deviceAttr);
 
-  if (!l1UsageValid) {
-    return false;
+    RankedTensorType consumerTensorType =
+        mlir::cast<RankedTensorType>(consumerOp->getResult(0).getType());
+    uint64_t consumerL1OutputUsage = consumerLayout.getTensorSizeInBytes(
+        consumerTensorType.getShape(), deviceAttr);
+    // Figure out this const based on exec data, but will be replaced
+    // with API.
+    //
+    constexpr float tensorL1UsageCap = 0.8;
+    bool l1UsageValid = (producerL1OutputUsage + consumerL1OutputUsage) <
+                        tensorL1UsageCap * usableL1CacheSize;
+
+    if (!l1UsageValid) {
+      return false;
+    }
   }
 
   // Shard compat assumption. Try to keep same shard layout.
@@ -561,9 +563,110 @@ bool ShardSolver::checkShardCompatible(
   return true;
 }
 
+// Preprocess ShardSolver search space to make a helper structure which links op
+// layout choices to global max core usage.
+// Example:
+// Lets assume simple case where layouts at same index are compatible for input
+// graph provided below. Tupples represent layout core
+// usage (Layout0GridVolume, Layout1GridVolume, Layout2GridVolume).
+//
+//    Op0 ----- (4, 8, 2)
+//     |
+//    Op1 ----- (8, 4, 2)
+//    / \
+//   /   \
+//  Op2  Op3 -- (4, 4, 2) (4, 4, 2)
+//   \   /
+//    \ /
+//    Op4 ----- (2, 1, 1)
+//     |
+//    Op5 ----- (2, 1, 1)
+//
+// Here is how structure looks after preprocessing is complete:
+//
+//    Op0 ----- (24, 22, 10)
+//     |
+//    Op1 ----- (20, 14, 8)
+//    / \
+//   /   \
+//  Op2  Op3 -- (6, 5, 3) (6, 5, 3)
+//   \   /
+//    \ /
+//    Op4 ----- (4, 2, 2)
+//     |
+//    Op5 ----- (2, 1, 1)
+//
+// Global max of 24 core usage is achieved by selecting layout[0] for each Op.
+//
+// Returns map of op to vector of max core usage for each layout.
+llvm::DenseMap<Operation *, SmallVector<float, 64>>
+ShardSolver::produceMaxCoreUsage() {
+  using Paths = llvm::SmallVector<Path, 16>;
+  llvm::DenseMap<Operation *, SmallVector<float, 64>> accCoreUsage(
+      shardedOps->size());
+
+  // Start from the tail of the chain and build up the max core usage(schedule
+  // in backwards).
+  //
+  for (auto shardSpec = shardSpecs->rbegin(); shardSpec != shardSpecs->rend();
+       ++shardSpec) {
+    Operation *op = shardSpec->op;
+    std::vector<TTNNLayoutAttr> const &layouts = getLegalLayouts(op);
+    assert(!layouts.empty());
+
+    // Find the layout that leads to the max core usage.
+    // Start with grid volume of current op.
+    //
+    for (size_t i = 0; i < layouts.size(); ++i) {
+      TTNNLayoutAttr const &layout = layouts[i];
+      uint64_t coreUsage = layout.getGrid().getGridVolume();
+      accCoreUsage[op].push_back(coreUsage);
+    }
+
+    // Add core usage of current op users via live path connections.
+    //
+    SmallVector<ShardSolver::PathSet *> userPathSets = getUserPathSetsPts(op);
+    for (size_t i = 0; i < userPathSets.size(); ++i) {
+      ShardSolver::PathSet *pathSet = userPathSets[i];
+      const Paths &paths = pathSet->getPaths();
+      SmallVector<uint64_t, 64> maxCoreUsage(layouts.size(), 0);
+      Operation *consumerOp = pathSet->getConsumerOp();
+      size_t consumerInChainOperandSize =
+          getOperandPathSetsPts(consumerOp).size();
+      uint64_t consumerCoreUsage = 0;
+      for (auto const &path : paths) {
+        assert(bitsets[bitsetIds[op]].test(path.producerId));
+        assert(bitsets[bitsetIds[consumerOp]].test(path.consumerId));
+        consumerCoreUsage = accCoreUsage[consumerOp][path.consumerId];
+        if (consumerCoreUsage > maxCoreUsage[path.producerId]) {
+          maxCoreUsage[path.producerId] = consumerCoreUsage;
+        }
+      }
+
+      for (size_t i = 0; i < layouts.size(); ++i) {
+        // Add max core usage of consumer ops to current op layout.
+        // We divide by consumerInChainOperandSize to normalize the core usage
+        // based on forking factor(so that cores are not counted more than
+        // once).
+        //
+        // Incorrect results will be produced in case chain consists of joins
+        // without previous forks, ie - chain having multiple input ops. In that
+        // case total sum of used cores would be a sum of maxCoreUsage generated
+        // by all input ops. This is currently not needed for making a
+        // decision on layout choice for maximizing core usage.
+        //
+        accCoreUsage[op][i] += static_cast<float>(maxCoreUsage[i]) /
+                               static_cast<float>(consumerInChainOperandSize);
+      }
+    }
+  }
+
+  return accCoreUsage;
+}
+
 // Returns ShardSolverSolution.
 //
-ShardSolverSolution const ShardSolver::finish() {
+ShardSolverSolution ShardSolver::finish() const {
   assert(selectedOpLayout.size() == shardedOps->size());
   return ShardSolverSolution(selectedOpLayout, memReconfigEdges);
 }

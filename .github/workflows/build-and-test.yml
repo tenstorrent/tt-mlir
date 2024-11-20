@@ -105,12 +105,37 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
-    # - name: Lint
-    #   shell: bash
-    #   if: matrix.build.enable_perf == 'OFF'
-    #   run: |
-    #     source env/activate
-    #     cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+    - name: Lint
+      id: lint
+      shell: bash
+      if: matrix.build.enable_perf == 'OFF'
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+
+    - name: Unique-ify clang-tidy fixes
+      shell: bash
+      if: failure() && steps.lint.outcome == 'failure'
+      run: |
+        source env/activate
+        python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
+    - name: Clang-tidy PR Comments
+      uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        # The GitHub token (or a personal access token)
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        # The path to the clang-tidy fixes generated above
+        clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+        # Optionally set to true if you want the Action to request
+        # changes in case warnings are found
+        request_changes: false
+        # Optionally set the number of comments per review
+        # to avoid GitHub API timeouts for heavily loaded
+        # pull requests
+        suggestions_per_comment: 10
+        python_path: "python3"
 
     - name: Run Test
       shell: bash
@@ -418,7 +443,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: n150, enable_perf: ON, name: "perf"},
         ]
 
     name: Build and test tt-explorer
@@ -426,6 +451,13 @@ jobs:
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
 
@@ -459,7 +491,7 @@ jobs:
         -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME=ON \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=OFF \

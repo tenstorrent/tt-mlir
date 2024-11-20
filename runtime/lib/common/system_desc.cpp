@@ -10,30 +10,10 @@
 #include <cstdint>
 #include <vector>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wctad-maybe-unsupported"
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#pragma clang diagnostic ignored "-Wunused-variable"
-#pragma clang diagnostic ignored "-Wignored-qualifiers"
-#pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
-#pragma clang diagnostic ignored "-Wvla-extension"
-#pragma clang diagnostic ignored "-Wsign-compare"
-#pragma clang diagnostic ignored "-Wcast-qual"
-#pragma clang diagnostic ignored "-Wdeprecated-this-capture"
-#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
-#pragma clang diagnostic ignored "-Wsuggest-override"
-#pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
-#pragma clang diagnostic ignored "-Wnested-anon-types"
-#pragma clang diagnostic ignored "-Wreorder-ctor"
-#pragma clang diagnostic ignored "-Wmismatched-tags"
-#pragma clang diagnostic ignored "-Wunused-function"
-#pragma clang diagnostic ignored "-Wunused-local-typedef"
-#pragma clang diagnostic ignored "-Wzero-length-array"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#pragma clang diagnostic pop
 
 namespace tt::runtime::system_desc {
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
@@ -227,7 +207,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
-    chipDescs.push_back(::tt::target::CreateChipDesc(
+    chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
@@ -248,10 +228,16 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   // Extract chip connected channels
   std::vector<::tt::target::ChipChannel> allConnections =
       getAllDeviceConnections(devices);
+  // Store CPUDesc
+  std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
+  cpuDescs.emplace_back(::tt::target::CreateCPUDesc(
+      fbb, ::tt::target::CPURole::Host,
+      fbb.CreateString(std::string(TARGET_TRIPLE))));
+
   // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoords,
-      &allConnections);
+      fbb, &cpuDescs, &chipDescs, &chipDescIndices, &chipCapabilities,
+      &chipCoords, &allConnections);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);

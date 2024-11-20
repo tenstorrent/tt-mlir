@@ -28,6 +28,24 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 //===----------------------------------------------------------------------===//
+// ClampOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ClampOp::verify() {
+  const RankedTensorType inputTensorType =
+      mlir::cast<RankedTensorType>(getInput().getType());
+
+  const RankedTensorType outputTensorType =
+      mlir::cast<RankedTensorType>(getResult().getType());
+
+  if (inputTensorType != outputTensorType) {
+    return emitOpError("input and output must have same shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
@@ -120,13 +138,15 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   // Subtract 2 from the rank as to not count batch and feature dimension
   if (getInput().getType().getRank() - 2 !=
-      (int64_t)getConvolutionLayout().getInputSpatialDimensions().size()) {
+      static_cast<int64_t>(
+          getConvolutionLayout().getInputSpatialDimensions().size())) {
     return emitOpError("Input tensor must have the same number of spatial "
                        "dimensions as specified in the ConvolutionLayout");
   }
 
   if (getWeight().getType().getRank() - 2 !=
-      (int64_t)getConvolutionLayout().getKernelSpatialDimensions().size()) {
+      static_cast<int64_t>(
+          getConvolutionLayout().getKernelSpatialDimensions().size())) {
     return emitOpError("Weight tensor must have the same number of spatial "
                        "dimensions as specified in the ConvolutionLayout");
   }
@@ -427,13 +447,17 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     if (step == 0) {
       return emitOpError("Step value for dimension " + std::to_string(i) +
                          " cannot be zero");
-    } else if (step > 0 && adjustedBegin > adjustedEnd) {
+    }
+
+    if (step > 0 && adjustedBegin > adjustedEnd) {
       return emitOpError() << "For positive step, begin index must be less "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
                            << ", end: " << endValueMessage << ", step: " << step
                            << ", input shape: " << inputShapeStr;
-    } else if (step < 0 && adjustedBegin < adjustedEnd) {
+    }
+
+    if (step < 0 && adjustedBegin < adjustedEnd) {
       return emitOpError() << "For negative step, begin index must be greater "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
@@ -539,13 +563,17 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   if (step == 0) {
     return emitOpError("Step value for dimension " + std::to_string(dim) +
                        " cannot be zero");
-  } else if (step > 0 && adjustedBegin > adjustedEnd) {
+  }
+
+  if (step > 0 && adjustedBegin > adjustedEnd) {
     return emitOpError() << "For positive step, begin index must be less "
                             "than or equal to end index for dimension "
                          << dim << ". Got begin: " << beginValueMessage
                          << ", end: " << endValueMessage << ", step: " << step
                          << ", input shape: " << inputShapeStr;
-  } else if (step < 0 && adjustedBegin < adjustedEnd) {
+  }
+
+  if (step < 0 && adjustedBegin < adjustedEnd) {
     return emitOpError() << "For negative step, begin index must be greater "
                             "than or equal to end index for dimension "
                          << dim << ". Got begin: " << beginValueMessage
@@ -745,16 +773,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 ::mlir::LogicalResult mlir::tt::ttir::ToLayoutOp::verify() {
   ::mlir::RankedTensorType inputTy = getInput().getType();
   ::mlir::RankedTensorType outputTy = getOutput().getType();
-  auto inputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(inputTy.getEncoding());
-  auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
-  if (not inputLayout) {
-    return emitOpError("Input tensor type missing layout attribute");
-  }
-  if (not outputLayout) {
-    return emitOpError("Output tensor type missing layout attribute");
-  }
   if (inputTy.getShape() != outputTy.getShape()) {
     return emitOpError("Input and output shapes must be the same");
   }

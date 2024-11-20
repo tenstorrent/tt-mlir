@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import inspect
 from typing import Callable, Dict, List, Optional
 
 import torch
@@ -93,7 +94,15 @@ def compile_as_mlir_module(
     """
 
     ctx = Context()
-    loc = Location.unknown(ctx)
+
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(test_fn)
+        line_no = inspect.getsourcelines(test_fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
+
     # Instantiate builder which is passed as the last argument to
     # `test_fn` so the user can use it to build ops.
     builder = TTIRBuilder(ctx, loc)

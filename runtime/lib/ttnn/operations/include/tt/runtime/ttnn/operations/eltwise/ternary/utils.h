@@ -2,15 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_ELTWISE_TERNARY_UTILS_H
-#define TTNN_RUNTIME_ELTWISE_TERNARY_UTILS_H
+#ifndef TT_RUNTIME_TTNN_OPERATIONS_ELTWISE_TERNARY_UTILS_H
+#define TT_RUNTIME_TTNN_OPERATIONS_ELTWISE_TERNARY_UTILS_H
 
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::ternary {
-void getEltwiseTernaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
+void getEltwiseTernaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                      ProgramTensorPool &tensorPool,
                                      ::ttnn::Tensor **first,
                                      ::ttnn::Tensor **second,

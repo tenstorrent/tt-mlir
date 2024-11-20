@@ -259,7 +259,7 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
 }
 
 def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
-      [DeclareOpInterfaceMethods<TTNNOpBackendInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
       > {
     let summary = "Eltwise ReLU.";
     let description = [{
@@ -323,6 +323,49 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
         %a: [[0, 1], [0, 0]]
         "ttnn.exmp1"(%a, %out) -> %out: [[0, 1.71828], [0, 0]]
   }];
+}
+
+class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseUnaryOp<mnemonic, traits> {
+    let summary = "Eltwise unary op with the float parameter.";
+    let description = [{
+      Eltwise unary op with the float parameter.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         F32Attr:$parameter);
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      [{
+        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
+      }]>
+    ];
+}
+
+def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
+    let summary = "Eltwise leaky relu operation.";
+    let description = [{
+      The Leaky ReLU (Rectified Linear Unit) operation computes an element-wise
+      activation function over its input tensor. It is defined as:
+
+      y = x if x > 0
+      y = parameter * x if x <= 0
+
+      where `parameter` is a small, user-defined constant that determines the slope for
+      negative inputs.
+
+      Attributes:
+      - `parameter` (float): The slope for negative values.
+
+      Inputs:
+      - `input` (Tensor): The input tensor to be activated.
+
+      Outputs:
+      - `output` (Tensor): The tensor after applying the Leaky ReLU activation.
+    }];
 }
 
 def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
@@ -675,6 +718,29 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ClampOp : TTNN_Op<"clamp"> {
+    let summary = "Clamp op.";
+    let description = [{
+      Clamp tensor values to a specified range.
+
+      Example:
+        min: 2.000000+00
+        input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+        max: 5.000000+00
+
+        "ttnn.clamp"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
+        -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         F32Attr:$min,
+                         F32Attr:$max);
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+
+    let hasVerifier = 1;
+}
+
 // Note: NoMemoryEffect is used to indicate that operation can be removed if it is not used.
 // Removal of this operation is done by the dead code elimination pass (RemoveDeadValuesPass).
 def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
@@ -709,7 +775,7 @@ def TTNN_AllocOp : TTNN_Op<"alloc"> {
       Tensor Alloc operation
     }];
 
-    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
+    let arguments = (ins I64Attr:$address, I64Attr:$size, TTNN_BufferTypeAttr:$buffer_type);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
