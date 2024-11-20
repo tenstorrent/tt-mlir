@@ -137,6 +137,7 @@ def TT_OperandConstraintSingleBank : I32BitEnumAttrCaseBit<"SingleBank", 7, "sin
 def TT_OperandConstraintHeightSharded : I32BitEnumAttrCaseBit<"HeightSharded", 8, "height_sharded">;
 def TT_OperandConstraintWidthSharded : I32BitEnumAttrCaseBit<"WidthSharded", 9, "width_sharded">;
 def TT_OperandConstraintBlockSharded : I32BitEnumAttrCaseBit<"BlockSharded", 10, "block_sharded">;
+def TT_OperandConstraintSystemScalar : I32BitEnumAttrCaseGroup<"SystemScalar", [TT_OperandConstraintSystem, TT_OperandConstraintScalar], "system_scalar">;
 def TT_OperandConstraintAnyLayout : I32BitEnumAttrCaseGroup<"AnyLayout", [TT_OperandConstraintNone, TT_OperandConstraintInterleaved, TT_OperandConstraintSingleBank, TT_OperandConstraintHeightSharded, TT_OperandConstraintWidthSharded, TT_OperandConstraintBlockSharded], "any_layout">;
 def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintSystem, TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any">;
 def TT_OperandConstraintAnyDevice : I32BitEnumAttrCaseGroup<"AnyDevice", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device">;
@@ -155,6 +156,7 @@ def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Const
                             TT_OperandConstraintHeightSharded,
                             TT_OperandConstraintWidthSharded,
                             TT_OperandConstraintBlockSharded,
+                            TT_OperandConstraintSystemScalar,
                             TT_OperandConstraintAnyLayout,
                             TT_OperandConstraintAny,
                             TT_OperandConstraintAnyDevice,
@@ -185,6 +187,54 @@ def TT_BufferAccess : I32BitEnumAttr<"BufferAccess", "TT Buffer Access",
                             TT_BufferAccessAlias ,
                             TT_BufferAccessStream,
                            ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
+def TT_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
+def TT_ReduceType_Mean : I32EnumAttrCase<"Mean", 1, "mean">;
+def TT_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
+def TT_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
+def TT_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
+def TT_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+
+def TT_ReduceType: I32EnumAttr<"ReduceType", "TT Reduce Type",
+                          [
+                           TT_ReduceType_Sum,
+                           TT_ReduceType_Mean,
+                           TT_ReduceType_Max,
+                           TT_ReduceType_Min,
+                           TT_ReduceType_Std,
+                           TT_ReduceType_Var,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
+def TT_MeshShardDirection_FullToShard : I32EnumAttrCase<"FullToShard",  0, "full_to_shard">;
+def TT_MeshShardDirection_ShardToFull : I32EnumAttrCase<"ShardToFull",  1, "shard_to_full">;
+
+def TT_MeshShardDirection: I32EnumAttr<"MeshShardDirection", "TT MeshShardDirection",
+                          [
+                           TT_MeshShardDirection_FullToShard,
+                           TT_MeshShardDirection_ShardToFull,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt";
+}
+
+def TT_MeshShardType_Manual    : I32EnumAttrCase<"Manual",    0, "manual">;
+def TT_MeshShardType_Replicate : I32EnumAttrCase<"Replicate", 1, "replicate">;
+def TT_MeshShardType_Maximal   : I32EnumAttrCase<"Maximal",   2, "maximal">;
+def TT_MeshShardType_Devices   : I32EnumAttrCase<"Devices",   3, "devices">;
+
+def TT_MeshShardType: I32EnumAttr<"MeshShardType", "TT MeshShardType",
+                          [
+                           TT_MeshShardType_Manual,
+                           TT_MeshShardType_Replicate,
+                           TT_MeshShardType_Maximal,
+                           TT_MeshShardType_Devices,
+                          ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt";
 }
