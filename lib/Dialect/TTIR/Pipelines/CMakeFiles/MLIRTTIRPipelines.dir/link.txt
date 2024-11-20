@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../../libMLIRTTIRPipelines.a CMakeFiles/obj.MLIRTTIRPipelines.dir/TTIRPipelines.cpp.o
+/usr/bin/ranlib -D ../../../libMLIRTTIRPipelines.a

@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../libTTMLIRCAPI.a CMakeFiles/obj.TTMLIRCAPI.dir/Dialects.cpp.o CMakeFiles/obj.TTMLIRCAPI.dir/TTKernelTypes.cpp.o CMakeFiles/obj.TTMLIRCAPI.dir/TTAttrs.cpp.o CMakeFiles/obj.TTMLIRCAPI.dir/TTTypes.cpp.o CMakeFiles/obj.TTMLIRCAPI.dir/TTNNAttrs.cpp.o
+/usr/bin/ranlib -D ../libTTMLIRCAPI.a

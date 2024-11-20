@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../../libMLIRTTNNPipelines.a CMakeFiles/obj.MLIRTTNNPipelines.dir/TTNNPipelines.cpp.o
+/usr/bin/ranlib -D ../../../libMLIRTTNNPipelines.a

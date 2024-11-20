@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTMLIRTTIRToTTNN.a CMakeFiles/obj.TTMLIRTTIRToTTNN.dir/TTIRToTTNN.cpp.o CMakeFiles/obj.TTMLIRTTIRToTTNN.dir/TTIRToTTNNPass.cpp.o
+/usr/bin/ranlib -D ../../libTTMLIRTTIRToTTNN.a

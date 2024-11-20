@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc libTTRuntime.a CMakeFiles/TTRuntime.dir/runtime.cpp.o
+/usr/bin/ranlib -D libTTRuntime.a

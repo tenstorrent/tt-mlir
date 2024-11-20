@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTMetalTargetFlatbuffer.a CMakeFiles/obj.TTMetalTargetFlatbuffer.dir/TTMetalToFlatbuffer.cpp.o CMakeFiles/obj.TTMetalTargetFlatbuffer.dir/TTMetalToFlatbufferRegistration.cpp.o
+/usr/bin/ranlib -D ../../libTTMetalTargetFlatbuffer.a

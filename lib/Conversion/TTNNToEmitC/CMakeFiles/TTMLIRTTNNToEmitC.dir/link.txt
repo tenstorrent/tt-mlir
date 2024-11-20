@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTMLIRTTNNToEmitC.a CMakeFiles/obj.TTMLIRTTNNToEmitC.dir/TTNNToEmitC.cpp.o CMakeFiles/obj.TTMLIRTTNNToEmitC.dir/TTNNToEmitCPass.cpp.o
+/usr/bin/ranlib -D ../../libTTMLIRTTNNToEmitC.a

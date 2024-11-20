@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTNNTargetFlatbuffer.a CMakeFiles/obj.TTNNTargetFlatbuffer.dir/TTNNToFlatbuffer.cpp.o CMakeFiles/obj.TTNNTargetFlatbuffer.dir/TTNNToFlatbufferRegistration.cpp.o
+/usr/bin/ranlib -D ../../libTTNNTargetFlatbuffer.a

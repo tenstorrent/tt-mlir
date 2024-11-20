@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTMLIRTosaToTTIR.a CMakeFiles/obj.TTMLIRTosaToTTIR.dir/TosaToTTIR.cpp.o
+/usr/bin/ranlib -D ../../libTTMLIRTosaToTTIR.a

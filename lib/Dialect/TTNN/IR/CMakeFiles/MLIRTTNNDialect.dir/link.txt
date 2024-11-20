@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../../libMLIRTTNNDialect.a CMakeFiles/obj.MLIRTTNNDialect.dir/TTNNOpsAttrs.cpp.o CMakeFiles/obj.MLIRTTNNDialect.dir/TTNNDialect.cpp.o CMakeFiles/obj.MLIRTTNNDialect.dir/TTNNOps.cpp.o CMakeFiles/obj.MLIRTTNNDialect.dir/TTNNOpModelInterface.cpp.o CMakeFiles/obj.MLIRTTNNDialect.dir/TTNNOpsTypes.cpp.o
+/usr/bin/ranlib -D ../../../libMLIRTTNNDialect.a

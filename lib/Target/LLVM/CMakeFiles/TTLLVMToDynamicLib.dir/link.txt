@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTLLVMToDynamicLib.a CMakeFiles/obj.TTLLVMToDynamicLib.dir/LLVMToDynamicLib.cpp.o CMakeFiles/obj.TTLLVMToDynamicLib.dir/LLVMToDynamicLibRegistration.cpp.o
+/usr/bin/ranlib -D ../../libTTLLVMToDynamicLib.a

@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../libMLIRScheduler.a CMakeFiles/obj.MLIRScheduler.dir/Scheduler.cpp.o
+/usr/bin/ranlib -D ../libMLIRScheduler.a

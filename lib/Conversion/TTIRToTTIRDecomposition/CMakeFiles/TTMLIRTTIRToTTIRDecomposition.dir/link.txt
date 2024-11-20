@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../libTTMLIRTTIRToTTIRDecomposition.a CMakeFiles/obj.TTMLIRTTIRToTTIRDecomposition.dir/TTIRToTTIRDecomposition.cpp.o CMakeFiles/obj.TTMLIRTTIRToTTIRDecomposition.dir/TTIRToTTIRDecompositionPass.cpp.o
+/usr/bin/ranlib -D ../../libTTMLIRTTIRToTTIRDecomposition.a

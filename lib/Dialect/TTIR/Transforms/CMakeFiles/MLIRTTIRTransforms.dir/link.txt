@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../../libMLIRTTIRTransforms.a CMakeFiles/obj.MLIRTTIRTransforms.dir/Allocate.cpp.o CMakeFiles/obj.MLIRTTIRTransforms.dir/Constant.cpp.o CMakeFiles/obj.MLIRTTIRTransforms.dir/Generic.cpp.o CMakeFiles/obj.MLIRTTIRTransforms.dir/Layout.cpp.o CMakeFiles/obj.MLIRTTIRTransforms.dir/Transforms.cpp.o CMakeFiles/obj.MLIRTTIRTransforms.dir/Utility.cpp.o
+/usr/bin/ranlib -D ../../../libMLIRTTIRTransforms.a

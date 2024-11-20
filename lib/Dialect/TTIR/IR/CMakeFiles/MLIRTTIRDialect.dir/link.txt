@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../../libMLIRTTIRDialect.a CMakeFiles/obj.MLIRTTIRDialect.dir/TTIRDialect.cpp.o CMakeFiles/obj.MLIRTTIRDialect.dir/TTIROps.cpp.o CMakeFiles/obj.MLIRTTIRDialect.dir/TTIROpsInterfaces.cpp.o
+/usr/bin/ranlib -D ../../../libMLIRTTIRDialect.a

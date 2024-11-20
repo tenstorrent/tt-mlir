@@ -38,17 +38,36 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
+    target.addLegalOp<mlir::linalg::AddOp>();
+    target.markOpRecursivelyLegal<mlir::linalg::AddOp>();
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
+<<<<<<< HEAD:lib/Conversion/TTIRToLinalg/TTIRToLinalgPass.cpp
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
+=======
+    llvm::outs() << "pre populateTTIRToLinAlgPatterns!\n";
+    populateTTIRToLinAlgPatterns(&getContext(), patterns, typeConverter);
+    llvm::outs() << "post populateTTIRToLinAlgPatterns!\n";
+
+    llvm::outs() << "IR before conversion:\n";
+    getOperation()->print(llvm::outs());
+    llvm::outs() << "\n";
+>>>>>>> 5f54244c (add runtime support for unpacking flatbuffer dylibs):lib/Conversion/TTIRToLinAlg/TTIRToLinAlgPass.cpp
 
     // Apply full conversion
     //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
+      llvm::outs() << "failed to apply full TTIR to LinAlg conversion!\n";
+
+      llvm::outs() << "Conversion failed. Remaining IR:\n";
+      getOperation()->print(llvm::outs());
+      llvm::outs() << "\n";
+
       signalPassFailure();
       return;
     }

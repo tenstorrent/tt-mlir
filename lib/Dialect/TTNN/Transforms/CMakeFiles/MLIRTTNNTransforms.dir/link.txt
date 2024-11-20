@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../../../libMLIRTTNNTransforms.a CMakeFiles/obj.MLIRTTNNTransforms.dir/TTNNLayout.cpp.o CMakeFiles/obj.MLIRTTNNTransforms.dir/Passes.cpp.o CMakeFiles/obj.MLIRTTNNTransforms.dir/Optimizer.cpp.o CMakeFiles/obj.MLIRTTNNTransforms.dir/TTNNToCpp.cpp.o
+/usr/bin/ranlib -D ../../../libMLIRTTNNTransforms.a
