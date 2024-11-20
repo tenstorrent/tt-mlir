@@ -1,9 +1,9 @@
-add_mlir_library(TTMLIRTTKernelToEmitC
+add_mlir_library(TTMLIRTTIRToLinAlg
   TTIRToTTNN.cpp
   TTIRToTTNNPass.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTKernelToEmitC
+  ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToLinAlg
 
   DEPENDS
   TTMLIRConversionPassIncGen
