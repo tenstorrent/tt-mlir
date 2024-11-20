@@ -12,5 +12,5 @@ add_mlir_library(TTMLIRTTIRToLinAlg
   MLIRIR
   MLIRPass
   MLIRLinalgDialect
-  MLIRArithmetic
+  MLIRArithDialect
 )
