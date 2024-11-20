@@ -6,6 +6,8 @@
 #define TTMLIR_CONVERSION_PASSES
 
 include "mlir/Pass/PassBase.td"
+include "mlir/Dialect/Linalg/IR/LinalgDialect.h"  // For LinalgDialect registration
+
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 def ConvertStableHLOToTTIR : Pass<"convert-stablehlo-to-ttir", "::mlir::ModuleOp"> {
