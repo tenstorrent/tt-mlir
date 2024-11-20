@@ -127,7 +127,7 @@ public:
 
     if (lhsType.getShape() == rhsType.getShape()) {
       rewriter.replaceOpWithNewOp<linalg::SubOp>(
-          srcOp, adaptor.getInputs(), adaptor.getOutputs(), adaptor.getAttrs());
+          srcOp, adaptor.getInputs(), adaptor.getOutputs(), srcOp.getAttrs());
 
       // Broadcast for rhs operand require the operation to be commutative to
       // allow switching the order of operands. To allow this conversion, the
@@ -138,11 +138,12 @@ public:
       auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), rhsType.getShape(), rhsType.getElementType());
       auto negOp = rewriter.create<linalg::NegFOp>(
-          srcOp.getLoc(), adaptor.getInputs().back(), negEmptyOp);
+          srcOp.getLoc(), {adaptor.getInputs().back()}, {negEmptyOp},
+          srcOp.getAttrs());
 
       rewriter.replaceOpWithNewOp<linalg::AddOp>(
-          srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
-          adaptor.getOutputs().front());
+          srcOp, {adaptor.getInputs().front(), negOp.getResults().front()},
+          adaptor.getOutputs(), srcOp.getAttrs());
     }
 
     return success();
