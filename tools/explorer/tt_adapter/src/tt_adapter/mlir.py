@@ -19,6 +19,10 @@ def get_loc_str(loc):
 
 
 class AttrHandler:
+    """
+    A class that handles parsing and registering handlers for MLIR attribute types.
+    """
+
     ATTR_HANDLERS = {}
 
     @staticmethod
@@ -27,7 +31,6 @@ class AttrHandler:
 
     @staticmethod
     def parse_attr(attr):
-        # Need to parse the attr and return the relevant KV data into
         if attr.name in AttrHandler.ATTR_HANDLERS:
             return AttrHandler.ATTR_HANDLERS[attr.name](attr.attr)
         else:
@@ -36,6 +39,21 @@ class AttrHandler:
 
     @staticmethod
     def register_handler(attr_name):
+        """
+        Decorator function to register a handler for a specific attribute name.
+
+        Usage:
+
+        @AttrHandler.register_handler("attr_name")
+        def parse_attr_name(attr: ir.Attribute) -> List[graph_builder.KeyValue]:
+            pass
+
+        registers a handler for any NamedAttribute present in the MLIR module with the name "attr_name".
+
+        The handler itself is the function that is decorated with this decorator. It must follow the function signature of
+        `parse_attr_name` as shown above.
+        """
+
         def decorator(handler):
             AttrHandler.ATTR_HANDLERS[attr_name] = handler
             return handler
@@ -404,7 +422,6 @@ def parse_ttnn_ttnn_layout(attr):
 class OpHandler:
     def __init__(self, op):
         self.op = op
-        self.attrs = []
 
     def get_id(self, names: defaultdict):
         name = get_loc_str(self.op.location)
@@ -422,16 +439,17 @@ class OpHandler:
 
     def get_attributes(self):
         # Parse Op Attributes themselves
+        result = []
         for attr in self.op.attributes:
-            self.attrs.extend(AttrHandler.parse_attr(attr))
+            result.extend(AttrHandler.parse_attr(attr))
+        return result
 
     def make_graph_node(self, name_dict):
-        self.get_attributes()
         return graph_builder.GraphNode(
             id=self.get_id(name_dict),
             label=self.op.name,
             namespace=self.get_namespace(),
-            attrs=self.attrs,
+            attrs=self.get_attributes(),
         )
 
     def make_constant_node(self, name_dict, constant_name):
@@ -480,7 +498,7 @@ def build_graph(module):
                     op_to_graph_node[op] = graph_node
 
                     for operand in op.operands:
-                        if operand.owner == block and operand not in op_to_graph_node:
+                        if isinstance(operand, ir.Value):
                             # This is a constant and we need to create a node for it.
                             operand_node = operation.make_constant_node(
                                 name_dict, operand.get_name()
