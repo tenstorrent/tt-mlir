@@ -32,15 +32,17 @@ PYBIND11_MODULE(_C, m) {
                              &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
       .def("store", &tt::runtime::Binary::store)
-      .def("get_debug_info_golden", [](tt::runtime::Binary &binary,
-                                       std::string &loc) {
-        const ::tt::target::GoldenTensor *goldenTensor =
-            binary.getDebugInfoGolden(loc);
-        if (goldenTensor == nullptr) {
-          throw std::runtime_error("`getDebugInfoGolden` returned a `nullptr`");
-        }
-        return goldenTensor;
-      });
+      .def("get_debug_info_golden",
+           [](tt::runtime::Binary &binary, std::string &loc)
+               -> std::variant<const ::tt::target::GoldenTensor *, py::object> {
+             const ::tt::target::GoldenTensor *goldenTensor =
+                 binary.getDebugInfoGolden(loc);
+             if (goldenTensor == nullptr) {
+               ::flatbuffers::FlatBufferBuilder fbb;
+               return py::none();
+             }
+             return goldenTensor;
+           });
   py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_property_readonly("version", &tt::runtime::SystemDesc::getVersion)
       .def_property_readonly("ttmlir_git_hash",
@@ -123,7 +125,7 @@ PYBIND11_MODULE(_C, m) {
             t->shape()->size(),        /* rank */
             *(t->shape()),             /* shape */
             *(t->stride()),            /* stride of buffer */
-            true                       /* read only */
+            false                      /* read only */
         );
       });
 }
