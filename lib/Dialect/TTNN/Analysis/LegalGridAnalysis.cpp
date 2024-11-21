@@ -9,11 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include <cassert>
-#include <cstdint>
-#include <mlir/IR/Types.h>
-#include <mlir/IR/Visitors.h>
-#include <optional>
 
 namespace mlir::tt::ttnn {
 
@@ -29,7 +24,7 @@ bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
   // the constraint for each op.
 
   // For now just check if we have enough tiles to shard the tensor to the
-  // desired grid.
+  // desired grid. This is a safe heuristic that should be valid for all ops.
 
   if (not layout.hasShardedTensorMemoryLayout()) {
     return true;
@@ -102,13 +97,14 @@ bool LegalLayoutAnalysis::applyOverrides() {
 
   OutputLayoutOverrideParams override = gridOverride->getValue();
   if (not override.fullLayoutOverride()) {
-    // We cannot skip analysis.
+    // We need to perform analysis and apply partial overrides.
     return false;
   }
 
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+  auto tensorShape = tensorType.getShape();
 
   GridAttr grid =
       GridAttr::get(op->getContext(), ArrayRef<int64_t>(override.grid.value()));
@@ -116,21 +112,17 @@ bool LegalLayoutAnalysis::applyOverrides() {
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
   if (override.dataType.has_value()) {
-    elementType = {utils::createRowMajorTypeFromDtype(
-        op->getContext(), override.dataType.value())};
+    elementType = utils::createRowMajorTypeFromDtype(op->getContext(),
+                                                     override.dataType.value());
   }
 
   if (override.memoryLayout == Layout::Tile) {
     elementType = TileType::get(op->getContext(), elementType);
   }
 
-  // TODO rewrite like below.
-  analysisResult.push_back(
-      layout.withGrid(op->getContext(), tensorType, grid)
-          .withBufferType(op->getContext(), override.bufferType.value())
-          .withMemoryLayout(op->getContext(),
-                            override.tensorMemoryLayout.value())
-          .withElementType(op->getContext(), elementType));
+  analysisResult.push_back(TTNNLayoutAttr::get(
+      op->getContext(), tensorShape, elementType, override.bufferType.value(),
+      grid, override.tensorMemoryLayout.value()));
 
   return true;
 }
@@ -161,6 +153,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
 
   std::optional<OutputLayoutOverrideParams> override;
 
+  // Check if we have an override for this op.
   if (isa<NameLoc>(op->getLoc())) {
     StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
     if (auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
