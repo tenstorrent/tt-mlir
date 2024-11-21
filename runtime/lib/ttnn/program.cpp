@@ -27,6 +27,7 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/reduction/reduction.h"
+#include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
@@ -74,6 +75,7 @@ public:
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
+      TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
       runOperation(op);
       runCallback(executableHandle, op, &context);
     }

@@ -17,9 +17,14 @@ import shutil
 import atexit
 import traceback
 from pathlib import Path
+import csv
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
+
+
+def get_loc_data_hook(binary, programContext, opContext):
+    op_debug_str = ttrt.runtime.get_op_debug_str(opContext)
 
 
 class Perf:
@@ -456,6 +461,37 @@ class Perf:
                         )
 
                     process_ops(None, None, False)
+
+                    # Add post-processing steps to insert location data into the ops_perf data file
+                    with open(profiler_csv_file_path, "r") as perf_file:
+                        perf_reader = csv.DictReader(perf_file)
+                        perf_data = dict([(row["OP CODE"], row) for row in perf_reader])
+
+                    prev = None
+                    with open(profiler_csv_file_path, "w+") as perf_file, open(
+                        tracy_ops_data_file_path, "r"
+                    ) as message_file:
+                        message_reader = csv.reader(message_file, delimiter=";")
+                        for message in message_reader:
+                            message = message[0]  # Don't need timestamp information
+                            if message.startswith("`"):
+                                # This is a TTNN Message
+                                # The location data is now in the previous message
+                                # OP Code coming in from metal will always follow the form
+                                # `TT_DNN_DEVICE_OP: "OpCode"
+                                # As such, we can just split for " and get the second element
+                                op_code = message.split('"')[1]
+                                if prev:
+                                    # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
+                                    perf_data[op_code]["LOC"] = prev
+                            else:
+                                prev = message
+                        perf_headers = list(perf_data.values())[0].keys()
+                        perf_writer = csv.DictWriter(perf_file, fieldnames=perf_headers)
+                        perf_writer.writeheader()
+                        for row in perf_data.values():
+                            perf_writer.writerow(row)
+
                     self.file_manager.copy_file(
                         perf_folder_path,
                         profiler_csv_file_path,
