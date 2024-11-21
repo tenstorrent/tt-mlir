@@ -406,10 +406,15 @@ class Run:
                                     f"input_{i}"
                                 )
 
-                                if len(golden_tensor) != 0:
-                                    golden_inputs.append(
-                                        torch.tensor(golden_tensor, dtype=torch.float32)
-                                    )
+                                golden_tensor_torch = torch.frombuffer(
+                                    golden_tensor, dtype=torch.float32
+                                )
+                                print(
+                                    "Converted a `GoldenTensor` buffer to a `torch.tensor`"
+                                )
+
+                                if len(golden_tensor_torch) != 0:
+                                    golden_inputs.append(golden_tensor_torch)
 
                             program.populate_inputs(
                                 Run.TorchInitializer.get_initilizer(self["--init"]),
