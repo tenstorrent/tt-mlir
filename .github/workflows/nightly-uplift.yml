@@ -5,7 +5,7 @@ name: Nighty Uplift
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # Runs at 08:00 UTC every day
+    - cron: '0 6 * * *'  # Runs at 06:00 UTC every day
   workflow_dispatch:  # Manual trigger
 
 jobs:
@@ -13,25 +13,32 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SUBMODULE_PATH: third_party/tt-metal
-      TT_METAL_VERSION: origin/main
+      TT_METAL_SUBMODULE_PATH: third_party/tt-metal
 
     steps:
 
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          ref: main
 
-      - name: Set env variable
+      - name: Set env variable for today's date
         run: |
           echo "TODAY=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-      - name: Update tt-metal reference
+      - name: Fetch latest SHA of tt-metal submodule
+        id: get_sha
+        run: |
+          LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-mlir/commits/main --jq '.sha')
+          echo "LATEST_TT_METAL_VERSION=$LATEST_TT_METAL_VERSION" >> $GITHUB_ENV
+
+      - name: Update tt-metal reference in third_party/CMakeLists.txt
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-            # Fetch the latest SHA using GitHub CLI
-            LATEST_SHA=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
-            # Update the third_party/CMakeLists.txt file with the new SHA
-            sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${LATEST_SHA}\")/" third_party/CMakeLists.txt
+          echo "Updating tt-mlir to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
+          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
@@ -41,9 +48,9 @@ jobs:
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
           base: main
-          commit-message: "Uplift ${{ env.SUBMODULE_PATH }} to ${{ env.SUBMODULE_VERSION }} ${{ env.TODAY }}"
-          title: "Uplift ${{ env.SUBMODULE_PATH }} to ${{ env.SUBMODULE_VERSION }} ${{ env.TODAY }}"
-          body: "This PR uplifts the ${{ env.SUBMODULE_PATH }} to the ${{ env.SUBMODULE_VERSION }}"
+          commit-message: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
+          title: "Uplift ${{ env.TT_METAL_SUBMODULE_PATH }} to ${{ env.LATEST_TT_METAL_VERSION }} ${{ env.TODAY }}"
+          body: "This PR uplifts the ${{ env.TT_METAL_SUBMODULE_PATH }} to the ${{ env.LATEST_TT_METAL_VERSION }}"
           labels: uplift
           delete-branch: true
           token: ${{ secrets.GH_TOKEN }}
