@@ -167,6 +167,13 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
+            name="--emitc-dylib",
+            type=str,
+            default=None,
+            choices=None,
+            help="path to the dylib",
+        )
+        Run.register_arg(
             name="--golden",
             type=bool,
             default=True,
@@ -365,6 +372,8 @@ class Run:
             if self["--golden"]:
                 callback_env = ttrt.runtime.DebugHooks.get(golden)
 
+            emitc_dylib_path = self["--emitc-dylib"]
+
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
@@ -383,9 +392,12 @@ class Run:
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
-            so_path = "/localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/build/libttnn-dylib.so"
-            so_handle = ttrt.runtime.open_so(so_path)
-            print(f"opened so handle")
+            if emitc_dylib_path is not None:
+                emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
+                self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
+            # so_path = "/localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/build/libttnn-dylib.so"
+            # so_handle = ttrt.runtime.open_so(so_path)
+            # print(f"opened so handle")
 
             try:
                 for bin in binaries:
@@ -478,22 +490,29 @@ class Run:
 
                             ttrt.runtime.wait(event)
 
-                            emitc_outs = ttrt.runtime.run_so_program(
-                                so_handle,
-                                "_Z7forwardSt6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE",
-                                inputs,
-                                device,
-                            )
-                            print("got outs")
-
-                            all_tensors_match = ttrt.runtime.compare_outs(
-                                total_outputs[0], emitc_outs
-                            )
-
-                            if not all_tensors_match:
-                                raise Exception(
-                                    "Failed: TTRT and EmitC outputs do not match!"
+                            if emitc_dylib_path is not None:
+                                emitc_outs = ttrt.runtime.run_so_program(
+                                    emitc_dylib_handle,
+                                    "_Z7forwardSt6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE",
+                                    inputs,
+                                    device,
                                 )
+                                self.logging.debug(
+                                    f"got emitc outputs for program={program_index}"
+                                )
+
+                                all_tensors_match = ttrt.runtime.compare_outs(
+                                    total_outputs[0], emitc_outs
+                                )
+
+                                if not all_tensors_match:
+                                    self.logging.error(
+                                        "Failed: TTRT and EmitC outputs do not match!"
+                                    )
+                                    self.logging.error(total_outputs[0], emitc_outs)
+                                    raise Exception(
+                                        "Failed: TTRT and EmitC outputs do not match!"
+                                    )
 
                             if self["--identity"]:
                                 self.logging.debug(
