@@ -60,11 +60,11 @@ bool OutputLayoutOverrideParser::parse(
       }
     }
 
-    // Parse memory space.
+    // Parse buffer type (memory space).
     std::optional<BufferType> bufferType =
         symbolizeBufferType(layoutParamParts[iMemorySpace]);
     if (!bufferType.has_value() and !layoutParamParts[iMemorySpace].empty()) {
-      opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
+      opt.error("Invalid buffer type: " + layoutParamParts[iMemorySpace]);
       return true;
     }
 

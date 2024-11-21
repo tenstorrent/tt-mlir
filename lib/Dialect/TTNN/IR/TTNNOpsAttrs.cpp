@@ -119,7 +119,8 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
-// If the element type is TileType, return the nested element type.
+// If the element type is TileType, return the nested element type i.e
+// FloatType/IntegerType
 mlir::Type TTNNLayoutAttr::getScalarElementType() const {
   Type elementType = getElementType();
   if (mlir::isa<TileType>(elementType)) {

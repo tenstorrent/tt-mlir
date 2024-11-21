@@ -23,7 +23,7 @@ struct LegalLayoutAnalysisInput {
 
   LegalLayoutAnalysisInput()
       : chipDesc(nullptr), maxGrid(nullptr), tensorType(nullptr),
-        outputLayoutOverrides(nullptr), rowMajorEnabled(false) {}
+        outputLayoutOverrides(nullptr) {}
 
   LegalLayoutAnalysisInput(
       ChipDescAttr chipDesc, GridAttr maxGrid, RankedTensorType tensorType,
