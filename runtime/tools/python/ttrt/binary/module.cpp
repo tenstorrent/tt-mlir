@@ -32,16 +32,8 @@ PYBIND11_MODULE(_C, m) {
                              &tt::runtime::Binary::getFileIdentifier)
       .def("as_json", &tt::runtime::Binary::asJson)
       .def("store", &tt::runtime::Binary::store)
-      .def("get_debug_info_golden",
-           [](tt::runtime::Binary &binary, std::string &loc)
-               -> std::variant<const ::tt::target::GoldenTensor *, py::object> {
-             const ::tt::target::GoldenTensor *goldenTensor =
-                 binary.getDebugInfoGolden(loc);
-             if (goldenTensor == nullptr) {
-               return py::none();
-             }
-             return goldenTensor;
-           });
+      .def("get_debug_info_golden", &::tt::runtime::Binary::getDebugInfoGolden,
+           py::return_value_policy::reference);
   py::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
       .def_property_readonly("version", &tt::runtime::SystemDesc::getVersion)
       .def_property_readonly("ttmlir_git_hash",
