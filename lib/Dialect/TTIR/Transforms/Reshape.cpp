@@ -13,7 +13,7 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
-// Constant as fill pass
+// Reshape folding pass
 //===----------------------------------------------------------------------===//
 
 class TTIRReshapeFoldingRewriter : public OpRewritePattern<ReshapeOp> {
