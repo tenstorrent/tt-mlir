@@ -118,9 +118,9 @@ def golden(binary, programContext, opContext):
         op_golden_tensor = binary.get_debug_info_golden(loc)
         op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext)
 
-        # if len(op_golden_tensor) == 0:
-        #    print("Golden tensor is empty - skipping golden comparison")
-        #    return
+        if op_golden_tensor is None:
+            print("Golden tensor is None - skipping golden comparison")
+            return
 
         # if len(op_output_tensor) == 0:
         #    print("Output tensor is empty - skipping golden comparison")
@@ -135,7 +135,8 @@ def golden(binary, programContext, opContext):
         golden_tensor_torch = torch.frombuffer(
             op_golden_tensor, dtype=torch.float32
         ).flatten()
-        output_tensor_torch = torch.frombuffer(
+
+        output_tensor_torch = torch.tensor(
             op_output_tensor, dtype=torch.float32
         ).flatten()
 
