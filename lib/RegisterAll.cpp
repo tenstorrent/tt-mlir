@@ -36,6 +36,13 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
+  arith::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  scf::registerBufferizableOpInterfaceExternalModels(registry);
+  bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
+      registry);
+  tensor::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
