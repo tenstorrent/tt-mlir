@@ -152,20 +152,17 @@ def golden_partial_function(
             print("Golden tensor is None - skipping golden comparison")
             return
 
-        # if len(op_output_tensor) == 0:
-        #    print("Output tensor is empty - skipping golden comparison")
-        #    return
+        if len(op_output_tensor) == 0:
+            print("Output tensor is empty - skipping golden comparison")
+            return
 
-        # if len(op_golden_tensor) != len(op_output_tensor):
-        #    print(
-        #        "Golden and output tensor sizes do not match - skipping golden comparison"
-        #    )
-        #    return
-
+        # Convert golden tensor buffer to a torch tensor
+        # TODO: figure out how to glean the intended type from the buffer
         golden_tensor_torch = torch.frombuffer(
             op_golden_tensor, dtype=torch.float32
         ).flatten()
 
+        # TODO: figure out how to glean the intended type from the buffer
         output_tensor_torch = torch.tensor(
             op_output_tensor, dtype=torch.float32
         ).flatten()
@@ -179,6 +176,12 @@ def golden_partial_function(
                 output_tensor_torch,
                 f"{golden_runtime_config.artifact_dir}/{loc}_device.pt",
             )
+
+        if golden_tensor_torch.shape != output_tensor_torch.shape:
+            print(
+                "Golden and output tensor shapes do not match - skipping golden comparison"
+            )
+            return
 
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch, output_tensor_torch
