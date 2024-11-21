@@ -5,11 +5,9 @@
 #include "ttnn-precompiled.hpp"
 
 // To generate forward function, run:
-// ./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-implicit-device
-// --ttir-layout --convert-ttir-to-ttnn --ttnn-decompose-layouts
-// --ttnn-deallocate --convert-ttnn-to-emitc
+// ./build/bin/ttmlir-opt --ttir-to-emitc-pipeline
 // test/ttmlir/Silicon/TTNN/emitc/simple_add.mlir | ./build/bin/ttmlir-translate
-// --mlir-to-cpp -allow-unregistered-dialect
+// --mlir-to-cpp
 
 ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
   ttnn::Device *v3 = ttnn::DeviceGetter::getInstance();

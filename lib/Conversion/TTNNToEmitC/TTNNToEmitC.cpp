@@ -618,6 +618,35 @@ public:
   }
 };
 
+// Module Op conversion pattern
+//
+// This conversion pattern removes attributes from the ModuleOp. Previously,
+// ttmlir-translate would complain when translating to C++ if there were any
+// attributes from "unregistered" dialects.
+//
+class ModuleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp> {
+
+public:
+  ModuleOpConversionPattern(const TypeConverter &typeConverter,
+                            MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp>(typeConverter,
+                                                           context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::ModuleOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(srcOp, [&]() {
+      for (const NamedAttribute &attr : srcOp->getAttrs()) {
+        srcOp->removeAttr(attr.getName());
+      }
+    });
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -720,6 +749,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AllGatherOp>>(typeConverter,
                                                               ctx);
+
+  // Module op
+  //
+  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
