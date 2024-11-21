@@ -1034,7 +1034,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     }
 
     if (dim >= operandTy.getRank()) {
-      return emitOpError("all dimensions should be between [0, ")
+      return emitOpError("all dimensions should be in interval [0, ")
              << operandTy.getRank() << "). Got dimension: " << dim;
     }
   }
