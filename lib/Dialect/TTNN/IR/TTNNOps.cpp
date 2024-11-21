@@ -42,7 +42,7 @@ namespace mlir::tt::ttnn {
   const RankedTensorType outputTensorType =
       mlir::cast<RankedTensorType>(outputs.front().getType());
 
-  if (inputTensorType != outputTensorType) {
+  if (inputTensorType.getShape() != outputTensorType.getShape()) {
     return emitOpError("input and output must have same shape.");
   }
 
