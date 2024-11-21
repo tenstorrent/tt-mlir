@@ -14,6 +14,22 @@ namespace mlir::tt::ttir {
 
 //===----------------------------------------------------------------------===//
 // Broadcast Folding pass
+// Our backend supports implicit broadcast of operands, so explicit broadcast
+// instructions are folded.
+//
+// For Example:
+//
+// %0 = tensor.empty() : tensor<512xf32>
+// %1 = "ttir.broadcast"(%arg0, %0) (tensor<1xf32>, tensor<512xf32>) ->
+// tensor<512xf32> %2 = tensor.empty() : tensor<512xf32> %3 = "ttir.maximum"(%1,
+// %arg1, %2) (tensor<512xf32>, tensor<512xf32>, tensor<512xf32>) ->
+// tensor<512xf32>
+//
+// After folding:
+//
+// %0 = tensor.empty() : tensor<512xf32>
+// %1 = "ttir.maximum"(%arg0, %arg1, %0) (tensor<1xf32>, tensor<512xf32>,
+// tensor<512xf32>) -> tensor<512xf32>
 //===----------------------------------------------------------------------===//
 
 class TTIRBroadcastFoldRewriter : public OpRewritePattern<BroadcastOp> {

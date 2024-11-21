@@ -116,13 +116,13 @@ void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
                                                        std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineDeallocPass(pm, *optionsStruct);
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, *optionsStruct);
 }
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineTTIRPasses(pm, options);
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);
   createTTNNPipelineLayoutDecompositionPass(pm, options);
