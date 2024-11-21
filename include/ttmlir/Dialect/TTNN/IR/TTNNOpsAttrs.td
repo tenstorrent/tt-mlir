@@ -143,6 +143,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
       bool hasInterleavedL1TensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
+      Type getScalarElementType() const;
       DataType getDataTypeFromMemRef() const;
       uint64_t getElementSizeBytes() const;
       int64_t getTensorSizeInBytes(ArrayRef<int64_t> tensorShape, ::mlir::tt::DeviceAttr device) const;

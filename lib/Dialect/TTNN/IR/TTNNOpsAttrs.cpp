@@ -119,6 +119,15 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
+// If the element type is TileType, return the nested element type.
+mlir::Type TTNNLayoutAttr::getScalarElementType() const {
+  Type elementType = getElementType();
+  if (mlir::isa<TileType>(elementType)) {
+    return mlir::cast<TileType>(elementType).getElementType();
+  }
+  return elementType;
+}
+
 // Extract data type from the memref. Example:
 // memref<2x2xf32> -> f32
 // memref<2x2x!tt.tile<32x32xf32>> -> f32

@@ -20,7 +20,7 @@ struct OutputLayoutOverrideParams {
   std::optional<Layout> memoryLayout; // ROW_MAJOR / TILE
   std::optional<tt::DataType> dataType;
 
-  bool allParamsSet() const {
+  bool fullLayoutOverride() const {
     return grid.has_value() && bufferType.has_value() &&
            tensorMemoryLayout.has_value() && memoryLayout.has_value();
   }

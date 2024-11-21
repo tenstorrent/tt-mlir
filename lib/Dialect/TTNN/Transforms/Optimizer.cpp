@@ -79,6 +79,7 @@ public:
     memReconfigEnabled = std::move(options.memReconfigEnabled);
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
+    rowMajorEnabled = std::move(options.rowMajorEnabled);
   }
 
 protected:
@@ -114,6 +115,11 @@ protected:
       ::llvm::cl::desc(
           "Override maximum number of legal layouts for grid analysis."),
       ::llvm::cl::init(64)};
+  ::mlir::Pass::Option<bool> rowMajorEnabled{
+      *this, "row-major-enabled",
+      ::llvm::cl::desc(
+          "Enable row major layout generation in legal layout analysis."),
+      ::llvm::cl::init(false)};
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
@@ -332,6 +338,21 @@ public:
 
 private:
   void assertOverridesValid() {
+    // Check if we have conflicint overrides.
+    //
+    if (not rowMajorEnabled) {
+      for (auto &override : overrideOutputLayout) {
+        if (not override.second.fullLayoutOverride() and
+            override.second.memoryLayout.has_value() and
+            override.second.memoryLayout.value() == Layout::RowMajor) {
+          llvm::errs() << "Row major layout is not enabled, but override "
+                          "output layout is set to row major.\n";
+          assert(false && "Row major layout is not enabled, but override "
+                          "output layout is set to row major.");
+        }
+      }
+    }
+
     // Check if each overriden op exists in the graph.
     //
     llvm::StringMap<bool> overridenOpExists;

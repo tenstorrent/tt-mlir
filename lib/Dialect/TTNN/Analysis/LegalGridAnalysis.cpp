@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <cassert>
+#include <cstdint>
 #include <mlir/IR/Types.h>
 #include <mlir/IR/Visitors.h>
 #include <optional>
@@ -37,13 +39,21 @@ bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
     RankedTensorType tensorType =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
     llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-    // NEED to test this for tensor dim > 2.
-    auto physicalShape = layout.getPhysicalShape(tensorShape);
-    auto tilesM = (physicalShape[0] + 31) / 32;
-    auto tilesN = (physicalShape[1] + 31) / 32;
-    return tilesM >= layout.getGrid().getShape()[0] &&
-           tilesN >= layout.getGrid().getShape()[1];
+    auto tiledShape = layout.getTiledShape(tensorShape);
+    auto gridShape = layout.getGrid().getShape();
 
+    assert(tiledShape.size() == gridShape.size() &&
+           "Tiled tensor shape and grid shape must have the same rank");
+
+    for (size_t i = 0; i < tiledShape.size(); i++) {
+      // We need to have at least as many tiles as the grid size.
+      // Could also experiment with tiledShape[i] % gridShape[i] == 0, but need
+      // more context.
+      if (tiledShape[i] < gridShape[i]) {
+        return false;
+      }
+    }
+    return true;
   } else {
     // TODO(odjuricic): For row major there are no constraints on how the tensor
     // can be sharded. We need some kind of a heuristic to reduce the search
@@ -70,23 +80,6 @@ bool cantChangeOutputLayout(Operation *op) {
   return false;
 }
 
-Type getFinalScalarElementType(Operation *op, Type elementType,
-                               std::optional<DataType> override) {
-  Type scalarElementType;
-  if (override.has_value()) {
-    scalarElementType = {
-        utils::createRowMajorTypeFromDtype(op->getContext(), override.value())};
-
-  } else {
-    if (mlir::isa<TileType>(elementType)) {
-      scalarElementType = mlir::cast<TileType>(elementType).getElementType();
-    } else {
-      scalarElementType = elementType;
-    }
-  }
-  return scalarElementType;
-}
-
 bool LegalLayoutAnalysis::applyOverrides() {
   // Lookup layout overrides based on location information for current
   // operation.
@@ -108,7 +101,7 @@ bool LegalLayoutAnalysis::applyOverrides() {
   }
 
   OutputLayoutOverrideParams override = gridOverride->getValue();
-  if (not override.allParamsSet()) {
+  if (not override.fullLayoutOverride()) {
     // We cannot skip analysis.
     return false;
   }
@@ -121,8 +114,12 @@ bool LegalLayoutAnalysis::applyOverrides() {
       GridAttr::get(op->getContext(), ArrayRef<int64_t>(override.grid.value()));
 
   // Create element type for the new layout.
-  Type elementType =
-      getFinalScalarElementType(op, layout.getElementType(), override.dataType);
+  Type elementType = layout.getScalarElementType();
+  if (override.dataType.has_value()) {
+    elementType = {utils::createRowMajorTypeFromDtype(
+        op->getContext(), override.dataType.value())};
+  }
+
   if (override.memoryLayout == Layout::Tile) {
     elementType = TileType::get(op->getContext(), elementType);
   }
@@ -160,6 +157,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
     return;
   }
 
+  Type scalarElementType = layout.getScalarElementType();
+
   std::optional<OutputLayoutOverrideParams> override;
 
   if (isa<NameLoc>(op->getLoc())) {
@@ -167,17 +166,18 @@ void LegalLayoutAnalysis::analysisImplementation() {
     if (auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
+      if (override->dataType.has_value()) {
+        scalarElementType = {utils::createRowMajorTypeFromDtype(
+            op->getContext(), override->dataType.value())};
+      }
     }
   }
-
-  Type scalarElementType = getFinalScalarElementType(
-      op, layout.getElementType(), override->dataType);
 
   Type tileElementType = TileType::get(op->getContext(), scalarElementType);
 
   std::vector<TTNNLayoutAttr> shardedResults;
 
-  // Generate both TILE and ROW_MAJOR layouts for all possibilities.
+  // Generate both TILE and ROW_MAJOR layouts.
   for (Type elementType : {scalarElementType, tileElementType}) {
     if (not analysisInput.rowMajorEnabled && elementType == scalarElementType) {
       continue;
@@ -247,6 +247,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
       shardedResults.end());
 
   // Pick top largest sharded grids.
+  // This becomes a problem when we introduce row_major since an 8x8 tensor can
+  // be sharded onto a 8x8 grid.
   std::sort(shardedResults.begin(), shardedResults.end(),
             [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
               return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
@@ -258,8 +260,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
           std::min(analysisInput.maxShardedGrids,
                    static_cast<int64_t>(shardedResults.size())));
 
-  // Apply overrides.
-  // TODO check if row major is enabled.
+  // Apply partial layout overrides.
   if (override.has_value()) {
     analysisResult.erase(
         std::remove_if(analysisResult.begin(), analysisResult.end(),
@@ -289,6 +290,9 @@ void LegalLayoutAnalysis::analysisImplementation() {
         analysisResult.end());
   }
 
-  // TODO check if empty?
+  if (analysisResult.empty()) {
+    op->emitError("No legal layout found for the operation.");
+    assert(false && "At least one legal layout must be found.");
+  }
 }
 } // namespace mlir::tt::ttnn
