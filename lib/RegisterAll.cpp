@@ -19,23 +19,44 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+
+#include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
+#include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Bufferization/Transforms/Transforms.h"
+#include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
+
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/Register.h"
 #endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
-  registry
-      .insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
-              mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-              mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
-              mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-              mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-              mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-              mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-              mlir::emitc::EmitCDialect>();
+  registry.insert<
+      mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+      mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
+      mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
+      mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
+      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
+      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
+  arith::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  scf::registerBufferizableOpInterfaceExternalModels(registry);
+  bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
+      registry);
+  tensor::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
