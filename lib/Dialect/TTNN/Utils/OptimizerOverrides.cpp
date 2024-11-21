@@ -97,8 +97,7 @@ bool OutputLayoutOverrideParser::parse(
 
     // Set parsed op overrides.
     value[opOverrideParts[iOpName]] = OutputLayoutOverrideParams{
-        std::move(grid), bufferType.value(), tensorMemoryLayout.value(),
-        memoryLayout.value(), dataType.value()};
+        grid, bufferType, tensorMemoryLayout, memoryLayout, dataType};
   }
   return false;
 }

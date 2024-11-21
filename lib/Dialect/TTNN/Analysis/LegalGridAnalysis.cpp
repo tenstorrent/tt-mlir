@@ -174,12 +174,18 @@ void LegalLayoutAnalysis::analysisImplementation() {
   }
 
   Type tileElementType = TileType::get(op->getContext(), scalarElementType);
-
   std::vector<TTNNLayoutAttr> shardedResults;
+
+  bool rowMajorAllowed = analysisInput.rowMajorEnabled;
+  if (override.has_value() and override->memoryLayout.has_value() and
+      override->memoryLayout.value() == Layout::RowMajor) {
+    // Force allow row major if override is set.
+    rowMajorAllowed = true;
+  }
 
   // Generate both TILE and ROW_MAJOR layouts.
   for (Type elementType : {scalarElementType, tileElementType}) {
-    if (not analysisInput.rowMajorEnabled && elementType == scalarElementType) {
+    if (not rowMajorAllowed and elementType == scalarElementType) {
       continue;
     }
     // DRAM
@@ -285,7 +291,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
                                layout.isTiled() ==
                                (override->memoryLayout.value() == Layout::Tile);
                          }
-                         return keepLayout;
+                         return !keepLayout;
                        }),
         analysisResult.end());
   }

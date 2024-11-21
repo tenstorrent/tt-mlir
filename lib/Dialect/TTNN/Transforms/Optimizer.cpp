@@ -338,21 +338,6 @@ public:
 
 private:
   void assertOverridesValid() {
-    // Check if we have conflicint overrides.
-    //
-    if (not rowMajorEnabled) {
-      for (auto &override : overrideOutputLayout) {
-        if (not override.second.fullLayoutOverride() and
-            override.second.memoryLayout.has_value() and
-            override.second.memoryLayout.value() == Layout::RowMajor) {
-          llvm::errs() << "Row major layout is not enabled, but override "
-                          "output layout is set to row major.\n";
-          assert(false && "Row major layout is not enabled, but override "
-                          "output layout is set to row major.");
-        }
-      }
-    }
-
     // Check if each overriden op exists in the graph.
     //
     llvm::StringMap<bool> overridenOpExists;
