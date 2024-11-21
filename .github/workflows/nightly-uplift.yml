@@ -37,8 +37,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Updating tt-mlir to SHA: $LATEST_TT_METAL_VERSION"
-          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${LATEST_TT_METAL_VERSION}\")/" third_party/CMakeLists.txt
+          echo "Updating tt-mlir to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
+          sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
