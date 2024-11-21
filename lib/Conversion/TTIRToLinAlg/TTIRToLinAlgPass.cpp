@@ -36,7 +36,7 @@ struct ConvertTTIRToLinAlgPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<tensor::TensorDialect>();
     target.addLegalDialect<linalg::LinalgDialect>();
-    target.addLegalDialect<linalg::LinalgDialect>();
+    target.addLegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     target.addLegalOp<mlir::linalg::AddOp>();
