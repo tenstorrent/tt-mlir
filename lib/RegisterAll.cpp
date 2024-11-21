@@ -24,15 +24,15 @@
 #endif
 
 void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
-  registry
-      .insert<mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
-              mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
-              mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
-              mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
-              mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
-              mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
-              mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-              mlir::emitc::EmitCDialect>();
+  registry.insert<
+      mlir::tt::TTDialect, mlir::tt::ttir::TTIRDialect,
+      mlir::tt::ttnn::TTNNDialect, mlir::tt::ttmetal::TTMetalDialect,
+      mlir::tt::ttkernel::TTKernelDialect, mlir::func::FuncDialect,
+      mlir::arith::ArithDialect, mlir::ml_program::MLProgramDialect,
+      mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
+      mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
+      mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
+      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
