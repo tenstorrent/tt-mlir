@@ -112,8 +112,8 @@ protected:
           llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
   ::mlir::Pass::Option<int64_t> maxLegalLayouts{
       *this, "max-legal-layouts",
-      ::llvm::cl::desc(
-          "Override maximum number of legal layouts for grid analysis."),
+      ::llvm::cl::desc("Override maximum number of sharded layouts for legal "
+                       "layout analysis."),
       ::llvm::cl::init(64)};
   ::mlir::Pass::Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",

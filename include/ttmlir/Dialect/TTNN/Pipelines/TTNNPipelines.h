@@ -101,12 +101,13 @@ struct TTIRToTTNNBackendPipelineOptions
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
 
-  // Option to override maximum number of legal layouts for grid analysis
+  // Option to override maximum number of sharded layouts to be generated in
+  // legal layout analysis.
   //
   Option<int64_t> maxLegalLayouts{
       *this, "max-legal-layouts",
-      llvm::cl::desc(
-          "Override maximum number of legal layouts for grid analysis."),
+      llvm::cl::desc("Override maximum number of sharded layouts for legal "
+                     "layout analysis."),
       llvm::cl::init(64)};
 
   ListOption<int64_t> meshShape{
