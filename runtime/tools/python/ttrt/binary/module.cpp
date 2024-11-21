@@ -38,7 +38,6 @@ PYBIND11_MODULE(_C, m) {
              const ::tt::target::GoldenTensor *goldenTensor =
                  binary.getDebugInfoGolden(loc);
              if (goldenTensor == nullptr) {
-               ::flatbuffers::FlatBufferBuilder fbb;
                return py::none();
              }
              return goldenTensor;
