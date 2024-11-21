@@ -39,6 +39,9 @@ struct ConvertTTIRToLinAlgPass
     target.addLegalDialect<linalg::LinalgDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
+    target.addLegalOp<mlir::linalg::AddOp>();
+    target.markOpRecursivelyLegal<mlir::linalg::AddOp>();
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
