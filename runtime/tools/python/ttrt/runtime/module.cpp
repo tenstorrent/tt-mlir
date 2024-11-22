@@ -138,4 +138,7 @@ PYBIND11_MODULE(_C, m) {
         os << env;
         return os.str();
       });
+
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }
