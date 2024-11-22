@@ -3,7 +3,7 @@
 Here is a brief overview of the dialects in the project, please refer to the
 individual dialect documentation for more details.:
 
-- `tt`: Common types such as, `tt.tile`, `tt.layout`, `tt.grid`, etc. and enums such as, data formats, memory spaces, iterator types etc.
+- `tt`: Common types such as, `tt.tile`, `tt.metal_layout`, `tt.grid`, etc. and enums such as, data formats, memory spaces, iterator types etc.
 - `ttir`: A high level dialect that models the tensor compute graph on tenstorrent devices. Accepts `tosa` and `linalg` input.
   - `ttir.generic`: Generically describe compute work.
   - `ttir.to_layout`: Convert between different tensor memory layouts and transfer between different memory spaces.

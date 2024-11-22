@@ -18,8 +18,9 @@
 namespace mlir::tt {
 
 flatbuffers::Offset<::tt::target::LayoutDesc>
-layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, LayoutAttr attr,
-                       ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr);
+metalLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache, MetalLayoutAttr attr,
+                            ArrayRef<int64_t> logicalShape,
+                            DeviceAttr deviceAttr);
 
 flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
     FlatbufferObjectCache &cache, ttnn::TTNNLayoutAttr attr,
@@ -438,9 +439,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
 inline flatbuffers::Offset<::tt::target::LayoutDesc>
 encodingToFlatbuffer(FlatbufferObjectCache &cache, Attribute attr,
                      ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
-  if (isa<LayoutAttr>(attr)) {
-    return layoutAttrToFlatbuffer(cache, cast<LayoutAttr>(attr), logicalShape,
-                                  deviceAttr);
+  if (isa<MetalLayoutAttr>(attr)) {
+    return metalLayoutAttrToFlatbuffer(cache, cast<MetalLayoutAttr>(attr),
+                                       logicalShape, deviceAttr);
   }
 
   assert(isa<ttnn::TTNNLayoutAttr>(attr) && "unsupported layout attr");

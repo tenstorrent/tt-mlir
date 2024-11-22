@@ -199,8 +199,8 @@ public:
   LogicalResult relayout(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputTy = mlir::cast<RankedTensorType>(op.getType());
-    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
-    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(outputTy.getEncoding());
     tt::DeviceAttr device = op.getDevice();
     assert(device);
     tt::SystemDescAttr systemDesc = op.getSystemDesc();
@@ -342,8 +342,8 @@ public:
   LogicalResult reformat(ttir::ToLayoutOp op, PatternRewriter &rewriter) const {
     auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputTy = mlir::cast<RankedTensorType>(op.getType());
-    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
-    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(outputTy.getEncoding());
     bool shouldTilize = not inputLayout.isTiled() && outputLayout.isTiled();
     bool shouldUntilize = inputLayout.isTiled() && not outputLayout.isTiled();
     assert(shouldTilize ^ shouldUntilize);
@@ -448,10 +448,10 @@ public:
       return failure();
     }
     assert(inputTy.getShape() == outputTy.getShape());
-    assert(mlir::isa<tt::LayoutAttr>(inputTy.getEncoding()));
-    assert(mlir::isa<tt::LayoutAttr>(outputTy.getEncoding()));
-    auto inputLayout = mlir::cast<tt::LayoutAttr>(inputTy.getEncoding());
-    auto outputLayout = mlir::cast<tt::LayoutAttr>(outputTy.getEncoding());
+    assert(mlir::isa<tt::MetalLayoutAttr>(inputTy.getEncoding()));
+    assert(mlir::isa<tt::MetalLayoutAttr>(outputTy.getEncoding()));
+    auto inputLayout = mlir::cast<tt::MetalLayoutAttr>(inputTy.getEncoding());
+    auto outputLayout = mlir::cast<tt::MetalLayoutAttr>(outputTy.getEncoding());
 
     auto components = op.compoundComponents();
     bool isCompound = (static_cast<int>(components.isLayoutChange) +
@@ -1308,10 +1308,10 @@ public:
                   SmallVector<TTIRToTTMetalLayoutRewriter::NocTx>>
   calculateDataMovement(ArrayAttr iteratorTypes, const RankedTensorType &src,
                         const RankedTensorType &dst, DeviceAttr device) const {
-    auto srcLayout = mlir::cast<tt::LayoutAttr>(src.getEncoding());
+    auto srcLayout = mlir::cast<tt::MetalLayoutAttr>(src.getEncoding());
     assert(srcLayout.isTiled());
 
-    auto dstLayout = mlir::cast<tt::LayoutAttr>(dst.getEncoding());
+    auto dstLayout = mlir::cast<tt::MetalLayoutAttr>(dst.getEncoding());
     assert(dstLayout.isTiled());
 
     assert(iteratorTypes.size() >= 2 && "Expected at least 2 iterator types");

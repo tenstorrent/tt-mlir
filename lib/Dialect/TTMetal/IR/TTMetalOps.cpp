@@ -17,7 +17,7 @@ namespace mlir::tt::ttmetal {
 ::mlir::LogicalResult HostWriteOp::verify() {
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
+      mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
@@ -30,7 +30,7 @@ namespace mlir::tt::ttmetal {
 ::mlir::LogicalResult HostReadOp::verify() {
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto outputLayout =
-      mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(outputTy.getEncoding());
+      mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
   if (not outputLayout) {
     return emitOpError("Input tensor missing layout attribute");
   }
@@ -41,7 +41,7 @@ namespace mlir::tt::ttmetal {
 }
 
 ::mlir::LogicalResult AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+  auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
@@ -76,7 +76,7 @@ namespace mlir::tt::ttmetal {
 ::mlir::LogicalResult DispatchOp::verify() {
   // Assert inputs/outputs device memspace
   for (auto operand : getOperands()) {
-    auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+    auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(operand.getType()).getEncoding());
     if (not layout) {
       return emitOpError("Input tensor missing layout attribute");

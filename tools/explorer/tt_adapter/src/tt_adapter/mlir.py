@@ -348,7 +348,7 @@ def parse_dimension(attr):
 
 @AttrHandler.register_handler("tt.layout")
 def parse_tt_layout(attr):
-    layout = tt.ir.LayoutAttr.maybe_downcast(attr)
+    layout = tt.ir.MetalLayoutAttr.maybe_downcast(attr)
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     result.append(
