@@ -57,6 +57,8 @@ PYBIND11_MODULE(_C, m) {
    * Binding for the `GoldenTensor` type
    */
   py::class_<tt::target::GoldenTensor>(m, "GoldenTensor", py::buffer_protocol())
+      // TODO: bind shape, name, and stride properties
+      .def_property_readonly("dtype", &::tt::target::GoldenTensor::dtype)
       .def_buffer([](tt::target::GoldenTensor const *t) -> py::buffer_info {
         // NULL checks
         if (t == nullptr) {
