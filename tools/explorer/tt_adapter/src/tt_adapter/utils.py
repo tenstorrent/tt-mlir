@@ -6,7 +6,6 @@ import ttmlir
 
 def parse_mlir_file(model_path):
     with ttmlir.ir.Context() as ctx, open(model_path, "r") as model_file:
-        ttmlir.dialects.ttkernel.register_dialect(ctx)
         ttmlir.dialects.ttir.register_dialect(ctx)
         ttmlir.dialects.tt.register_dialect(ctx)
         ttmlir.dialects.ttnn.register_dialect(ctx)
