@@ -94,6 +94,8 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::SinOp,
                                                        mlir::tt::ttir::SinOp>>(
       typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SigmoidOp, mlir::tt::ttir::SigmoidOp>>(typeConverter, ctx);
 }
 
 void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
