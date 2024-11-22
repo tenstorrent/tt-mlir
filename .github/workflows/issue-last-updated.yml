@@ -90,9 +90,9 @@ jobs:
             fi
 
 
-            # Parse the item ID if it matches the ISSUE_NODE_ID
-            ITEM_ID=$(echo "$RESPONSE" | jq -r --arg ISSUE_NODE_ID "$ISSUE_NODE_ID" \
-                       '.data.node.items.nodes[] | select(.content.id==$ISSUE_NODE_ID) | .id')
+            # Parse the item ID if it matches the issue_id
+            ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
+                       '.data.node.items.nodes[] | select(.content.id==$issue_id) | .id')
 
 
             # If ITEM_ID is found, output it and stop the loop
