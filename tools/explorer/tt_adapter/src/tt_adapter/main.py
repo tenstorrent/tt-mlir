@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from typing import Dict
 import model_explorer
-from . import ttir, runner, utils, mlir
+from . import runner, utils, mlir
 import dataclasses
 import enum
 
