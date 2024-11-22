@@ -141,6 +141,32 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// ArangeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ArangeOp::verify() {
+
+  if (getStep() == 0) {
+    return emitOpError("Step cannot be zero.");
+  }
+
+  int64_t numValues = (getEnd() - getStart()) / getStep();
+
+  if (numValues <= 0) {
+    return emitOpError("Invalid range: start=")
+           << getStart() << ", end=" << getEnd() << ", step=" << getStep();
+  }
+
+  std::vector<int64_t> expectedShape = {1, 1, 1, numValues};
+  if (getType().getShape().vec() != expectedShape) {
+    return emitOpError() << "Output tensor shape must be " << expectedShape
+                         << ", but got " << getType().getShape();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
 

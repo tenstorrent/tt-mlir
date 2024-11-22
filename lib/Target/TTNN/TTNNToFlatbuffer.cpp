@@ -28,6 +28,7 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/LogicalResult.h"
+#include "types_generated.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -331,6 +332,31 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
       numShards, strategy,
       cache.getOrCreate(output, tensorValueToFlatbuffer, kHostAllocatedAddress,
                         kHostAllocatedSize));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ArangeOp>
+createOp(FlatbufferObjectCache &cache, ArangeOp op) {
+
+  std::optional<::tt::target::DataType> dtype =
+      op.getDtype().has_value()
+          ? std::make_optional(toFlatbuffer(cache, op.getDtype().value()))
+          : std::nullopt;
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+
+  auto memoryConfigDesc = op.getMemoryConfig().has_value()
+                              ? cache.getOrCreate(op.getMemoryConfig().value(),
+                                                  memoryConfigToFlatbuffer)
+                              : 0;
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateArangeOp(
+      *cache.fbb, static_cast<float>(op.getStart()),
+      static_cast<float>(op.getEnd()), static_cast<float>(op.getStep()),
+      dtype /* optional */, device /* optional */,
+      memoryConfigDesc /* optional */, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
@@ -886,6 +912,9 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
     return createOperation(cache, createEltwiseOp(cache, geluOp), debugString);
+  }
+  if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
+    return createOperation(cache, createOp(cache, arangeOp), debugString);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

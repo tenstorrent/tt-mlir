@@ -787,6 +787,32 @@ def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
     let hasVerifier = 1;
 }
 
+def TTNN_ArangeOp : TTNN_Op<"arange"> {
+  let summary = "Arange operation.";
+  let description = [{
+    Tensor arange operation.
+
+    Produces a (1, 1, 1, N)-shaped tensor with values from `start` to `end` (exclusive) with a step size of `step`.
+
+    Examples:
+      %0 = "ttnn.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64} : () -> tensor<1x1x1x5xi64>
+      // %0: [[[[0, 1, 2, 3, 4]]]]
+
+      %1 = "ttnn.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64} : () -> tensor<1x1x1x5xf32>
+      // %1: [[[[0.0, 2.0, 4.0, 6.0, 8.0]]]]
+  }];
+
+  let arguments = (ins I64Attr:$start,
+                       I64Attr:$end,
+                       I64Attr:$step,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       Optional<TT_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def TTNN_FullOp : TTNN_Op<"full"> {
     let summary = "Full op.";
     let description = [{

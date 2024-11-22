@@ -61,6 +61,16 @@ table FullOp {
   out: tt.target.TensorRef;
 }
 
+table ArangeOp {
+  start: float;
+  end: float;
+  step: float;
+  dtype: tt.target.DataType = null; // optional
+  device: tt.target.DeviceRef; // optional
+  memcfg: tt.target.MemoryConfigDesc;  // optional
+  out: tt.target.TensorRef;
+}
+
 enum EltwiseOpType: uint32 {
   Add = 0,
   Multiply = 1,
@@ -269,6 +279,7 @@ union OpType {
   MaxPool2dOp,
   DeallocateOp,
   AllGatherOp,
+  ArangeOp,
 }
 
 table Operation {

@@ -214,6 +214,28 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
         .getResult();
   }
 
+  // If the input tensor is an arange, we want to set the desired layout just
+  // like the other creation ops. However, a caveat is that in ttnn, arange is
+  // hardcoded to be ROW_MAJOR. So we must ensure that the layout we assign to
+  // it is ROW_MAJOR - and to make it tile layout we still must insert
+  // ToLayoutOp on its output. We can do this by setting the element type to
+  // ty.getElementType() in case desiredElementType is a TileType.
+  ttir::ArangeOp existingArange = input.getDefiningOp<ttir::ArangeOp>();
+  if (existingArange) {
+    TTNNLayoutAttr arangeLayout = rewriter.getAttr<TTNNLayoutAttr>(
+        ty.getShape(), ty.getElementType(), desiredBufferType,
+        tensorConfig.getGrid(), desiredMemLayout, g_defaultCollapseDims);
+    input =
+        rewriter
+            .replaceOpWithNewOp<ttir::ArangeOp>(
+                existingArange,
+                mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
+                                            arangeLayout),
+                existingArange.getStart(), existingArange.getEnd(),
+                existingArange.getStep(), existingArange.getArangeDimension())
+            .getResult();
+  }
+
   // If the input tensor is not a constant or empty tensor, we need to create a
   // new tensor with the desired layout which will be used as the output of the
   // ToLayoutOp
@@ -278,6 +300,13 @@ public:
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
       if (mlir::isa<ttir::Conv2dOp>(op.getOperation()) && !isResult) {
+        continue;
+      }
+
+      // If the operand is a BroadcastOp or a ToLayout op do not put a
+      // ToLayoutOp on its output
+      if (operand.get().getDefiningOp<ttir::BroadcastOp>() ||
+          operand.get().getDefiningOp<ttir::ToLayoutOp>()) {
         continue;
       }
 
