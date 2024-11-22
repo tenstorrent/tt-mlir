@@ -592,7 +592,6 @@ class Run:
                         continue
             finally:
                 ttrt.runtime.close_device(device)
-                ttrt.runtime.unregister_hooks()
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)
