@@ -77,6 +77,7 @@ private:
 
   mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
+
 #else
   constexpr Hooks() = default;
 #endif

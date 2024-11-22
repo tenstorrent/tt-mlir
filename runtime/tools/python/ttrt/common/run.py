@@ -20,8 +20,6 @@ from ttrt.common.util import *
 from ttrt.common.query import Query
 from ttrt.common.golden import get_golden_fn, GoldenRuntimeConfig
 
-from ttrt.runtime._C import DataType
-
 
 class Run:
     registered_args = {}
@@ -594,6 +592,7 @@ class Run:
                         continue
             finally:
                 ttrt.runtime.close_device(device)
+                ttrt.runtime.unregister_hooks()
 
         self.logging.debug(f"executing ttnn binaries")
         _execute(self.ttnn_binaries)

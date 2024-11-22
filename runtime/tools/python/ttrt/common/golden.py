@@ -19,7 +19,6 @@ import re
 from functools import partial
 
 from ttrt.common.util import *
-from ttrt.runtime._C import DataType
 
 
 class GoldenRuntimeConfig:
