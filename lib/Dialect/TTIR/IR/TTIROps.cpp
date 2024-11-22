@@ -1107,6 +1107,36 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 //===----------------------------------------------------------------------===//
+// ReverseOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ReverseOp::verify() {
+  auto dimensions = getDimensions();
+  llvm::SmallDenseSet<int64_t> uniqueDims(dimensions.begin(), dimensions.end());
+
+  if (uniqueDims.size() != dimensions.size()) {
+    return emitOpError("dimensions should be unique. Got: ") << dimensions;
+  }
+
+  ::mlir::RankedTensorType operandTy = getInput().getType();
+
+  for (int64_t dim : dimensions) {
+    if (dim < 0) {
+      return emitOpError(
+                 "all dimensions should be non-negative. Got dimension: ")
+             << dim;
+    }
+
+    if (dim >= operandTy.getRank()) {
+      return emitOpError("all dimensions should be in interval [0, ")
+             << operandTy.getRank() << "). Got dimension: " << dim;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 
