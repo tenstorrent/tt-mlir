@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -49,12 +49,12 @@ bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
       }
     }
     return true;
-  } else {
-    // TODO(odjuricic): For row major there are no constraints on how the tensor
-    // can be sharded. We need some kind of a heuristic to reduce the search
-    // space.
-    return true;
   }
+
+  // TODO(odjuricic): For row major there are no constraints on how the tensor
+  // can be sharded. We need some kind of a heuristic to reduce the search
+  // space.
+  return true;
 }
 
 bool cantChangeOutputLayout(Operation *op) {
@@ -128,10 +128,6 @@ bool LegalLayoutAnalysis::applyOverrides() {
 }
 
 void LegalLayoutAnalysis::analysisImplementation() {
-  // A first incomplete implementation of the LegalGridAnalysis.
-  // This implementation is a placeholder and is meant to just enable testing of
-  // other components.
-
   // Skip operations that don't have output tensors.
   if (op->getNumResults() == 0) {
     return;

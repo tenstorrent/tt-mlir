@@ -5,7 +5,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
