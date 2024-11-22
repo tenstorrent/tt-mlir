@@ -9,6 +9,7 @@
 
 namespace mlir::tt::ttir {
 
+#ifdef TTMLIR_ENABLE_STABLEHLO
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct StableHLOToTTIRPipelineOptions
@@ -31,12 +32,25 @@ struct StableHLOToTTIRPipelineOptions
       // that the TTIR inliner pass may inline the ops.
       llvm::cl::init(true)};
 };
+#endif
+
+struct LinalgToLLVMPipelineOptions {
+  // TODO: we might want some more options to say lower through affine loops
+  // instead of scf directly, etc. which could be new options
+  Option<bool> cleanupOutputEnabled{
+      *this, "enable-remove-dead-values",
+      llvm::cl::desc(
+          "Enable final cleanup passes (canonicalize, SCC, CSE, SymbolDCE)"),
+      llvm::cl::init(true)};
+};
 
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
 
-/// Registers all pipelines for the TTIR dialect. Currently,
-/// this includes only the "stablehlo-to-ttir-pipeline".
+void createLinalgToLLVMPipeline(OpPassManager &pm,
+                                const LinalgToLLVMPipelineOptions &options);
+
+/// Registers all pipelines for the TTIR dialect.
 void registerTTIRPipelines();
 } // namespace mlir::tt::ttir
 

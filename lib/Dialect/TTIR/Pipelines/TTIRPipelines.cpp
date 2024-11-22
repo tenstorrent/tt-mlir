@@ -49,7 +49,7 @@ void createStableHLOToTTIRPipeline(
 #endif
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
-                                const StableHLOToTTIRPipelineOptions &options) {
+                                const LinalgToLLVMPipelineOptions &options) {
   manager.addPass(mlir::createCanonicalizerPass());
 
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
@@ -78,11 +78,12 @@ void createLinalgToLLVMPipeline(OpPassManager &pm,
   manager.addPass(mlir::createReconcileUnrealizedCastsPass());
 
   // Cleanup
-  manager.addPass(mlir::createCanonicalizerPass());
-
-  manager.addPass(mlir::createSCCPPass());
-  manager.addPass(mlir::createCSEPass());
-  manager.addPass(mlir::createSymbolDCEPass());
+  if (options.cleanupOutputEnabled) {
+    manager.addPass(mlir::createCanonicalizerPass());
+    manager.addPass(mlir::createSCCPPass());
+    manager.addPass(mlir::createCSEPass());
+    manager.addPass(mlir::createSymbolDCEPass());
+  }
 }
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
@@ -95,5 +96,7 @@ void registerTTIRPipelines() {
       "Pipeline lowering stablehlo to ttir dialect.",
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
 #endif
+  mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
+      "linalg-to-llvm-pipeline")
 }
 } // namespace mlir::tt::ttir
