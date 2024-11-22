@@ -20,7 +20,7 @@ from ttrt.common.util import *
 from ttrt.common.query import Query
 from ttrt.common.golden import get_golden_fn, GoldenRuntimeConfig
 
-from ttrt.runtime import DataType
+from ttrt.runtime._C import DataType
 
 
 class Run:
@@ -409,20 +409,10 @@ class Run:
                                 )
 
                                 if golden_tensor is not None:
-                                    # Determine the element type of the golden tensor
-                                    match golden_tensor.dtype:
-                                        case DataType.Float32:
-                                            dtype = torch.float32
-                                        case DataType.UInt32:
-                                            dtype = torch.uint32
-                                        case DataType.UInt16:
-                                            dtype = torch.uint16
-                                        case DataType.UInt8:
-                                            dtype = torch.uint8
-                                        case _:
-                                            raise ValueError(
-                                                "Only F32 and unsigned integers are supported for `GoldenTensor`s"
-                                            )
+
+                                    dtype = ttrt_datatype_to_torch_dtype(
+                                        golden_tensor.dtype
+                                    )
 
                                     golden_tensor_torch = torch.frombuffer(
                                         golden_tensor, dtype=dtype
