@@ -44,8 +44,10 @@ struct LinalgToLLVMPipelineOptions {
       llvm::cl::init(true)};
 };
 
+#ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options);
+#endif
 
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);
