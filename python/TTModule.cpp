@@ -276,29 +276,29 @@ void populateTTModule(py::module &m) {
                   })
       .def_static(
           "get",
-          [](MlirContext ctx, std::vector<MlirAttribute> cpuDescs,
-             std::vector<MlirAttribute> chipDescs,
-             std::vector<unsigned> chipDescIndices,
-             std::vector<MlirAttribute> chipCapabilities,
-             std::vector<MlirAttribute> chipCoords,
-             std::vector<MlirAttribute> chipChannels) {
+          [](MlirContext ctx, const std::vector<MlirAttribute> &cpuDescs,
+             const std::vector<MlirAttribute> &chipDescs,
+             const std::vector<unsigned> &chipDescIndices,
+             const std::vector<MlirAttribute> &chipCapabilities,
+             const std::vector<MlirAttribute> &chipCoords,
+             const std::vector<MlirAttribute> &chipChannels) {
             std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
-            for (auto chipDesc : chipDescs) {
+            for (const auto &chipDesc : chipDescs) {
               chipDescsUnwrapped.push_back(
                   mlir::cast<tt::ChipDescAttr>(unwrap(chipDesc)));
             }
             std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
-            for (auto chipCapability : chipCapabilities) {
+            for (const auto &chipCapability : chipCapabilities) {
               chipCapabilitiesUnwrapped.push_back(
                   mlir::cast<tt::ChipCapabilityAttr>(unwrap(chipCapability)));
             }
             std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
-            for (auto chipCoord : chipCoords) {
+            for (const auto &chipCoord : chipCoords) {
               chipCoordsUnwrapped.push_back(
                   mlir::cast<tt::ChipCoordAttr>(unwrap(chipCoord)));
             }
             std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
-            for (auto chipChannel : chipChannels) {
+            for (const auto &chipChannel : chipChannels) {
               chipChannelsUnwrapped.push_back(
                   mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
             }
