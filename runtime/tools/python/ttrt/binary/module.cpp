@@ -60,54 +60,25 @@ PYBIND11_MODULE(_C, m) {
       .def_property_readonly(
           "name",
           [](::tt::target::GoldenTensor const *t) -> std::string {
-            if (t == nullptr) {
-              throw std::runtime_error("GoldenTensor cannot be null");
-            }
-            if (t->name() == nullptr) {
-              throw std::runtime_error("GoldenTensor `name` is null");
-            }
+            assert(t != nullptr && t->name() != nullptr);
             return t->name()->str();
           })
       .def_property_readonly(
           "shape",
           [](::tt::target::GoldenTensor const *t) -> std::vector<int> {
-            if (t == nullptr) {
-              throw std::runtime_error("GoldenTensor cannot be null");
-            }
-            if (t->shape() == nullptr) {
-              throw std::runtime_error("GoldenTensor `shape` pointer is null");
-            }
+            assert(t != nullptr && t->shape() != nullptr);
             return std::vector<int>(t->shape()->begin(), t->shape()->end());
           })
       .def_property_readonly(
           "stride",
           [](::tt::target::GoldenTensor const *t) -> std::vector<int> {
-            if (t == nullptr) {
-              throw std::runtime_error("GoldenTensor cannot be null");
-            }
-            if (t->stride() == nullptr) {
-              throw std::runtime_error("GoldenTensor `stride` pointer is null");
-            }
+            assert(t != nullptr && t->stride() != nullptr);
             return std::vector<int>(t->stride()->begin(), t->stride()->end());
           })
       .def_property_readonly("dtype", &::tt::target::GoldenTensor::dtype)
       .def_buffer([](tt::target::GoldenTensor const *t) -> py::buffer_info {
-        // NULL checks
-        if (t == nullptr) {
-          throw std::runtime_error("Cannot bind a null pointer");
-        }
-
-        if (t->data() == nullptr) {
-          throw std::runtime_error("GoldenTensor `data` pointer is null!");
-        }
-
-        if (t->shape() == nullptr) {
-          throw std::runtime_error("GoldenTensor `shape` pointer is null!");
-        }
-
-        if (t->stride() == nullptr) {
-          throw std::runtime_error("GoldenTensor `stride` pointer is null!");
-        }
+        assert(t != nullptr && t->data() != nullptr && t->shape() != nullptr &&
+               t->stride() != nullptr);
 
         // Format string to be passed to `py::buffer_info`
         std::string format;
