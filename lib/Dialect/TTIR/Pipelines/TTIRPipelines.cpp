@@ -95,6 +95,7 @@ void registerTTIRPipelines() {
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
 #endif
   mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
-      "linalg-to-llvm-pipeline");
+      "linalg-to-llvm-pipeline", "Pipeline lowering linalg to llvm dialect.",
+      mlir::tt::ttir::createLinalgToLLVMPipeline);
 }
 } // namespace mlir::tt::ttir
