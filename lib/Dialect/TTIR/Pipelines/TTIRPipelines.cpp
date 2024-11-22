@@ -46,7 +46,7 @@ void createStableHLOToTTIRPipeline(
 }
 #endif
 
-void createLinalgToLLVMPipeline(OpPassManager &pm,
+void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
   manager.addPass(mlir::createCanonicalizerPass());
 
@@ -95,6 +95,6 @@ void registerTTIRPipelines() {
       mlir::tt::ttir::createStableHLOToTTIRPipeline);
 #endif
   mlir::PassPipelineRegistration<LinalgToLLVMPipelineOptions>(
-      "linalg-to-llvm-pipeline")
+      "linalg-to-llvm-pipeline");
 }
 } // namespace mlir::tt::ttir
