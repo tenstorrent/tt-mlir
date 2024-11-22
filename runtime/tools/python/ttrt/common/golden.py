@@ -18,7 +18,6 @@ import atexit
 import re
 
 from ttrt.common.util import *
-from ttrt.runtime._C import DataType
 
 
 def get_atol_rtol_pcc(golden, calculated):

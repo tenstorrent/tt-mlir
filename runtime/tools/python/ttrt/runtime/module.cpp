@@ -222,4 +222,6 @@ PYBIND11_MODULE(_C, m) {
               &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
 #endif
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }
