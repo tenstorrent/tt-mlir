@@ -148,6 +148,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::EltwiseOp: {
     return runEltwiseOperation(op->type_as_EltwiseOp());
   }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    return operations::matmul::run(op->type_as_LinearOp(), context);
+  }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
