@@ -111,6 +111,8 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::MaximumOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
 }
 
 void addCompareOpsConversionPatterns(MLIRContext *ctx,
