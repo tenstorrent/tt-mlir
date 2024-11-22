@@ -1048,6 +1048,48 @@ def TTIR_ClampOp : TTIR_DPSOp<"clamp"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ArangeOp : TTIR_Op<"arange"> {
+  let summary = "Arange operation.";
+  let description = [{
+    Tensor arange operation.
+
+    Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
+
+    Examples:
+      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
+      // %0: [0, 1, 2, 3, 4]
+
+      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
+      // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
+
+      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
+      // %2: [
+              [0, 0, 0],
+              [1, 1, 1],
+              [2, 2, 2],
+              [3, 3, 3],
+              [4, 4, 4]
+             ]
+
+      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
+      // %3: [
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2]
+             ]
+  }];
+
+  let arguments = (ins SI64Attr:$start,
+                       SI64Attr:$end,
+                       SI64Attr:$step,
+                       I64Attr:$arange_dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
@@ -1089,6 +1131,34 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+}
+
+def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
+    let summary = "Linear transformation of inputs.";
+    let description = [{
+      Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32xbf16>
+        %b = tensor.empty() : () -> tensor<32x128xbf16>
+        %bias = tensor.empty() : () -> tensor<128xbf16>
+        %output = tensor.empty() : () -> tensor<10x64x128xbf16>
+        %0 = "ttir.linear"(%a, %b, %bias, %output) : (tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>, tensor<10x64x128xbf16>) -> tensor<10x64x128xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir

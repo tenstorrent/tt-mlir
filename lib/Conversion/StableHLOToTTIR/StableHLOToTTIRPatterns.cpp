@@ -1201,6 +1201,36 @@ public:
   }
 };
 
+template <typename SrcIotaOp, typename Adaptor = typename SrcIotaOp::Adaptor>
+class StableHLOToTTIROpIotaOpConversionPattern
+    : public OpConversionPattern<SrcIotaOp> {
+
+  using OpConversionPattern<SrcIotaOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(SrcIotaOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    rewriter.replaceOpWithNewOp<ttir::ArangeOp>(
+        srcOp, outputType, 0, outputType.getDimSize(adaptor.getIotaDimension()),
+        1, adaptor.getIotaDimension());
+
+    // Dynamic Iota has an output_shape attribute but the output shape is
+    // already known by the result type This is to remove the operand that will
+    // become dead code
+    for (auto operand : adaptor.getOperands()) {
+      if (operand.getDefiningOp()) {
+        rewriter.eraseOp(operand.getDefiningOp());
+      }
+    }
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -1365,6 +1395,15 @@ void addGatherOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<StableHLOToTTIRGatherOpConversionPattern>(typeConverter, ctx);
 }
 
+void addIotaOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::IotaOp>>(
+      typeConverter, ctx);
+  patterns
+      .add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::DynamicIotaOp>>(
+          typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1389,6 +1428,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
+  addIotaOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

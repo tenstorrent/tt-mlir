@@ -897,6 +897,143 @@ public:
   }
 };
 
+/*
+ * This pattern rewrites ArangeOp by forcing the arange_dimension to be
+ * rightmost dimension of the output tensor. This is done by replacing the
+ * ArangeOp with a new one that has this property, and then transposing out last
+ * dimension to the dimension specified by the original ArangeOp, and also
+ * inserting a reshape to match the rank of the intended output and broadcasts
+ * to repeat the data along the other dimensions.
+ *
+ * The ArangeOp that is generated here will be equivalent to how ttnn::ArangeOp
+ * behaves. The reason this pass is done in TTIR rather than generated when we
+ * want to lower to TTNN is because in the future we will want to consteval the
+ * ArangeOp, but have the option to not include repeated data in the constant
+ * tensor and broadcast at runtime instead. Consteval will be implemented for
+ * the TTIR dialect only and so this explication of the TMs implicit in ArangeOp
+ * must be done in TTIR.
+ */
+struct ArangeForceLastDimensionPattern
+    : public OpConversionPattern<ttir::ArangeOp> {
+public:
+  using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    const RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    int64_t arangeDimension = adaptor.getArangeDimension();
+    int64_t arangeDimensionNegative = arangeDimension - outputType.getRank();
+    int64_t start = adaptor.getStart();
+    int64_t end = adaptor.getEnd();
+    int64_t step = adaptor.getStep();
+
+    int64_t arangeLength = (end - start) / step;
+
+    ArrayRef<int64_t> ttnnShape = {1, 1, 1, arangeLength};
+    if (ttnnShape == outputType.getShape()) {
+      return success();
+    }
+
+    RankedTensorType arangeOutputType = RankedTensorType::get(
+        SmallVector<int64_t>({1, 1, 1, arangeLength}),
+        outputType.getElementType(), outputType.getEncoding());
+
+    Value output =
+        rewriter
+            .create<ttir::ArangeOp>( // perform arange on the last dimension to
+                                     // match how ttnn behaves
+                op.getLoc(), arangeOutputType, start, end, step, 3)
+            .getResult();
+
+    std::vector<int64_t> outputShape = arangeOutputType.getShape().vec();
+    // Must transpose the output so that the data changes along the axis defined
+    // by arangeDimension
+    if (arangeDimensionNegative != -1) {
+      std::vector<int64_t> transposeShape = outputShape;
+      transposeShape[arangeDimensionNegative + transposeShape.size()] =
+          arangeLength;
+      transposeShape[arangeOutputType.getRank() - 1] = 1;
+      RankedTensorType transposeType = RankedTensorType::get(
+          transposeShape, arangeOutputType.getElementType(),
+          arangeOutputType.getEncoding());
+
+      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), transposeShape, transposeType.getElementType());
+
+      output = rewriter.create<ttir::TransposeOp>(
+          op.getLoc(), transposeType, output, dpsOutput,
+          arangeDimensionNegative + transposeShape.size(),
+          arangeOutputType.getRank() - 1,
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              2, rewriter.getAttr<OperandConstraintAttr>(
+                     OperandConstraint::AnyDeviceTile))));
+
+      outputShape = transposeShape;
+    }
+
+    // Must match up the rank of the output with the rank of the intended output
+    // from the original arange, with the arangeDimension in the correct
+    // position
+    if (outputType.getRank() != static_cast<int64_t>(outputShape.size())) {
+      std::vector<int32_t> reshapeShape;
+      for (uint32_t i = 0; i < outputType.getRank(); i++) {
+        i == arangeDimension ? reshapeShape.push_back(end)
+                             : reshapeShape.push_back(1);
+      }
+
+      RankedTensorType reshapeType = RankedTensorType::get(
+          SmallVector<int64_t>(reshapeShape.begin(), reshapeShape.end()),
+          outputType.getElementType(), outputType.getEncoding());
+      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(),
+          SmallVector<int64_t>(reshapeShape.begin(), reshapeShape.end()),
+          reshapeType.getElementType());
+      output = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), reshapeType, output, dpsOutput,
+          rewriter.getI32ArrayAttr(reshapeShape),
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              2, rewriter.getAttr<OperandConstraintAttr>(
+                     OperandConstraint::AnyDeviceTile))));
+
+      outputShape =
+          std::vector<int64_t>(reshapeShape.begin(), reshapeShape.end());
+    }
+
+    // Must broadcast the rest of the dimensions
+    SmallVector<Attribute> broadcastDims;
+    for (uint32_t i = 0; i < outputShape.size(); i++) {
+      if (i != arangeDimension && outputShape[i] != outputType.getShape()[i]) {
+        outputShape[i] = outputType.getShape()[i];
+        broadcastDims.push_back(rewriter.getI64IntegerAttr(i));
+      }
+    }
+    if (!broadcastDims.empty()) {
+      RankedTensorType broadcastType = RankedTensorType::get(
+          outputShape, outputType.getElementType(), outputType.getEncoding());
+
+      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), outputShape, outputType.getElementType());
+
+      output = rewriter.create<ttir::BroadcastOp>(
+          op.getLoc(), broadcastType, output, dpsOutput,
+          rewriter.getArrayAttr(broadcastDims),
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              2, rewriter.getAttr<OperandConstraintAttr>(
+                     OperandConstraint::AnyDeviceTile))));
+
+      assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
+                 outputType.getShape() &&
+             "Output shape must match the shape of the input tensor");
+    }
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -906,6 +1043,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
+  patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
