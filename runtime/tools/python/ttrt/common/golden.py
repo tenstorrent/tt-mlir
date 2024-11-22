@@ -18,7 +18,7 @@ import atexit
 import re
 
 from ttrt.common.util import *
-from ttrt.runtime import DataType
+from ttrt.runtime._C import DataType
 
 
 def get_atol_rtol_pcc(golden, calculated):
@@ -127,22 +127,8 @@ def golden(binary, programContext, opContext):
             print("Output tensor is empty - skipping golden comparison")
             return
 
-        # Determine the element type of the golden tensor
-        match op_golden_tensor.dtype:
-            case DataType.Float32:
-                dtype = torch.float32
-            case DataType.UInt32:
-                dtype = torch.uint32
-            case DataType.UInt16:
-                dtype = torch.uint16
-            case DataType.UInt8:
-                dtype = torch.uint8
-            case _:
-                raise ValueError(
-                    "Only F32 and unsigned integers are supported for `GoldenTensor`s"
-                )
+        dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
 
-        # Convert golden tensor buffer to a torch tensor
         golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
 
         output_tensor_torch = torch.tensor(op_output_tensor, dtype=dtype).flatten()
