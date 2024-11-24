@@ -760,27 +760,10 @@ public:
     auto stride_height = rewriter.getI32IntegerAttr(adaptor.getStrideHeight());
     auto stride_width = rewriter.getI32IntegerAttr(adaptor.getStrideWidth());
 
-    assert(
-        adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
-        "TTNN only supports padding height/width attributes. Thus, padding_top "
-        "must equal padding_bottom for the op to execute as expected.");
-    assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
-           "TTNN only supports padding height/width attributes. Thus, "
-           "padding_left must equal padding_right for the op to execute as "
-           "expected.");
-    auto padding_height = rewriter.getI32IntegerAttr(adaptor.getPaddingTop());
-    auto padding_width = rewriter.getI32IntegerAttr(adaptor.getPaddingRight());
-
-    assert(
-        adaptor.getOutputPaddingBottom() == adaptor.getOutputPaddingTop() &&
-        "TTNN only supports padding height/width attributes. Thus, padding_top "
-        "must equal padding_bottom for the op to execute as expected.");
-    assert(adaptor.getOutputPaddingLeft() == adaptor.getOutputPaddingRight() &&
-           "TTNN only supports padding height/width attributes. Thus, "
-           "padding_left must equal padding_right for the op to execute as "
-           "expected.");
-    auto output_padding_height = rewriter.getI32IntegerAttr(adaptor.getPaddingTop());
-    auto output_padding_width = rewriter.getI32IntegerAttr(adaptor.getPaddingRight());
+    auto padding_height = rewriter.getI32IntegerAttr(adaptor.getPaddingHeight());
+    auto padding_width = rewriter.getI32IntegerAttr(adaptor.getPaddingWidth());
+    auto output_padding_height = rewriter.getI32IntegerAttr(adaptor.getOutputPaddingHeight());
+    auto output_padding_width = rewriter.getI32IntegerAttr(adaptor.getOutputPaddingWidth());
 
     auto dilation_height =
         rewriter.getI32IntegerAttr(adaptor.getDilationHeight());

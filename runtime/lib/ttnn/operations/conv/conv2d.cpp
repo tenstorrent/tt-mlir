@@ -23,6 +23,18 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
+
+  bool onDevice =  ::ttnn::is_tensor_on_device_or_multidevice(input);
+  bool isSharded = input.is_sharded();
+  bool hasShardLayout = config.shard_layout.has_value();
+  bool result = (!onDevice || isSharded) || hasShardLayout;
+
+  std::cout << "************************************" << std::endl;
+  std::cout << "onDevice: " << onDevice << std::endl;
+  std::cout << "isSharded: " << isSharded << std::endl;
+  std::cout << "hasShardLayout: " << hasShardLayout << std::endl;
+  std::cout << "result: " << result << std::endl;
+
   ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());

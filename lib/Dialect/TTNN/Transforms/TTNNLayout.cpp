@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/Utils/OperandConstraints.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -300,6 +301,9 @@ public:
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
       if (mlir::isa<ttir::Conv2dOp>(op.getOperation()) && !isResult) {
+        continue;
+      }
+      else if (mlir::isa<ttir::ConvTranspose2dOp>(op.getOperation()) && !isResult) { 
         continue;
       }
 

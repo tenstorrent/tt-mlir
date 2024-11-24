@@ -159,21 +159,99 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 ::mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  std::optional<::mlir::RankedTensorType> biasType =
-      getBias().getImpl() ? std::make_optional(getBias().getType())
-                          : std::nullopt;
+  ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  if (inputType.getRank() < 3) {
-    return emitOpError("Input must be at least a 3D tensor");
+  if (inputType.getRank() != 3 && inputType.getRank() != 4) {
+    return emitOpError("Input must be a 3D or 4D tensor");
   }
+
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Output rank must match the input rank");
+  }
+
   if (weightType.getRank() != 4) {
     return emitOpError("Weight must be a 4D tensor");
   }
-  if (biasType.has_value()) {
-    if (biasType->getRank() != 4) {
-      return emitOpError("Bias must be a 4D tensor");
-    }
+
+  llvm::ArrayRef<std::int64_t> kernelShape = weightType.getShape();
+  std::int32_t kernelHeight = kernelShape[kernelShape.size() - 2];
+  std::int32_t kernelWidth = kernelShape[kernelShape.size() - 1];
+
+  std::int32_t strideHeight = getStrideHeight();
+  std::int32_t strideWidth = getStrideWidth();
+  if (strideHeight <= 0 || strideWidth <= 0) {
+    return emitOpError() 
+        << "Stride must be greater than 0, got ("
+        << strideHeight << ", " << strideWidth << ")";
   }
+
+  std::int32_t dilationHeight = getDilationHeight();
+  std::int32_t dilationWidth = getDilationWidth();
+  if (dilationHeight <= 0 || dilationWidth <= 0) {
+    return emitOpError() 
+        << "Dilation must be greater than 0, got ("
+        << dilationHeight << ", " << dilationWidth << ")";
+  }
+
+  std::int32_t paddingHeight = getPaddingHeight();
+  std::int32_t paddingWidth = getPaddingWidth();
+  if (paddingHeight <= 0 || paddingWidth <= 0) {
+    return emitOpError() 
+        << "Padding must be greater than 0, got ("
+        << paddingHeight << ", " << paddingWidth << ")";
+  }
+
+  std::int32_t outputPaddingHeight = getOutputPaddingHeight();
+  std::int32_t outputPaddingWidth = getOutputPaddingWidth();
+  if (outputPaddingHeight < 0 || outputPaddingWidth < 0) {
+    return emitOpError() 
+        << "Output padding must be greater than or equal to 0, got ("
+        << outputPaddingHeight << ", " << outputPaddingWidth << ")";
+  }
+
+  std::int64_t Hin = inputType.getDimSize(inputType.getRank() - 2);
+  std::int64_t Win = inputType.getDimSize(inputType.getRank() - 1);
+
+  std::int64_t HOut = (Hin - 1) * strideHeight - 2 * paddingHeight + dilationHeight * (kernelHeight - 1) + outputPaddingHeight;
+  std::int64_t WOut = (Win - 1) * strideWidth - 2 * paddingWidth + dilationWidth * (kernelWidth - 1) + outputPaddingWidth;
+  if (HOut < 0 || WOut < 0) {
+    return emitOpError()
+        << "Given input size per channel: (" << Hin << " x " << Win << "). "
+        << "Calculated output size per channel: (" << HOut << " x " << WOut << "). "
+        << "Output size is too small";
+  }
+
+  std::int32_t groups = getGroups();
+  if (groups <= 0) {
+    return emitOpError() 
+        << "Number of groups must be greater than 0, got " << groups;
+  }
+
+  std::uint32_t inputChannels = inputType.getDimSize(inputType.getRank() - 3);
+  if (inputChannels % groups != 0) {
+    return emitOpError()
+        << "Number of input channels must be divisible by the number of groups";
+  }
+
+  // if (weightType.getDimSize(0) != outputType.getDimSize(outputType.getRank() - 3) ||
+  //     weightType.getDimSize(1) != inputChannels / groups) {
+  //   return emitOpError()
+  //       << "Got weight tensor dimensions: (" 
+  //       << weightType.getDimSize(0) << ", " << weightType.getDimSize(1) << ", "
+  //       << weightType.getDimSize(2) << ", " << weightType.getDimSize(3) << "). "
+  //       << "Expected: (" << outputType.getDimSize(outputType.getRank() - 3) << ", "
+  //       << inputChannels / groups << ", " << kernelHeight << ", " << kernelWidth << ")";
+  // }
+
+  // if (getBias().getImpl()) {
+  //   ::mlir::RankedTensorType bias = getBias().getType();
+  //   if (bias.getDimSize(0) != outputType.getDimSize(outputType.getRank() - 3)) {
+  //     return emitOpError()
+  //         << "Bias tensor dimension: " << bias.getDimSize(0) << ". "
+  //         << "Expected: " << outputType.getDimSize(outputType.getRank() - 3);
+  //   }
+  // }
+
   return success();
 }
 
