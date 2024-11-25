@@ -13,6 +13,7 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   DEBUG_ASSERT(in.is_allocated());
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
+  std::cout<<"input to reshape logical shape: "<<in.get_logical_shape()<<std::endl;
   ::ttnn::Tensor out = ::ttnn::reshape(in, shape);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

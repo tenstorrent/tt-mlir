@@ -12,11 +12,13 @@ void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
   std::vector<::ttnn::Tensor> inputs;
   for (const auto &input : *op->inputs()) {
     const ::ttnn::Tensor &in = tensorPool.at(input->global_id());
+    std::cout<<"concat input logical shape: "<<in.get_logical_shape()<<std::endl;
     DEBUG_ASSERT(in.is_allocated());
     inputs.push_back(in);
   }
   int32_t dim = op->dim();
   ::ttnn::Tensor out = ::ttnn::concat(inputs, dim);
+  std::cout<<"concat output logical shape: "<<out.get_logical_shape()<<std::endl;
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

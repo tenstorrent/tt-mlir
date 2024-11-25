@@ -70,9 +70,11 @@ public:
   }
 
   void execute(const ::tt::target::ttnn::Program *program) {
+    int cnt = 0;
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
+      std::cout<<"***** op_index: "<<cnt++<<" *****"<<std::endl;
       runOperation(op);
       runCallback(executableHandle, op, &context);
     }

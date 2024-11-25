@@ -23,8 +23,9 @@ static void runEltwiseUnaryOp(
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
       utils::createMemoryConfig(op->out());
-
+  std::cout<<"unary input logical shape: "<<in->get_logical_shape()<<std::endl;
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
+  std::cout<<"unary output logical shape: "<<out.get_logical_shape()<<std::endl;
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
