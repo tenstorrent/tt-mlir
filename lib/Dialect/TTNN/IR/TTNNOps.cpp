@@ -88,12 +88,12 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
 
-  if (!inputType.getElementType().isBF16()) {
-    return emitOpError()
-           << "ttnn.max_pool2d currently only supports an input type of "
-              "bfloat16. Recieved "
-           << inputType.getElementType() << ".";
-  }
+  // if (!inputType.getElementType().isBF16()) {
+  //   return emitOpError()
+  //          << "ttnn.max_pool2d currently only supports an input type of "
+  //             "bfloat16. Recieved "
+  //          << inputType.getElementType() << ".";
+  // }
 
   if (getKernelHeight() > getInputHeight()) {
     return emitOpError() << "Kernel height " << getKernelHeight()
