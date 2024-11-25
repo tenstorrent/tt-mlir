@@ -66,7 +66,7 @@ jobs:
             # Construct JSON payload using jq for proper formatting
             JSON_PAYLOAD=$(jq -n \
               --arg query "$QUERY" \
-              --arg projectId "$PROJECT_ID" \
+              --arg projectId "${{ env.project_id }}" \
               --arg cursor "$CURSOR" \
               '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
 
