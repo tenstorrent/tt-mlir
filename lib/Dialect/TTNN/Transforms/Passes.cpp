@@ -6,8 +6,11 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Casting.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -934,13 +937,9 @@ public:
     // Iterate over all the func ops and add tensor creation functions
     //
     for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
-      // Set insertion point to end of first module child
-      //
-      // rewriter.setInsertionPointToEnd(firstBlock);
-
       // Get all the input tensors for the current forward func
       //
-      llvm::SmallVector<mlir::RankedTensorType, 4> inputTensors;
+      llvm::SmallVector<mlir::RankedTensorType, 2> inputTensors;
       for (auto input : forwardFuncOp.getFunctionType().getInputs()) {
         assert(llvm::isa<mlir::RankedTensorType>(input));
         inputTensors.push_back(llvm::cast<mlir::RankedTensorType>(input));
@@ -949,7 +948,7 @@ public:
       // Create a new function that will generate the input tensors
       //
       std::string inputGenFuncName =
-          "createInputsFor" + forwardFuncOp.getName().str();
+          "createInputsFor_" + forwardFuncOp.getName().str();
 
       // Create function type
       //
@@ -961,41 +960,70 @@ public:
       llvm::StringRef inputGenFuncNameAsStringRef =
           llvm::StringRef(inputGenFuncName);
 
-      // auto q = rewriter.getInsertionPoint();
-      // auto loc = q.getLoc();
-      // (void)loc;
+      // Set insertion point to end of first block
+      //
+      rewriter.setInsertionPointToEnd(firstBlock);
 
       // Create the function
       //
-      // func::FuncOp inputGenFuncOp = rewriter.create<mlir::func::FuncOp>(
-      auto x = rewriter.create<mlir::func::FuncOp>(
+      func::FuncOp inputGenFuncOp = rewriter.create<mlir::func::FuncOp>(
+          // rewriter.create<mlir::func::FuncOp>(
           // rewriter.getUnknownLoc(), inputGenFuncNameAsStringRef,
           // functionType);
-          forwardFuncOp->getLoc(), inputGenFuncNameAsStringRef, functionType);
+          module->getLoc(), inputGenFuncNameAsStringRef, functionType);
 
-      // ^ Weird that the func gets created, but doesn't exist in the IR.
-      // Dumping the func dumps
-      //"func.func"() <{function_type = () -> (tensor<32x32xbf16,
-      // #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16,
-      // #ttnn.buffer_type<system_memory>>>>, tensor<32x32xbf16,
-      // #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16,
-      // #ttnn.buffer_type<system_memory>>>>), sym_name = "createInputsForadd"}>
-      //({
-      // }) : () -> ()
-      //
-
-      llvm::outs() << "start\n";
-      x.dump();
-      llvm::outs() << "end\n";
-
-      // ::mlir::Block *currFnBlock = inputGenFuncOp.addEntryBlock();
+      ::mlir::Block *currFnBlock = inputGenFuncOp.addEntryBlock();
 
       // Set insertion point to the beginning of the block
       //
-      // rewriter.setInsertionPointToStart(currFnBlock);
+      rewriter.setInsertionPointToStart(currFnBlock);
+
+      SmallVector<Value, 2> generatedTensors;
+
+      for (Type tensorType : returnTypeRange) {
+        assert(llvm::isa<mlir::RankedTensorType>(tensorType));
+
+        RankedTensorType tensor =
+            llvm::cast<mlir::RankedTensorType>(tensorType);
+
+        // Get the layout attribute
+        //
+        ttnn::TTNNLayoutAttr layoutAttr =
+            mlir::cast<ttnn::TTNNLayoutAttr>(tensor.getEncoding());
+
+        // Get the shape of the tensor, tensor layout, and data type
+        //
+        mlir::MemRefType memref = layoutAttr.getMemref();
+        ShapeAttr shapeAttr =
+            ttnn::ShapeAttr::get(&getContext(), tensor.getShape());
+        ttnn::LayoutAttr tensorLayoutAttr = ttnn::LayoutAttr::get(
+            &getContext(), ttnn::utils::getLayoutFromMemRef(memref));
+        DataTypeAttr dTypeAttr = DataTypeAttr::get(
+            &getContext(),
+            ttnn::utils::getDataTypeFromMemRef(layoutAttr.getMemref()));
+
+        // Create a new tensor
+        //
+        mlir::Value tensorValue = rewriter.create<ttnn::EmptyOp>(
+            forwardFuncOp->getLoc(), tensorType, nullptr, shapeAttr, dTypeAttr,
+            tensorLayoutAttr, nullptr);
+
+        generatedTensors.push_back(tensorValue);
+      }
+
+      // Return the generated tensors
+      //
+      rewriter.create<func::ReturnOp>(forwardFuncOp->getLoc(),
+                                      generatedTensors);
+
+      // llvm::outs() << "start\n";
+      // inputGenFuncOp.dump();
+      // llvm::outs() << "end\n";
     }
 
+    // llvm::outs() << "start2\n";
     // module->dump();
+    // llvm::outs() << "end2\n";
   }
 };
 
