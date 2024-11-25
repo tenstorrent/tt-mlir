@@ -866,7 +866,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
   if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
-    return createOperation(cache, createOp(cache, linearOp), debugString);
+    return createOperation(cache, createOp(cache, linearOp), debugString,
+                           locInfo);
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
     return createOperation(cache, createOp(cache, matmulOp), debugString,
@@ -949,7 +950,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
-    return createOperation(cache, createOp(cache, arangeOp), debugString);
+    return createOperation(cache, createOp(cache, arangeOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
