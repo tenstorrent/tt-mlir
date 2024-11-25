@@ -81,6 +81,36 @@ private:
   }
 };
 
+class TosaToTTIRReshapeOpConversionPattern
+    : public OpConversionPattern<tosa::ReshapeOp> {
+  using OpConversionPattern<tosa::ReshapeOp>::OpConversionPattern;
+  using Adaptor = tosa::ReshapeOp::Adaptor;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ReshapeOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    mlir::OpBuilder builder(getContext());
+    mlir::DenseI64ArrayAttr src_shape_attr = adaptor.getNewShapeAttr();
+    SmallVector<Attribute> dims;
+    for (int64_t dim : src_shape_attr.asArrayRef()) {
+      dims.push_back(builder.getI32IntegerAttr(dim));
+    }
+    auto dst_shape_attr = rewriter.getArrayAttr(dims);
+
+    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
+        srcOp, outputType, adaptor.getInput1(), outputTensor, dst_shape_attr,
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -125,6 +155,12 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                                              ctx);
 }
 
+void addShapeOpsConversionPatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
+}
+
 void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
                                                 RewritePatternSet &patterns,
                                                 TypeConverter &typeConverter) {
@@ -141,6 +177,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addShapeOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
