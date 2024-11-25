@@ -134,14 +134,12 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
 // /return The scalar element type.
 mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
   Type elementType = getElementType();
-  DataType dtype = DataType::Float32;
-  if (llvm::isa<TileType>(elementType)) {
+  if (isTiled()) {
     TileType tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-  } else {
-    dtype = elementTypeToDataType(elementType);
+    return tileType.getDataType();
   }
-  return dtype;
+
+  return elementTypeToDataType(elementType);
 }
 
 // Gets the size of shard in bytes
@@ -152,7 +150,7 @@ mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
 // /return The size of the shard in bytes.
 uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
+  if (isTiled()) {
     TileType tileType = mlir::cast<TileType>(elementType);
     return tileType.getSizeBytes();
   }

@@ -68,16 +68,12 @@ public:
     ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
-    Type elementType = layoutAttr.getElementType();
-    DataType dtype = DataType::Float32;
+    DataType dtype = layoutAttr.getDataType();
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    if (llvm::isa<TileType>(elementType)) {
+    if (layoutAttr.isTiled()) {
       ttnnLayoutEnum = ttnn::Layout::Tile;
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
     } else {
       ttnnLayoutEnum = ttnn::Layout::RowMajor;
-      dtype = elementTypeToDataType(elementType);
     }
     DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
     ttnn::LayoutAttr tensorLayoutAttr =
