@@ -34,6 +34,7 @@ bool TTNNLayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
 }
 
+// Get layout of the tensor (RowMajor/Tile)
 Layout TTNNLayoutAttr::getLayout() const {
   if (isTiled()) {
     return Layout::Tile;
@@ -172,9 +173,10 @@ llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
 // Get scalar shard shape
 //
 // If the element type is TileType, this function returns the scalar shape of
-// the shard. Example: memref<2x2x!tt.tile<32x32xf32>> -> { 64, 64 } Example:
-// memref<128x128xf32> -> { 128, 128 } Example: memref<2x3!tt.tile<32x32xf32>>
-// -> { 64, 96 }
+// the shard.
+// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!tt.tile<32x32xf32>> -> { 64, 96 }
 //
 // /return The scalar shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
