@@ -8,6 +8,7 @@ endif()
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
+option(TTMLIR_ENABLE_OP_MODEL "Enable OpModel support" OFF)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
@@ -19,6 +20,11 @@ set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
+
+if (APPLE)
+  set(TTMLIR_ENABLE_OP_MODEL OFF)
+  message(WARNING "TTNNOpModelLib is disabled on Apple platforms. Optimizer will not get true performance.")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
