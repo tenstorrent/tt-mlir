@@ -250,13 +250,13 @@ public:
         builder.create<ttkernel::GetArgValOp>(metalDispatch.getLoc(), i32(rt_args.size(), builder));
     auto sender_sem_addr = builder.create<ttkernel::GetSemaphoreOp>(metalDispatch.getLoc(), sender_sempahore_id);
     auto sender_sem_l1_ptr = builder.create<ttkernel::CastToL1PtrOp>(metalDispatch.getLoc(), sender_sem_addr);
-    rt_args.push_back(sender_sempahore_id);
+    rt_args.push_back(sender_sem_l1_ptr);
 
     auto receiver_semaphore_id =
         builder.create<ttkernel::GetArgValOp>(metalDispatch.getLoc(), i32(rt_args.size(), builder));
     auto receiver_sem_addr = builder.create<ttkernel::GetSemaphoreOp>(metalDispatch.getLoc(), receiver_semaphore_id);
     auto receiver_sem_l1_ptr = builder.create<ttkernel::CastToL1PtrOp>(metalDispatch.getLoc(), receiver_sem_addr);
-    rt_args.push_back(receiver_semaphore_id);
+    rt_args.push_back(receiver_sem_l1_ptr);
 
     return SmallVector<Value> {sender_sem_l1_ptr, receiver_sem_l1_ptr};
   }
@@ -282,7 +282,7 @@ public:
     auto block_k = readerBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(in0Type.getShape().back()/TILE_WIDTH));
     auto block_h = readerBuilder.create<arith::ConstantOp>(
-        metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(in0Type.getShape().front()/TILE_HEIGHT/out0Encoding.getGrid().getShape().front()));
+        metalDispatch.getLoc(), readerBuilder.getI32Type(), readerBuilder.getI32IntegerAttr(in0Type.getShape().front()/TILE_HEIGHT/out0Encoding.getGrid().getShape().front())); // this calc will only work for 2D MM
     
     // Size of one tile in bytes - this is wrong atm idk why... need tile size * datatype size
     auto tile_size_bytes = readerBuilder.create<arith::ConstantOp>(
@@ -337,7 +337,36 @@ public:
     auto readBarrier = readerBuilder.create<ttkernel::NocAsyncReadBarrierOp>(metalDispatch.getLoc());
     auto in0CbPushBack = readerBuilder.create<ttkernel::CBPushBackOp>(metalDispatch.getLoc(), in0Cb, block_h); // this is not block_h CHANGE ME
 
-    // mcast logic here 
+    // mcast logic here
+
+    // Set Local L1 Sender Semaphore to VALID, to be mcasted after data mcast
+    auto valid = readerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), readerBuilder.getI32Type(),
+        readerBuilder.getI32IntegerAttr(1));
+    auto setLocalValid = readerBuilder.create<ttkernel::NocSemaphoreSetOp>(
+        metalDispatch.getLoc(), rt_args[1], valid);
+
+    // Wait for all receivers to be ready
+    auto num_receivers = readerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), readerBuilder.getI32Type(),
+        readerBuilder.getI32IntegerAttr(
+            out0Encoding.getGrid().getShape().back() - 1));
+    auto receiverWait = readerBuilder.create<ttkernel::NocSemaphoreWaitOp>(
+        metalDispatch.getLoc(), rt_args[0], num_receivers);
+    auto resetReceiverReady = readerBuilder.create<ttkernel::NocSemaphoreSetOp>(
+        metalDispatch.getLoc(), rt_args[0], i32(0, readerBuilder));
+
+    // Data Transfer
+    auto nocDataMcastAddr = readerBuilder.create<ttkernel::GetNocMulticastAddrOp>(
+        metalDispatch.getLoc(), i32(0, readerBuilder), start_block_id.getArgVal(), num_receivers, start_block_id.getArgVal(), start_in0_cb_addr.getWritePtr());
+    auto nocMcastWrite = readerBuilder.create<ttkernel::NocAsyncWriteMulticastOp>(
+        metalDispatch.getLoc(), start_in0_cb_addr, nocDataMcastAddr, block_size_bytes, num_receivers, readerBuilder.getBoolAttr(true), readerBuilder.getBoolAttr(true));
+    // Write Barrier
+    auto writerBarrier = readerBuilder.create<ttkernel::NocAsyncWriteBarrierOp>(metalDispatch.getLoc());
+
+    // Signal receivers that data is ready
+    auto mcastValid = readerBuilder.create<ttkernel::NocSemaphoreSetMulticastOp>(
+        metalDispatch.getLoc(), rt_args[1], valid, num_receivers);
 
     return;
   }

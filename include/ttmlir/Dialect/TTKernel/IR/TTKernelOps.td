@@ -697,7 +697,7 @@ def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
     GetNocMulticastAddr
   }];
 
-  let arguments = (ins I32:$noc_x_start, I32:$noc_y_start, I32:$noc_x_end, I32:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let arguments = (ins I32:$noc_x_start, I32:$noc_y_start, I32:$noc_x_end, I32:$noc_y_end, I32:$addr);
   let results = (outs TTKernel_NocAddr:$mcastNocAddr);
 }
 
@@ -737,7 +737,7 @@ def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast">
     maximum number of destinations is 119.
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve);
 }
 
 def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_multicast_loopback_src"> {
