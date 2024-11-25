@@ -4,10 +4,9 @@
 
 #pragma once
 
-#include <tuple>
-
-// #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
 

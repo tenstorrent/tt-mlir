@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "TTNNOpModel.hpp"
-
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+// This header resolves tt-metal warnings that would otherwise be treated as
+// errors in the MLIR build. Ensure that this is the only place where tt-metal
+// headers are included.
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-qual"
@@ -46,6 +46,7 @@
 #pragma clang diagnostic ignored "-Wzero-length-array"
 
 #define FMT_HEADER_ONLY
+
 #include "tt_metal/common/core_coord.hpp"
 #include "tt_metal/impl/buffers/buffer.hpp"
 #include "ttnn/tensor/tensor.hpp"

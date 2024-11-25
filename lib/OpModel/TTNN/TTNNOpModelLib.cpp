@@ -2,18 +2,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstddef>
-#include <stdexcept>
-#include <tuple>
+#include "TTNNOpModel.hpp"
+
+#include "TTNNOpModelLib_Impl.hpp"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include <llvm/Support/Casting.h>
 #include <mlir/IR/AttrTypeSubElements.h>
 
-#include "TTNNOpModel.hpp"
-#include "TTNNOpModelLib_Impl.hpp"
-#include "impl/buffers/buffer.hpp"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttnn/tensor/types.hpp"
+#include <cstddef>
+#include <stdexcept>
+#include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
 

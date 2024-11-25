@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.hpp"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 namespace mlir::tt::op_model::ttnn {
 
