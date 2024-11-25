@@ -276,7 +276,7 @@ public:
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setDtype(layoutAttr.getDataTypeFromMemRef());
+            emptyOp.setDtype(layoutAttr.getDataType());
             if (layoutAttr.isTiled()) {
               emptyOp.setLayout(ttnn::Layout::Tile);
             } else {
@@ -450,6 +450,8 @@ private:
       TensorMemoryLayout outputTensorMemoryLayout =
           consumerOpOutputLayout.getMemLayout();
 
+      llvm::SmallVector<int64_t> shardShape =
+          consumerOpOutputLayout.getShardShape();
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
           consumerOp->getContext(),
           TensorMemoryLayoutAttr::get(consumerOp->getContext(),
@@ -457,9 +459,7 @@ private:
           BufferTypeAttr::get(consumerOp->getContext(), outputBufferType),
           ShardSpecAttr::get(
               consumerOp->getContext(),
-              ShapeAttr::get(consumerOp->getContext(),
-                             consumerOpOutputLayout.getShardShape(
-                                 false /* convertTileToScalar */))));
+              ShapeAttr::get(consumerOp->getContext(), shardShape)));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -473,9 +473,8 @@ private:
       } else {
         OpBuilder builder(consumerOp);
 
-        DataTypeAttr outputDataType =
-            DataTypeAttr::get(consumerOp->getContext(),
-                              consumerOpOutputLayout.getDataTypeFromMemRef());
+        DataTypeAttr outputDataType = DataTypeAttr::get(
+            consumerOp->getContext(), consumerOpOutputLayout.getDataType());
         Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
         LayoutAttr outputLayout =
             LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);

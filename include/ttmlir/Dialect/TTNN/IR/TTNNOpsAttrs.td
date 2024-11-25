@@ -151,12 +151,12 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
       bool isTiled() const;
       Layout getLayout() const;
       Type getElementType() const;
-      DataType getDataTypeFromMemRef() const;
+      DataType getDataType() const;
       uint64_t getElementSizeBytes() const;
       int64_t getTensorSizeInBytes(ArrayRef<int64_t> tensorShape, ::mlir::tt::DeviceAttr device) const;
       llvm::SmallVector<int64_t> getStride(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
-      llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
+      llvm::SmallVector<int64_t> getShardShape() const;
+      llvm::SmallVector<int64_t> getScalarShardShape() const;
       AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;

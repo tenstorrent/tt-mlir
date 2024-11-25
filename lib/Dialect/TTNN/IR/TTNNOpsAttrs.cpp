@@ -127,10 +127,12 @@ mlir::Type TTNNLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
-// Extract data type from the memref. Example:
-// memref<2x2xf32> -> f32
-// memref<2x2x!tt.tile<32x32xf32>> -> f32
-mlir::tt::DataType TTNNLayoutAttr::getDataTypeFromMemRef() const {
+// Get scalar element type.
+// Example: memref<2x2xf32> -> f32
+// Example: memref<2x2x!tt.tile<32x32xf32>> -> f32
+//
+// /return The scalar element type.
+mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
   Type elementType = getElementType();
   DataType dtype = DataType::Float32;
   if (llvm::isa<TileType>(elementType)) {
@@ -159,21 +161,30 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 
 // Get shard shape
 //
-// This function returns the shape of the shard. If element type is TileType
-// and convertTileToScalar is true, then the shape is converted to scalar shape.
-// Example: (convertToScalar = true) memref<2x2x!tt.tile<32x32xf32>> -> {64, 64}
-// Example: (convertToScalar = false) memref<2x2x!tt.tile<32x32xf32>> -> {2, 2}
-// Example: memref<128x128xf32> -> {128, 128}
+// Return the shape of the shard.
+// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 2, 2 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!tt.tile<32x32xf32>> -> { 2, 3 }
 //
-// /param convertTileToScalar If true, convert tile shape to scalar shape.
 // /return The shape of the shard.
-llvm::SmallVector<int64_t>
-TTNNLayoutAttr::getShardShape(bool convertTileToScalar) const {
+llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
+  return SmallVector<int64_t>(getMemref().getShape());
+}
+
+// Get scalar shard shape
+//
+// If the element type is TileType, this function returns the scalar shape of
+// the shard. Example: memref<2x2x!tt.tile<32x32xf32>> -> { 64, 64 } Example:
+// memref<128x128xf32> -> { 128, 128 } Example: memref<2x3!tt.tile<32x32xf32>>
+// -> { 64, 96 }
+//
+// /return The scalar shape of the shard.
+llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
-  Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType) && convertTileToScalar) {
-    return mlir::cast<TileType>(elementType).getScalarShape(shardShape);
+  if (isTiled()) {
+    return mlir::cast<TileType>(getElementType()).getScalarShape(shardShape);
   }
+
   return shardShape;
 }
 
@@ -224,8 +235,7 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
 //
 // /return The size of the shard in bytes.
 uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
-  MemRefType ty = getMemref();
-  ArrayRef<int64_t> shape = ty.getShape();
+  SmallVector<int64_t> shape = getShardShape();
   uint64_t size = getElementSizeBytes();
   return std::accumulate(shape.begin(), shape.end(), size,
                          std::multiplies<uint64_t>());
@@ -253,8 +263,7 @@ mlir::AffineMap TTNNLayoutAttr::getIdentityTileLinearMap() const {
 // /return New memory map with symbols replaced with shard shape.
 mlir::AffineMap TTNNLayoutAttr::replaceMemoryMapSymbolsWithShardShape(
     AffineMap physicalMemoryMap) const {
-  mlir::SmallVector<int64_t> shardShape =
-      getShardShape(false /*convertTileToScalar*/);
+  mlir::SmallVector<int64_t> shardShape = getShardShape();
   assert(physicalMemoryMap.getNumSymbols() == shardShape.size() &&
          "Physical memory map must have same number of symbols as logical "
          "shard rank");
@@ -339,7 +348,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                Type elementType) {
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(context, getShardShape(),
+      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               elementType, getBufferType()),
       getMemLayout());
 }
@@ -356,7 +365,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
                                               BufferType memorySpace) {
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(context, getShardShape(),
+      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               getElementType(), memorySpace),
       getMemLayout());
 }
@@ -374,7 +383,7 @@ TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
-          context, getShardShape(), getElementType(), getBufferType()),
+          context, getScalarShardShape(), getElementType(), getBufferType()),
       memLayout);
 }
 

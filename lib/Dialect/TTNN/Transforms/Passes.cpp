@@ -204,7 +204,6 @@ private:
 
     auto inputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
-    auto inputMemref = inputLayoutAttr.getMemref();
 
     assert(op.getMemoryConfig().has_value());
     MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
@@ -215,7 +214,7 @@ private:
     input.layoutEnum = inputLayoutAttr.getLayout();
     output.layoutEnum = op.getLayout();
 
-    input.dataType = inputLayoutAttr.getDataTypeFromMemRef();
+    input.dataType = inputLayoutAttr.getDataType();
     assert(op.getDtype().has_value());
     output.dataType = op.getDtype().value();
 
@@ -223,7 +222,7 @@ private:
     output.tensorMemoryLayout =
         outputMemoryConfig.getTensorMemoryLayout().getValue();
 
-    input.shardShape = inputMemref.getShape();
+    input.shardShape = inputLayoutAttr.getShardShape();
     output.shardShape = outputMemoryConfig.getShardShapeArray();
     return {input, output};
   }
