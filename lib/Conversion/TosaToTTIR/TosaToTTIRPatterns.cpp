@@ -81,6 +81,31 @@ private:
   }
 };
 
+class TosaToTTIRMatMulOpConversionPattern
+    : public OpConversionPattern<tosa::MatMulOp> {
+  using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
+  using Adaptor = tosa::MatMulOp::Adaptor;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::MatMulOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    auto operands = adaptor.getOperands();
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
+        srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
+        outputTensor,
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -130,6 +155,12 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
 }
 
+void addMatMulOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRMatMulOpConversionPattern>(typeConverter, ctx);
+}
+
 void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
                                                 RewritePatternSet &patterns,
                                                 TypeConverter &typeConverter) {
@@ -173,6 +204,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addMatMulOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
