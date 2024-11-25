@@ -449,16 +449,17 @@ private:
       BufferType outputBufferType = consumerOpOutputLayout.getBufferType();
       TensorMemoryLayout outputTensorMemoryLayout =
           consumerOpOutputLayout.getMemLayout();
-      MemRefType outputMemref = consumerOpOutputLayout.getMemref();
 
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
           consumerOp->getContext(),
           TensorMemoryLayoutAttr::get(consumerOp->getContext(),
                                       outputTensorMemoryLayout),
           BufferTypeAttr::get(consumerOp->getContext(), outputBufferType),
-          ShardSpecAttr::get(consumerOp->getContext(),
-                             ShapeAttr::get(consumerOp->getContext(),
-                                            outputMemref.getShape())));
+          ShardSpecAttr::get(
+              consumerOp->getContext(),
+              ShapeAttr::get(consumerOp->getContext(),
+                             consumerOpOutputLayout.getShardShape(
+                                 false /* convertTileToScalar */))));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -474,8 +475,8 @@ private:
 
         DataTypeAttr outputDataType =
             DataTypeAttr::get(consumerOp->getContext(),
-                              utils::getDataTypeFromMemRef(outputMemref));
-        Layout outputLayoutEnum = utils::getLayoutFromMemRef(outputMemref);
+                              consumerOpOutputLayout.getDataTypeFromMemRef());
+        Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
         LayoutAttr outputLayout =
             LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(

@@ -34,6 +34,14 @@ bool TTNNLayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
 }
 
+Layout TTNNLayoutAttr::getLayout() const {
+  if (isTiled()) {
+    return Layout::Tile;
+  }
+
+  return Layout::RowMajor;
+}
+
 // Check if the tensor memory layout is sharded
 bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
   return (getMemLayout() == TensorMemoryLayout::HeightSharded ||

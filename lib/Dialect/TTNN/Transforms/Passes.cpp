@@ -198,17 +198,6 @@ private:
     }
   };
 
-  ttnn::Layout getLayoutFromMemRef(mlir::MemRefType memref) const {
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    Type elementType = memref.getElementType();
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
-    return ttnnLayoutEnum;
-  }
-
   std::pair<LayoutInfo, LayoutInfo>
   getInputOutputLayouts(ttnn::ToLayoutOp op) const {
     LayoutInfo input, output;
@@ -223,10 +212,10 @@ private:
     input.bufferType = inputLayoutAttr.getBufferType();
     output.bufferType = outputMemoryConfig.getBufferType().getValue();
 
-    input.layoutEnum = getLayoutFromMemRef(inputMemref);
+    input.layoutEnum = inputLayoutAttr.getLayout();
     output.layoutEnum = op.getLayout();
 
-    input.dataType = ttnn::utils::getDataTypeFromMemRef(inputMemref);
+    input.dataType = inputLayoutAttr.getDataTypeFromMemRef();
     assert(op.getDtype().has_value());
     output.dataType = op.getDtype().value();
 

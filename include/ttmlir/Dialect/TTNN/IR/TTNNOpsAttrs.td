@@ -109,6 +109,13 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
   let summary = "Tensor encoding attribute used for types in ttnn";
   let description = [{
     Layout attribute in ttnn. This attribute is used to encode different information about tensor memory layout.
+    Here is how tensor will look like after layout tensor<32x32x64xf32, #ttnn.ttnn_layout<linear, grid, memref, mem_layout>>
+    Lets break down what each parameter means:
+    - affine_map: An affine map that defines how the logical tensor dimensions map to physical space.
+    - grid: The grid shape (of tensix cores) where tensor is divided onto.
+    - memref: A memref is used to describe shard size and memory space. Shard size is calculated by dividing the tensor size by grid size.
+    - mem_layout: The layout of the tensor in memory. For tensor on host it should be None. For tensor on device
+    it can be interleaved or sharded.
   }];
 
   let parameters = (ins AttrParameter<"AffineMap", "An affine map that defines how the logical tensor dimensions map to a grid shape.">:$linear,
@@ -142,6 +149,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
       bool hasShardedL1TensorMemoryLayout() const;
       bool hasInterleavedL1TensorMemoryLayout() const;
       bool isTiled() const;
+      Layout getLayout() const;
       Type getElementType() const;
       DataType getDataTypeFromMemRef() const;
       uint64_t getElementSizeBytes() const;
@@ -150,7 +158,6 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
       llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> logicalShape) const;
       llvm::SmallVector<int64_t> getShardShape(bool convertTileToScalar = true) const;
       AffineMap replaceMemoryMapSymbolsWithShardShape(AffineMap physicalMemoryMap) const;
-      AffineMap projectOnto(AffineMap linearMap, AffineMap physicalMemoryMap) const;
       AffineMap getIdentityTileLinearMap() const;
       llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
   }];
