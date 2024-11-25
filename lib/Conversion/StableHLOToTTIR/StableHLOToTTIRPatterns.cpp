@@ -215,7 +215,7 @@ public:
     ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        srcOp->getOperand(0), outputTensor, new_shape_attr,
+        adaptor.getOperand(), outputTensor, new_shape_attr,
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -279,30 +279,81 @@ private:
     ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
         adaptor.getDotDimensionNumbers();
 
-    if (dimensions.getLhsContractingDimensions().empty() ||
-        dimensions.getRhsContractingDimensions().empty()) {
-      return rewriter.notifyMatchFailure(srcOp,
-                                         "Contracting dimension is missing.");
+    if (dimensions.getLhsContractingDimensions().size() != 1 ||
+        dimensions.getRhsContractingDimensions().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "LHS and RHS must have exactly 1 contracting dimension each. "
+          "Received LHS contracting dims: " +
+              std::to_string(dimensions.getLhsContractingDimensions().size()) +
+              ", RHS contracting dims: " +
+              std::to_string(dimensions.getRhsContractingDimensions().size()));
     }
 
-    if (dimensions.getLhsContractingDimensions()[0] != 1) {
+    // Use negative indexing to determine if this is a valid matmul since math
+    // is done over the final two dimensions.
+    int64_t lhsContractingDim = dimensions.getLhsContractingDimensions()[0] -
+                                srcOp.getLhs().getType().getRank();
+    int64_t rhsContractingDim = dimensions.getRhsContractingDimensions()[0] -
+                                srcOp.getRhs().getType().getRank();
+
+    if (lhsContractingDim != -1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "Only support contracting dimensions that correspond to valid "
+                 "matmuls. LHS contracting dimension must be " +
+                     std::to_string(srcOp.getLhs().getType().getRank() - 1) +
+                     ". Got " + std::to_string(lhsContractingDim));
     }
 
-    if (dimensions.getRhsContractingDimensions()[0] != 0) {
+    if (rhsContractingDim != -2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "Only support contracting dimensions that correspond to valid "
+                 "matmuls. RHS contracting dimension must be " +
+                     std::to_string(srcOp.getRhs().getType().getRank() - 2) +
+                     ". Got " + std::to_string(rhsContractingDim));
     }
 
-    if (!dimensions.getLhsBatchingDimensions().empty()) {
+    if (dimensions.getLhsBatchingDimensions() !=
+        dimensions.getRhsBatchingDimensions()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "LHS and RHS must have same batching dimensions.");
     }
 
-    if (!dimensions.getRhsBatchingDimensions().empty()) {
+    // For the RHS, all dimensions which are not the row and column dimensions
+    // must be 1 OR they must be equal to the corresponding dimension in the
+    // LHS. If the RHS has less dimensions than the LHS we will assume that the
+    // missing dimensions are 1.
+
+    auto lhsShape = srcOp.getLhs().getType().getShape().vec();
+    auto rhsShape = srcOp.getRhs().getType().getShape().vec();
+
+    if (rhsShape.size() > lhsShape.size()) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Only non-transposed matmul is currently supported in TTIR.");
+          srcOp, "RHS must not be a higher rank than LHS.");
+    }
+
+    while (rhsShape.size() < lhsShape.size()) {
+      rhsShape.insert(rhsShape.begin(), 1);
+    }
+
+    // Need only to check dims to the left of dim -2 on the RHS
+    bool allOnes = true;
+    bool mismatchedDims = false;
+    for (int32_t i = rhsShape.size() - 3; i >= 0; i--) {
+      if (rhsShape[i] != 1) {
+        allOnes = false;
+      }
+
+      if (rhsShape[i] != lhsShape[i]) {
+        mismatchedDims = true;
+      }
+    }
+
+    if (mismatchedDims && !allOnes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "All dimensions in the RHS that are not the row and column "
+                 "dimensions must be 1 OR they must all be equal to the "
+                 "corresponding dimensions in the LHS.");
     }
 
     return success();
@@ -327,7 +378,7 @@ public:
         intType, static_cast<int32_t>(srcOp.getDimension()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::GetDimensionSizeOp>(
-        srcOp, outputType, srcOp.getOperand(), dimension_attr);
+        srcOp, outputType, adaptor.getOperand(), dimension_attr);
 
     return success();
   }
@@ -799,7 +850,7 @@ private:
 
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     auto srcType =
-        getTypeConverter()->convertType(srcOp.getOperand().getType());
+        getTypeConverter()->convertType(adaptor.getOperand().getType());
     auto inputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
     auto outputShape = mlir::cast<mlir::RankedTensorType>(srcType).getShape();
 
@@ -945,8 +996,8 @@ private:
                                          "ConcatOp dimension is too large.");
     }
 
-    auto rankedTensorType =
-        mlir::dyn_cast<mlir::RankedTensorType>(srcOp.getOperand(0).getType());
+    auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(
+        adaptor.getOperands()[0].getType());
     if (static_cast<int64_t>(adaptor.getDimension()) >=
         rankedTensorType.getRank()) {
       return rewriter.notifyMatchFailure(srcOp,
@@ -1134,8 +1185,8 @@ public:
     auto dimensionNumbers = srcOp.getDimensionNumbers();
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::GatherOp>(
-        srcOp, outputType, srcOp.getOperands()[0],
-        srcOp.getOperands()[1], // Start indices
+        srcOp, outputType, adaptor.getOperands()[0],
+        adaptor.getOperands()[1], // Start indices
         Value(outputTensor), dimensionNumbers.getOffsetDims(),
         dimensionNumbers.getCollapsedSliceDims(),
         dimensionNumbers.getOperandBatchingDims(),
@@ -1146,6 +1197,36 @@ public:
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
+template <typename SrcIotaOp, typename Adaptor = typename SrcIotaOp::Adaptor>
+class StableHLOToTTIROpIotaOpConversionPattern
+    : public OpConversionPattern<SrcIotaOp> {
+
+  using OpConversionPattern<SrcIotaOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(SrcIotaOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    rewriter.replaceOpWithNewOp<ttir::ArangeOp>(
+        srcOp, outputType, 0, outputType.getDimSize(adaptor.getIotaDimension()),
+        1, adaptor.getIotaDimension());
+
+    // Dynamic Iota has an output_shape attribute but the output shape is
+    // already known by the result type This is to remove the operand that will
+    // become dead code
+    for (auto operand : adaptor.getOperands()) {
+      if (operand.getDefiningOp()) {
+        rewriter.eraseOp(operand.getDefiningOp());
+      }
+    }
+
     return success();
   }
 };
@@ -1314,6 +1395,15 @@ void addGatherOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<StableHLOToTTIRGatherOpConversionPattern>(typeConverter, ctx);
 }
 
+void addIotaOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::IotaOp>>(
+      typeConverter, ctx);
+  patterns
+      .add<StableHLOToTTIROpIotaOpConversionPattern<stablehlo::DynamicIotaOp>>(
+          typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1338,6 +1428,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
+  addIotaOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
