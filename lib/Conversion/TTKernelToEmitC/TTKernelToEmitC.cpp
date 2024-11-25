@@ -247,7 +247,8 @@ public:
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::GetArgValOp>) {
       SmallVector<Attribute, 1> template_args;
 
-      template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
+      template_args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
 
       return ArrayAttr::get(op.getContext(), template_args);
     }
@@ -369,6 +370,12 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocAsyncWriteMulticastOnePacketOp>,
+          TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
+          TTMetalToEmitCOpaqueRewriter<
+              ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
