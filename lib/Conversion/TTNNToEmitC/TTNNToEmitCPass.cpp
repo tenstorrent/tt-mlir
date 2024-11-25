@@ -16,6 +16,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include <cassert>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -113,6 +114,123 @@ struct ConvertTTNNToEmitCPass
         return;
       }
     }
+
+    // // Add tensor creation functions
+    // //
+    // {
+    //   mlir::ModuleOp module = getOperation();
+    //   OpBuilder builder(module);
+
+    //   assert(module->getRegions().size() ==
+    //          1); // TODO: should this be an assert?
+
+    //   assert(module->getRegion(0).getBlocks().size() ==
+    //          1); // TODO: should this be an assert?
+
+    //   // Get the first block of the region at index 0
+    //   //
+    //   Block *block = module.getBody(0);
+
+    //   // Find all the func.func ops in the module
+    //   //
+    //   SmallVector<func::FuncOp, 1> funcOps;
+    //   for (mlir::Operation &op : block->getOperations()) {
+    //     if (mlir::func::FuncOp funcOp = dyn_cast<func::FuncOp>(op)) {
+
+    //       // Skip functions that are used
+    //       //
+    //       // This will skip utility functions that are used by other
+    //       functions,
+    //       // only top-level "forward" functions should be considered
+    //       //
+    //       if (!funcOp->getUses().empty()) {
+    //         continue;
+    //       }
+
+    //       funcOps.push_back(funcOp);
+    //     }
+    //   }
+
+    //   // Iterate over all the func ops and add tensor creation functions
+    //   //
+    //   for (mlir::func::FuncOp funcOp : funcOps) {
+    //     // Set insertion point to end of first module child
+    //     //
+    //     builder.setInsertionPointToEnd(block);
+    //   }
+
+    //   // Set insertion point to end of first module child
+    //   //
+    //   builder.setInsertionPointToEnd(block);
+
+    //   // Create tensor creation functions
+    //   //
+    //   {
+    //     // CreateTensor function
+    //     //
+    //     {
+    //       // Create function
+    //       //
+    //       auto createTensorFunc = builder.create<emitc::FuncOp>(
+    //           module.getLoc(), "createTensor",
+    //           builder.getFunctionType(
+    //               {emitc::PointerType::get(
+    //                   emitc::OpaqueType::get(getContext(), "ttnn::Shape"))},
+    //               {emitc::OpaqueType::get(getContext(), "ttnn::Tensor")}));
+
+    //       // Set insertion point to start of function
+    //       //
+    //       builder.setInsertionPointToStart(createTensorFunc.addEntryBlock());
+
+    //       // Create tensor
+    //       //
+    //       auto tensor = builder.create<emitc::CallOpaqueOp>(
+    //           module.getLoc(),
+    //           emitc::OpaqueType::get(getContext(), "ttnn::Tensor"),
+    //           "ttnn::createTensor", nullptr, nullptr,
+    //           createTensorFunc.getArguments());
+
+    //       // Return tensor
+    //       //
+    //       builder.create<emitc::ReturnOp>(module.getLoc(),
+    //       tensor.getResult(0));
+    //     }
+
+    //     // CreateTensorOnDevice function
+    //     //
+    //     {
+    //       // Create function
+    //       //
+    //       auto createTensorOnDeviceFunc = builder.create<emitc::FuncOp>(
+    //           module.getLoc(), "createTensorOnDevice",
+    //           builder.getFunctionType(
+    //               {emitc::PointerType::get(
+    //                    emitc::OpaqueType::get(getContext(), "ttnn::Shape")),
+    //                emitc::PointerType::get(
+    //                    emitc::OpaqueType::get(getContext(),
+    //                    "ttnn::Device"))},
+    //               {emitc::OpaqueType::get(getContext(), "ttnn::Tensor")}));
+
+    //       // Set insertion point to start of function
+    //       //
+    //       builder.setInsertionPointToStart(
+    //           createTensorOnDeviceFunc.addEntryBlock());
+
+    //       // Create tensor
+    //       //
+    //       auto tensor = builder.create<emitc::CallOpaqueOp>(
+    //           module.getLoc(),
+    //           emitc::OpaqueType::get(getContext(), "ttnn::Tensor"),
+    //           "ttnn::createTensorOnDevice", nullptr, nullptr,
+    //           createTensorOnDeviceFunc.getArguments());
+
+    //       // Return tensor
+    //       //
+    //       builder.create<emitc::ReturnOp>(module.getLoc(),
+    //       tensor.getResult(0));
+    //   }
+    // }
+    // }
   }
 };
 

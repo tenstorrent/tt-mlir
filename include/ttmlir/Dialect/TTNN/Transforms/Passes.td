@@ -28,4 +28,14 @@ def TTNNLayout : Pass<"ttnn-layout", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
+  let summary = "Create input generators for the forward functions.";
+  let description = [{
+    This pass creates input generators for the "forward" functions.
+
+    The pass is useful for EmitC path. By creating input generators before converting to Emitc Dialect, followed by
+    transformation to C++ code, the resulting code won't require any edits to run.
+  }];
+}
+
 #endif

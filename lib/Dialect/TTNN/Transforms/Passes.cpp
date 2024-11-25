@@ -8,10 +8,15 @@
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/Casting.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/TypeRange.h>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNDECOMPOSELAYOUTS
+#define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -884,6 +889,113 @@ private:
       return;
     }
     handleDeviceInputLayoutConversion(op, rewriter, currentInput, info);
+  }
+};
+
+class TTNNCreateInputGenerators
+    : public impl::TTNNCreateInputGeneratorsBase<TTNNCreateInputGenerators> {
+
+public:
+  using impl::TTNNCreateInputGeneratorsBase<
+      TTNNCreateInputGenerators>::TTNNCreateInputGeneratorsBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    assert(module->getRegions().size() == 1); // TODO: should this be an assert?
+
+    assert(module->getRegion(0).getBlocks().size() ==
+           1); // TODO: should this be an assert?
+
+    // Get the first block of the region at index 0
+    //
+    Block *firstBlock = module.getBody(0);
+
+    // Find all the func.func ops in the module
+    //
+    SmallVector<func::FuncOp, 1> forwardFuncOps;
+    for (mlir::Operation &op : firstBlock->getOperations()) {
+      if (mlir::func::FuncOp funcOp = dyn_cast<func::FuncOp>(op)) {
+
+        // Skip functions that are used
+        //
+        // This will skip utility functions that are used by other functions,
+        // only top-level "forward" functions should be considered
+        //
+        if (!funcOp->getUses().empty()) {
+          continue;
+        }
+
+        forwardFuncOps.push_back(funcOp);
+      }
+    }
+
+    // Iterate over all the func ops and add tensor creation functions
+    //
+    for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
+      // Set insertion point to end of first module child
+      //
+      // rewriter.setInsertionPointToEnd(firstBlock);
+
+      // Get all the input tensors for the current forward func
+      //
+      llvm::SmallVector<mlir::RankedTensorType, 4> inputTensors;
+      for (auto input : forwardFuncOp.getFunctionType().getInputs()) {
+        assert(llvm::isa<mlir::RankedTensorType>(input));
+        inputTensors.push_back(llvm::cast<mlir::RankedTensorType>(input));
+      }
+
+      // Create a new function that will generate the input tensors
+      //
+      std::string inputGenFuncName =
+          "createInputsFor" + forwardFuncOp.getName().str();
+
+      // Create function type
+      //
+      mlir::TypeRange returnTypeRange =
+          mlir::TypeRange(forwardFuncOp.getFunctionType().getInputs());
+      FunctionType functionType =
+          mlir::FunctionType::get(&getContext(), {}, returnTypeRange);
+
+      llvm::StringRef inputGenFuncNameAsStringRef =
+          llvm::StringRef(inputGenFuncName);
+
+      // auto q = rewriter.getInsertionPoint();
+      // auto loc = q.getLoc();
+      // (void)loc;
+
+      // Create the function
+      //
+      // func::FuncOp inputGenFuncOp = rewriter.create<mlir::func::FuncOp>(
+      auto x = rewriter.create<mlir::func::FuncOp>(
+          // rewriter.getUnknownLoc(), inputGenFuncNameAsStringRef,
+          // functionType);
+          forwardFuncOp->getLoc(), inputGenFuncNameAsStringRef, functionType);
+
+      // ^ Weird that the func gets created, but doesn't exist in the IR.
+      // Dumping the func dumps
+      //"func.func"() <{function_type = () -> (tensor<32x32xbf16,
+      // #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16,
+      // #ttnn.buffer_type<system_memory>>>>, tensor<32x32xbf16,
+      // #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16,
+      // #ttnn.buffer_type<system_memory>>>>), sym_name = "createInputsForadd"}>
+      //({
+      // }) : () -> ()
+      //
+
+      llvm::outs() << "start\n";
+      x.dump();
+      llvm::outs() << "end\n";
+
+      // ::mlir::Block *currFnBlock = inputGenFuncOp.addEntryBlock();
+
+      // Set insertion point to the beginning of the block
+      //
+      // rewriter.setInsertionPointToStart(currFnBlock);
+    }
+
+    // module->dump();
   }
 };
 
