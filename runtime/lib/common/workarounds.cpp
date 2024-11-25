@@ -6,8 +6,10 @@
 
 namespace tt::runtime::workaround {
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
-const Env &Env::get(bool maxpool2dPreshard, bool swapBinaryOperands) {
-  static const Env config(maxpool2dPreshard, swapBinaryOperands);
+const Env &Env::get(bool maxpool2dPreshard, bool swapBinaryOperands,
+                    bool readUpdateIndexFromDeviceForKVCache) {
+  static const Env config(maxpool2dPreshard, swapBinaryOperands,
+                          readUpdateIndexFromDeviceForKVCache);
   return config;
 }
 #endif

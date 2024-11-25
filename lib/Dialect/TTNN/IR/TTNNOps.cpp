@@ -974,4 +974,125 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// UpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult UpdateCacheOp::verify() {
+  if (getBatchOffset() != 0) {
+    return emitOpError(
+        "Only single-batch is supported. Batch offset must be 0");
+  }
+
+  const ::mlir::RankedTensorType cacheType = getCache().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+
+  const DataType cacheDataType =
+      elementTypeToDataType(cacheType.getElementType());
+  const DataType inputDataType =
+      elementTypeToDataType(inputType.getElementType());
+
+  if (cacheDataType != inputDataType) {
+    return emitOpError(
+        "Cache and input tensors must have the same dtype. "
+        "Got cache dtype = " +
+        DataTypeEnumToString(cacheDataType) +
+        ", input dtype = " + DataTypeEnumToString(inputDataType));
+  }
+
+  if (cacheType.getRank() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (inputType.getShape()[2] != 1) {
+    return emitOpError("Input tensor requires that dim 2 have size 1, got "
+                       "input dim 2 size = " +
+                       std::to_string(inputType.getShape()[2]));
+  }
+
+  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
+      cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[3] != inputType.getShape()[3]) {
+    return emitOpError("Cache tensor shape must match input tensor shape on "
+                       "all dimensions except dim 2. Got cache shape (" +
+                       std::to_string(cacheType.getShape()[0]) + ", " +
+                       std::to_string(cacheType.getShape()[1]) + ", " +
+                       std::to_string(cacheType.getShape()[2]) + ", " +
+                       std::to_string(cacheType.getShape()[3]) +
+                       "), input shape ()" +
+                       std::to_string(inputType.getShape()[0]) + "x" +
+                       std::to_string(inputType.getShape()[1]) + "x" +
+                       std::to_string(inputType.getShape()[2]) + "x" +
+                       std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FillCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult FillCacheOp::verify() {
+  if (getBatchOffset() != 0) {
+    return emitOpError(
+        "Only single-batch is supported. Batch offset must be 0");
+  }
+
+  const ::mlir::RankedTensorType cacheType = getCache().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+
+  const DataType cacheDataType =
+      elementTypeToDataType(cacheType.getElementType());
+  const DataType inputDataType =
+      elementTypeToDataType(inputType.getElementType());
+
+  if (cacheDataType != inputDataType) {
+    return emitOpError(
+        "Cache and input tensors must have the same dtype. "
+        "Got cache dtype = " +
+        DataTypeEnumToString(cacheDataType) +
+        ", input dtype = " + DataTypeEnumToString(inputDataType));
+  }
+
+  if (cacheType.getRank() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (inputType.getShape()[2] > cacheType.getShape()[2]) {
+    return emitOpError(
+        "Input tensor requires that dim 2 have a size which is less than or "
+        "equal to the size of dim 2 of the cache tensor. Got cache dim 2 size "
+        "= " +
+        std::to_string(cacheType.getShape()[2]) +
+        ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
+  }
+
+  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
+      cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[3] != inputType.getShape()[3]) {
+    return emitOpError("Cache tensor shape must match input tensor shape on "
+                       "all dimensions except dim 2. Got cache shape (" +
+                       std::to_string(cacheType.getShape()[0]) + ", " +
+                       std::to_string(cacheType.getShape()[1]) + ", " +
+                       std::to_string(cacheType.getShape()[2]) + ", " +
+                       std::to_string(cacheType.getShape()[3]) +
+                       "), input shape (" +
+                       std::to_string(inputType.getShape()[0]) + ", " +
+                       std::to_string(inputType.getShape()[1]) + ", " +
+                       std::to_string(inputType.getShape()[2]) + ", " +
+                       std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttnn

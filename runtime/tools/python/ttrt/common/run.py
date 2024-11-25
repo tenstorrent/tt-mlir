@@ -139,6 +139,13 @@ class Run:
             help="disable swap binary operands workaround",
         )
         Run.register_arg(
+            name="--disable-read-update-index-for-kv-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable read update index for kv cache workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -351,6 +358,7 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
+                not self["--disable-read-update-index-for-kv-cache"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")

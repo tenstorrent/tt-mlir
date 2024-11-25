@@ -436,6 +436,30 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
   }
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
+createOp(FlatbufferObjectCache &cache, UpdateCacheOp op) {
+  auto cacheOperand =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getCache()));
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto updateIndex = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getUpdateIndex()));
+
+  return ::tt::target::ttnn::CreateUpdateCacheOp(
+      *cache.fbb, cacheOperand, input, updateIndex, op.getBatchOffset());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
+createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
+  auto cacheOperand =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getCache()));
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+
+  return ::tt::target::ttnn::CreateFillCacheOp(*cache.fbb, cacheOperand, input,
+                                               op.getBatchOffset());
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -969,6 +993,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
     return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
+                           locInfo);
+  }
+  if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
+    return createOperation(cache, createOp(cache, updateCacheOp), debugString,
+                           locInfo);
+  }
+  if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
+    return createOperation(cache, createOp(cache, fillCacheOp), debugString,
                            locInfo);
   }
 

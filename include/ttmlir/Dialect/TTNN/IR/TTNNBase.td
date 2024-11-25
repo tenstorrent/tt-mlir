@@ -48,4 +48,7 @@ def TTNN_Dialect : Dialect {
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
         Op<TTNN_Dialect, mnemonic, !listconcat(traits, [Pure, TTNN_OpModelInterface, TTNN_WorkaroundInterface])>;
 
+class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
+        Op<TTNN_Dialect, mnemonic, !listconcat(traits, [MemoryEffects<[MemWrite]>, TTNN_OpModelInterface, TTNN_WorkaroundInterface])>;
+
 #endif

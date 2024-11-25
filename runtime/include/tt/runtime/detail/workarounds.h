@@ -15,12 +15,13 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true)
+  get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
+      bool readUpdateIndexFromDeviceForKVCache = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true);
+    return Env(true, true, true);
   }
 #endif
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
@@ -32,10 +33,19 @@ struct Env {
   // rhs operand). We should add this check in the compiler.
   bool swapBinaryOperands;
 
+  // TODO(bug #1510) ttnn::update_cache takes a single update index as a uint32
+  // as a function argument. The tt-torch frontend and likely others model this
+  // as a tensor with integer elements. For now, to get this op to work we need
+  // to be able to pluck this update index from a runtime tensor.
+  bool readUpdateIndexFromDeviceForKVCache;
+
 private:
-  constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands)
+  constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
+                bool readUpdateIndexFromDeviceForKVCache)
       : maxpool2dPreshard(maxpool2dPreshard),
-        swapBinaryOperands(swapBinaryOperands) {}
+        swapBinaryOperands(swapBinaryOperands),
+        readUpdateIndexFromDeviceForKVCache(
+            readUpdateIndexFromDeviceForKVCache) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
@@ -43,7 +53,10 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "\t"
      << "maxpool2dPreshard: " << env.maxpool2dPreshard << ",\n";
   os << "\t"
-     << "swapBinaryOperands: " << env.swapBinaryOperands << "\n";
+     << "swapBinaryOperands: " << env.swapBinaryOperands << ",\n";
+  os << "\t"
+     << "readUpdateIndexFromDeviceForKVCache: "
+     << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "}";
   return os;
 }

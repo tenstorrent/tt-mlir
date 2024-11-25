@@ -577,6 +577,33 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let hasVerifier = 1;
 }
 
+def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
+  let summary = "Update static cache tensor.";
+  let description = [{
+      Updates the `cache` tensor in-place with values from `input` at `update_index` and `batch_offset`.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       I32Attr:$batch_offset);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
+  let summary = "Fill static cache tensor.";
+  let description = [{
+      Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       I32Attr:$batch_offset);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
     let summary = "Softmax op.";
     let description = [{
