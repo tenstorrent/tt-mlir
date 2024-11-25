@@ -20,6 +20,8 @@ struct OutputLayoutOverrideParams {
   std::optional<Layout> memoryLayout; // ROW_MAJOR / TILE
   std::optional<tt::DataType> dataType;
 
+  // Check if all layout parameters that are generated in LegalLayoutAnalysis
+  // are overridden. DataType is the only that is not.
   bool fullLayoutOverride() const {
     return grid.has_value() && bufferType.has_value() &&
            tensorMemoryLayout.has_value() && memoryLayout.has_value();

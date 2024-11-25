@@ -12,12 +12,12 @@
 
 namespace mlir::tt::ttnn {
 
-bool mock_is_output_tensor_legal_for_op(Operation *op, TTNNLayoutAttr layout) {
+bool mockIsOutputTensorLegalForOp(Operation *op, TTNNLayoutAttr layout) {
   // Placeholder, needs to be replaced with a call the the TTNN op interface.
   return true;
 }
 
-bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
+bool tensorShapeCompatibleWithShard(Operation *op, TTNNLayoutAttr layout) {
   // These constraints are implemented seperatelly in every TTNN op.
   // Almost nothing seems to be shared between EVERY op, so is hard to have any
   // logic here without the risk of discarding a valid configuraiton or modeling
@@ -34,8 +34,9 @@ bool tensor_shape_compatible_with_shard(Operation *op, TTNNLayoutAttr layout) {
     RankedTensorType tensorType =
         mlir::cast<RankedTensorType>(op->getResult(0).getType());
     llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-    auto tiledShape = layout.getTiledShape(tensorShape);
-    auto gridShape = layout.getGrid().getShape();
+    llvm::SmallVector<int64_t, 2> tiledShape =
+        layout.getTiledShape(tensorShape);
+    llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
 
     assert(tiledShape.size() == gridShape.size() &&
            "Tiled tensor shape and grid shape must have the same rank");
@@ -89,42 +90,74 @@ bool LegalLayoutAnalysis::applyOverrides() {
   }
 
   StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-  auto gridOverride = analysisInput.outputLayoutOverrides->find(opLocName);
+  auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
 
-  if (gridOverride == analysisInput.outputLayoutOverrides->end()) {
+  if (overrideIt == analysisInput.outputLayoutOverrides->end()) {
     return false;
   }
 
-  OutputLayoutOverrideParams override = gridOverride->getValue();
-  if (not override.fullLayoutOverride()) {
-    // We need to perform analysis and apply partial overrides.
+  OutputLayoutOverrideParams layoutOverride = overrideIt->getValue();
+
+  // If all layout parameters are set (except data type), we can skip analysis
+  // and create the overriden layout. Otherwise, we need to perform analysis and
+  // apply partial overrides.
+  if (not layoutOverride.fullLayoutOverride()) {
     return false;
   }
 
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-  auto tensorShape = tensorType.getShape();
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  GridAttr grid =
-      GridAttr::get(op->getContext(), ArrayRef<int64_t>(override.grid.value()));
+  GridAttr grid = GridAttr::get(op->getContext(),
+                                ArrayRef<int64_t>(layoutOverride.grid.value()));
 
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
-  if (override.dataType.has_value()) {
-    elementType = utils::createRowMajorTypeFromDtype(op->getContext(),
-                                                     override.dataType.value());
+  if (layoutOverride.dataType.has_value()) {
+    elementType = utils::createRowMajorTypeFromDtype(
+        op->getContext(), layoutOverride.dataType.value());
   }
 
-  if (override.memoryLayout == Layout::Tile) {
+  if (layoutOverride.memoryLayout == Layout::Tile) {
     elementType = TileType::get(op->getContext(), elementType);
   }
 
-  analysisResult.push_back(TTNNLayoutAttr::get(
-      op->getContext(), tensorShape, elementType, override.bufferType.value(),
-      grid, override.tensorMemoryLayout.value()));
+  analysisResult.push_back(
+      TTNNLayoutAttr::get(op->getContext(), tensorShape, elementType,
+                          layoutOverride.bufferType.value(), grid,
+                          layoutOverride.tensorMemoryLayout.value()));
 
   return true;
+}
+
+bool incompatibleWithOverride(
+    const TTNNLayoutAttr &layout,
+    const std::optional<OutputLayoutOverrideParams> &override) {
+  if (not override.has_value()) {
+    return false;
+  }
+
+  if (override->grid.has_value()) {
+    if (layout.getGrid().getShape()[0] != override->grid.value()[0] or
+        layout.getGrid().getShape()[1] != override->grid.value()[1]) {
+      return true;
+    }
+  }
+  if (override->bufferType.has_value() and
+      layout.getBufferType() != override->bufferType.value()) {
+    return true;
+  }
+  if (override->tensorMemoryLayout.has_value() and
+      layout.getMemLayout() != override->tensorMemoryLayout.value()) {
+    return true;
+  }
+  if (override->memoryLayout.has_value() and
+      layout.isTiled() != (override->memoryLayout.value() == Layout::Tile)) {
+    return true;
+  }
+  return false;
 }
 
 void LegalLayoutAnalysis::analysisImplementation() {
@@ -136,7 +169,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   // Get output tensor type.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  auto tensorShape = tensorType.getShape();
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
   // Return existing layout if it is not possible to change it.
@@ -195,9 +228,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
     assert(analysisInput.maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
     // Block Sharded
-    for (auto width = 1; width <= analysisInput.maxGrid.getShape()[0];
-         ++width) {
-      for (auto height = 1; height <= analysisInput.maxGrid.getShape()[1];
+    for (int width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
+      for (int height = 1; height <= analysisInput.maxGrid.getShape()[1];
            ++height) {
         shardedResults.push_back(
             shardedBase
@@ -212,7 +244,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
     // Height Sharded
     // TODO(odjuricic): Missing affine mapping to actual grid. Need to check
     // with runtime implementation on what to produce here.
-    for (auto height = 1; height <= numCores; ++height) {
+    for (int height = 1; height <= numCores; ++height) {
       shardedResults.push_back(
           shardedBase
               .withGrid(op->getContext(), tensorType,
@@ -222,7 +254,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
     }
 
     // Width Sharded
-    for (auto width = 1; width <= numCores; ++width) {
+    for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
           shardedBase
               .withGrid(op->getContext(), tensorType,
@@ -236,8 +268,8 @@ void LegalLayoutAnalysis::analysisImplementation() {
   shardedResults.erase(
       std::remove_if(shardedResults.begin(), shardedResults.end(),
                      [this](TTNNLayoutAttr layout) {
-                       return !tensor_shape_compatible_with_shard(op, layout) ||
-                              !mock_is_output_tensor_legal_for_op(op, layout);
+                       return !tensorShapeCompatibleWithShard(op, layout) or
+                              !mockIsOutputTensorLegalForOp(op, layout);
                      }),
       shardedResults.end());
 
@@ -255,34 +287,15 @@ void LegalLayoutAnalysis::analysisImplementation() {
           std::min(analysisInput.maxShardedGrids,
                    static_cast<int64_t>(shardedResults.size())));
 
-  // Apply partial layout overrides.
+  // Apply partial layout overrides. Remove layouts that conflict with at least
+  // one overriden param.
   if (override.has_value()) {
-    analysisResult.erase(
-        std::remove_if(analysisResult.begin(), analysisResult.end(),
-                       [override](TTNNLayoutAttr layout) {
-                         bool keepLayout = true;
-                         if (override->grid.has_value()) {
-                           keepLayout &= layout.getGrid().getShape()[0] ==
-                                             override->grid.value()[0] &&
-                                         layout.getGrid().getShape()[1] ==
-                                             override->grid.value()[1];
-                         }
-                         if (override->bufferType.has_value()) {
-                           keepLayout &= layout.getBufferType() ==
-                                         override->bufferType.value();
-                         }
-                         if (override->tensorMemoryLayout.has_value()) {
-                           keepLayout &= layout.getMemLayout() ==
-                                         override->tensorMemoryLayout.value();
-                         }
-                         if (override->memoryLayout.has_value()) {
-                           keepLayout &=
-                               layout.isTiled() ==
-                               (override->memoryLayout.value() == Layout::Tile);
-                         }
-                         return !keepLayout;
-                       }),
-        analysisResult.end());
+    auto shouldRemoveLayout =
+        std::bind(incompatibleWithOverride, std::placeholders::_1, override);
+    analysisResult.erase(std::remove_if(analysisResult.begin(),
+                                        analysisResult.end(),
+                                        shouldRemoveLayout),
+                         analysisResult.end());
   }
 
   if (analysisResult.empty()) {
