@@ -27,12 +27,15 @@
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/reduction/reduction.h"
-#include "tracy/Tracy.hpp"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+
+#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#include "tracy/Tracy.hpp"
+#endif
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
