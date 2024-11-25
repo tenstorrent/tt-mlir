@@ -69,4 +69,14 @@ MlirAttribute ttmlirTTNNMeshShapeAttrGet(MlirContext ctx, int64_t y,
   return wrap(MeshShapeAttr::get(unwrap(ctx), y, x));
 }
 
+MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
+                                          MlirAttribute grid, MlirType memref,
+                                          unsigned memLayout) {
+  mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
+  return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap,
+                                  mlir::cast<GridAttr>(unwrap(grid)),
+                                  mlir::cast<MemRefType>(unwrap(memref)),
+                                  static_cast<TensorMemoryLayout>(memLayout)));
+}
+
 } // namespace mlir::tt::ttnn

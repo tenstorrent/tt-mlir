@@ -8,6 +8,7 @@ import time
 import multiprocessing
 import pytest
 import glob
+import os
 
 HOST = "localhost"
 PORT = 8002
@@ -20,11 +21,16 @@ TEST_EXECUTE_MODEL_PATHS = [
     "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
 ]
 
+if "TT_EXPLORER_GENERATED_TEST_DIR" in os.environ:
+    TEST_LOAD_MODEL_PATHS.append(
+        os.environ["TT_EXPLORER_GENERATED_TEST_DIR"] + "/**/*.mlir"
+    )
+
 
 def get_test_files(paths):
     files = []
     for path in paths:
-        files.extend(glob.glob(path))
+        files.extend(glob.glob(path, recursive=True))
     return files
 
 

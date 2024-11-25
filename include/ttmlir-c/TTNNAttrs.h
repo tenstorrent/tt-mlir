@@ -5,6 +5,7 @@
 #ifndef TTMLIR_C_TTNNATTRS_H
 #define TTMLIR_C_TTNNATTRS_H
 
+#include "mlir-c/AffineMap.h"
 #include "ttmlir-c/Dialects.h"
 
 #ifdef __cplusplus
@@ -43,6 +44,10 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNShapeAttrGet(MlirContext ctx,
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNMeshShapeAttrGet(MlirContext ctx,
                                                             int64_t y,
                                                             int64_t x);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(
+    MlirContext ctx, MlirAffineMap linear, MlirAttribute grid, MlirType memref,
+    unsigned memLayout);
 
 #ifdef __cplusplus
 }
