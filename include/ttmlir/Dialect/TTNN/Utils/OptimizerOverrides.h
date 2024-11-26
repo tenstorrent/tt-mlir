@@ -7,12 +7,9 @@
 
 #include <llvm/Support/CommandLine.h>
 
-// #include "mlir/Pass/PassOptions.h"
-
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-// #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
 
@@ -41,11 +38,13 @@ struct InputLayoutOverrideParams {
   SmallVector<int64_t> operandIdxes;
 
   bool operator==(const InputLayoutOverrideParams &rhs) const {
-    if (operandIdxes.size() != rhs.operandIdxes.size())
+    if (operandIdxes.size() != rhs.operandIdxes.size()) {
       return false;
+    }
     for (std::size_t i = 0; i < operandIdxes.size(); i++) {
-      if (operandIdxes[i] != rhs.operandIdxes[i])
+      if (operandIdxes[i] != rhs.operandIdxes[i]) {
         return false;
+      }
     }
     return true;
   }
@@ -157,7 +156,7 @@ private:
   std::string systemDescPath;
 
   // Maximum number of legal layouts for grid analysis
-  int64_t maxLegalLayouts;
+  int64_t maxLegalLayouts = 0;
 
   // Mesh shape
   std::vector<int64_t> meshShape;
