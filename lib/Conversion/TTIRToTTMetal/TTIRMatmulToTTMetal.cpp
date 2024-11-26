@@ -299,8 +299,7 @@ public:
   }
 
   void gatherAndMcastTensor(ttmetal::DispatchOp &metalDispatch,
-                            OpBuilder &readerBuilder, PatternRewriter &rewriter, Value in, Value out0, DeviceAttr &device,
-                            SystemDescAttr &sysDesc,
+                            OpBuilder &readerBuilder, Value in, Value out0,
                             SmallVector<Value> &rt_args, bool isIn1) const {
     RankedTensorType inType = mlir::cast<RankedTensorType>(in.getType());
     LayoutAttr inEncoding = mlir::cast<LayoutAttr>(inType.getEncoding());
@@ -454,10 +453,18 @@ public:
         metalDispatch.getLoc(), receiver_sem_l1_ptr, valid);
 
     // Wait for all receivers to be ready
+    uint64_t num_receivers_c;
+    if (isIn1) {
+      // in1
+      num_receivers_c = out0Encoding.getGrid().getShape().front() - 1;
+    } else {
+      // in0
+      num_receivers_c = out0Encoding.getGrid().getShape().back() - 1;
+    }
+
     auto num_receivers = readerBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), readerBuilder.getIntegerType(32),
-        readerBuilder.getI32IntegerAttr(
-            out0Encoding.getGrid().getShape().back() - 1));
+        readerBuilder.getI32IntegerAttr(num_receivers_c));
     auto receiverWait = readerBuilder.create<ttkernel::NocSemaphoreWaitOp>(
         metalDispatch.getLoc(), sender_sem_l1_ptr, num_receivers);
     auto resetReceiverReady = readerBuilder.create<ttkernel::NocSemaphoreSetOp>(
@@ -480,10 +487,14 @@ public:
 
     // Signal receivers that data is ready
     auto nocReceiverSemaphoreMcastAddr =
-        readerBuilder.create<ttkernel::GetNocMulticastAddrOp>(
-            metalDispatch.getLoc(), i32(1, readerBuilder),
-            start_block_id.getArgVal(), num_receivers,
-            start_block_id.getArgVal(), rt_args[1]);
+        isIn1 ? readerBuilder.create<ttkernel::GetNocMulticastAddrOp>(
+                    metalDispatch.getLoc(), start_block_id.getArgVal(),
+                    i32(1, readerBuilder), start_block_id.getArgVal(),
+                    num_receivers, rt_args[1])
+              : readerBuilder.create<ttkernel::GetNocMulticastAddrOp>(
+                    metalDispatch.getLoc(), i32(1, readerBuilder),
+                    start_block_id.getArgVal(), num_receivers,
+                    start_block_id.getArgVal(), rt_args[1]);
     auto mcastValid =
         readerBuilder.create<ttkernel::NocSemaphoreSetMulticastOp>(
             metalDispatch.getLoc(), rt_args[1], nocReceiverSemaphoreMcastAddr,
@@ -491,8 +502,89 @@ public:
             readerBuilder.getBoolAttr(true));
 
     // End Mcast
+  }
 
-    return;
+  void receiveAndWriteTensor(ttmetal::DispatchOp &metalDispatch,
+                             OpBuilder &writerBuilder, Value in, Value out0,
+                             SmallVector<Value> &rt_args, bool isIn1) const {
+
+    auto start_block_id = writerBuilder.create<ttkernel::GetArgValOp>(
+        metalDispatch.getLoc(), i32(rt_args.size(), writerBuilder));  
+                
+    RankedTensorType inType = mlir::cast<RankedTensorType>(in.getType());
+    LayoutAttr inEncoding = mlir::cast<LayoutAttr>(inType.getEncoding());
+
+    RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
+    LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
+
+    // Working In CB Initialization
+    auto workingInCb = writerBuilder.getBlock()->getArgument(isIn1);
+    auto workingInCbType = mlir::cast<ttkernel::CBType>(workingInCb.getType());
+
+    // Working Out CB Initialization
+    auto workingOutCb = writerBuilder.getBlock()->getArgument(2);
+    auto workingOutCbType = mlir::cast<ttkernel::CBType>(workingOutCb.getType());
+
+    auto sender_sem_l1_ptr = writerBuilder.create<ttkernel::CastToL1PtrOp>(
+        metalDispatch.getLoc(), rt_args[0]);
+    auto receiver_sem_l1_ptr = writerBuilder.create<ttkernel::CastToL1PtrOp>(
+        metalDispatch.getLoc(), rt_args[1]);
+
+    // Block dimensions
+    uint64_t block_k_dim;
+    uint64_t block_v_dim;
+    if (isIn1) {
+      // in1
+      block_k_dim = inType.getShape().front() / TILE_HEIGHT;
+      block_v_dim = inType.getShape().back() / TILE_WIDTH /
+                    out0Encoding.getGrid().getShape().back();
+    } else {
+      // in0
+      block_k_dim = inType.getShape().back() / TILE_WIDTH;
+      block_v_dim = inType.getShape().front() / TILE_HEIGHT /
+                    out0Encoding.getGrid().getShape().front();
+    }
+
+    auto block_k = writerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
+        writerBuilder.getI32IntegerAttr(
+            block_k_dim)); // this calc will only work for 2D MM
+    auto block_v = writerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
+        writerBuilder.getI32IntegerAttr(
+            block_v_dim)); // this calc will only work for 2D MM
+
+    // Size of one tile in bytes - this is wrong atm idk why... need tile size *
+    // datatype size
+    auto tile_size_bytes = writerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
+        writerBuilder.getI32IntegerAttr(TILE_HEIGHT * TILE_WIDTH *
+                                        inEncoding.getElementSizeBytes()));
+    auto block_size = writerBuilder.create<arith::MulIOp>(
+        metalDispatch.getLoc(), block_k, block_v);
+    // Size of block in bytes
+    auto block_size_bytes = writerBuilder.create<arith::MulIOp>(
+        metalDispatch.getLoc(), block_size, tile_size_bytes);
+
+    writerBuilder.create<ttkernel::CBReserveBackOp>(
+        metalDispatch.getLoc(), workingInCb, block_size);
+
+    auto valid = writerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
+        writerBuilder.getI32IntegerAttr(1));
+    auto invalid = writerBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
+        writerBuilder.getI32IntegerAttr(1));
+    writerBuilder.create<ttkernel::NocSemaphoreSetOp>(metalDispatch->getLoc(), receiver_sem_l1_ptr, invalid);
+
+    auto sender_sem_mcast_addr = isIn1 ? writerBuilder.create<ttkernel::GetNocAddrOp>(metalDispatch->getLoc(), start_block_id, i32(0, writerBuilder), rt_args[0])
+                                       : writerBuilder.create<ttkernel::GetNocAddrOp>(metalDispatch->getLoc(), i32(0, writerBuilder), start_block_id, rt_args[0]);
+    writerBuilder.create<ttkernel::NocSemaphoreIncOp>(
+        metalDispatch->getLoc(), sender_sem_mcast_addr, i32(1, writerBuilder),
+        i32(0, writerBuilder)); // CHANGE NOC INDEX TO MATCH NCRISC/BRISC CONFIG
+
+    writerBuilder.create<ttkernel::NocSemaphoreWaitOp>(metalDispatch->getLoc(), receiver_sem_l1_ptr, valid);
+    writerBuilder.create<ttkernel::CBPushBackOp>(metalDispatch->getLoc(), workingInCb, block_size);
   }
 
   void generateReaderBlocks(ttmetal::DispatchOp &metalDispatch,
@@ -512,6 +604,10 @@ public:
       readerBlock->addArgument(cbs[0], metalDispatch.getLoc());
       readerBlock->addArgument(cbs[1], metalDispatch.getLoc());
 
+      if (i == 3 || i == 4) {
+        readerBlock->addArgument(cbs[2], metalDispatch.getLoc());
+      }
+
       if (i == 1 || i == 3) {
         readerBlock->addArgument(semaphores[0], metalDispatch.getLoc());
         readerBlock->addArgument(semaphores[1], metalDispatch.getLoc());
@@ -527,16 +623,22 @@ public:
       // buildNocAsyncTx, etc. (TTIRToTTMetal.cpp))
       if (i == 1) {
         // in0 sender
-        gatherAndMcastTensor(
-            metalDispatch, readerBuilder, rewriter,
-            metalDispatch.getInputs()[0],
-            metalDispatch.getOutputs()[0], device, sysDesc, rt_args, false);
+        gatherAndMcastTensor(metalDispatch, readerBuilder,
+                             metalDispatch.getInputs()[0],
+                             metalDispatch.getOutputs()[0], rt_args, false);
       } else if (i == 2) {
         // in1 sender
-        gatherAndMcastTensor(
-            metalDispatch, readerBuilder, rewriter,
-            metalDispatch.getInputs()[1],
-            metalDispatch.getOutputs()[0], device, sysDesc, rt_args, true);
+        gatherAndMcastTensor(metalDispatch, readerBuilder,
+                             metalDispatch.getInputs()[1],
+                             metalDispatch.getOutputs()[0], rt_args, true);
+      } else if (i == 3) {
+        receiveAndWriteTensor(metalDispatch, readerBuilder,
+                              metalDispatch.getInputs()[1],
+                              metalDispatch.getOutputs()[0], rt_args, false);
+      } else if (i == 4) {
+        receiveAndWriteTensor(metalDispatch, readerBuilder,
+                             metalDispatch.getInputs()[1],
+                             metalDispatch.getOutputs()[0], rt_args, true);
       }
 
       readerBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
