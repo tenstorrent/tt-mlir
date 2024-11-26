@@ -595,7 +595,6 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
                                                dim_arg, op.getKeepDim());
 }
 
-template <typename TransposeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
 createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   auto in =
@@ -608,7 +607,6 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
-template <typename ConcatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatOp>
 createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
@@ -623,7 +621,6 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
 }
 
-template <typename EmbeddingOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
 createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   auto in0 =
@@ -635,7 +632,6 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
 }
 
-template <typename ReshapeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =
@@ -648,7 +644,6 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
 }
 
-template <typename SliceOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in =
@@ -666,7 +661,6 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            step);
 }
 
-template <typename MaxPool2dOp>
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dOp>
 createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   auto in =
@@ -684,7 +678,6 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
       op.getPaddingWidth());
 }
 
-template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto in =
@@ -696,7 +689,6 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
-template <typename DeallocateOp>
 ::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>
 createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   auto in =
