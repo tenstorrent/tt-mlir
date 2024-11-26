@@ -30,12 +30,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-mlir/commits/main --jq '.sha')
+          LATEST_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/main --jq '.sha')
           echo "LATEST_TT_METAL_VERSION=$LATEST_TT_METAL_VERSION" >> $GITHUB_ENV
 
       - name: Update tt-metal reference in third_party/CMakeLists.txt
         run: |
-          echo "Updating tt-mlir to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
+          echo "Updating tt-metal to SHA: ${{ env.LATEST_TT_METAL_VERSION }}"
           sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.LATEST_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
