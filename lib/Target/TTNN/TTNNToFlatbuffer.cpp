@@ -594,6 +594,22 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
 }
 
+template <typename EmbeddingBackwardOp>
+::flatbuffers::Offset<::tt::target::ttnn::EmbeddingBackwardOp>
+createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
+                          EmbeddingBackwardOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto in1 = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto in2 = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getInGradient()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreateEmbeddingBackwardOp(*cache.fbb, in0, in1,
+                                                       in2, output);
+}
+
 template <typename ReshapeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
@@ -817,6 +833,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
     return createOperation(cache, createEmbeddingOp(cache, embeddingOp),
                            debugString);
+  }
+  if (auto embeddingBackwardOp = dyn_cast<EmbeddingBackwardOp>(op);
+      embeddingBackwardOp) {
+    return createOperation(
+        cache, createEmbeddingBackwardOp(cache, embeddingBackwardOp),
+        debugString);
   }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
