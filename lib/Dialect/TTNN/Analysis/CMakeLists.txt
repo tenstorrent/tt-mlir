@@ -1,5 +1,5 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
-        LegalGridAnalysis.cpp
+        LegalLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         L1ChainConfig.cpp

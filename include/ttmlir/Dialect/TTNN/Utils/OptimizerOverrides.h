@@ -13,11 +13,19 @@
 namespace mlir::tt::ttnn {
 
 struct OutputLayoutOverrideParams {
-  SmallVector<int64_t, 2> grid;
-  BufferType bufferType;
-  TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
-  Layout memoryLayout;                   // ROW_MAJOR / TILE
-  tt::DataType dataType;
+  std::optional<SmallVector<int64_t, 2>> grid;
+  std::optional<BufferType> bufferType;
+  std::optional<TensorMemoryLayout>
+      tensorMemoryLayout;             // INTERLEAVED / SHARDED etc...
+  std::optional<Layout> memoryLayout; // ROW_MAJOR / TILE
+  std::optional<tt::DataType> dataType;
+
+  // Check if all layout parameters that are generated in LegalLayoutAnalysis
+  // are overridden. DataType is the only that is not.
+  bool fullLayoutOverride() const {
+    return grid.has_value() && bufferType.has_value() &&
+           tensorMemoryLayout.has_value() && memoryLayout.has_value();
+  }
 };
 
 struct InputLayoutOverrideParams {

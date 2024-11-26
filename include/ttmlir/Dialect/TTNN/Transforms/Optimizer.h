@@ -23,6 +23,7 @@ struct TTNNOptimizerOptions {
       MemoryLayoutAnalysisPolicyType::DFSharding;
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
+  bool rowMajorEnabled = false;
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
