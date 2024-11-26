@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 
-
 #include <llvm/Support/CommandLine.h>
 
 // #include "mlir/Pass/PassOptions.h"
@@ -18,7 +17,7 @@
 namespace mlir::tt::ttnn {
 
 struct OutputLayoutOverrideParams {
-  
+
   SmallVector<int64_t, 2> grid;
   BufferType bufferType;
   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
@@ -26,18 +25,15 @@ struct OutputLayoutOverrideParams {
   mlir::tt::DataType dataType;
 
   bool operator==(const OutputLayoutOverrideParams rhs) const {
-    return grid[0] == rhs.grid[0] &&
-           grid[1] == rhs.grid[1] &&
+    return grid[0] == rhs.grid[0] && grid[1] == rhs.grid[1] &&
            bufferType == rhs.bufferType &&
            tensorMemoryLayout == rhs.tensorMemoryLayout &&
-           memoryLayout == rhs.memoryLayout &&
-           dataType == rhs.dataType;
+           memoryLayout == rhs.memoryLayout && dataType == rhs.dataType;
   }
 
   bool operator!=(const OutputLayoutOverrideParams &rhs) const {
     return !(*this == rhs);
   }
-
 };
 
 struct InputLayoutOverrideParams {
@@ -57,7 +53,6 @@ struct InputLayoutOverrideParams {
   bool operator!=(const InputLayoutOverrideParams &rhs) const {
     return !(*this == rhs);
   }
-
 };
 
 struct OutputLayoutOverrideParser
@@ -86,10 +81,8 @@ public:
                     const llvm::StringMap<InputLayoutOverrideParams> &value);
 };
 
-
 class OptimizerOverridesHandler {
 public:
-
   OptimizerOverridesHandler() {};
   ~OptimizerOverridesHandler() {};
 
@@ -102,8 +95,8 @@ public:
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
   // These are used to set the input/output layout overrides
-  void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams>&);
-  void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams>&);
+  void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> &);
+  void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams> &);
   // These are used to add system descriptor path
   void setSystemDescPath(std::string);
   // These are used to set the maximum number of legal layouts for grid analysis
@@ -124,7 +117,8 @@ public:
   llvm::StringMap<OutputLayoutOverrideParams> getOutputLayoutOverrides() const;
   // These are used to get the current system descriptor path
   std::string getSystemDescPath() const;
-  // These are used to get the current maximum number of legal layouts for grid analysis
+  // These are used to get the current maximum number of legal layouts for grid
+  // analysis
   int64_t getMaxLegalLayouts() const;
   // These are used to get the current mesh shape
   std::vector<int64_t> getMeshShape() const;
@@ -132,15 +126,16 @@ public:
   // Method that converts the overrides to a string
   std::string toString() const;
 
-  // Fill input/output layout overrides maps. 
+  // Fill input/output layout overrides maps.
   // This is used from tt-forge frontend where we define and compile the models.
   void addInputLayoutOverride(StringRef, InputLayoutOverrideParams);
   void addInputLayoutOverride(StringRef, SmallVector<int64_t>);
   void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams);
-  void addOutputLayoutOverride(StringRef, SmallVector<int64_t>, BufferType, TensorMemoryLayout, tt::ttnn::Layout, tt::DataType);
+  void addOutputLayoutOverride(StringRef, SmallVector<int64_t>, BufferType,
+                               TensorMemoryLayout, tt::ttnn::Layout,
+                               tt::DataType);
 
 private:
-
   // Flags for enabling/disabling the optimizer passes
   bool enableOptimizerPass = true;
 
@@ -167,8 +162,7 @@ private:
   // Mesh shape
   std::vector<int64_t> meshShape;
 
-};  // class OptimizerOverridesHandler
-
+}; // class OptimizerOverridesHandler
 
 } // namespace mlir::tt::ttnn
 
