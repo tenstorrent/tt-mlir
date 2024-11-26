@@ -3,6 +3,8 @@ name: "[internal] Collect workflow data"
 on:
   workflow_run:
     workflows: # List workflow that we want to collect data for
+      - "On PR"
+      - "On push"
       - "Build on macos-latest"
       - "Build and Test"
     types:
@@ -21,6 +23,6 @@ jobs:
           repository: ${{ github.repository }}
           run_id: ${{ github.event.workflow_run.id }}
           run_attempt: ${{ github.event.workflow_run.run_attempt }}
-        #   sftp_host: ${{ secrets.SFTP_CICD_WRITER_HOSTNAME }}
-        #   sftp_user: ${{ secrets.SFTP_CICD_WRITER_USERNAME }}
-        #   ssh-private-key: ${{ secrets.SFTP_CICD_WRITER_KEY }}
+          sftp_host: ${{ secrets.SFTP_CICD_WRITER_HOSTNAME }}
+          sftp_user: ${{ secrets.SFTP_CICD_WRITER_USERNAME }}
+          ssh-private-key: ${{ secrets.SFTP_CICD_WRITER_KEY }}
