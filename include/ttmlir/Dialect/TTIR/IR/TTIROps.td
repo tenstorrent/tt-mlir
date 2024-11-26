@@ -172,8 +172,12 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
 
+def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
+def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
+def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
+
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_ElementwiseOpInterface])> {
+    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_Broadcastable])> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -187,7 +191,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [FourOperands])> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -210,7 +214,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [TwoOperands])> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -424,7 +428,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [ThreeOperands])> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -1175,11 +1179,10 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(getNumOperands() == 2 && "Input and output operand must have the same rank");
-        assert(sameRank(getOperands()) &&
-               "Elementwise unary op must have only one input and one output operand.");
+        assert(sameRank(getOperation()->getOperands()) &&
+               "Input and output operand must have the same rank");
 
-        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
+        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
 
         SmallVector<AffineMap> indexingMaps(2, builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(
@@ -1187,19 +1190,6 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};
-      }
-
-      static bool sameRank(mlir::OperandRange operands) {
-        if (operands.empty()) {
-          return true;
-        }
-        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
-        for (auto operand : operands) {
-          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
-            return false;
-          }
-        }
-        return true;
       }
     }];
 }
@@ -1220,28 +1210,15 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperands()) &&
+        assert(sameRank(getOperation()->getOperands()) &&
                "For now all operands must have the same rank");
-        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getNumOperands(),
+        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
+        SmallVector<AffineMap> indexingMaps(getOperation()->getNumOperands(),
                                             builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(
             rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};
-      }
-
-      static bool sameRank(mlir::OperandRange operands) {
-        if (operands.empty()) {
-          return true;
-        }
-        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
-        for (auto operand : operands) {
-          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
-            return false;
-          }
-        }
-        return true;
       }
     }];
 }

@@ -17,36 +17,32 @@
 #include "llvm/ADT/SmallVector.h"
 
 mlir::LogicalResult
-mlir::tt::ttir::detail::verifyElementwiseOp(mlir::Operation *op) {
+mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
+  const auto getShape = [](const Value val) {
+    return mlir::cast<mlir::RankedTensorType>(val.getType()).getShape();
+  };
+
+  const auto operandSegmentSizes =
+      op->getAttrOfType<mlir::DenseI32ArrayAttr>("operandSegmentSizes");
+  // DPS operands shouldn't affect the result shape.
+  const auto outputSegmentSize =
+      operandSegmentSizes[operandSegmentSizes.size() - 1];
+  const auto operandShapes = llvm::map_range(op->getOperands(), getShape);
   llvm::SmallVector<int64_t, 4> broadcastedShape;
-  mlir::OperandRange operands = op->getOperands();
-  mlir::OperandRange::iterator operand_it = operands.begin();
-  llvm::SmallVector<int64_t, 4> prevOperandShape(
-      mlir::cast<mlir::RankedTensorType>((*operand_it).getType()).getShape());
-
-  while (++operand_it != operands.end()) {
-    llvm::SmallVector<int64_t, 4> nextOperandShape(
-        mlir::cast<mlir::RankedTensorType>((*operand_it).getType()).getShape());
-
-    if (!OpTrait::util::getBroadcastedShape(prevOperandShape, nextOperandShape,
+  for (const auto operandShape :
+       llvm::drop_end(operandShapes, outputSegmentSize)) {
+    const auto prevBroadcastedShape = broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(prevBroadcastedShape, operandShape,
                                             broadcastedShape)) {
       return op->emitOpError("Operands are not broadcast compatible");
     }
-    prevOperandShape = broadcastedShape;
   }
 
-  llvm::SmallVector<int64_t, 4> resultShape(
-      mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
-          .getShape());
+  // Check that the result shape matches the broadcasted shape of the operands.
+  llvm::SmallVector<int64_t, 4> resultShape(getShape(op->getResults().front()));
   if (broadcastedShape != resultShape) {
     return op->emitOpError(
         "Result shape must match operand shapes after broadcasting");
-  }
-
-  TypeID expectedBaseTy = op->getResultTypes().front().getTypeID();
-  if (!llvm::all_of(op->getOperandTypes(),
-                    [&](Type t) { return t.getTypeID() == expectedBaseTy; })) {
-    return op->emitOpError() << "All operands/results must have the same type";
   }
 
   return success();
