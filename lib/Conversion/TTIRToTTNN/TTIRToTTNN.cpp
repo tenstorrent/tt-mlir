@@ -206,9 +206,14 @@ public:
 
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
+    // Check if the output tensor is used by an op that only supports row major.
+    // EmbeddingBackwardOp supports row major layout for the first and second
+    // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
-          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user)) {
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user) ||
+          (isa<ttir::EmbeddingBackwardOp>(user) &&
+           (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
       }
     }
@@ -311,6 +316,22 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
 
+    return success();
+  }
+};
+
+class EmbeddingBackwardOpConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingBackwardOp> {
+public:
+  using OpConversionPattern<ttir::EmbeddingBackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getInGradient(),
+        adaptor.getOutput());
     return success();
   }
 };
@@ -1014,6 +1035,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
+           EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,
