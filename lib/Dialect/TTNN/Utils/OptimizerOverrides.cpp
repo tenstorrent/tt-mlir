@@ -195,6 +195,7 @@ void InputLayoutOverrideParser::print(
  
   void OptimizerOverridesHandler::setMemoryConfig(bool value) { enableMemoryConfig = value; }
   void OptimizerOverridesHandler::setMemoryLayoutAnalysis(bool value) { enableMemoryLayoutAnalysis = value; }
+  void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(bool value) { enableMemoryLayoutAnalysisPolicy = value; }
   void OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType value) { memoryLayoutAnalysisPolicy = value; }
 
   void OptimizerOverridesHandler::setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams> &value) { inputLayoutOverrides = value; }
@@ -208,6 +209,7 @@ void InputLayoutOverrideParser::print(
 
   bool OptimizerOverridesHandler::getMemoryConfig() const { return enableMemoryConfig; }
   bool OptimizerOverridesHandler::getMemoryLayoutAnalysis() const { return enableMemoryLayoutAnalysis; }
+  bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysisPolicy() const { return enableMemoryLayoutAnalysisPolicy; }
   MemoryLayoutAnalysisPolicyType OptimizerOverridesHandler::getMemoryLayoutAnalysisPolicy() const { return memoryLayoutAnalysisPolicy; }
 
   std::string OptimizerOverridesHandler::getSystemDescPath() const { return systemDescPath; }
@@ -233,15 +235,17 @@ void InputLayoutOverrideParser::print(
       options += "memory-layout-analysis-enabled=true ";
     }
 
-    options += "memory-layout-analysis-policy=";
-    switch (memoryLayoutAnalysisPolicy)
-    {
-      case MemoryLayoutAnalysisPolicyType::DFSharding:
-        options += "DFSharding ";
-        break;
-      case MemoryLayoutAnalysisPolicyType::L1Interleaved:
-        options += "L1Interleaved ";
-        break;
+    if (enableMemoryLayoutAnalysisPolicy) {
+      options += "memory-layout-analysis-policy=";
+      switch (memoryLayoutAnalysisPolicy)
+      {
+        case MemoryLayoutAnalysisPolicyType::DFSharding:
+          options += "DFSharding ";
+          break;
+        case MemoryLayoutAnalysisPolicyType::L1Interleaved:
+          options += "L1Interleaved ";
+          break;
+      }
     }
 
     // Create input layout overrides.
@@ -443,6 +447,10 @@ void InputLayoutOverrideParser::print(
         options += std::to_string(meshShapeValue) + ",";
       }
       // Remove the last comma.
+      options.pop_back();
+    }
+
+    if (options[options.size() - 1] == ' ') {
       options.pop_back();
     }
 

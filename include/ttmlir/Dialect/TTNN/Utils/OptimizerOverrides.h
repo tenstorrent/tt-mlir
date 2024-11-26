@@ -99,6 +99,7 @@ public:
   // These are used to enable/disable the memory configurations
   void setMemoryConfig(bool);
   void setMemoryLayoutAnalysis(bool);
+  void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
   // These are used to set the input/output layout overrides
   void setInputLayoutOverrides(llvm::StringMap<InputLayoutOverrideParams>&);
@@ -116,6 +117,7 @@ public:
   // These are used to get the current state of the memory configurations
   bool getMemoryConfig() const;
   bool getMemoryLayoutAnalysis() const;
+  bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
   // These are used to get the current input/output layout overrides
   llvm::StringMap<InputLayoutOverrideParams> getInputLayoutOverrides() const;
@@ -153,6 +155,7 @@ private:
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides;
 
   // Memory layout analysis policy
+  bool enableMemoryLayoutAnalysisPolicy = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy;
 
   // System descriptor path
