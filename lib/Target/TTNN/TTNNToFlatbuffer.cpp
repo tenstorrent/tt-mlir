@@ -159,7 +159,6 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
 createDeviceRef(FlatbufferObjectCache &cache, Value device) {
   auto deviceType = mlir::cast<DeviceType>(device.getType());
   auto chipIds = deviceType.getDesc().getChipIds();
-  assert(chipIds.size() == 1 && "expected single chip");
   return ::tt::target::CreateDeviceRef(*cache.fbb, chipIds[0]);
 }
 
@@ -178,13 +177,13 @@ createOp(FlatbufferObjectCache &cache, GetDeviceOp op) {
   auto resultType = mlir::cast<DeviceType>(result.getType());
   auto meshShape = resultType.getDesc().getMeshShape();
   auto meshVolume = ttmlir::utils::volume(meshShape);
+  ::tt::target::Dim2d mesh;
   if (meshVolume > 1) {
-    // Only support creating meshes along batch dim for now
-    assert(meshShape.size() == 3 && "expected 3D mesh shape");
-    assert(meshShape[1] == 1 && "expected non-batch dim to be 1");
-    assert(meshShape[2] == 1 && "expected non-batch dim to be 1");
+    mesh = ::tt::target::Dim2d(meshShape[0], meshShape[1]);
+  } else {
+    mesh = ::tt::target::Dim2d(1, 1);
   }
-  ::tt::target::Dim2d mesh(1, meshVolume);
+
   auto chipIds = toFlatbuffer(cache, resultType.getDesc().getChipIds());
   auto out = cache.getOrCreate(result, createDeviceRef);
   return ::tt::target::ttnn::CreateGetDeviceOp(*cache.fbb, &mesh, chipIds, out);
@@ -278,6 +277,51 @@ createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
   return ::tt::target::ttnn::CreateFromDeviceOp(*cache.fbb, input, output);
 }
 
+::flatbuffers::Offset<::tt::target::DistributionStrategy>
+createDistributionStrategy(FlatbufferObjectCache &cache,
+                           const Value &deviceValue,
+                           const RankedTensorType &type, uint32_t &numShards) {
+  auto noneDistributionStrategy = [&cache]() {
+    ::flatbuffers::Offset<void> distribution = 0;
+    return ::tt::target::CreateDistributionStrategy(
+        *cache.fbb, ::tt::target::DistributedTensorConfig::NONE, distribution);
+  };
+
+  if (!deviceValue) {
+    return noneDistributionStrategy();
+  }
+
+  auto deviceOp = mlir::cast<GetDeviceOp>(
+      getOperandThroughDPSOps(deviceValue).getDefiningOp());
+  auto resultType = mlir::cast<DeviceType>(deviceOp.getResult().getType());
+  ::llvm::ArrayRef<int64_t> meshShape = resultType.getDesc().getMeshShape();
+  numShards = ttmlir::utils::volume(meshShape);
+
+  if (numShards == 1) {
+    return noneDistributionStrategy();
+  }
+
+  assert(meshShape.size() <= 2 && "expected 2D mesh shape");
+
+  // One-dimensional tensor sharding strategy. Tensor is sliced by the number of
+  // devices at a certain dimension. For EmptyOp and FullOp, we assume that the
+  // tensor is sliced at the fastest dimension.
+  if (meshShape[0] == 1 || meshShape[1] == 1) {
+    assert(type.getShape().size() > 0 && "expected non-zero tensor shape");
+    uint32_t target_dim = type.getShape().size() - 1;
+    auto strategy = ::tt::target::CreateShardTensor(*cache.fbb, target_dim);
+    return ::tt::target::CreateDistributionStrategy(
+        *cache.fbb, ::tt::target::DistributedTensorConfig::ShardTensor,
+        strategy.Union());
+  }
+
+  const ::tt::target::Dim2d shard_mesh(meshShape[0], meshShape[1]);
+  auto strategy = ::tt::target::CreateShardTensor2D(*cache.fbb, &shard_mesh);
+  return ::tt::target::CreateDistributionStrategy(
+      *cache.fbb, ::tt::target::DistributedTensorConfig::ShardTensor2D,
+      strategy.Union());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::EmptyOp>
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
@@ -287,16 +331,12 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
 
   uint32_t numShards = 1;
-  ::tt::target::DistributedTensorConfig distributionType =
-      ::tt::target::DistributedTensorConfig::NONE;
-  ::flatbuffers::Offset<void> distribution = 0;
-  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
-      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
-                                               distribution);
+  auto strategy = createDistributionStrategy(
+      cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
+      numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
 
   // If the device is not set, we create on host
-  //
   if (!op.getDevice()) {
     return ::tt::target::ttnn::CreateEmptyOp(
         *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
@@ -324,12 +364,9 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto fillValue = op.getFillValue().convertToFloat();
   auto output = getOperandThroughDPSOps(op.getResult());
   uint32_t numShards = 1;
-  ::tt::target::DistributedTensorConfig distributionType =
-      ::tt::target::DistributedTensorConfig::NONE;
-  ::flatbuffers::Offset<void> distribution = 0;
-  flatbuffers::Offset<::tt::target::DistributionStrategy> strategy =
-      ::tt::target::CreateDistributionStrategy(*cache.fbb, distributionType,
-                                               distribution);
+  auto strategy = createDistributionStrategy(
+      cache, op.getDevice(), mlir::cast<RankedTensorType>(op.getType()),
+      numShards);
   return ::tt::target::ttnn::CreateFullOp(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), fillValue,
       numShards, strategy,
@@ -420,8 +457,38 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateAllGatherOp(*cache.fbb, input, output,
-                                               op.getDim(), op.getNumLinks());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  return ::tt::target::ttnn::CreateAllGatherOp(
+      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
+      op.getDim(), op.getNumLinks());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
+createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  return ::tt::target::ttnn::CreateReduceScatterOp(
+      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
+      op.getScatterSplitDim(), static_cast<uint32_t>(op.getMathOp()),
+      op.getNumLinks());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>
+createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  llvm::ArrayRef<int64_t> shardShape = op.getShardShape().getShape();
+  return ::tt::target::ttnn::CreateMeshShardOp(
+      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
+      static_cast<uint32_t>(op.getShardDirection()),
+      static_cast<uint32_t>(op.getShardType()),
+      cache.fbb->CreateVector<int64_t>(shardShape));
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -944,6 +1011,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
+                           locInfo);
+  }
+  if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
+    return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
+                           locInfo);
+  }
+  if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
+    return createOperation(cache, createOp(cache, meshShardOp), debugString,
                            locInfo);
   }
   if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {
