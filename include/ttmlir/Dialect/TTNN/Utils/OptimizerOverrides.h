@@ -23,7 +23,7 @@ struct OutputLayoutOverrideParams {
   BufferType bufferType;
   TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
   Layout memoryLayout;                   // ROW_MAJOR / TILE
-  tt::DataType dataType;
+  mlir::tt::DataType dataType;
 
   bool operator==(const OutputLayoutOverrideParams rhs) const {
     return grid[0] == rhs.grid[0] &&
@@ -134,9 +134,9 @@ public:
 
   // Fill input/output layout overrides maps. 
   // This is used from tt-forge frontend where we define and compile the models.
-  void addInputLayoutOverride(StringRef, InputLayoutOverrideParams&);
+  void addInputLayoutOverride(StringRef, InputLayoutOverrideParams);
   void addInputLayoutOverride(StringRef, SmallVector<int64_t>);
-  void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams&);
+  void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams);
   void addOutputLayoutOverride(StringRef, SmallVector<int64_t>, BufferType, TensorMemoryLayout, tt::ttnn::Layout, tt::DataType);
 
 private:

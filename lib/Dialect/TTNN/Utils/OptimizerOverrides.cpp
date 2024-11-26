@@ -452,9 +452,9 @@ void InputLayoutOverrideParser::print(
 
   }
 
-  void OptimizerOverridesHandler::addInputLayoutOverride(StringRef opName, InputLayoutOverrideParams &params) { inputLayoutOverrides[opName] = params; }
+  void OptimizerOverridesHandler::addInputLayoutOverride(StringRef opName, InputLayoutOverrideParams params) { inputLayoutOverrides[opName] = params; }
   void OptimizerOverridesHandler::addInputLayoutOverride(StringRef opName, SmallVector<int64_t> operandIdxes) { inputLayoutOverrides[opName] = InputLayoutOverrideParams{std::move(operandIdxes)}; }
-  void OptimizerOverridesHandler::addOutputLayoutOverride(StringRef opName, OutputLayoutOverrideParams &params) { outputLayoutOverrides[opName] = params; }
+  void OptimizerOverridesHandler::addOutputLayoutOverride(StringRef opName, OutputLayoutOverrideParams params) { outputLayoutOverrides[opName] = params; }
   void OptimizerOverridesHandler::addOutputLayoutOverride(StringRef opName, SmallVector<int64_t> grid, BufferType bufferType, 
                                                           TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout, tt::DataType dataType) { 
                                                             outputLayoutOverrides[opName] = OutputLayoutOverrideParams{std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType}; }
