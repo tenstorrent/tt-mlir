@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#pragma once
+#ifndef TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
+#define TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
@@ -20,3 +21,4 @@ struct ReluOpInterface {
 };
 
 } // namespace mlir::tt::op_model::ttnn
+#endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

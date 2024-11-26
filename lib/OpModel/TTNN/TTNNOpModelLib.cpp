@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "TTNNOpModel.hpp"
+#include "TTNNOpModel.h"
 
-#include "TTNNOpModelLib_Impl.hpp"
+#include "TTNNOpModelLib_Impl.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include <llvm/Support/Casting.h>

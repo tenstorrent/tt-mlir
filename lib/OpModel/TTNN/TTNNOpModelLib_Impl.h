@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#pragma once
+
+#ifndef TTMLIR_OPMODEL_TTNN_TTNNOPMODELLIB_IMPL_H
+#define TTMLIR_OPMODEL_TTNN_TTNNOPMODELLIB_IMPL_H
 
 // This header resolves tt-metal warnings that would otherwise be treated as
 // errors in the MLIR build. Ensure that this is the only place where tt-metal
@@ -44,6 +46,7 @@
 #pragma clang diagnostic ignored "-Wc99-extensions"
 #pragma clang diagnostic ignored "-Wc++11-narrowing"
 #pragma clang diagnostic ignored "-Wzero-length-array"
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 #define FMT_HEADER_ONLY
 
@@ -53,3 +56,5 @@
 #include "ttnn/tensor/types.hpp"
 
 #pragma clang diagnostic pop
+
+#endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODELLIB_IMPL_H

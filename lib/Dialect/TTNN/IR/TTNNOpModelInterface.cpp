@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.hpp"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include <cassert>
 #include <tuple>
