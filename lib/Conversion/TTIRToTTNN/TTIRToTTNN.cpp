@@ -24,11 +24,56 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <mlir/IR/Operation.h>
+#include <cstdint>
+#include <llvm/ADT/SmallVector.h>
 
 using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
+
+// Gets or inserts a GetDeviceOp at the top of the current block of the given
+// operation.
+static Value getOrInsertDevice(ConversionPatternRewriter &rewriter,
+                               Operation *op) {
+  Block *block = op->getBlock();
+  for (auto &op : block->getOperations()) {
+    if (auto deviceOp = dyn_cast<ttnn::GetDeviceOp>(op)) {
+      return deviceOp.getResult();
+    }
+  }
+
+  DeviceAttr deviceAttr = getCurrentScopeDevice(op);
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPoint(block, block->begin());
+  auto deviceOp = rewriter.create<ttnn::GetDeviceOp>(
+      op->getLoc(), rewriter.getType<DeviceType>(deviceAttr),
+      ttnn::MeshShapeAttr::get(op->getContext(), 1, 1));
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+  return deviceOp.getResult();
+}
+
+static ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
+                                       PatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
+
+  std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+  return rewriter.create<ttnn::ReshapeOp>(
+      input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
+}
+
+static ttnn::ReshapeOp generateNHWFlatten(Value input,
+                                          PatternRewriter &rewriter) {
+  std::vector<int64_t> shape =
+      mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
+
+  assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
+
+  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
+                                   shape[3]};
+  return generateReshape(input, newShape, rewriter);
+}
 
 class TensorEmptyConversionPattern
     : public OpConversionPattern<tensor::EmptyOp> {
@@ -239,9 +284,14 @@ public:
 
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
+    // Check if the output tensor is used by an op that only supports row major.
+    // EmbeddingBackwardOp supports row major layout for the first and second
+    // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
-          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user)) {
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user) ||
+          (isa<ttir::EmbeddingBackwardOp>(user) &&
+           (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
       }
     }
@@ -345,6 +395,44 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
 
+    return success();
+  }
+};
+
+class EmbeddingBackwardOpConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingBackwardOp> {
+public:
+  using OpConversionPattern<ttir::EmbeddingBackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto gradType = adaptor.getInGradient().getType();
+    auto gradTensor = mlir::cast<RankedTensorType>(gradType);
+    auto gradShape = gradTensor.getShape();
+
+    // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
+    // dimensions of grad tensor squeezed and C is the last dimension of grad
+    // tensor. This must be done to obey the constraints of the
+    // ttnn::EmbeddingBackwardOp.
+    llvm::SmallVector<int64_t, 4> newShape;
+    newShape.push_back(1);
+    newShape.push_back(1);
+    int32_t R = 1;
+    for (size_t i = 0; i < gradShape.size() - 1; ++i) {
+      R *= gradShape[i];
+    }
+    newShape.push_back(R);
+    newShape.push_back(gradShape.back());
+
+    auto reshapedGrad =
+        generateReshape(adaptor.getInGradient(), newShape, rewriter);
+
+    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), reshapedGrad,
+        adaptor.getOutput());
     return success();
   }
 };
@@ -711,28 +799,6 @@ public:
   }
 };
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
-
-static ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
-                                       PatternRewriter &rewriter) {
-  auto inputType = mlir::cast<RankedTensorType>(input.getType());
-  auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
-
-  std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-  return rewriter.create<ttnn::ReshapeOp>(
-      input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
-}
-
-static ttnn::ReshapeOp generateNHWFlatten(Value input,
-                                          PatternRewriter &rewriter) {
-  std::vector<int64_t> shape =
-      mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
-
-  assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
-
-  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
-                                   shape[3]};
-  return generateReshape(input, newShape, rewriter);
-}
 
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
@@ -1126,6 +1192,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
 	   ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            EmbeddingOpConversionPattern,
+           EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,

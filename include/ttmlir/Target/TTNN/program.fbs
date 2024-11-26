@@ -180,6 +180,13 @@ table EmbeddingOp {
   out: tt.target.TensorRef;
 }
 
+table EmbeddingBackwardOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  in_grad: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+}
+
 table SoftmaxOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -315,6 +322,7 @@ union OpType {
   MatmulOp,
   ReductionOp,
   EmbeddingOp,
+  EmbeddingBackwardOp,
   SoftmaxOp,
   TransposeOp,
   Conv2dOp,

@@ -911,6 +911,37 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+// EmbeddingBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttir::EmbeddingBackwardOp::verify() {
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType inputGradType = getInGradient().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // weightType checks:
+  // 1. weightType must have rank of 2: (dictionary_size, embedding_size).
+  if (weightType.getRank() != 2) {
+    return emitOpError("Input must be a 2D tensor");
+  }
+
+  if (!inputGradType.getElementType().isBF16()) {
+    return emitOpError("Input gradient must be of type bfloat16 or bfloat8");
+  }
+  if (inputGradType.getElementType() != outputType.getElementType()) {
+    return emitOpError("Input gradient and output must have the same dtype");
+  }
+
+  // outputType should have the same shape as weightType.
+  if (outputType.getShape() != weightType.getShape()) {
+    return emitOpError("Output must have the same shape as weight");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ToLayoutOp
 //===----------------------------------------------------------------------===//
 

@@ -604,6 +604,26 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
+    let summary = "Embedding backward op.";
+    let description = [{
+      Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$in_gradient,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
     let summary = "Softmax op.";
     let description = [{

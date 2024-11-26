@@ -648,6 +648,27 @@ def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let hasVerifier = 1;
 }
 
+def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
+    let summary = "Embedding backward op.";
+    let description = [{
+      Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$in_gradient,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
     let summary = "Softmax operation.";
     let description = [{
