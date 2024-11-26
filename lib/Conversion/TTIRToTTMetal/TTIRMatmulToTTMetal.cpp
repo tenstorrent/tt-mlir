@@ -299,31 +299,18 @@ public:
   }
 
   void gatherAndMcastTensor(ttmetal::DispatchOp &metalDispatch,
-                            OpBuilder &readerBuilder, PatternRewriter &rewriter,
-                            SmallVector<ttkernel::CBType, 3> &cbs, Value in0,
-                            Value in1, Value out0, DeviceAttr &device,
+                            OpBuilder &readerBuilder, PatternRewriter &rewriter, Value in, Value out0, DeviceAttr &device,
                             SystemDescAttr &sysDesc,
                             SmallVector<Value> &rt_args, bool isIn1) const {
-    RankedTensorType in0Type = mlir::cast<RankedTensorType>(in0.getType());
-    LayoutAttr in0Encoding = mlir::cast<LayoutAttr>(in0Type.getEncoding());
-
-    RankedTensorType in1Type = mlir::cast<RankedTensorType>(in1.getType());
-    LayoutAttr in1Encoding = mlir::cast<LayoutAttr>(in1Type.getEncoding());
+    RankedTensorType inType = mlir::cast<RankedTensorType>(in.getType());
+    LayoutAttr inEncoding = mlir::cast<LayoutAttr>(inType.getEncoding());
 
     RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
     LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
 
-    // in0 CB Initialization
-    auto in0Cb = readerBuilder.getBlock()->getArgument(0);
-    auto in0CbType = mlir::cast<ttkernel::CBType>(in0Cb.getType());
-
-    // in1 CB Initialization
-    auto in1Cb = readerBuilder.getBlock()->getArgument(1);
-    auto in1CbType = mlir::cast<ttkernel::CBType>(in1Cb.getType());
-
     // Working CB Initialization
-    auto workingCb = isIn1 ? in1Cb : in0Cb;
-    auto workingCbType = isIn1 ? in1CbType : in0CbType;
+    auto workingCb = readerBuilder.getBlock()->getArgument(isIn1);
+    auto workingCbType = mlir::cast<ttkernel::CBType>(workingCb.getType());
 
     auto sender_sem_l1_ptr = readerBuilder.create<ttkernel::CastToL1PtrOp>(
         metalDispatch.getLoc(), rt_args[0]);
@@ -339,13 +326,13 @@ public:
     uint64_t block_v_dim;
     if (isIn1) {
       // in1
-      block_k_dim = in1Type.getShape().front() / TILE_HEIGHT;
-      block_v_dim = in1Type.getShape().back() / TILE_WIDTH /
+      block_k_dim = inType.getShape().front() / TILE_HEIGHT;
+      block_v_dim = inType.getShape().back() / TILE_WIDTH /
                     out0Encoding.getGrid().getShape().back();
     } else {
       // in0
-      block_k_dim = in0Type.getShape().back() / TILE_WIDTH;
-      block_v_dim = in0Type.getShape().front() / TILE_HEIGHT /
+      block_k_dim = inType.getShape().back() / TILE_WIDTH;
+      block_v_dim = inType.getShape().front() / TILE_HEIGHT /
                     out0Encoding.getGrid().getShape().front();
     }
 
@@ -363,7 +350,7 @@ public:
     auto tile_size_bytes = readerBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), readerBuilder.getIntegerType(32),
         readerBuilder.getI32IntegerAttr(TILE_HEIGHT * TILE_WIDTH *
-                                        in0Encoding.getElementSizeBytes()));
+                                        inEncoding.getElementSizeBytes()));
     auto block_size = readerBuilder.create<arith::MulIOp>(
         metalDispatch.getLoc(), block_k, block_v);
     // Size of block in bytes
@@ -373,7 +360,7 @@ public:
     // Remote address for in0
     auto start_in0_addr = readerBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), readerBuilder.getIntegerType(32),
-        readerBuilder.getI32IntegerAttr(lookupAddress(in0)));
+        readerBuilder.getI32IntegerAttr(lookupAddress(in)));
     // Use the start_block_id for in0 to get stride & address
     auto start_block_stride = readerBuilder.create<arith::MulIOp>(
         metalDispatch.getLoc(), start_block_id, block_size_bytes);
@@ -539,14 +526,16 @@ public:
       // kernels for each block here (use createDataMovementThread /
       // buildNocAsyncTx, etc. (TTIRToTTMetal.cpp))
       if (i == 1) {
+        // in0 sender
         gatherAndMcastTensor(
-            metalDispatch, readerBuilder, rewriter, cbs,
-            metalDispatch.getInputs()[0], metalDispatch.getInputs()[1],
+            metalDispatch, readerBuilder, rewriter,
+            metalDispatch.getInputs()[0],
             metalDispatch.getOutputs()[0], device, sysDesc, rt_args, false);
       } else if (i == 2) {
+        // in1 sender
         gatherAndMcastTensor(
-            metalDispatch, readerBuilder, rewriter, cbs,
-            metalDispatch.getInputs()[0], metalDispatch.getInputs()[1],
+            metalDispatch, readerBuilder, rewriter,
+            metalDispatch.getInputs()[1],
             metalDispatch.getOutputs()[0], device, sysDesc, rt_args, true);
       }
 
