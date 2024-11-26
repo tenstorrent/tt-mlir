@@ -11,10 +11,10 @@ using namespace mlir::tt::ttnn;
 class TestOptimizerOverrides : public ::testing::Test {
 
 public:
-  OptimizerOverridesHandler *optimizerOverridesHandler;
+  std::shared_ptr<OptimizerOverridesHandler> optimizerOverridesHandler;
 
   void SetUp() override {
-    optimizerOverridesHandler = new OptimizerOverridesHandler();
+    optimizerOverridesHandler = std::make_shared<OptimizerOverridesHandler>();
   }
 
   llvm::StringMap<InputLayoutOverrideParams> createInputLayoutOverrides() {
@@ -194,7 +194,7 @@ public:
     return true;
   }
 
-  void TearDown() override { delete optimizerOverridesHandler; }
+  void TearDown() override {}
 };
 
 // Test the setOptimizerPass method
