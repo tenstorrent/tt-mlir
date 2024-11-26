@@ -22,7 +22,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
-using namespace tt;
+using namespace mlir::tt;
 
 namespace mlir::tt::ttir {
 
@@ -32,33 +32,6 @@ namespace mlir::tt::ttir {
 } // namespace mlir::tt::ttir
 
 namespace {
-
-template <typename SrcOp, typename DestOp,
-          typename Adaptor = typename SrcOp::Adaptor>
-class TosaToTTIROpConversionPattern : public OpConversionPattern<SrcOp> {
-  using OpConversionPattern<SrcOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if constexpr (std::is_same<SrcOp, tosa::MulOp>::value) {
-      assert(srcOp.getShift() == 0);
-    }
-
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<DestOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
-    return success();
-  }
-};
 
 struct ConvertTosaToTTIRPass
     : public ttir::impl::ConvertTosaToTTIRBase<ConvertTosaToTTIRPass> {
@@ -83,24 +56,7 @@ struct ConvertTosaToTTIRPass
     RewritePatternSet patterns(&getContext());
 
     // Add conversion patterns.
-    patterns
-        .add<TosaToTTIROpConversionPattern<tosa::AbsOp, mlir::tt::ttir::AbsOp>>(
-            typeConverter, &getContext());
-    patterns
-        .add<TosaToTTIROpConversionPattern<tosa::AddOp, mlir::tt::ttir::AddOp>>(
-            typeConverter, &getContext());
-    patterns.add<
-        TosaToTTIROpConversionPattern<tosa::MulOp, mlir::tt::ttir::MultiplyOp>>(
-        typeConverter, &getContext());
-    patterns.add<
-        TosaToTTIROpConversionPattern<tosa::NegateOp, mlir::tt::ttir::NegOp>>(
-        typeConverter, &getContext());
-    patterns.add<
-        TosaToTTIROpConversionPattern<tosa::SubOp, mlir::tt::ttir::SubtractOp>>(
-        typeConverter, &getContext());
-    patterns.add<TosaToTTIROpConversionPattern<tosa::GreaterEqualOp,
-                                               mlir::tt::ttir::GreaterEqualOp>>(
-        typeConverter, &getContext());
+    populateTosaToTTIRPatterns(&getContext(), patterns, typeConverter);
 
     // Apply conversion.
     if (failed(
