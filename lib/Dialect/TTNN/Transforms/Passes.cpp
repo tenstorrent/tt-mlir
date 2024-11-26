@@ -3,18 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "mlir/Analysis/Liveness.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/PatternMatch.h"
+
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/Casting.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/TypeRange.h>
+
+#include "mlir/Analysis/Liveness.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeRange.h"
+#include "mlir/IR/ValueRange.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
@@ -967,15 +971,12 @@ public:
       // Create the function
       //
       func::FuncOp inputGenFuncOp = rewriter.create<mlir::func::FuncOp>(
-          // rewriter.create<mlir::func::FuncOp>(
-          // rewriter.getUnknownLoc(), inputGenFuncNameAsStringRef,
-          // functionType);
           module->getLoc(), inputGenFuncNameAsStringRef, functionType);
 
-      ::mlir::Block *currFnBlock = inputGenFuncOp.addEntryBlock();
-
-      // Set insertion point to the beginning of the block
+      // Add a Block to func op and set insertion point to the beginning of the
+      // Block
       //
+      ::mlir::Block *currFnBlock = inputGenFuncOp.addEntryBlock();
       rewriter.setInsertionPointToStart(currFnBlock);
 
       SmallVector<Value, 2> generatedTensors;
@@ -1015,15 +1016,70 @@ public:
       //
       rewriter.create<func::ReturnOp>(forwardFuncOp->getLoc(),
                                       generatedTensors);
-
-      // llvm::outs() << "start\n";
-      // inputGenFuncOp.dump();
-      // llvm::outs() << "end\n";
     }
 
-    // llvm::outs() << "start2\n";
-    // module->dump();
-    // llvm::outs() << "end2\n";
+    // Create a main function to call input generators and forward funcs
+    //
+    {
+      // Create a new function that will generate the input tensors
+      //
+      std::string mainFuncName = "main";
+
+      // Create function type
+      //
+      mlir::TypeRange returnTypeRange =
+          mlir::TypeRange({rewriter.getI32Type()});
+      FunctionType functionType =
+          mlir::FunctionType::get(&getContext(), {}, returnTypeRange);
+
+      llvm::StringRef mainFuncNameStringRef = llvm::StringRef(mainFuncName);
+
+      // Set insertion point to end of first block
+      //
+      rewriter.setInsertionPointToEnd(firstBlock);
+
+      // Create the function
+      //
+      func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
+          module->getLoc(), mainFuncNameStringRef, functionType);
+
+      ::mlir::Block *currFnBlock = mainFuncOp.addEntryBlock();
+
+      // Set insertion point to the beginning of the block
+      //
+      rewriter.setInsertionPointToStart(currFnBlock);
+
+      // Call the input generators
+      //
+      for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
+        std::string inputGenFuncName =
+            "createInputsFor_" + forwardFuncOp.getName().str();
+
+        // Get the input generator function
+        //
+        mlir::func::FuncOp inputGenFuncOp =
+            module.lookupSymbol<mlir::func::FuncOp>(inputGenFuncName);
+
+        // Call the input generator function
+        //
+        func::CallOp createdTensors = rewriter.create<mlir::func::CallOp>(
+            forwardFuncOp->getLoc(), inputGenFuncOp, ValueRange());
+
+        rewriter.create<mlir::func::CallOp>(forwardFuncOp->getLoc(),
+                                            forwardFuncOp,
+                                            createdTensors->getResults());
+      }
+
+      // Return
+      //
+      // q = rewriter.create<arith::ConstantOp>(mainFuncOp->getLoc(),
+      //                                        rewriter.getI32Type(), 0);
+      Value constantZero = rewriter.create<arith::ConstantOp>(
+          rewriter.getUnknownLoc(), returnTypeRange.front(),
+          rewriter.getI32IntegerAttr(0));
+      rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(),
+                                      ValueRange({constantZero}));
+    }
   }
 };
 

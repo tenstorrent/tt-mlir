@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -618,6 +619,34 @@ public:
   }
 };
 
+// arith::ConstantOp conversion pattern
+//
+class ArithConstantOpConversionPattern
+    : public OpConversionPattern<arith::ConstantOp> {
+
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  // ArithConstantIntOpConversionPattern(const TypeConverter &typeConverter,
+  //                                     MLIRContext *context,
+  //                                     PatternBenefit benefit = 1)
+  //     : OpConversionPattern<arith::ConstantIntOp>(typeConverter, context,
+  //                                                 benefit) {}
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp constOp,
+                  arith::ConstantOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Type newTy = this->getTypeConverter()->convertType(constOp.getType());
+    if (!newTy)
+      return rewriter.notifyMatchFailure(constOp, "type conversion failed");
+    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(constOp, newTy,
+                                                   adaptor.getValue());
+    return success();
+  }
+};
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -754,6 +783,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Module op
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // Arith ops
+  //
+  patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
