@@ -719,27 +719,6 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     }];
 }
 
-// CCL ops
-def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
-    let summary = "All gather operation.";
-    let description = [{
-      All gather op.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
-    let hasVerifier = 1;
-}
-
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
@@ -1315,6 +1294,104 @@ def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
     }];
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR ccl ops
+//===----------------------------------------------------------------------===//
+
+def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
+    let summary = "All gather operation.";
+    let description = [{
+      All gather op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
+    let summary = "AllReduce operation.";
+    let description = [{
+      AllReduce op.
+    }];
+
+    let arguments = (ins
+      Variadic<AnyRankedTensor>:$inputs,
+      AnyRankedTensor:$output,
+      I64ElementsAttr:$replica_groups,
+      SI32Attr:$dim,
+      OptionalAttr<SI32Attr>:$channel_handle,
+      UnitAttr:$use_global_device_ids,
+      TT_ReduceTypeAttr:$reduce_type,
+      TT_OperandConstraintArrayAttr:$operand_constraints
+    );
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
+    let summary = "Mesh shard operation.";
+    let description = [{
+      MeshShard op shards the inputs (FullToShard) or concatnates the outputs (ShardToFull) for ccl ops.
+
+      shard_direction attribute determines whether to shard or concat.
+
+      shard_type attribute determines how to shard or concat.
+        manual: no sharding
+        replicate: all devices have identical data
+        maximal: only one device contains full data
+        devices: shard_shape determines sharded dimensions
+
+      For example, on 2x4 mesh hardware, following op shards arg0 to 8 slices, row divided by 2
+      and col divided by 4.
+
+        %1 = "ttir.mesh_shard"(%arg0, %0) <
+          {... shard_direction = #tt.shard_direction<full_to_shard>,
+               shard_shape = #tt.grid<2x4>,
+               shard_type = #tt.shard_type<devices>}> :  (tensor<8192x784xf32>, ...) -> tensor<4096x196xf32>
+
+      On the other hand, this op concatnates %4 to single tensor by concatnating
+      one of the top row tensor with one of the bottom row tensor.
+
+        %6 = "ttir.mesh_shard"(%4, %5) <
+          {..., shard_direction = #tt.shard_direction<shard_to_full>,
+                shard_shape = #tt.grid<2x1>,
+                shard_type = #tt.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
+    }];
+
+    let arguments = (ins
+      AnyRankedTensor:$input,
+      AnyRankedTensor:$output,
+      TT_MeshShardTypeAttr:$shard_type,
+      TT_MeshShardDirectionAttr:$shard_direction,
+      TT_GridAttr:$shard_shape,
+      TT_OperandConstraintArrayAttr:$operand_constraints
+    );
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 #endif

@@ -1290,6 +1290,40 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 //===----------------------------------------------------------------------===//
+// AllReduceOp
+//===----------------------------------------------------------------------===//
+
+// AllReduceOp verification
+::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
+  ::mlir::RankedTensorType inputType =
+      mlir::cast<RankedTensorType>(getInputs().front().getType());
+  int32_t dim = getDim();
+
+  if (dim >= inputType.getRank()) {
+    return emitOpError("Invalid dimension for all_reduce op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MeshShardOp
+//===----------------------------------------------------------------------===//
+
+// MeshShardOp verification
+::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
+  auto shardType = getShardType();
+
+  // currently we are only supporting replicate or devices from StableHLO
+  if (shardType != mlir::tt::MeshShardType::Replicate &&
+      shardType != mlir::tt::MeshShardType::Devices) {
+    return emitOpError("Invalid shard_type for mesh_shard op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 

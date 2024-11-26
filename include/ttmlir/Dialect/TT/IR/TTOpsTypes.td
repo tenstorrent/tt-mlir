@@ -443,6 +443,20 @@ def TT_ArgumentAllocationAttr : TT_Attr<"ArgumentAllocation", "arg_alloc", []> {
   let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
 }
 
+def TT_ReduceTypeAttr : EnumAttr<TT_Dialect, TT_ReduceType, "reduce_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_ReduceTypeArrayAttr : TypedArrayAttrBase<TT_ReduceTypeAttr, "">;
+
+def TT_MeshShardDirectionAttr : EnumAttr<TT_Dialect, TT_MeshShardDirection, "shard_direction"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_MeshShardTypeAttr : EnumAttr<TT_Dialect, TT_MeshShardType, "shard_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
