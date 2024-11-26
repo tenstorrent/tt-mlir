@@ -5,7 +5,7 @@
 # User Guide
 
 - [Building](./build.md)
-  - [Internal Build Notes / IRD](./internal-build.md)
+  - [Docker Notes](./docker-notes.md)
 - [Tools](./tools.md)
   - [ttmlir-opt](./ttmlir-opt.md)
   - [ttmlir-translate](./ttmlir-translate.md)
