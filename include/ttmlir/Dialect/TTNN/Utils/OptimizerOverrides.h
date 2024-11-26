@@ -108,8 +108,7 @@ public:
   // These are used to set the maximum number of legal layouts for grid analysis
   void setMaxLegalLayouts(int64_t);
   // These are used to set the mesh shape
-  // void setMeshShape(EmptyPipelineOptions::ListOption<int64_t>);
-  // void setMeshShape(mlir::detail::ListOption<int64_t>);
+  void setMeshShape(std::vector<int64_t>);
 
   // Getters for the overrides
   // These are used to get the current state of the optimizer passes
@@ -126,8 +125,7 @@ public:
   // These are used to get the current maximum number of legal layouts for grid analysis
   int64_t getMaxLegalLayouts() const;
   // These are used to get the current mesh shape
-  // EmptyPipelineOptions::ListOption<int64_t> getMeshShape() const;
-  // mlir::ListOption<int64_t> getMeshShape() const;
+  std::vector<int64_t> getMeshShape() const;
 
   // Method that converts the overrides to a string
   std::string toString() const;
@@ -164,8 +162,7 @@ private:
   int64_t maxLegalLayouts;
 
   // Mesh shape
-  // EmptyPipelineOptions::ListOption<int64_t> meshShape{ new PassPipelineOptions<void>(), "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.") };
-  // mlir::ListOption<int64_t> meshShape{ new PassPipelineOptions<void>(), "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.") };
+  std::vector<int64_t> meshShape;
 
 };  // class OptimizerOverridesHandler
 

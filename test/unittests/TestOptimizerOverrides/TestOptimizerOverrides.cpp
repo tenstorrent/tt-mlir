@@ -346,17 +346,17 @@ TEST_F(TestOptimizerOverrides, TestSetMaxLegalLayouts) {
 }
 
 // Test the setMeshShape method
-// TEST_F(TestOptimizerOverrides, TestSetMeshShape) {
+TEST_F(TestOptimizerOverrides, TestSetMeshShape) {
   
-//   ListOption<int64_t> meshShape;
-//   meshShape.push_back(1);
-//   meshShape.push_back(2);
+  std::vector<int64_t> meshShape;
+  meshShape.push_back(1);
+  meshShape.push_back(2);
 
-//   optimizerOverridesHandler->setMeshShape(meshShape);
-//   ASSERT_EQ(optimizerOverridesHandler->getMeshShape()[0], meshShape[0]);
-//   ASSERT_EQ(optimizerOverridesHandler->getMeshShape()[1], meshShape[1]);
+  optimizerOverridesHandler->setMeshShape(meshShape);
+  ASSERT_EQ(optimizerOverridesHandler->getMeshShape()[0], meshShape[0]);
+  ASSERT_EQ(optimizerOverridesHandler->getMeshShape()[1], meshShape[1]);
 
-// }
+}
 
 // Test the toString method
 TEST_F(TestOptimizerOverrides, TestToString) {

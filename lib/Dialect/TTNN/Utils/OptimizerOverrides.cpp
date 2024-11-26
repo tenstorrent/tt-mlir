@@ -202,8 +202,7 @@ void InputLayoutOverrideParser::print(
 
   void OptimizerOverridesHandler::setSystemDescPath(std::string value) { systemDescPath = value; }
   void OptimizerOverridesHandler::setMaxLegalLayouts(int64_t value) { maxLegalLayouts = value; }
-  // void OptimizerOverridesHandler::setMeshShape(EmptyPipelineOptions::ListOption<int64_t> value) { meshShape = value; }
-  // void OptimizerOverridesHandler::setMeshShape(mlir::ListOption<int64_t> value) { meshShape = value; }
+  void OptimizerOverridesHandler::setMeshShape(std::vector<int64_t> value) { meshShape = value; }
 
   bool OptimizerOverridesHandler::getOptimizerPass() const { return enableOptimizerPass; }
 
@@ -213,8 +212,7 @@ void InputLayoutOverrideParser::print(
 
   std::string OptimizerOverridesHandler::getSystemDescPath() const { return systemDescPath; }
   int64_t OptimizerOverridesHandler::getMaxLegalLayouts() const { return maxLegalLayouts; }
-  // EmptyPipelineOptions::ListOption<int64_t> OptimizerOverridesHandler::getMeshShape() const { return meshShape; }
-  // mlir::ListOption<int64_t> OptimizerOverridesHandler::getMeshShape() const { return meshShape; }
+  std::vector<int64_t> OptimizerOverridesHandler::getMeshShape() const { return meshShape; }
 
   llvm::StringMap<InputLayoutOverrideParams> OptimizerOverridesHandler::getInputLayoutOverrides() const { return inputLayoutOverrides; }
   llvm::StringMap<OutputLayoutOverrideParams> OptimizerOverridesHandler::getOutputLayoutOverrides() const { return outputLayoutOverrides; }
@@ -439,14 +437,14 @@ void InputLayoutOverrideParser::print(
       options += "max-legal-layouts=" + std::to_string(maxLegalLayouts) + " ";
     }
 
-    // if (meshShape.size() > 0) {
-    //   options += "mesh-shape=";
-    //   for (int64_t meshShapeValue : meshShape) {
-    //     options += std::to_string(meshShapeValue) + ",";
-    //   }
-    //   // Remove the last comma.
-    //   options.pop_back();
-    // }
+    if (meshShape.size() > 0) {
+      options += "mesh-shape=";
+      for (int64_t meshShapeValue : meshShape) {
+        options += std::to_string(meshShapeValue) + ",";
+      }
+      // Remove the last comma.
+      options.pop_back();
+    }
 
     return options;
 
