@@ -135,7 +135,7 @@ the logical device grid:
 
 ```mlir
 tensor<16x3x64x128xf32,
-  #tt.layout<(d0, d1, d2, d3) -> (d0, d1 * 64 + d2, d3),
+  #tt.metal_layout<(d0, d1, d2, d3) -> (d0, d1 * 64 + d2, d3),
     undef,
     <2x2x4>,
     memref<8x3x1x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>
@@ -170,7 +170,7 @@ the logical device grid:
 
 ```mlir
 tensor<256x1024xf32,
-  #tt.layout<(d0, d1) -> (d0, d1),
+  #tt.metal_layout<(d0, d1) -> (d0, d1),
     undef,
     <4x16>,
     memref<2x2x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>
@@ -205,7 +205,7 @@ We can consider the following tensor to map onto this grid:
 
 ```mlir
 tensor<64x256x1024xf32,
-  #tt.layout<(d0, d1) -> (d0, d1),
+  #tt.metal_layout<(d0, d1) -> (d0, d1),
     undef,
     <2x4x16>,
     memref<32x2x2x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>

@@ -908,9 +908,9 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputLayout =
-      mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
+      mlir::cast<tt::MetalLayoutAttr>(getInput().getType().getEncoding());
   auto outputLayout =
-      mlir::cast<tt::LayoutAttr>(getOutput().getType().getEncoding());
+      mlir::cast<tt::MetalLayoutAttr>(getOutput().getType().getEncoding());
   bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
   bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
   bool isShardChange =
@@ -1216,7 +1216,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 
 // AllocOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+  auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
