@@ -71,6 +71,14 @@ jobs:
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
@@ -148,13 +156,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}
-        path: build/test/report.xml
+        path: build/test/report_${{ steps.strings.outputs.job-id }}.xml
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
-        report_paths: build/test/report.xml
+        report_paths: build/test/report_${{ steps.strings.outputs.job-id }}.xml
         check_name: MLIR Tests
 
     # Build and upload ttrt
@@ -308,8 +316,8 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
-        path: ${{ matrix.build.name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_report.json
+        path: ${{ matrix.build.name }}_report_${{ steps.strings.outputs.job-id }}.json
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
