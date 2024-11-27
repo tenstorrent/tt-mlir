@@ -229,6 +229,11 @@ struct ConvolutionToConv2dPattern
 public:
   using OpConversionPattern<ttir::ConvolutionOp>::OpConversionPattern;
 
+  ConvolutionToConv2dPattern(TypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<ttir::ConvolutionOp>(typeConverter, ctx) {
+    setHasBoundedRewriteRecursion();
+  }
+
   constexpr static uint32_t numSpatialDims = 2;
   constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
   constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
@@ -248,9 +253,8 @@ public:
       SPATIAL_DIM_WIDTH,
   };
 
-  LogicalResult isConv2d(ttir::ConvolutionOp op) const {
-
-    // Conv2d will have 2 spatial dimensions
+  LogicalResult isValidConv(ttir::ConvolutionOp op,
+                            uint32_t numSpatialDims) const {
 
     assert(op.getConvolutionLayout().getInputSpatialDimensions().size() ==
                op.getConvolutionLayout().getOutputSpatialDimensions().size() &&
@@ -283,14 +287,149 @@ public:
     return success();
   }
 
-  LogicalResult
-  matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  ttir::ReshapeOp createReshapeOp(Location loc, Value tensor,
+                                  llvm::ArrayRef<int64_t> target_input_shape,
+                                  ::mlir::ArrayAttr constraints,
+                                  ConversionPatternRewriter &rewriter) const {
+    auto inputType = mlir::cast<RankedTensorType>(tensor.getType());
 
-    if (failed(isConv2d(op))) {
+    auto output = rewriter.create<tensor::EmptyOp>(
+        loc, llvm::ArrayRef<int64_t>(target_input_shape),
+        inputType.getElementType());
+    std::vector<int32_t> shapei32(target_input_shape.begin(),
+                                  target_input_shape.end());
+    auto shape_attr = rewriter.getI32ArrayAttr(shapei32);
+
+    return rewriter.create<ttir::ReshapeOp>(
+        loc,
+        mlir::RankedTensorType::get(target_input_shape,
+                                    inputType.getElementType()),
+        tensor, output, shape_attr, constraints);
+  }
+
+  mlir::DenseI64ArrayAttr
+  addIntegersToDenseArrayAttr(ConversionPatternRewriter &rewriter,
+                              mlir::DenseI64ArrayAttr denseArrayAttr,
+                              std::vector<uint64_t> additionalIntegers) const {
+    llvm::SmallVector<int64_t, 4> newDenseArray(denseArrayAttr.asArrayRef());
+    for (uint64_t integer : additionalIntegers) {
+      newDenseArray.push_back(integer);
+    }
+    return rewriter.getDenseI64ArrayAttr(newDenseArray);
+  }
+
+  mlir::DenseBoolArrayAttr
+  addBooleansToDenseArrayAttr(ConversionPatternRewriter &rewriter,
+                              mlir::DenseBoolArrayAttr denseArrayAttr,
+                              std::vector<bool> additionalIntegers) const {
+    llvm::SmallVector<bool, 4> newDenseArray(denseArrayAttr.asArrayRef());
+    for (bool boolean : additionalIntegers) {
+      newDenseArray.push_back(boolean);
+    }
+    return rewriter.getDenseBoolArrayAttr(newDenseArray);
+  }
+
+  LogicalResult matchAndRewrite1d(ttir::ConvolutionOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+    // Not currently supporting spatial dims other than 2 for the 1D case.
+    if (op.getConvolutionLayout().getInputSpatialDimensions()[0] != 2) {
       return failure();
     }
 
+    auto outputType =
+        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+    llvm::SmallVector<int64_t, 8> newOutputShape(outputShape.begin(),
+                                                 outputShape.end());
+    newOutputShape.push_back(1);
+    auto newOutput = rewriter.create<tensor::EmptyOp>(
+        op->getLoc(), newOutputShape, outputType.getElementType());
+    auto newOutputType = mlir::cast<RankedTensorType>(newOutput.getType());
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    llvm::SmallVector<int64_t, 8> newInputShape(inputShape.begin(),
+                                                inputShape.end());
+    newInputShape.push_back(1);
+
+    auto weightType =
+        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    llvm::ArrayRef<int64_t> weightShape = weightType.getShape();
+    llvm::SmallVector<int64_t, 8> newWeightShape(weightShape.begin(),
+                                                 weightShape.end());
+    newWeightShape.push_back(1);
+
+    ttir::ReshapeOp reshapeInput =
+        createReshapeOp(op.getLoc(), adaptor.getInput(), newInputShape,
+                        op.getOperandConstraints(), rewriter);
+    ttir::ReshapeOp reshapeWeight =
+        createReshapeOp(op.getLoc(), adaptor.getWeight(), newWeightShape,
+                        op.getOperandConstraints(), rewriter);
+
+    mlir::DenseI64ArrayAttr newWindowsStridesAttr = addIntegersToDenseArrayAttr(
+        rewriter, adaptor.getWindowStridesAttr(), std::vector<uint64_t>({1}));
+    mlir::DenseI64ArrayAttr newPaddingAttr = addIntegersToDenseArrayAttr(
+        rewriter, adaptor.getPaddingAttr(), std::vector<uint64_t>({0, 0}));
+    mlir::DenseI64ArrayAttr newInputDilationAttr = addIntegersToDenseArrayAttr(
+        rewriter, adaptor.getInputDilationAttr(), std::vector<uint64_t>({1}));
+    mlir::DenseI64ArrayAttr newWeightDilationAttr = addIntegersToDenseArrayAttr(
+        rewriter, adaptor.getWeightDilationAttr(), std::vector<uint64_t>({1}));
+    mlir::DenseBoolArrayAttr newWindowReversalAttr =
+        addBooleansToDenseArrayAttr(rewriter, adaptor.getWindowReversalAttr(),
+                                    std::vector<bool>({false}));
+
+    auto convolutionLayout = adaptor.getConvolutionLayoutAttr();
+
+    // The additional spatial dimension is added at the and (3rd in 0 indexed
+    // array).
+    llvm::SmallVector<int64_t, 8> newInputSpatialDimensions(
+        convolutionLayout.getInputSpatialDimensions().begin(),
+        convolutionLayout.getInputSpatialDimensions().end());
+    newInputSpatialDimensions.push_back(3);
+
+    llvm::SmallVector<int64_t, 8> newKernelSpatialDimensions(
+        convolutionLayout.getKernelSpatialDimensions().begin(),
+        convolutionLayout.getKernelSpatialDimensions().end());
+    newKernelSpatialDimensions.push_back(3);
+
+    llvm::SmallVector<int64_t, 8> newOutputSpatialDimensions(
+        convolutionLayout.getOutputSpatialDimensions().begin(),
+        convolutionLayout.getOutputSpatialDimensions().end());
+    newOutputSpatialDimensions.push_back(3);
+
+    mlir::tt::ttir::ConvolutionOp new2dConvolutionOp =
+        rewriter.create<mlir::tt::ttir::ConvolutionOp>(
+            op.getLoc(), newOutputType, reshapeInput, reshapeWeight,
+            mlir::Value(nullptr), newOutput, newWindowsStridesAttr,
+            newPaddingAttr, newInputDilationAttr, newWeightDilationAttr,
+            newWindowReversalAttr,
+            mlir::tt::ttir::ConvolutionLayoutAttr::get(
+                getContext(), convolutionLayout.getInputBatchDimension(),
+                convolutionLayout.getInputFeatureDimension(),
+                newInputSpatialDimensions,
+                convolutionLayout.getKernelOutputFeatureDimension(),
+                convolutionLayout.getKernelInputFeatureDimension(),
+                newKernelSpatialDimensions,
+                convolutionLayout.getOutputBatchDimension(),
+                convolutionLayout.getOutputFeatureDimension(),
+                newOutputSpatialDimensions),
+            adaptor.getFeatureGroupCountAttr(),
+            adaptor.getBatchGroupCountAttr(),
+            rewriter.getArrayAttr(
+                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                       rewriter.getAttr<OperandConstraintAttr>(
+                                           OperandConstraint::AnyDeviceTile))));
+    ttir::ReshapeOp reshapeOutput =
+        createReshapeOp(op.getLoc(), new2dConvolutionOp, outputShape,
+                        op.getOperandConstraints(), rewriter);
+
+    rewriter.replaceOp(op, reshapeOutput);
+
+    return success();
+  }
+
+  LogicalResult matchAndRewrite2d(ttir::ConvolutionOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
     auto strideHeightAttr = rewriter.getSI32IntegerAttr(
         adaptor.getWindowStrides()[SPATIAL_DIM_HEIGHT]);
     auto strideWidthAttr = rewriter.getSI32IntegerAttr(
@@ -359,6 +498,20 @@ public:
 
     rewriter.replaceOp(op, output);
     return success();
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (succeeded(isValidConv(op, 1))) {
+      return matchAndRewrite1d(op, adaptor, rewriter);
+    }
+
+    if (succeeded(isValidConv(op, 2))) {
+      return matchAndRewrite2d(op, adaptor, rewriter);
+    }
+
+    return failure();
   }
 };
 
