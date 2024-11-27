@@ -121,7 +121,13 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                                              ctx);
 }
 
-} // namespace
+void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
+                                                RewritePatternSet &patterns,
+                                                TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+}
+} //  namespace
 
 namespace mlir::tt {
 
@@ -129,6 +135,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
