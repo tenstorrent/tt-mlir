@@ -11,67 +11,67 @@ struct Dim2dRange {
 }
 
 enum Arch: uint {
-  Grayskull = 0,
-  Wormhole_b0 = 1,
-  Blackhole = 2,
+  Grayskull,
+  Wormhole_b0,
+  Blackhole
 }
 
 enum DataType: uint16 {
-  Float32 = 0,
-  Float16 = 1,
-  BFloat16 = 2,
-  BFP_Float8 = 3,
-  BFP_BFloat8 = 4,
-  BFP_Float4 = 5,
-  BFP_BFloat4 = 6,
-  BFP_Float2 = 7,
-  BFP_BFloat2 = 8,
-  UInt32 = 9,
-  UInt16 = 10,
-  UInt8 = 11,
+  Float32,
+  Float16,
+  BFloat16,
+  BFP_Float8,
+  BFP_BFloat8,
+  BFP_Float4,
+  BFP_BFloat4,
+  BFP_Float2,
+  BFP_BFloat2,
+  UInt32,
+  UInt16,
+  UInt8,
 }
 
 enum OOBVal: ushort {
-  Undef = 0,
-  Zero = 1,
-  One = 2,
-  Inf = 3,
-  NegInf = 4,
+  Undef,
+  Zero,
+  One,
+  Inf,
+  NegInf,
 }
 
 enum MemorySpace: ushort {
-  System = 0,
-  SystemMMIO = 1,
-  DeviceDRAM = 2,
-  DeviceL1 = 3,
+  System,
+  SystemMMIO,
+  DeviceDRAM,
+  DeviceL1,
 }
 
 enum ChipCapability: uint32 (bit_flags) {
-  PCIE = 0,
-  HostMMIO = 1,
+  PCIE,
+  HostMMIO,
 }
 
 enum TensorMemoryLayout: ushort {
-  None = 0,
-  Interleaved = 1,
-  SingleBank = 2,
-  HeightSharded = 3,
-  WidthSharded = 4,
-  BlockSharded = 5,
+  None,
+  Interleaved,
+  SingleBank,
+  HeightSharded,
+  WidthSharded,
+  BlockSharded,
 }
 
 enum TensorLayout: ushort {
-  RowMajor = 0,
-  Tile = 1,
-  Invalid = 2,
+  RowMajor,
+  Tile,
+  Invalid,
 }
 
 enum BufferType: ushort {
-  DRAM = 0,
-  L1 = 1,
-  SystemMemory = 2,
-  L1Small = 3,
-  Trace = 4,
+  DRAM,
+  L1,
+  SystemMemory,
+  L1Small,
+  Trace,
 }
 
 // TODO (#620): Add other fields like core_ranges, shard orientation etc.
@@ -197,8 +197,8 @@ table ChipPhysicalCores {
 
 enum CPURole: uint8
 {
-  Host = 0,
-  Device = 1,
+  Host,
+  Device,
 }
 
 table CPUDesc {
@@ -223,9 +223,11 @@ table EventRef {
   global_id: uint32;
 }
 
+// Explicit non-sequential enumeration copied over from tt-metal definition of
+// `enum class MathFidelity`.
 enum MathFidelity : uint8 {
-    LoFi          = 0,
-    HiFi2         = 2,
-    HiFi3         = 3,
-    HiFi4         = 4,
+  LoFi = 0,
+  HiFi2 = 2,
+  HiFi3 = 3,
+  HiFi4 = 4,
 }
