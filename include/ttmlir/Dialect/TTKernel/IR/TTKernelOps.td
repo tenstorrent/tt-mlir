@@ -256,27 +256,6 @@ def TTKernel_MulTilesOp : TTKernel_Op<"mul_tiles"> {
     let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
 }
 
-def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tiles_init"> {
-    let summary = "Short init function";
-    let description = [{
-      Must be run before max_tiles.
-    }];
-
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb); // FIXME: , BOOL:$acc_to_dst);
-}
-
-def TTKernel_MaxTilesOp : TTKernel_Op<"max_tiles"> {
-    let summary = "Max operation";
-    let description = [{
-      Performs element-wise C=max(A, B) of tiles in two CBs at given indices
-      and writes the result to the DST register at index dst_tile_index. The DST
-      register buffer must be in acquired state via *tile_regs_acquire* call. This call
-      is blocking and is only available on the compute engine.
-    }];
-
-    let arguments = (ins TTKernel_CB:$in0_cb, TTKernel_CB:$in1_cb, I32:$in0_tile_index, I32:$in1_tile_index, I32:$dst_index);
-}
-
 def TTKernel_UnaryOpInitCommonOp : TTKernel_Op<"unary_op_init_common"> {
     let summary = "Initialization function for unary operations.";
     let description = [{
@@ -361,6 +340,31 @@ def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
                          I32:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel SFPU operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before max_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_MaxTilesOp : TTKernel_Op<"max_tile"> {
+    let summary = "Max operation";
+    let description = [{
+      Performs element-wise computation of maximum operation
+      DST[dst0_index] <- max(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins I32:$dst0_index, I32:$dst1_index);
 }
 
 //===----------------------------------------------------------------------===//
