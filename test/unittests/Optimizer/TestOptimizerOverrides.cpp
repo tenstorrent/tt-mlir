@@ -195,24 +195,24 @@ public:
   void TearDown() override {}
 };
 
-// Test the setOptimizerPass method
+// Test the setEnableOptimizer method
 TEST_F(TestOptimizerOverrides, TestSetOptimizerPass) {
 
-  optimizerOverridesHandler.setOptimizerPass(true);
-  ASSERT_TRUE(optimizerOverridesHandler.getOptimizerPass());
+  optimizerOverridesHandler.setEnableOptimizer(true);
+  ASSERT_TRUE(optimizerOverridesHandler.getEnableOptimizer());
 
-  optimizerOverridesHandler.setOptimizerPass(false);
-  ASSERT_FALSE(optimizerOverridesHandler.getOptimizerPass());
+  optimizerOverridesHandler.setEnableOptimizer(false);
+  ASSERT_FALSE(optimizerOverridesHandler.getEnableOptimizer());
 }
 
 // Test the setMemoryConfig method
 TEST_F(TestOptimizerOverrides, TestSetMemoryConfig) {
 
-  optimizerOverridesHandler.setMemoryConfig(true);
-  ASSERT_TRUE(optimizerOverridesHandler.getMemoryConfig());
+  optimizerOverridesHandler.setMemoryReconfig(true);
+  ASSERT_TRUE(optimizerOverridesHandler.getMemoryReconfig());
 
-  optimizerOverridesHandler.setMemoryConfig(false);
-  ASSERT_FALSE(optimizerOverridesHandler.getMemoryConfig());
+  optimizerOverridesHandler.setMemoryReconfig(false);
+  ASSERT_FALSE(optimizerOverridesHandler.getMemoryReconfig());
 }
 
 // Test the setMemoryLayoutAnalysis method
@@ -411,7 +411,7 @@ TEST_F(TestOptimizerOverrides, TestToString) {
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
 
   optimizerOverridesHandler.setMemoryLayoutAnalysis(true);
-  optimizerOverridesHandler.setMemoryConfig(true);
+  optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInputLayoutOverride("add_0_1_2", {0});
   optimizerOverridesHandler.addOutputLayoutOverride(
       "add_1_2", {1, 1}, BufferType::DRAM, TensorMemoryLayout::Interleaved,

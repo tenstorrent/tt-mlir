@@ -87,9 +87,9 @@ public:
 
   // Setters for the overrides
   // These are used to enable/disable the optimizer passes
-  void setOptimizerPass(bool);
+  void setEnableOptimizer(bool);
   // These are used to enable/disable the memory configurations
-  void setMemoryConfig(bool);
+  void setMemoryReconfig(bool);
   void setMemoryLayoutAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
@@ -105,9 +105,9 @@ public:
 
   // Getters for the overrides
   // These are used to get the current state of the optimizer passes
-  bool getOptimizerPass() const;
+  bool getEnableOptimizer() const;
   // These are used to get the current state of the memory configurations
-  bool getMemoryConfig() const;
+  bool getMemoryReconfig() const;
   bool getMemoryLayoutAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
@@ -136,10 +136,10 @@ public:
 
 private:
   // Flags for enabling/disabling the optimizer passes
-  bool enableOptimizerPass = true;
+  bool enableOptimizer = true;
 
   // Flags for enabling/disabling the memory configurations
-  bool enableMemoryConfig = true;
+  bool enableMemoryReconfig = true;
   bool enableMemoryLayoutAnalysis = true;
 
   // Input layout overrides

@@ -189,12 +189,12 @@ void InputLayoutOverrideParser::print(
   os << "\n";
 }
 
-void OptimizerOverridesHandler::setOptimizerPass(bool value) {
-  enableOptimizerPass = value;
+void OptimizerOverridesHandler::setEnableOptimizer(bool value) {
+  enableOptimizer = value;
 }
 
-void OptimizerOverridesHandler::setMemoryConfig(bool value) {
-  enableMemoryConfig = value;
+void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
+  enableMemoryReconfig = value;
 }
 void OptimizerOverridesHandler::setMemoryLayoutAnalysis(bool value) {
   enableMemoryLayoutAnalysis = value;
@@ -227,12 +227,12 @@ void OptimizerOverridesHandler::setMeshShape(std::vector<int64_t> value) {
   meshShape = value;
 }
 
-bool OptimizerOverridesHandler::getOptimizerPass() const {
-  return enableOptimizerPass;
+bool OptimizerOverridesHandler::getEnableOptimizer() const {
+  return enableOptimizer;
 }
 
-bool OptimizerOverridesHandler::getMemoryConfig() const {
-  return enableMemoryConfig;
+bool OptimizerOverridesHandler::getMemoryReconfig() const {
+  return enableMemoryReconfig;
 }
 bool OptimizerOverridesHandler::getMemoryLayoutAnalysis() const {
   return enableMemoryLayoutAnalysis;
@@ -268,11 +268,11 @@ std::string OptimizerOverridesHandler::toString() const {
 
   std::string options = "";
 
-  if (enableOptimizerPass) {
+  if (enableOptimizer) {
     options += "enable-optimizer=true ";
   }
 
-  if (enableMemoryConfig) {
+  if (enableMemoryReconfig) {
     options += "memreconfig-enabled=true ";
   }
 
