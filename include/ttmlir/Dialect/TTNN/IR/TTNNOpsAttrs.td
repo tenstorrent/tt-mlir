@@ -111,7 +111,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     Layout attribute in ttnn. This attribute is used to encode different information about tensor memory layout.
     Here is how tensor will look like after layout tensor<32x32x64xf32, #ttnn.ttnn_layout<linear, grid, memref, mem_layout>>
     Lets break down what each parameter means:
-    - affine_map: An affine map that defines how the logical tensor dimensions map to physical space.
+    - linear: An affine map that defines how the logical tensor dimensions map to physical space.
     - grid: The grid shape (of tensix cores) where tensor is divided onto.
     - memref: A memref is used to describe shard size and memory space. Shard size is calculated by dividing the tensor size by grid size.
     - mem_layout: The layout of the tensor in memory. For tensor on host it should be None. For tensor on device

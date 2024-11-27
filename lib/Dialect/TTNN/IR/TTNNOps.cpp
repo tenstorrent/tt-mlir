@@ -190,7 +190,6 @@ namespace mlir::tt::ttnn {
 
   // DataType and Layout
   //
-  // Type elementType = layoutAttr.getElementType();
   if (getLayout().has_value()) {
     ttnn::Layout ttnnLayoutEnum = layoutAttr.getLayout();
     assert(ttnnLayoutEnum == getLayoutAttr().getValue());
