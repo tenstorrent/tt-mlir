@@ -65,20 +65,15 @@ public:
 
     // Get the shape of the tensor, tensor layout, and data type
     //
-    mlir::MemRefType memref = layoutAttr.getMemref();
     ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
-    Type elementType = memref.getElementType();
-    DataType dtype = DataType::Float32;
+    DataType dtype = layoutAttr.getDataType();
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    if (llvm::isa<TileType>(elementType)) {
+    if (layoutAttr.isTiled()) {
       ttnnLayoutEnum = ttnn::Layout::Tile;
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
     } else {
       ttnnLayoutEnum = ttnn::Layout::RowMajor;
-      dtype = elementTypeToDataType(elementType);
     }
     DataTypeAttr dTypeAttr = DataTypeAttr::get(rewriter.getContext(), dtype);
     ttnn::LayoutAttr tensorLayoutAttr =
@@ -101,13 +96,14 @@ public:
     // Create MemoryConfigAttr
     //
     auto device = getOrInsertDevice(rewriter, op);
+    llvm::SmallVector<int64_t> shardShape = layoutAttr.getShardShape();
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(),
         ttnn::TensorMemoryLayoutAttr::get(op.getContext(), memLayout),
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
         ttnn::ShardSpecAttr::get(
             op.getContext(),
-            ttnn::ShapeAttr::get(op.getContext(), memref.getShape())));
+            ttnn::ShapeAttr::get(op.getContext(), shardShape)));
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
@@ -137,18 +133,15 @@ public:
     auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
-    auto outputMemref = outputLayoutAttr.getMemref();
-
     // Determine the output data type
-    DataType dtype = ttnn::utils::getDataTypeFromMemRef(outputMemref);
+    DataType dtype = outputLayoutAttr.getDataType();
     DataTypeAttr outputDataType =
         DataTypeAttr::get(rewriter.getContext(), dtype);
 
     // Determine the output layout (tile or row major)
     ttnn::BufferType outputBufferType = outputLayoutAttr.getBufferType();
 
-    ttnn::Layout outputLayoutEnum =
-        ttnn::utils::getLayoutFromMemRef(outputMemref);
+    ttnn::Layout outputLayoutEnum = outputLayoutAttr.getLayout();
 
     bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
@@ -176,13 +169,14 @@ public:
         op.getResult().setType(result);
         outputLayoutAttr =
             mlir::cast<ttnn::TTNNLayoutAttr>(result.getEncoding());
-        outputMemref = outputLayoutAttr.getMemref();
         outputLayoutEnum = newOutputLayoutEnum;
       }
     }
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
+    llvm::SmallVector<int64_t> outputShardShape =
+        outputLayoutAttr.getShardShape();
 
     // Determine output memory config attr
     ttnn::TensorMemoryLayout outputTensorMemoryLayout =
@@ -193,8 +187,8 @@ public:
                                           outputTensorMemoryLayout),
         ttnn::BufferTypeAttr::get(rewriter.getContext(), outputBufferType),
         ttnn::ShardSpecAttr::get(
-            op.getContext(), ttnn::ShapeAttr::get(rewriter.getContext(),
-                                                  outputMemref.getShape())));
+            op.getContext(),
+            ttnn::ShapeAttr::get(rewriter.getContext(), outputShardShape)));
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
@@ -222,15 +216,16 @@ private:
                               ttnn::Layout newOutputLayoutEnum) const {
     auto oldOutputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(oldOutput.getEncoding());
-    auto oldOutputMemref = oldOutputLayoutAttr.getMemref();
-    DataType outputDtype = ttnn::utils::getDataTypeFromMemRef(oldOutputMemref);
-    llvm::ArrayRef<std::int64_t> oldShardShape = oldOutputMemref.getShape();
+    DataType outputDtype = oldOutputLayoutAttr.getDataType();
+    SmallVector<std::int64_t> oldShardShape =
+        oldOutputLayoutAttr.getShardShape();
     size_t shardShapeSize = oldShardShape.size();
     assert(shardShapeSize >= 2 && "expected at least 2D shape");
 
     if (newOutputLayoutEnum == ttnn::Layout::RowMajor) {
       // Set shard shape to match convention of row major layout
-      auto tileType = mlir::cast<TileType>(oldOutputMemref.getElementType());
+      auto tileType =
+          mlir::cast<TileType>(oldOutputLayoutAttr.getElementType());
       llvm::SmallVector<int64_t> newShardShape(oldShardShape.begin(),
                                                oldShardShape.end());
       newShardShape[shardShapeSize - 2] =
@@ -804,9 +799,7 @@ public:
     ttnn::TTNNLayoutAttr outputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(result.getType().getEncoding());
 
-    mlir::MemRefType outputMemref = outputLayoutAttr.getMemref();
-
-    DataType outputDataType = ttnn::utils::getDataTypeFromMemRef(outputMemref);
+    DataType outputDataType = outputLayoutAttr.getDataType();
 
     if (op->getUsers().empty()) {
       return rewriter.notifyMatchFailure(
@@ -950,8 +943,7 @@ public:
                 layoutAttr.getMemLayout()),
             rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
             rewriter.getAttr<ttnn::ShardSpecAttr>(
-                rewriter.getAttr<ttnn::ShapeAttr>(
-                    layoutAttr.getMemref().getShape())));
+                rewriter.getAttr<ttnn::ShapeAttr>(layoutAttr.getShardShape())));
 
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
         op, outputType, adaptor.getStart(), adaptor.getEnd(), adaptor.getStep(),

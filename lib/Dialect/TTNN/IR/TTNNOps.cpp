@@ -190,25 +190,12 @@ namespace mlir::tt::ttnn {
 
   // DataType and Layout
   //
-  mlir::MemRefType memref = layoutAttr.getMemref();
-  Type elementType = memref.getElementType();
   if (getLayout().has_value()) {
-    ttnn::Layout ttnnLayoutEnum;
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
+    ttnn::Layout ttnnLayoutEnum = layoutAttr.getLayout();
     assert(ttnnLayoutEnum == getLayoutAttr().getValue());
   }
   if (getDtype().has_value()) {
-    tt::DataType dtype;
-    if (llvm::isa<TileType>(elementType)) {
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
-    } else {
-      dtype = elementTypeToDataType(elementType);
-    }
+    tt::DataType dtype = layoutAttr.getDataType();
     assert(dtype == getDtype());
   }
 
