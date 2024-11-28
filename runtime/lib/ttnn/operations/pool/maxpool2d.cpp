@@ -74,5 +74,7 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
       std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"input to max_pool2d logical shape: "<<input.get_logical_shape()<<std::endl;
+  std::cout<<"output of max_pool2d logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 } // namespace tt::runtime::ttnn::operations::pool

@@ -27,6 +27,8 @@ static void runEltwiseUnaryOp(
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"input to unary logical shape: "<<in->get_logical_shape()<<std::endl;
+  std::cout<<"output of unary logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 
 static void runEltwiseUnaryWithFastAndApproximateModeOp(
@@ -66,22 +68,27 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Abs: {
+    std::cout<<"Abs unary operation"<<std::endl;
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::abs);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Ceil: {
+    std::cout<<"Ceil unary operation"<<std::endl;
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::ceil);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Cos: {
+    std::cout<<"Cos unary operation"<<std::endl;
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::cos);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Floor: {
+    std::cout<<"Floor unary operation"<<std::endl;
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::floor);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Gelu: {
+    std::cout<<"Gelu unary operation"<<std::endl;
     runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::gelu);
     break;
   }
@@ -98,10 +105,12 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Relu: {
+    std::cout<<"Relu unary operation"<<std::endl;
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Sqrt: {
+    std::cout<<"Sqrt unary operation"<<std::endl;
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sqrt);
     break;
   }
@@ -136,6 +145,7 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {
+    std::cout<<"Exp unary operation"<<std::endl;
     runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::exp);
     break;
   }

@@ -25,6 +25,8 @@ static void runEltwiseUnaryCompositeOp(
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"input to unary composite logical shape: "<<in->get_logical_shape()<<std::endl;
+  std::cout<<"output of unary composite logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 
 static void runEltwiseUnaryCompositeClampOp(
@@ -47,14 +49,17 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseOpType::Cbrt: {
+    std::cout<<"Cbrt unary composite operation"<<std::endl;
     runEltwiseUnaryCompositeOp(op, tensorPool, ::ttnn::cbrt);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Clamp: {
+    std::cout<<"Clamp unary composite operation"<<std::endl;
     runEltwiseUnaryCompositeClampOp(op, tensorPool, ::ttnn::clamp);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Log1p: {
+    std::cout<<"Log1p unary composite operation"<<std::endl;
     runEltwiseUnaryCompositeOp(op, tensorPool, ::ttnn::log1p);
     break;
   }

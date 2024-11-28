@@ -19,5 +19,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ::ttnn::transpose(in, dim0, dim1, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"input to permute logical shape: "<<in.get_logical_shape()<<std::endl;
+  std::cout<<"output of permute logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
