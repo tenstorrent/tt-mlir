@@ -47,8 +47,9 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: ON, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: ON, name: "op_model" , ttrt_flags: ""}
         ]
 
     name: Build tt-mlir
@@ -78,7 +79,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
 
     # Build project
 
@@ -97,6 +98,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
+        -DTTMLIR_ENABLE_OP_MODEL=${{ matrix.build.enable_op_model }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
@@ -147,7 +149,7 @@ jobs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}
+        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}
         path: build/test/report.xml
 
     - name: Show Test Report
@@ -480,7 +482,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
 
     - name: Configure CMake
       shell: bash
@@ -496,6 +498,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=OFF \
+        -DTTMLIR_ENABLE_OP_MODEL=${{ matrix.build.enable_op_model }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build tt-explorer
