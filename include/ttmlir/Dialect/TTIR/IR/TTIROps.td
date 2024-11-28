@@ -1090,6 +1090,18 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def DenseUI32ArrayAttr : DenseArrayAttrBase<"DenseUI32ArrayAttr", "uint32_t", "ui32">;
+def TTIR_OnesOp : TTIR_Op<"ones"> {
+  let arguments = (ins DenseUI32ArrayAttr:$shape
+                       Optional<>);
+
+  // let arguments = (ins TTNN_ShapeAttr:$shape,
+  //                      OptionalAttr<TT_DataTypeAttr>:$dtype,
+  //                      OptionalAttr<TTNN_LayoutAttr>:$layout,
+  //                      Optional<TT_Device>:$device,
+  //                      OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
