@@ -399,6 +399,32 @@ createOp(FlatbufferObjectCache &cache, ArangeOp op) {
       memoryConfigDesc /* optional */, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::OnesOp>
+createOp(FlatbufferObjectCache &cache, OnesOp op) {
+  ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape =
+      cache.fbb->CreateVector<int64_t>(op.getShape().getShape());
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbufferOptional(cache, op.getDtype());
+
+  ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
+      toFlatbufferOptional(cache, op.getLayout());
+
+  flatbuffers::Offset<::tt::target::DeviceRef> device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+
+  auto memoryConfigDesc = op.getMemoryConfig().has_value()
+                              ? cache.getOrCreate(op.getMemoryConfig().value(),
+                                                  memoryConfigToFlatbuffer)
+                              : 0;
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateOnesOp(*cache.fbb, shape, dtype, layout,
+                                          device, memoryConfigDesc, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
 createOp(FlatbufferObjectCache &cache, LinearOp op) {
   auto in0 =
@@ -833,6 +859,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, fullOp), debugString,
                            locInfo);
   }
+  if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
+    return createOperation(cache, createOp(cache, arangeOp), debugString,
+                           locInfo);
+  }
+  if (auto onesOp = dyn_cast<OnesOp>(op); onesOp) {
+    return createOperation(cache, createOp(cache, onesOp), debugString,
+                           locInfo);
+  }
   if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
     return createOperation(cache, createEltwiseOp(cache, absOp), debugString,
                            locInfo);
@@ -1059,10 +1093,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
     return createOperation(cache, createEltwiseOp(cache, geluOp), debugString,
-                           locInfo);
-  }
-  if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
-    return createOperation(cache, createOp(cache, arangeOp), debugString,
                            locInfo);
   }
   if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {

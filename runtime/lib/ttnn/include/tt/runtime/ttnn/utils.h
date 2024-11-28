@@ -51,6 +51,13 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef);
 
 Tensor createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor);
 
+// TODO: (#1435): Fix int types across shapes
+//
+inline std::vector<uint32_t>
+toShapeFromFBShape(const flatbuffers::Vector<int64_t> &vec) {
+  return std::vector<uint32_t>(vec.begin(), vec.end());
+}
+
 } // namespace tt::runtime::ttnn::utils
 
 #endif

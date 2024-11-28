@@ -382,6 +382,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     globalId = opContext.type_as_EmptyOp()->out()->global_id();
     break;
   }
+  case ::tt::target::ttnn::OpType::OnesOp: {
+    globalId = opContext.type_as_OnesOp()->out()->global_id();
+    break;
+  }
   case ::tt::target::ttnn::OpType::FullOp: {
     globalId = opContext.type_as_FullOp()->out()->global_id();
     break;
