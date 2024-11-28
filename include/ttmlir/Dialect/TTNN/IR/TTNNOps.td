@@ -871,6 +871,27 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTNN_OnesOp : TTNN_Op<"ones"> {
+  let summary = "Creates a tensor filled with ones.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones.
+
+    Given a ShapeAttr `shape`, produces a tensor with the same shape, filled with ones.
+
+    Example:
+      %0 = "ttnn.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TT_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_FullOp : TTNN_Op<"full"> {
     let summary = "Full op.";
     let description = [{
