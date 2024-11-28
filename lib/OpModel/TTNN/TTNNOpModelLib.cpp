@@ -5,8 +5,10 @@
 #include "TTNNOpModel.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
+#include "SingletonDeviceContext.h"
 #include "TTNNOpModelLib_Impl.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include <llvm/Support/Casting.h>
 #include <mlir/IR/AttrTypeSubElements.h>
@@ -160,21 +162,245 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 //===----------------------------------------------------------------------===//
 
 bool ReluOpInterface::isLegal(
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
-
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  return true; // to wire into tt-metal with the next uplift
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec = detail::getTensorSpec(inputLayout);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::unary_op_constraints<::ttnn::relu6>(
+      device, input_spec, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED ReluOpInterface::isLegal: "
+                 << query.error_message.value_or("no error message");
+    return false;
+  }
 #else
   return true;
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
 std::tuple<size_t, size_t, size_t> ReluOpInterface::getOpL1Usage(
-    const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-    const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  return std::make_tuple(0, 0, 0); // to wire into tt-metal with the next uplift
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec = detail::getTensorSpec(inputLayout);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::unary_op_constraints<::ttnn::relu6>(
+      device, input_spec, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED ReluOpInterface::getOpL1Usage: "
+                 << query.error_message.value_or("no error message");
+    return std::make_tuple(0, 0, 0);
+  }
+  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
+                         query.resource_usage.l1_buffers_peak_per_core,
+                         query.resource_usage.l1_output_buffer_per_core);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+bool AddOpInterface::isLegal(
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec_a = detail::getTensorSpec(inputLayout_a);
+  const ::ttnn::TensorSpec input_spec_b = detail::getTensorSpec(inputLayout_b);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
+      device, input_spec_a, input_spec_b, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED AddOpInterface::isLegal: "
+                 << query.error_message.value_or("no error message");
+    return false;
+  }
+  return true;
+#else
+  return true;
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+std::tuple<size_t, size_t, size_t> AddOpInterface::getOpL1Usage(
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec_a = detail::getTensorSpec(inputLayout_a);
+  const ::ttnn::TensorSpec input_spec_b = detail::getTensorSpec(inputLayout_b);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
+      device, input_spec_a, input_spec_b, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED AddOpInterface::isLegal: "
+                 << query.error_message.value_or("no error message");
+    return std::make_tuple(0, 0, 0);
+  }
+  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
+                         query.resource_usage.l1_buffers_peak_per_core,
+                         query.resource_usage.l1_output_buffer_per_core);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// SoftmaxOp
+//===----------------------------------------------------------------------===//
+
+bool SoftmaxOpInterface::isLegal(
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dim_arg,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec = detail::getTensorSpec(inputLayout);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::softmax_op_constraints(
+      device, input_spec, dim_arg, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED SoftmaxOpInterface::isLegal: "
+                 << query.error_message.value_or("no error message");
+    return false;
+  }
+  return true;
+#else
+  return true;
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+std::tuple<size_t, size_t, size_t> SoftmaxOpInterface::getOpL1Usage(
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout, const int dim_arg,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec = detail::getTensorSpec(inputLayout);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::softmax_op_constraints(
+      device, input_spec, dim_arg, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED SoftmaxOpInterface::getOpL1Usage: "
+                 << query.error_message.value_or("no error message");
+    return std::make_tuple(0, 0, 0);
+  }
+  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
+                         query.resource_usage.l1_buffers_peak_per_core,
+                         query.resource_usage.l1_output_buffer_per_core);
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// MatmulOp
+//===----------------------------------------------------------------------===//
+
+bool MatmulOpInterface::isLegal(
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout, bool transpose_a,
+    bool transpose_b) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec_a = detail::getTensorSpec(inputLayout_a);
+  const ::ttnn::TensorSpec input_spec_b = detail::getTensorSpec(inputLayout_b);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
+      device, input_spec_a, input_spec_b, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED MatmulOpInterface::isLegal: "
+                 << query.error_message.value_or("no error message");
+    return false;
+  }
+  return true;
+#else
+  return true;
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+std::tuple<size_t, size_t, size_t> MatmulOpInterface::getOpL1Usage(
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+    const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout, bool transpose_a,
+    bool transpose_b) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  // open device / get existing device
+  Device *device = SingletonDeviceContext::get_instance().get_device();
+
+  // prepare io specs
+  const ::ttnn::TensorSpec input_spec_a = detail::getTensorSpec(inputLayout_a);
+  const ::ttnn::TensorSpec input_spec_b = detail::getTensorSpec(inputLayout_b);
+  const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
+
+  // run op constraint query
+  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
+      device, input_spec_a, input_spec_b, output_spec);
+
+  // check if query was successful
+  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+    llvm::outs() << "FAILED MatmulOpInterface::isLegal: "
+                 << query.error_message.value_or("no error message");
+    return std::make_tuple(0, 0, 0);
+  }
+  return std::make_tuple(query.resource_usage.cb_peak_size_per_core,
+                         query.resource_usage.l1_buffers_peak_per_core,
+                         query.resource_usage.l1_output_buffer_per_core);
 #else
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
