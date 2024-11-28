@@ -65,8 +65,9 @@ private:
 class TosaToTTIRMultiplyOpConversionPattern
     : public TosaToTTIRDefaultDPSOpConversionPattern<
           tosa::MulOp, mlir::tt::ttir::MultiplyOp> {
-     using TosaToTTIRDefaultDPSOpConversionPattern<
-          tosa::MulOp, mlir::tt::ttir::MultiplyOp>::TosaToTTIRDefaultDPSOpConversionPattern;
+  using TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::MulOp,
+      mlir::tt::ttir::MultiplyOp>::TosaToTTIRDefaultDPSOpConversionPattern;
 
 private:
   LogicalResult
