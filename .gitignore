@@ -10,3 +10,8 @@ ttrt-artifacts/*
 query_results.json
 run_results.json
 ttrt_report.xml
+cluster_descriptor.yaml
+
+# TTNN and TTMetal flatbuffers
+*.ttnn
+*.ttm

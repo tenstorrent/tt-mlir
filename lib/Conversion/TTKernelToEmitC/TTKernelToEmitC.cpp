@@ -419,6 +419,12 @@ public:
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
+               TTMetalToEmitCOpaqueRewriter<
+                   ttkernel::NocAsyncWriteMulticastOnePacketOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
+               TTMetalToEmitCOpaqueRewriter<
+                   ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,

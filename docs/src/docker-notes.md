@@ -1,21 +1,11 @@
-# Internal Build Notes / IRD
-
-- When building the runtime we must use Ubuntu 22.04 docker image
-  - When making an IRD reservation use `--docker-image
-    yyz-gitlab.local.tenstorrent.com:5005/tenstorrent/infra/ird-ubuntu-22-04-amd64:latest`
-- You'll have to manaully install a newer version of cmake, at least 3.22, the easiest way to do this is to `pip install cmake` and make sure this one is in your path
-- You'll want LLVM installation to persist IRD reservations, you can achieve this by:
-  - mkdir /localdev/$USER/ttmlir-toolchain
-  - When requesting an IRD use `--volumes /localdev/$USER/ttmlir-toolchain:/opt/ttmlir-toolchain`
-
-## Working with Docker Images
+# Working with Docker Images
 
 Components:
   - Dockerfile
   - Workflow for building Docker image
   - Project build using Docker image
 
-### Overview
+## Overview
 
 We use docker images to prepare project enviroment, install dependancies, tooling and prebuild toolchain.
 Project builds four docker images:
@@ -29,11 +19,11 @@ Base image starts with a supported base image (Ubuntu 22.04) and installs depend
 
 During the CI Docker build, the project is built and tests are run to ensure that everything is set up correctly. If any dependencies are missing, the Docker build will fail.
 
-### Building the Docker Image using GitHub Actions
+## Building the Docker Image using GitHub Actions
 
 The GitHub Actions workflow [Build and Publish Docker Image](.github/workflows/build-image.yml) builds the Docker images and uploads them to GitHub Packages at https://github.com/orgs/tenstorrent/packages?repo_name=tt-mlir. We use the git SHA we build from as the tag.
 
-### Building the Docker Image Locally
+## Building the Docker Image Locally
 
 To test the changes and build the image locally, use the following command:
 ```bash
@@ -43,7 +33,7 @@ docker build -f .github/Dockerfile.ird -build-args FROM_IMAGE=base -t ghcr.io/te
 docker build -f .github/Dockerfile.ird -build-args FROM_IMAGE=ci -t ghcr.io/tenstorrent/tt-mlir/tt-mlir-ird-ubuntu-22-04:latest .
 ```
 
-### Using the Image in GitHub Actions Jobs
+## Using the Image in GitHub Actions Jobs
 
 The GitHub Actions workflow [Build in Docker](.github/workflows/docker-build.yml) uses a Docker container for building:
 ```yaml

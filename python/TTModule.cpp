@@ -16,14 +16,14 @@
 
 namespace mlir::ttmlir::python {
 void populateTTModule(py::module &m) {
-  tt_attribute_class<tt::LayoutAttr>(m, "LayoutAttr")
+  tt_attribute_class<tt::MetalLayoutAttr>(m, "MetalLayoutAttr")
       .def_static("get",
                   [](MlirContext ctx, MlirType rankedTensorType,
                      uint32_t memorySpaceValue, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals,
                      uint32_t oobValValue, uint32_t memLayoutValue) {
-                    return wrap(tt::LayoutAttr::get(
+                    return wrap(tt::MetalLayoutAttr::get(
                         unwrap(ctx),
                         mlir::cast<RankedTensorType>(unwrap(rankedTensorType)),
                         static_cast<tt::MemorySpace>(memorySpaceValue),
@@ -37,7 +37,7 @@ void populateTTModule(py::module &m) {
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals) {
                     return wrap(
-                        mlir::cast<tt::LayoutAttr>(unwrap(self))
+                        mlir::cast<tt::MetalLayoutAttr>(unwrap(self))
                             .withGrid(unwrap(ctx), tensorShape,
                                       mlir::cast<tt::GridAttr>(unwrap(grid)),
                                       collapseIntervals));
@@ -47,7 +47,7 @@ void populateTTModule(py::module &m) {
                      std::vector<std::int64_t> tensorShape, MlirAttribute grid,
                      std::vector<std::pair<std::int64_t, std::int64_t>>
                          collapseIntervals) {
-                    return mlir::cast<tt::LayoutAttr>(unwrap(self))
+                    return mlir::cast<tt::MetalLayoutAttr>(unwrap(self))
                         .withGrid(unwrap(ctx), tensorShape,
                                   mlir::cast<tt::GridAttr>(unwrap(grid)),
                                   collapseIntervals);
@@ -55,13 +55,13 @@ void populateTTModule(py::module &m) {
       .def_static(
           "with_element_type",
           [](MlirContext ctx, MlirAttribute self, MlirType elementType) {
-            return wrap(mlir::cast<tt::LayoutAttr>(unwrap(self))
+            return wrap(mlir::cast<tt::MetalLayoutAttr>(unwrap(self))
                             .withElementType(unwrap(ctx), unwrap(elementType)));
           })
       .def_static(
           "with_element_type_",
           [](MlirContext ctx, MlirAttribute self, MlirType elementType) {
-            return mlir::cast<tt::LayoutAttr>(unwrap(self))
+            return mlir::cast<tt::MetalLayoutAttr>(unwrap(self))
                 .withElementType(unwrap(ctx), unwrap(elementType));
           })
       .def("getLayout",
@@ -73,35 +73,45 @@ void populateTTModule(py::module &m) {
                  mlir::cast<RankedTensorType>(unwrap(type));
              assert(tensor.getEncoding()); // Make sure that this Tensor has an
                                            // encoding value
-             tt::LayoutAttr layout =
-                 mlir::cast<tt::LayoutAttr>(tensor.getEncoding());
+             tt::MetalLayoutAttr layout =
+                 mlir::cast<tt::MetalLayoutAttr>(tensor.getEncoding());
              return layout;
            })
-      .def("wrapped", [](tt::LayoutAttr const &self) { return wrap(self); })
-      .def_property_readonly(
-          "stride",
-          [](tt::LayoutAttr const &self, std::vector<int64_t> logicalShape) {
-            auto stride = self.getStride(logicalShape);
-            return std::vector<std::int64_t>(stride.begin(), stride.end());
-          })
-      .def_property_readonly("oobval", &tt::LayoutAttr::getOobVal)
+      .def("wrapped",
+           [](tt::MetalLayoutAttr const &self) { return wrap(self); })
+      .def_property_readonly("stride",
+                             [](tt::MetalLayoutAttr const &self,
+                                std::vector<int64_t> logicalShape) {
+                               auto stride = self.getStride(logicalShape);
+                               return std::vector<std::int64_t>(stride.begin(),
+                                                                stride.end());
+                             })
+      .def_property_readonly("oobval", &tt::MetalLayoutAttr::getOobVal)
       .def_property_readonly("oobval_as_int",
-                             [](tt::LayoutAttr la) {
+                             [](tt::MetalLayoutAttr la) {
                                return static_cast<uint32_t>(la.getOobVal());
                              })
-      .def_property_readonly("grid_attr", &tt::LayoutAttr::getGrid)
-      .def_property_readonly("memref", &tt::LayoutAttr::getMemref)
-      .def_property_readonly("memory_space", &tt::LayoutAttr::getMemorySpace)
+      .def_property_readonly("grid_attr", &tt::MetalLayoutAttr::getGrid)
+      .def_property_readonly(
+          "memref",
+          [](tt::MetalLayoutAttr self) { return wrap(self.getMemref()); })
+      .def_property_readonly("memory_space",
+                             &tt::MetalLayoutAttr::getMemorySpace)
       .def_property_readonly("memory_space_as_int",
-                             [](tt::LayoutAttr la) {
+                             [](tt::MetalLayoutAttr la) {
                                return static_cast<uint32_t>(
                                    la.getMemorySpace());
                              })
-      .def_property_readonly("shard_shape", &tt::LayoutAttr::getShardShape)
-      .def_property_readonly("memory_layout", &tt::LayoutAttr::getMemLayout)
-      .def_property_readonly("memory_layout_as_int", [](tt::LayoutAttr la) {
-        return static_cast<uint32_t>(la.getMemLayout());
-      });
+      .def_property_readonly("shard_shape", &tt::MetalLayoutAttr::getShardShape)
+      .def_property_readonly("memory_layout",
+                             &tt::MetalLayoutAttr::getMemLayout)
+      .def_property_readonly(
+          "linear",
+          [](tt::MetalLayoutAttr self) { return wrap(self.getLinear()); })
+      .def_property_readonly("memory_layout_as_int",
+                             [](tt::MetalLayoutAttr la) {
+                               return static_cast<uint32_t>(la.getMemLayout());
+                             });
 
   tt_attribute_class<tt::GridAttr>(m, "GridAttr")
       .def_static("get",
@@ -236,6 +246,14 @@ void populateTTModule(py::module &m) {
                                return self.getEthInactive().vec();
                              });
 
+  tt_attribute_class<tt::CoreCoordAttr>(m, "CoreCoordAttr")
+      .def_static("get",
+                  [](MlirContext ctx, int64_t y, int64_t x) {
+                    return wrap(tt::CoreCoordAttr::get(unwrap(ctx), y, x));
+                  })
+      .def_property_readonly("y", &tt::CoreCoordAttr::getY)
+      .def_property_readonly("x", &tt::CoreCoordAttr::getX);
+
   tt_attribute_class<tt::ChipCoordAttr>(m, "ChipCoordAttr")
       .def_static("get",
                   [](MlirContext ctx, unsigned rack, unsigned shelf, unsigned y,
@@ -276,29 +294,29 @@ void populateTTModule(py::module &m) {
                   })
       .def_static(
           "get",
-          [](MlirContext ctx, std::vector<MlirAttribute> cpuDescs,
-             std::vector<MlirAttribute> chipDescs,
-             std::vector<unsigned> chipDescIndices,
-             std::vector<MlirAttribute> chipCapabilities,
-             std::vector<MlirAttribute> chipCoords,
-             std::vector<MlirAttribute> chipChannels) {
+          [](MlirContext ctx, const std::vector<MlirAttribute> &cpuDescs,
+             const std::vector<MlirAttribute> &chipDescs,
+             const std::vector<unsigned> &chipDescIndices,
+             const std::vector<MlirAttribute> &chipCapabilities,
+             const std::vector<MlirAttribute> &chipCoords,
+             const std::vector<MlirAttribute> &chipChannels) {
             std::vector<tt::ChipDescAttr> chipDescsUnwrapped;
-            for (auto chipDesc : chipDescs) {
+            for (const auto &chipDesc : chipDescs) {
               chipDescsUnwrapped.push_back(
                   mlir::cast<tt::ChipDescAttr>(unwrap(chipDesc)));
             }
             std::vector<tt::ChipCapabilityAttr> chipCapabilitiesUnwrapped;
-            for (auto chipCapability : chipCapabilities) {
+            for (const auto &chipCapability : chipCapabilities) {
               chipCapabilitiesUnwrapped.push_back(
                   mlir::cast<tt::ChipCapabilityAttr>(unwrap(chipCapability)));
             }
             std::vector<tt::ChipCoordAttr> chipCoordsUnwrapped;
-            for (auto chipCoord : chipCoords) {
+            for (const auto &chipCoord : chipCoords) {
               chipCoordsUnwrapped.push_back(
                   mlir::cast<tt::ChipCoordAttr>(unwrap(chipCoord)));
             }
             std::vector<tt::ChipChannelAttr> chipChannelsUnwrapped;
-            for (auto chipChannel : chipChannels) {
+            for (const auto &chipChannel : chipChannels) {
               chipChannelsUnwrapped.push_back(
                   mlir::cast<tt::ChipChannelAttr>(unwrap(chipChannel)));
             }
@@ -430,8 +448,11 @@ void populateTTModule(py::module &m) {
              return mlir::cast<tt::DeviceAttr>(unwrap(self));
            })
       .def_property_readonly("grid_attr", &tt::DeviceAttr::getWorkerGrid)
-      .def_property_readonly("l1_map", &tt::DeviceAttr::getL1Map)
-      .def_property_readonly("dram_map", &tt::DeviceAttr::getDramMap)
+      .def_property_readonly(
+          "l1_map", [](tt::DeviceAttr self) { return wrap(self.getL1Map()); })
+      .def_property_readonly(
+          "dram_map",
+          [](tt::DeviceAttr self) { return wrap(self.getDramMap()); })
       .def_property_readonly(
           "mesh_shape",
           [](tt::DeviceAttr const &self) { return self.getMeshShape().vec(); })
@@ -447,7 +468,10 @@ void populateTTModule(py::module &m) {
                         unwrap(ctx), SmallVector<std::int64_t>{height, width},
                         static_cast<tt::DataType>(dataType)));
                   })
-      .def_property_readonly("data_type", &tt::TileType::getDataType)
+      .def_property_readonly("data_type_as_int",
+                             [](tt::TileType self) {
+                               return static_cast<uint32_t>(self.getDataType());
+                             })
       .def_property_readonly("shape", [](tt::TileType const &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
       });

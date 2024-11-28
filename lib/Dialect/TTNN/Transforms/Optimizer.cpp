@@ -276,7 +276,7 @@ public:
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setDtype(layoutAttr.getDataTypeFromMemRef());
+            emptyOp.setDtype(layoutAttr.getDataType());
             if (layoutAttr.isTiled()) {
               emptyOp.setLayout(ttnn::Layout::Tile);
             } else {
@@ -449,16 +449,17 @@ private:
       BufferType outputBufferType = consumerOpOutputLayout.getBufferType();
       TensorMemoryLayout outputTensorMemoryLayout =
           consumerOpOutputLayout.getMemLayout();
-      MemRefType outputMemref = consumerOpOutputLayout.getMemref();
 
+      llvm::SmallVector<int64_t> shardShape =
+          consumerOpOutputLayout.getShardShape();
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
           consumerOp->getContext(),
           TensorMemoryLayoutAttr::get(consumerOp->getContext(),
                                       outputTensorMemoryLayout),
           BufferTypeAttr::get(consumerOp->getContext(), outputBufferType),
-          ShardSpecAttr::get(consumerOp->getContext(),
-                             ShapeAttr::get(consumerOp->getContext(),
-                                            outputMemref.getShape())));
+          ShardSpecAttr::get(
+              consumerOp->getContext(),
+              ShapeAttr::get(consumerOp->getContext(), shardShape)));
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -472,10 +473,9 @@ private:
       } else {
         OpBuilder builder(consumerOp);
 
-        DataTypeAttr outputDataType =
-            DataTypeAttr::get(consumerOp->getContext(),
-                              utils::getDataTypeFromMemRef(outputMemref));
-        Layout outputLayoutEnum = utils::getLayoutFromMemRef(outputMemref);
+        DataTypeAttr outputDataType = DataTypeAttr::get(
+            consumerOp->getContext(), consumerOpOutputLayout.getDataType());
+        Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
         LayoutAttr outputLayout =
             LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(
