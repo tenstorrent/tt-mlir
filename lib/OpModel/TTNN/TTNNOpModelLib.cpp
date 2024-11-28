@@ -4,6 +4,7 @@
 
 #include "TTNNOpModel.h"
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 #include "TTNNOpModelLib_Impl.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
@@ -12,10 +13,11 @@
 
 #include <cstddef>
 #include <stdexcept>
-#include <tuple>
+#endif // TTMLIR_ENABLE_OPMODEL
 
 namespace mlir::tt::op_model::ttnn {
 
+#ifdef TTMLIR_ENABLE_OPMODEL
 // alias to a common tt_metal types
 using DataType = ::tt::tt_metal::DataType;
 using Layout = ::tt::tt_metal::Layout;
@@ -61,7 +63,7 @@ DataType getDataType(const mlir::MemRefType &memref) {
 
 const std::array<uint32_t, 2>
 getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
-  const auto layoutShardTile = layout.getShardShape(false);
+  const auto layoutShardTile = layout.getShardShape();
 
   if (layoutShardTile.size() != 2) {
     llvm::errs() << "ERROR: layout_shard_tile.size() != 2\n";
@@ -151,6 +153,7 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 }
 
 } // namespace detail
+#endif // TTMLIR_ENABLE_OPMODEL
 
 //===----------------------------------------------------------------------===//
 // ReluOp
@@ -159,13 +162,22 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 bool ReluOpInterface::isLegal(
     const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
     const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
-  return true; // to solve when we have metal implementation
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return true; // to wire into tt-metal with the next uplift
+#else
+  return true;
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 std::tuple<size_t, size_t, size_t> ReluOpInterface::getOpL1Usage(
     const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
     const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
-  return std::make_tuple(0, 0, 0); // to solve when we have metal implementation
+#ifdef TTMLIR_ENABLE_OPMODEL
+  return std::make_tuple(0, 0, 0); // to wire into tt-metal with the next uplift
+#else
+  return std::make_tuple(0, 0, 0);
+#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 } // namespace mlir::tt::op_model::ttnn
