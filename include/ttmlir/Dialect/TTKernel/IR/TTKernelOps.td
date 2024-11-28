@@ -502,7 +502,7 @@ def TTKernel_GetSemaphoreOp : TTKernel_Op<"get_semaphore"> {
     }];
 
     let arguments = (ins I32:$semaphore_id);
-    let results = (outs TTKernel_L1Addr:$sem_addr);
+    let results = (outs I32:$sem_addr);
 }
 
 def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
@@ -571,7 +571,7 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
       *noc_semaphore_set_multicast_loopback_src* can be used.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr, TTKernel_NocAddr:$dst_noc_addr_multicast, I32:$num_dests, BoolAttr:$linked, BoolAttr:$multicast_path_reserve);
+    let arguments = (ins I32:$src_local_l1_addr, TTKernel_NocAddr:$dst_noc_addr_multicast, I32:$num_dests, BoolAttr:$linked, BoolAttr:$multicast_path_reserve);
 }
 
 def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
@@ -592,7 +592,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
       regular non multicast operations such as *noc_async_write* in this case.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr, TTKernel_NocAddr:$dst_noc_addr_multicast, I32:$num_dests, BoolAttr:$linked, BoolAttr:$multicast_path_reserve);
+    let arguments = (ins I32:$src_local_l1_addr, TTKernel_NocAddr:$dst_noc_addr_multicast, I32:$num_dests, BoolAttr:$linked, BoolAttr:$multicast_path_reserve);
 }
 
 //===----------------------------------------------------------------------===//
@@ -620,7 +620,7 @@ def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr ui
       Cast specified addr to L1 pointer.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$addr);
+    let arguments = (ins I32:$addr);
 
     let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
 }

@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -38,6 +39,7 @@ struct ConvertTTIRToTTMetal
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttmetal::TTMetalDialect>();
     target.addLegalDialect<ttkernel::TTKernelDialect>();
+    target.addLegalDialect<emitc::EmitCDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addIllegalDialect<arith::ArithDialect>();
     target.addIllegalDialect<math::MathDialect>();
@@ -57,6 +59,14 @@ struct ConvertTTIRToTTMetal
       signalPassFailure();
       return;
     }
+  }
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+    registry.insert<emitc::EmitCDialect>();
+    registry.insert<BuiltinDialect>();
+    registry.insert<func::FuncDialect>();
+    registry.insert<ttmetal::TTMetalDialect>();
+    registry.insert<ttkernel::TTKernelDialect>();
   }
 };
 
