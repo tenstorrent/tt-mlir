@@ -256,7 +256,8 @@ public:
 
   void generateComputeBlock(ttmetal::DispatchOp &metalDispatch,
                             PatternRewriter &rewriter,
-                            SmallVector<ttkernel::CBType, 3> &cbs) const {
+                            SmallVector<ttkernel::CBType, 3> &cbs, Value in0,
+                            Value in1, Value out0) const {
     Block *computeBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
     OpBuilder computeBuilder(computeBlock, computeBlock->begin());
 
@@ -265,6 +266,45 @@ public:
     computeBlock->addArgument(cbs[2], metalDispatch.getLoc());
 
     // kernel here
+    RankedTensorType in0Type = mlir::cast<RankedTensorType>(in0.getType());
+    LayoutAttr in0Encoding = mlir::cast<LayoutAttr>(in0Type.getEncoding());
+
+    RankedTensorType in1Type = mlir::cast<RankedTensorType>(in1.getType());
+    LayoutAttr in1Encoding = mlir::cast<LayoutAttr>(in1Type.getEncoding());
+
+    RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
+    LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
+
+    auto in0_block_k = computeBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), computeBuilder.getIntegerType(32),
+        computeBuilder.getI32IntegerAttr(in0Type.getShape().back() /
+                                         TILE_WIDTH));
+    auto in0_block_v = computeBuilder.create<arith::ConstantOp>(
+        metalDispatch.getLoc(), computeBuilder.getIntegerType(32),
+        computeBuilder.getI32IntegerAttr(
+            in0Type.getShape().front() / TILE_HEIGHT /
+            out0Encoding.getGrid().getShape().front()));
+    auto in1_block_v = computeBuilder.create<arith::ConstantOp>(
+        metalDispatch->getLoc(), computeBuilder.getIntegerType(32),
+        computeBuilder.getI32IntegerAttr(
+            in1Type.getShape().back() / TILE_WIDTH /
+            out0Encoding.getGrid().getShape().back()));
+    auto in0_cb_id = computeBuilder.create<arith::ConstantOp>(
+        metalDispatch->getLoc(), computeBuilder.getIntegerType(32),
+        computeBuilder.getI32IntegerAttr(
+            static_cast<int32_t>(cbs[0].getPort())));
+    auto in1_cb_id = computeBuilder.create<arith::ConstantOp>(
+        metalDispatch->getLoc(), computeBuilder.getIntegerType(32),
+        computeBuilder.getI32IntegerAttr(
+            static_cast<int32_t>(cbs[1].getPort())));
+    auto out_cb_id = computeBuilder.create<arith::ConstantOp>(
+        metalDispatch->getLoc(), computeBuilder.getIntegerType(32),
+        computeBuilder.getI32IntegerAttr(
+            static_cast<int32_t>(cbs[2].getPort())));
+
+    computeBuilder.create<emitc::CallOpaqueOp>(
+        metalDispatch.getLoc(), TypeRange {}, "matmul_compute_main", SmallVector<Value>{in0_block_k, in0_block_v, in1_block_v, in0_cb_id,
+                           in1_cb_id, out_cb_id});
 
     computeBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
   }
@@ -471,7 +511,7 @@ public:
         metalDispatch.getLoc(), sender_sem_l1_ptr, i32(0, readerBuilder));
 
     // Data Transfer
-    auto nocDataMcastAddr =
+    auto nocDataMcastAddr = // change me to transpose
         readerBuilder.create<ttkernel::GetNocMulticastAddrOp>(
             metalDispatch.getLoc(), i32(1, readerBuilder),
             start_block_id.getArgVal(), num_receivers,
@@ -509,8 +549,8 @@ public:
                              SmallVector<Value> &rt_args, bool isIn1) const {
 
     auto start_block_id = writerBuilder.create<ttkernel::GetArgValOp>(
-        metalDispatch.getLoc(), i32(rt_args.size(), writerBuilder));  
-                
+        metalDispatch.getLoc(), i32(rt_args.size(), writerBuilder));
+
     RankedTensorType inType = mlir::cast<RankedTensorType>(in.getType());
     LayoutAttr inEncoding = mlir::cast<LayoutAttr>(inType.getEncoding());
 
@@ -523,7 +563,8 @@ public:
 
     // Working Out CB Initialization
     auto workingOutCb = writerBuilder.getBlock()->getArgument(2);
-    auto workingOutCbType = mlir::cast<ttkernel::CBType>(workingOutCb.getType());
+    auto workingOutCbType =
+        mlir::cast<ttkernel::CBType>(workingOutCb.getType());
 
     auto sender_sem_l1_ptr = writerBuilder.create<ttkernel::CastToL1PtrOp>(
         metalDispatch.getLoc(), rt_args[0]);
@@ -566,25 +607,33 @@ public:
     auto block_size_bytes = writerBuilder.create<arith::MulIOp>(
         metalDispatch.getLoc(), block_size, tile_size_bytes);
 
-    writerBuilder.create<ttkernel::CBReserveBackOp>(
-        metalDispatch.getLoc(), workingInCb, block_size);
+    writerBuilder.create<ttkernel::CBReserveBackOp>(metalDispatch.getLoc(),
+                                                    workingInCb, block_size);
 
     auto valid = writerBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
         writerBuilder.getI32IntegerAttr(1));
     auto invalid = writerBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), writerBuilder.getIntegerType(32),
-        writerBuilder.getI32IntegerAttr(1));
-    writerBuilder.create<ttkernel::NocSemaphoreSetOp>(metalDispatch->getLoc(), receiver_sem_l1_ptr, invalid);
+        writerBuilder.getI32IntegerAttr(0));
+    writerBuilder.create<ttkernel::NocSemaphoreSetOp>(
+        metalDispatch->getLoc(), receiver_sem_l1_ptr, invalid);
 
-    auto sender_sem_mcast_addr = isIn1 ? writerBuilder.create<ttkernel::GetNocAddrOp>(metalDispatch->getLoc(), start_block_id, i32(0, writerBuilder), rt_args[0])
-                                       : writerBuilder.create<ttkernel::GetNocAddrOp>(metalDispatch->getLoc(), i32(0, writerBuilder), start_block_id, rt_args[0]);
+    auto sender_sem_mcast_addr =
+        isIn1 ? writerBuilder.create<ttkernel::GetNocAddrOp>(
+                    metalDispatch->getLoc(), start_block_id,
+                    i32(0, writerBuilder), rt_args[0])
+              : writerBuilder.create<ttkernel::GetNocAddrOp>(
+                    metalDispatch->getLoc(), i32(0, writerBuilder),
+                    start_block_id, rt_args[0]);
     writerBuilder.create<ttkernel::NocSemaphoreIncOp>(
         metalDispatch->getLoc(), sender_sem_mcast_addr, i32(1, writerBuilder),
         i32(0, writerBuilder)); // CHANGE NOC INDEX TO MATCH NCRISC/BRISC CONFIG
 
-    writerBuilder.create<ttkernel::NocSemaphoreWaitOp>(metalDispatch->getLoc(), receiver_sem_l1_ptr, valid);
-    writerBuilder.create<ttkernel::CBPushBackOp>(metalDispatch->getLoc(), workingInCb, block_size);
+    writerBuilder.create<ttkernel::NocSemaphoreWaitOp>(
+        metalDispatch->getLoc(), receiver_sem_l1_ptr, valid);
+    writerBuilder.create<ttkernel::CBPushBackOp>(metalDispatch->getLoc(),
+                                                 workingInCb, block_size);
   }
 
   void generateReaderBlocks(ttmetal::DispatchOp &metalDispatch,
@@ -637,8 +686,8 @@ public:
                               metalDispatch.getOutputs()[0], rt_args, false);
       } else if (i == 4) {
         receiveAndWriteTensor(metalDispatch, readerBuilder,
-                             metalDispatch.getInputs()[1],
-                             metalDispatch.getOutputs()[0], rt_args, true);
+                              metalDispatch.getInputs()[1],
+                              metalDispatch.getOutputs()[0], rt_args, true);
       }
 
       readerBuilder.create<ttkernel::ReturnOp>(metalDispatch.getLoc());
@@ -721,7 +770,9 @@ public:
 
     SmallVector<ttkernel::CBType, 3> cbTypes = {in0CBTy, in1CBTy, out0CBTy};
 
-    generateComputeBlock(metalDispatch, rewriter, cbTypes);
+    generateComputeBlock(
+        metalDispatch, rewriter, cbTypes, metalDispatch.getInputs()[0],
+        metalDispatch.getInputs()[1], metalDispatch.getOutputs()[0]);
     generateReaderBlocks(metalDispatch, rewriter, cbTypes, device,
                          op.getSystemDesc());
     rewriter.replaceOp(op, metalDispatch);
