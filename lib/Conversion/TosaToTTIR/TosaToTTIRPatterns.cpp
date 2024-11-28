@@ -20,21 +20,29 @@ using namespace mlir::tt;
 
 namespace {
 
+// TODO(sdjukic): extract this pattern into separate file and use it for both
+// TOSA and StableHLO
+
 template <typename SrcOp, typename DestOp,
           typename Adaptor = typename SrcOp::Adaptor>
-class TosaToTTIRDefaultDPSOpConversionPattern : public OpConversionPattern<SrcOp> {
+class TosaToTTIRDefaultDPSOpConversionPattern
+    : public OpConversionPattern<SrcOp> {
   using OpConversionPattern<SrcOp>::OpConversionPattern;
 
 public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if constexpr (std::is_same<SrcOp, tosa::MulOp>::value) {
-      assert(srcOp.getShift() == 0);
+
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
     }
 
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
@@ -45,40 +53,66 @@ public:
                                        OperandConstraint::AnyDeviceTile))));
     return success();
   }
+
+private:
+  virtual LogicalResult
+  checkConversionLegality(SrcOp srcOp, Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    return success();
+  }
+};
+
+class TosaToTTIRMultiplyOpConversionPattern
+    : public TosaToTTIRDefaultDPSOpConversionPattern<
+          tosa::MulOp, mlir::tt::ttir::MultiplyOp> {
+public:
+  TosaToTTIRMultiplyOpConversionPattern(TypeConverter &typeConverter,
+                                        MLIRContext *ctx)
+      : TosaToTTIRDefaultDPSOpConversionPattern<tosa::MulOp,
+                                                mlir::tt::ttir::MultiplyOp>(
+            typeConverter, ctx) {}
+
+private:
+  LogicalResult
+  checkConversionLegality(tosa::MulOp srcOp, tosa::MulOp::Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getShift() != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "TTIR MultiplyOp doesn't support shifted multiply.");
+    }
+    return success();
+  }
 };
 
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
 
-  patterns
-      .add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::AbsOp, mlir::tt::ttir::AbsOp>>(
-          typeConverter, ctx);
-  patterns.add<
-      TosaToTTIRDefaultDPSOpConversionPattern<tosa::NegateOp, mlir::tt::ttir::NegOp>>(
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::AbsOp,
+                                                       mlir::tt::ttir::AbsOp>>(
+      typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::NegateOp,
+                                                       mlir::tt::ttir::NegOp>>(
       typeConverter, ctx);
 }
 
 void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
                                                RewritePatternSet &patterns,
                                                TypeConverter &typeConverter) {
-  patterns
-      .add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::AddOp, mlir::tt::ttir::AddOp>>(
-          typeConverter, ctx);
-  patterns.add<
-      TosaToTTIRDefaultDPSOpConversionPattern<tosa::MulOp, mlir::tt::ttir::MultiplyOp>>(
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::AddOp,
+                                                       mlir::tt::ttir::AddOp>>(
       typeConverter, ctx);
-  patterns.add<
-      TosaToTTIRDefaultDPSOpConversionPattern<tosa::SubOp, mlir::tt::ttir::SubtractOp>>(
-      typeConverter, ctx);
+  patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
 }
 
 void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                      RewritePatternSet &patterns,
                                      TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::GreaterEqualOp,
-                                             mlir::tt::ttir::GreaterEqualOp>>(
-      typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::GreaterEqualOp, mlir::tt::ttir::GreaterEqualOp>>(typeConverter,
+                                                             ctx);
 }
 
 } // namespace
