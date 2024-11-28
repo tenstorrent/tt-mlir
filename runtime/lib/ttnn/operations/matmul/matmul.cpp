@@ -36,6 +36,9 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       /*computeKernelConfig*/ std::nullopt, /*coreGrid*/ std::nullopt);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"lhs of matmul logical shape: "<<lhs.get_logical_shape()<<std::endl;
+  std::cout<<"rhs of matmul logical shape: "<<rhs.get_logical_shape()<<std::endl;
+  std::cout<<"output of matmul logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 } // namespace tt::runtime::ttnn::operations::matmul
 // ANCHOR_END: adding_an_op_matmul_runtime_operations

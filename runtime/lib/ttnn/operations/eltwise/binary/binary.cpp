@@ -31,6 +31,9 @@ static void runEltwiseBinaryOp(
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
                               std::nullopt, std::nullopt, std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"lhs of eltwise binary logical shape: "<<lhs->get_logical_shape()<<std::endl;
+  std::cout<<"rhs of eltwise binary logical shape: "<<rhs->get_logical_shape()<<std::endl;
+  std::cout<<"output of eltwise binary logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 
 void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {

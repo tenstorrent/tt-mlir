@@ -40,5 +40,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
       targetDevice);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"input to conv2d logical shape: "<<input.get_logical_shape()<<std::endl;
+  std::cout<<"output of conv2d logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 } // namespace tt::runtime::ttnn::operations::conv

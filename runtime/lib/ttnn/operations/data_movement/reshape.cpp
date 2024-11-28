@@ -16,5 +16,6 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   std::cout<<"input to reshape logical shape: "<<in.get_logical_shape()<<std::endl;
   ::ttnn::Tensor out = ::ttnn::reshape(in, shape);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
+  std::cout<<"output of reshape logical shape: "<<out.get_logical_shape()<<std::endl;
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
