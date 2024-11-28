@@ -90,7 +90,7 @@ public:
   void setEnableOptimizer(bool);
   // These are used to enable/disable the memory configurations
   void setMemoryReconfig(bool);
-  void setMemoryLayoutAnalysis(bool);
+  void setEnableMemoryLayoutAnalysis(bool);
   void setEnableMemoryLayoutAnalysisPolicy(bool);
   void setMemoryLayoutAnalysisPolicy(MemoryLayoutAnalysisPolicyType);
   // These are used to set the input/output layout overrides
@@ -108,7 +108,7 @@ public:
   bool getEnableOptimizer() const;
   // These are used to get the current state of the memory configurations
   bool getMemoryReconfig() const;
-  bool getMemoryLayoutAnalysis() const;
+  bool getEnableMemoryLayoutAnalysis() const;
   bool getEnableMemoryLayoutAnalysisPolicy() const;
   MemoryLayoutAnalysisPolicyType getMemoryLayoutAnalysisPolicy() const;
   // These are used to get the current input/output layout overrides

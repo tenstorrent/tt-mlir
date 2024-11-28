@@ -218,11 +218,11 @@ TEST_F(TestOptimizerOverrides, TestSetMemoryConfig) {
 // Test the setMemoryLayoutAnalysis method
 TEST_F(TestOptimizerOverrides, TestSetMemoryLayoutAnalysis) {
 
-  optimizerOverridesHandler.setMemoryLayoutAnalysis(true);
-  ASSERT_TRUE(optimizerOverridesHandler.getMemoryLayoutAnalysis());
+  optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
+  ASSERT_TRUE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
 
-  optimizerOverridesHandler.setMemoryLayoutAnalysis(false);
-  ASSERT_FALSE(optimizerOverridesHandler.getMemoryLayoutAnalysis());
+  optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(false);
+  ASSERT_FALSE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
 }
 
 // Test the setEnableMemoryLayoutAnalysisPolicy method
@@ -410,7 +410,7 @@ TEST_F(TestOptimizerOverrides, TestToString) {
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
 
-  optimizerOverridesHandler.setMemoryLayoutAnalysis(true);
+  optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInputLayoutOverride("add_0_1_2", {0});
   optimizerOverridesHandler.addOutputLayoutOverride(

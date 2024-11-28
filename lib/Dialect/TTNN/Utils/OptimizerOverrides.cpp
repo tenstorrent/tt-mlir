@@ -196,7 +196,7 @@ void OptimizerOverridesHandler::setEnableOptimizer(bool value) {
 void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
   enableMemoryReconfig = value;
 }
-void OptimizerOverridesHandler::setMemoryLayoutAnalysis(bool value) {
+void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis(bool value) {
   enableMemoryLayoutAnalysis = value;
 }
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
@@ -234,7 +234,7 @@ bool OptimizerOverridesHandler::getEnableOptimizer() const {
 bool OptimizerOverridesHandler::getMemoryReconfig() const {
   return enableMemoryReconfig;
 }
-bool OptimizerOverridesHandler::getMemoryLayoutAnalysis() const {
+bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis() const {
   return enableMemoryLayoutAnalysis;
 }
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysisPolicy() const {
