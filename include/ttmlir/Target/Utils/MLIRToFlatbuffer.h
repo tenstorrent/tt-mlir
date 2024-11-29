@@ -5,15 +5,15 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include <numeric>
-#include <type_traits>
-
 #include "flatbuffers/flatbuffers.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
+
+#include <numeric>
+#include <type_traits>
 
 namespace mlir::tt {
 
@@ -284,6 +284,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, ::llvm::ArrayRef<T> arr) {
   return cache.fbb->CreateVector<ToFlatbufferReturnType<T>>(
       arr.size(),
       [&cache, arr](size_t i) { return toFlatbuffer(cache, arr[i]); });
+}
+
+inline flatbuffers::Offset<flatbuffers::String>
+toFlatbuffer(FlatbufferObjectCache &cache, llvm::StringRef str) {
+  return cache.fbb->CreateString(str.data(), str.size());
 }
 
 inline flatbuffers::Offset<::tt::target::ChipDesc>
