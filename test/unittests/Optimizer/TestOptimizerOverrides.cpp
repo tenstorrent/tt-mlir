@@ -310,9 +310,13 @@ TEST_F(TestOptimizerOverrides, TestAddInputLayoutOverrideParams) {
   llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides =
       createInputLayoutOverrides();
 
-  optimizerOverridesHandler.addInputLayoutOverride("input0", {0, 1});
-  optimizerOverridesHandler.addInputLayoutOverride("input1", {0, 1});
-  optimizerOverridesHandler.addInputLayoutOverride("input2", {0, 1});
+  llvm::SmallVector<int64_t> operandIdxes1 = {0, 1};
+  llvm::SmallVector<int64_t> operandIdxes2 = {0, 1};
+  llvm::SmallVector<int64_t> operandIdxes3 = {0, 1};
+
+  optimizerOverridesHandler.addInputLayoutOverride("input0", operandIdxes1);
+  optimizerOverridesHandler.addInputLayoutOverride("input1", operandIdxes2);
+  optimizerOverridesHandler.addInputLayoutOverride("input2", operandIdxes3);
 
   ASSERT_TRUE(compareInputLayoutOverrides(
       optimizerOverridesHandler.getInputLayoutOverrides(),
@@ -356,14 +360,18 @@ TEST_F(TestOptimizerOverrides, TestAddOutputLayoutOverrideParams) {
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides =
       createOutputLayoutOverrides();
 
+  llvm::SmallVector<int64_t> grid1 = {2, 2};
+  llvm::SmallVector<int64_t> grid2 = {8, 4};
+  llvm::SmallVector<int64_t> grid3 = {3, 6};
+
   optimizerOverridesHandler.addOutputLayoutOverride(
-      "output0", {2, 2}, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      "output0", grid1, BufferType::DRAM, TensorMemoryLayout::Interleaved,
       Layout::Tile, mlir::tt::DataType::Float16);
   optimizerOverridesHandler.addOutputLayoutOverride(
-      "output1", {8, 4}, BufferType::L1, TensorMemoryLayout::BlockSharded,
+      "output1", grid2, BufferType::L1, TensorMemoryLayout::BlockSharded,
       Layout::RowMajor, mlir::tt::DataType::Float16);
   optimizerOverridesHandler.addOutputLayoutOverride(
-      "output2", {3, 6}, BufferType::SystemMemory,
+      "output2", grid3, BufferType::SystemMemory,
       TensorMemoryLayout::HeightSharded, Layout::Tile,
       mlir::tt::DataType::Float16);
 
@@ -410,11 +418,15 @@ TEST_F(TestOptimizerOverrides, TestToString) {
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
 
+  llvm::SmallVector<int64_t> operandIdxes = {0};
+  llvm::SmallVector<int64_t> grid = {1, 1};
+
+  optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
-  optimizerOverridesHandler.addInputLayoutOverride("add_0_1_2", {0});
+  optimizerOverridesHandler.addInputLayoutOverride("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(
-      "add_1_2", {1, 1}, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      "add_1_2", grid, BufferType::DRAM, TensorMemoryLayout::Interleaved,
       Layout::RowMajor, mlir::tt::DataType::Float32);
 
   ASSERT_EQ(optimizerOverridesHandler.toString(), options);

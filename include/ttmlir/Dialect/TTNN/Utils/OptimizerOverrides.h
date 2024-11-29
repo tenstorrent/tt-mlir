@@ -2,17 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#pragma once
-
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
-
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 namespace mlir::tt::ttnn {
 
@@ -64,9 +59,9 @@ public:
   // Fill input/output layout overrides maps.
   // This is used from tt-forge frontend where we define and compile the models.
   void addInputLayoutOverride(StringRef, InputLayoutOverrideParams);
-  void addInputLayoutOverride(StringRef, SmallVector<int64_t>);
+  void addInputLayoutOverride(StringRef, SmallVector<int64_t> &);
   void addOutputLayoutOverride(StringRef, OutputLayoutOverrideParams);
-  void addOutputLayoutOverride(StringRef, SmallVector<int64_t>, BufferType,
+  void addOutputLayoutOverride(StringRef, SmallVector<int64_t> &, BufferType,
                                TensorMemoryLayout, tt::ttnn::Layout,
                                tt::DataType);
 
@@ -76,11 +71,11 @@ private:
   TTIRToTTNNBackendPipelineOptions pipelineOptions;
 
   // Flags for enabling/disabling the optimizer passes
-  bool enableOptimizer = true;
+  bool enableOptimizer = false;
 
   // Flags for enabling/disabling the memory configurations
   bool enableMemoryReconfig = true;
-  bool enableMemoryLayoutAnalysis = true;
+  bool enableMemoryLayoutAnalysis = false;
 
   // Input layout overrides
   llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides;
