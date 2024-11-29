@@ -822,7 +822,7 @@ def TTNN_OnesOp : TTNN_Op<"ones"> {
 
     Example:
       %0 = "ttnn.ones"() {shape = [64, 28, 28]} : () -> tensor<64x28x28xi32>
-      // %0: [[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
 
   let arguments = (ins TTNN_ShapeAttr:$shape,

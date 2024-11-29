@@ -4,9 +4,8 @@
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
   func.func @ones_2d() -> tensor<32x128xbf16> {
-    // CHECK: {{.*}} = "ttnn.ones"
-    %0 = "ttir.ones"() <{???}> : () -> tensor<32x128xbf16>
-    //<{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<<interleaved>, #dram, <<32x32>>>, shape = #ttnn.shape<32x32>}>
+    // CHECK: {{.*}} = "ttnn.ones"() {{.*}}
+    %0 = "ttir.ones"() <{shape = array<i32:32, 128>}> : () -> tensor<32x128xbf16>
     return %0 : tensor<32x128xbf16>
   }
 }
