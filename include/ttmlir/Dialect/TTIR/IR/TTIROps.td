@@ -899,6 +899,8 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {

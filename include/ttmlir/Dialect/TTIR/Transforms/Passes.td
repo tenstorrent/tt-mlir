@@ -112,11 +112,4 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
-def TTIRReshapeFold: Pass<"ttir-reshape-fold", "::mlir::ModuleOp"> {
-  let summary = "Folds reshape ops that reshape the same shapes.";
-  let description = [{
-    This pass converts folds the ttir.reshape ops that are called to reshape a tensor to the same shape.
-  }];
-}
-
 #endif
