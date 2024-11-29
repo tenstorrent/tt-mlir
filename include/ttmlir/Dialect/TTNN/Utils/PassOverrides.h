@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_UTILS_PASS_OVERRIDES_H
-#define TTMLIR_DIALECT_TTNN_UTILS_PASS_OVERRIDES_H
+#ifndef TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
+#define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
 #include <llvm/Support/CommandLine.h>
 
@@ -88,4 +88,4 @@ public:
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_UTILS_PASS_OVERRIDES_H
+#endif // TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
