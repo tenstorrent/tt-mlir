@@ -267,7 +267,7 @@ jobs:
         echo "Current job id: $JOB_ID"
 
         echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=reports/report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -403,7 +403,7 @@ jobs:
           jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
         echo "Current job id: $JOB_ID"
         echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
-        echo "test_report_path=reports/report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
