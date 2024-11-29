@@ -27,18 +27,23 @@ public:
     return false;
   }
 
-  static void print(llvm::raw_ostream &os,
-                    const MemoryLayoutAnalysisPolicyType &value) {
-    llvm::StringRef policy;
+  static std::string toString(const MemoryLayoutAnalysisPolicyType &value) {
+    std::string res;
     switch (value) {
     case MemoryLayoutAnalysisPolicyType::DFSharding:
-      policy = "DFSharding";
+      res += "DFSharding";
       break;
     case MemoryLayoutAnalysisPolicyType::L1Interleaved:
-      policy = "L1Interleaved";
+      res += "L1Interleaved";
       break;
     }
-    os << "memory-layout-analysis-policy=" << policy << "\n";
+    return res;
+  }
+
+  static void print(llvm::raw_ostream &os,
+                    const MemoryLayoutAnalysisPolicyType &value) {
+    os << "memory-layout-analysis-policy="
+       << MemoryLayoutAnalysisPolicyTypeParser::toString(value) << "\n";
   }
 };
 
