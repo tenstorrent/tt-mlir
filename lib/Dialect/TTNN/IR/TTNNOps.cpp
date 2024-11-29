@@ -950,6 +950,10 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+
 ::mlir::LogicalResult AllGatherOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   int32_t dim = getDim();
@@ -960,6 +964,10 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   // TODO(gfengTT)

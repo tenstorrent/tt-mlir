@@ -860,6 +860,13 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let hasVerifier = 1;
 }
 
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
+    let summary = "Scatter op.";
+    let description = [{
+      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
+      }];
+}
+
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let summary = "Reduce scatter op.";
     let description = [{
