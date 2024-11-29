@@ -68,7 +68,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -257,6 +257,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
         # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
         echo "Expected job name: ${{ env.job-name }}"
@@ -509,6 +510,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
