@@ -228,7 +228,7 @@ jobs:
           {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
           {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
-    name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
 
     runs-on:
       - in-service
@@ -253,7 +253,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
