@@ -513,6 +513,11 @@ bool ShardSolver::checkShardCompatible(
         backend.isOpLegal(std::vector{producerLayout}, consumerLayout)) {
       return false;
     }
+
+    // TODO: mbezulj remove this block
+    auto usage =
+        backend.getOpL1Usage(std::vector{producerLayout}, consumerLayout);
+    llvm::outs() << "opUsage" << std::get<0>(usage);
   }
 
   // May need to fetch other inputs for consumerOp(weights/join node).

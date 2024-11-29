@@ -4,9 +4,12 @@
 
 #include "TTNNOpModel.h"
 
+#include "TupleCache.h"
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "SingletonDeviceContext.h"
 #include "TTNNOpModelLib_Impl.h"
+#include "TupleCache.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
@@ -17,7 +20,64 @@
 #include <stdexcept>
 #endif // TTMLIR_ENABLE_OPMODEL
 
+namespace mlir::tt::ttnn {
+
+std::size_t hashMemRefType(MemRefType memref) {
+  // is memref.getLayout() leveraged in TTNN dialect?
+  return llvm::hash_combine(llvm::hash_combine_range(memref.getShape().begin(),
+                                                     memref.getShape().end()),
+                            memref.getElementType(), memref.getMemorySpace());
+}
+
+std::size_t hashLayoutAttr(TTNNLayoutAttr layout) {
+  // ignoring linear/affine map, because it higher level of abstraction
+  return llvm::hash_combine(
+      hashMemRefType(layout.getMemref()),
+      llvm::hash_combine_range(layout.getGrid().getShape().begin(),
+                               layout.getGrid().getShape().end()),
+      layout.getMemLayout());
+}
+} // namespace mlir::tt::ttnn
+
+namespace std {
+
+template <>
+struct hash<mlir::MemRefType> {
+  std::size_t operator()(const mlir::MemRefType &memref) const {
+    return mlir::tt::ttnn::hashMemRefType(memref);
+  }
+};
+
+template <>
+struct hash<mlir::tt::ttnn::TTNNLayoutAttr> {
+  std::size_t operator()(const mlir::tt::ttnn::TTNNLayoutAttr &layout) const {
+    return mlir::tt::ttnn::hashLayoutAttr(layout);
+  }
+};
+} // namespace std
+
 namespace mlir::tt::op_model::ttnn {
+
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/Types.h"
+#include "llvm/ADT/Hashing.h"
+
+// // Example function to hash a MemRefType
+// llvm::hash_code hashMemRefType(mlir::MemRefType memref) {
+//   return
+//   llvm::hash_combine(llvm::hash_combine_range(memref.getShape().begin(),
+//                                                      memref.getShape().end()),
+//                             memref.getElementType(), memref.getMemorySpace(),
+//                             elementTypeToDataType(memref.getElementType()));
+// }
+
+// std::size_t hashLayoutAttr(mlir::tt::ttnn::TTNNLayoutAttr layout) {
+//   return llvm::hash_combine(
+//       hashMemRefType(layout.getMemref()),
+//       llvm::hash_combine_range(layout.getGrid().getShape().begin(),
+//                                layout.getGrid().getShape().end()),
+//       layout.getMemLayout(), layout.isTiled());
+// }
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 // alias to a common tt_metal types
@@ -183,6 +243,7 @@ bool ReluOpInterface::isLegal(
     return false;
   }
 #else
+
   return true;
 #endif // TTMLIR_ENABLE_OPMODEL
 }
@@ -220,6 +281,22 @@ std::tuple<size_t, size_t, size_t> ReluOpInterface::getOpL1Usage(
 // AddOp
 //===----------------------------------------------------------------------===//
 
+TupleCache<std::tuple<::mlir::tt::ttnn::TTNNLayoutAttr,
+                      ::mlir::tt::ttnn::TTNNLayoutAttr,
+                      ::mlir::tt::ttnn::TTNNLayoutAttr>,
+           mlir::tt::op_model::QueryResponse,
+           std::function<QueryResponse(
+               const std::tuple<::mlir::tt::ttnn::TTNNLayoutAttr,
+                                ::mlir::tt::ttnn::TTNNLayoutAttr,
+                                ::mlir::tt::ttnn::TTNNLayoutAttr> &)>>
+    g_constrainst_cache_add_op(
+        "add_op", [](const std::tuple<::mlir::tt::ttnn::TTNNLayoutAttr,
+                                      ::mlir::tt::ttnn::TTNNLayoutAttr,
+                                      ::mlir::tt::ttnn::TTNNLayoutAttr> &key) {
+          return QueryResponse{ExecutionStatus::Success, ResourceUsage{0, 0, 0},
+                               std::nullopt};
+        });
+
 bool AddOpInterface::isLegal(
     const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
     const ::mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
@@ -245,6 +322,10 @@ bool AddOpInterface::isLegal(
   }
   return true;
 #else
+
+  g_constrainst_cache_add_op.get_or_create(
+      {inputLayout_a, inputLayout_b, outputLayout});
+
   return true;
 #endif // TTMLIR_ENABLE_OPMODEL
 }
@@ -276,6 +357,8 @@ std::tuple<size_t, size_t, size_t> AddOpInterface::getOpL1Usage(
                          query.resource_usage.l1_buffers_peak_per_core,
                          query.resource_usage.l1_output_buffer_per_core);
 #else
+  g_constrainst_cache_add_op.get_or_create(
+      {inputLayout_a, inputLayout_b, outputLayout});
   return std::make_tuple(0, 0, 0);
 #endif // TTMLIR_ENABLE_OPMODEL
 }

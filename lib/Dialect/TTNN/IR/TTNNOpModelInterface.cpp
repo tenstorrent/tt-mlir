@@ -39,16 +39,16 @@ bool ReluOp::isOpLegal(const std::vector<TTNNLayoutAttr> &input_layouts,
 std::tuple<size_t, size_t, size_t>
 AddOp::getOpL1Usage(const std::vector<TTNNLayoutAttr> &input_layouts,
                     const TTNNLayoutAttr &output_layout) {
-  assert(input_layouts.size() == 2);
+  //   assert(input_layouts.size() == 2);
   return op_model::ttnn::AddOpInterface::getOpL1Usage(
-      input_layouts[0], input_layouts[1], output_layout);
+      input_layouts[0], input_layouts[0], output_layout);
 }
 
 bool AddOp::isOpLegal(const std::vector<TTNNLayoutAttr> &input_layouts,
                       const TTNNLayoutAttr &output_layout) {
-  assert(input_layouts.size() == 2);
+  //   assert(input_layouts.size() == 2);
   return op_model::ttnn::AddOpInterface::isLegal(
-      input_layouts[0], input_layouts[1], output_layout);
+      input_layouts[0], input_layouts[0], output_layout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -77,16 +77,16 @@ bool SoftmaxOp::isOpLegal(const std::vector<TTNNLayoutAttr> &input_layouts,
 std::tuple<size_t, size_t, size_t>
 MatmulOp::getOpL1Usage(const std::vector<TTNNLayoutAttr> &input_layouts,
                        const TTNNLayoutAttr &output_layout) {
-  assert(input_layouts.size() == 2);
+  //   assert(input_layouts.size() == 2);
   return op_model::ttnn::MatmulOpInterface::getOpL1Usage(
-      input_layouts[0], input_layouts[1], output_layout);
+      input_layouts[0], input_layouts[0], output_layout);
 }
 
 bool MatmulOp::isOpLegal(const std::vector<TTNNLayoutAttr> &input_layouts,
                          const TTNNLayoutAttr &output_layout) {
-  assert(input_layouts.size() == 1);
+  //   assert(input_layouts.size() == 1);
   return op_model::ttnn::MatmulOpInterface::isLegal(
-      input_layouts[0], input_layouts[1], output_layout);
+      input_layouts[0], input_layouts[0], output_layout);
 }
 
 } // namespace mlir::tt::ttnn
