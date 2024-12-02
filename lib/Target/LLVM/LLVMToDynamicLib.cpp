@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "llvm/Support/Optional.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegistry.h"
@@ -59,9 +58,8 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 
   // Create target machine
   llvm::TargetOptions opt;
-  auto relocModel = llvm::Optional<llvm::Reloc::Model>();
   auto targetMachine =
-      target->createTargetMachine(targetTriple, "generic", "", opt, relocModel);
+      target->createTargetMachine(targetTriple, "generic", "", opt, {});
 
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
