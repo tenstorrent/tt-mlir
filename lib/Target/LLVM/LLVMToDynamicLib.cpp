@@ -71,7 +71,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
   }
 
   // Emit object code to the file
-  llvm::PassManager<llvm::Module> passManager;
+  llvm::PassManagerBase passManager;
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
