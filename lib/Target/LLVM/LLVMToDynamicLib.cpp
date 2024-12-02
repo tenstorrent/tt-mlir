@@ -20,7 +20,6 @@
 // #include "lld/Common/Memory.h"
 
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
-#include "mlir/IR/Module.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Target/LLVMIR/LLVMConversion.h"
