@@ -1,6 +1,6 @@
 add_mlir_translation_library(TTMetalTargetFlatbuffer
-    LinalgToDynamicLib.cpp
-    LinalgToDynamicLibRegistration.cpp
+    LLVMToDynamicLib.cpp
+    LLVMToDynamicLibRegistration.cpp
 
     ADDITIONAL_HEADER_DIRS
     ${TTMLIR_SOURCE_DIR}/include/Target/TTMetal
