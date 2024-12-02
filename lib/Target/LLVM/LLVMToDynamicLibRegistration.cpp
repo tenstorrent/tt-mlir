@@ -7,9 +7,7 @@
 #include "mlir/Tools/mlir-translate/Translation.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
 using namespace mlir;
 
