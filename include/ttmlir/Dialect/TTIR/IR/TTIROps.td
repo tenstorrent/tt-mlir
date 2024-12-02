@@ -1244,6 +1244,40 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     }];
 }
 
+def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
+  let summary = "Scatter operation";
+  let description = [{
+    Produces a 'result' tensor which are equal to `input` tensor except that
+    several slices specified by `scatter_indices` are updated with the values
+    `updates`.
+    }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scatter_indices,
+                       AnyRankedTensor:$update,
+                       DenseI32ArrayAttr:$update_window_dims,
+                       DenseI32ArrayAttr:$inserted_window_dims,
+                       DenseI32ArrayAttr:$input_batching_dims,
+                       DenseI32ArrayAttr:$scatter_indices_batching_dims,
+                       DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
+                       I32Attr:$index_vector_dim,
+                       BoolAttr:$indices_are_sorted,
+                       BoolAttr:$unique_indices,
+                       AnyRankedTensor:$output,
+                       TT_OperandConstraintArrayAttr:$operand_constraints);
+
+  let regions = (region SizedRegion<1>:$update_computation);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
+
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR region ops (ops that may appear inside of ttir.generic region)
 //===----------------------------------------------------------------------===//

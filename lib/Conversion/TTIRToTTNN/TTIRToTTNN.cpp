@@ -953,6 +953,21 @@ public:
   }
 };
 
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+public:
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
+    // matches torch ops).
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
+        op, adaptor.getUpdate(), adaptor.getInput(), adaptor.getOutput());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -1022,7 +1037,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
            AllGatherOpConversionPattern,
-           ArangeOpConversionPattern
+           ArangeOpConversionPattern,
+           ScatterOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
