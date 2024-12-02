@@ -14,7 +14,7 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
-LogicalResult verifyAllLLVM(const mlir::ModuleOp &module) {
+llvm::LogicalResult verifyAllLLVM(const mlir::ModuleOp &module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
 
   bool isAllLLVM = true;
@@ -125,7 +125,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //                                               objectBuffer.size());
 // }
 
-// LogicalResult linkWithLLD(const llvm::MemoryBuffer &objectBuffer,
+// llvm::LogicalResult linkWithLLD(const llvm::MemoryBuffer &objectBuffer,
 //                           const std::string &outputPath) {
 //   // Configure arguments for LLD
 //   std::vector<const char *> args = {
@@ -162,7 +162,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //   return success;
 // }
 
-// LogicalResult serializeExecutable(const SerializationOptions &options,
+// llvm::LogicalResult serializeExecutable(const SerializationOptions &options,
 //                                   IREE::HAL::ExecutableVariantOp variantOp,
 //                                   OpBuilder &executableBuilder) override {
 //   // Perform the translation in a separate context to avoid any
@@ -549,7 +549,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //   }
 // }
 
-LogicalResult runLinkCommand(std::string commandLine, StringRef env) {
+llvm::LogicalResult runLinkCommand(std::string commandLine, StringRef env) {
   LLVM_DEBUG(llvm::dbgs() << "Running linker command:\n"
                           << env << " " << commandLine << "\n");
   if (!env.empty()) {
@@ -738,9 +738,9 @@ linkDynamicLibrary(StringRef libraryName,
 //   return success();
 // }
 
-LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
-                                            llvm::LLVMContext &context,
-                                            const std::string &outputPath) {
+llvm::LogicalResult
+compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
+                              const std::string &outputPath) {
   // Compile to object code
   auto objectBuffer =
       compileToObject(module, context, "/home/vwells/tt-mlir/temp.o");
@@ -760,7 +760,7 @@ LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
   return success();
 }
 
-LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
+llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
 
   if (!verifyAllLLVM(op)) {
     return failure();

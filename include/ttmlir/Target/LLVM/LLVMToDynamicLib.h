@@ -5,8 +5,10 @@
 #ifndef TTMLIR_TARGET_LINALG_LINALGTODYNAMICLIBRARY_H
 #define TTMLIR_TARGET_LINALG_LINALGTODYNAMICLIBRARY_H
 
+#include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/IR/LLVMContext.h"
