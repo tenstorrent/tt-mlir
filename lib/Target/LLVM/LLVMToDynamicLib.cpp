@@ -19,6 +19,43 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
+#include "mlir/Conversion/LLVMCommon/Pattern.h"
+#include "mlir/IR/Module.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Target/LLVMIR.h"
+#include "mlir/Target/LLVMIR/LLVMConversion.h"
+#include "mlir/Target/LLVMIR/LLVMTypeConverter.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/Support/raw_ostream.h"
+
+llvm::Module *convertToLLVMModule(mlir::ModuleOp mlirModule,
+                                  llvm::LLVMContext &llvmContext) {
+  // Step 1: Create the LLVM Type Converter
+  mlir::LLVMTypeConverter typeConverter(mlirModule.getContext());
+
+  // Step 2: Create a pass manager
+  llvm::PassManager passManager;
+
+  // Step 3: Set up conversion target
+  mlir::LLVMConversionTarget conversionTarget(mlirModule.getContext());
+  conversionTarget.addLegalDialect<mlir::LLVM::LLVMDialect>();
+
+  // Step 4: Run the conversion pass (mlir::lowerToLLVM)
+  mlir::OwningOpRef<mlir::ModuleOp> llvmModule;
+  mlir::applyPassManagerCLOptions(passManager);
+  if (failed(mlir::applyFullConversion(mlirModule, conversionTarget,
+                                       passManager))) {
+    // Handle the error appropriately
+    llvm::errs() << "Failed to convert MLIR Module to LLVM IR module.\n";
+    return nullptr;
+  }
+
+  // Step 5: Retrieve the converted llvm::Module
+  llvm::Module *module = mlir::translateModuleToLLVM(*mlirModule, llvmContext);
+  return module;
+}
+
 llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp &module) {
   auto llvmDialect =
       module.getContext()->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
@@ -770,8 +807,9 @@ llvm::LogicalResult translateLLVMToDyLib(mlir::ModuleOp *op,
   if (!llvm::succeeded(verifyAllLLVM(*op))) {
     return llvm::failure();
   }
-  if (!llvm::succeeded(
-          compileAndLinkToSharedLibrary(op, op->getContext(), "temp.so"))) {
+  if (!llvm::succeeded(compileAndLinkToSharedLibrary(
+          convertToLLVMModule(op, op->getContext()), op->getContext(),
+          "temp.so"))) {
     return llvm::failure();
   }
   return llvm::success();
