@@ -762,10 +762,10 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
   return llvm::success();
 }
 
-llvm::LogicalResult translateLLVMToDyLib(mlir::Operation *op,
+llvm::LogicalResult translateLLVMToDyLib(mlir::ModuleOp *op,
                                          llvm::raw_ostream &os) {
 
-  if (!llvm::succeeded(verifyAllLLVM(*dyn_cast<ModuleOp *>(op)))) {
+  if (!llvm::succeeded(verifyAllLLVM(*op))) {
     return llvm::failure();
   }
   if (!llvm::succeeded(
