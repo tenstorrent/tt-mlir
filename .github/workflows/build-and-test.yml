@@ -67,10 +67,21 @@ jobs:
     - name: Set reusable strings
       id: strings
       shell: bash
+      env:
+        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -145,18 +156,19 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
+        cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
         name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}
-        path: build/test/report.xml
+        path: ${{ steps.strings.outputs.test_report_path }}
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
-        report_paths: build/test/report.xml
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
         check_name: MLIR Tests
 
     # Build and upload ttrt
@@ -216,6 +228,7 @@ jobs:
           {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
           {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
 
     runs-on:
       - in-service
@@ -239,10 +252,22 @@ jobs:
     - name: Set reusable strings
       id: strings
       shell: bash
+      env:
+        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -305,19 +330,27 @@ jobs:
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+        cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
 
-    - name: Upload ttrt test report
+    - name: Upload ttrt test report json
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
         path: ${{ matrix.build.name }}_results.json
 
+    - name: Upload Test Report xml
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.test_group_id }}
+        path: ${{ steps.strings.outputs.test_report_path }}
+
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
-        report_paths: ttrt_report.xml
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
         check_name: TTRT ${{ matrix.build.runs-on }} ${{ matrix.build.name }} Tests
 
   run-ttrt-tests:
@@ -348,6 +381,7 @@ jobs:
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
@@ -355,10 +389,21 @@ jobs:
     - name: Set reusable strings
       id: strings
       shell: bash
+      env:
+        job-name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -413,31 +458,22 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/tools/python/test/test_read.py
+        pytest -ssv runtime/tools/python/test \
+        --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
-    - name: ttrt query tests
-      shell: bash
-      run: |
-        source env/activate
-        pytest -ssv runtime/tools/python/test/test_query.py
+    - name: Upload Test Report
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.test_report_path }}
 
-    - name: ttrt check tests
-      shell: bash
-      run: |
-        source env/activate
-        pytest -ssv runtime/tools/python/test/test_check.py
-
-    - name: ttrt run tests
-      shell: bash
-      run: |
-        source env/activate
-        pytest -ssv runtime/tools/python/test/test_run.py
-
-    - name: ttrt perf tests
-      shell: bash
-      run: |
-        source env/activate
-        pytest -ssv runtime/tools/python/test/test_perf.py
+    - name: Show Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
+      with:
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
+        check_name: Run ttrt tests
 
   build-and-test-explorer:
     needs: build-image
@@ -474,6 +510,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -512,3 +549,4 @@ jobs:
       run: |
         source env/activate
         pytest tools/explorer/test/run_tests.py
+        # collect results
