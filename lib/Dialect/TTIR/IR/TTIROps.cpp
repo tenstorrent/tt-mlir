@@ -1087,8 +1087,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     // Verify that the batch dimensions of input A and B are broadcast
     // compatible.
     llvm::SmallVector<int64_t, 4> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            inputABatchDims, inputBBatchDims, broadcastedShape)) {
 
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
@@ -1125,8 +1125,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
-    if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
-                                            expectedOutputShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
+                                                  expectedOutputShape)) {
       return emitOpError("Bias shape(" + ttmlir::utils::join(biasShape, ",") +
                          ") is not broadcast compatible with the matmul output "
                          "shape(" +
@@ -1238,8 +1238,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     // Verify that the batch dimensions of input A and B are broadcast
     // compatible
     llvm::SmallVector<int64_t, 4> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            inputABatchDims, inputBBatchDims, broadcastedShape)) {
 
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
