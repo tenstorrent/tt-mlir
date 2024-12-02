@@ -63,7 +63,11 @@ struct Hooks {
 #endif
   }
 
-  void unregisterHooks() const { operatorCallback = std::nullopt; }
+  void unregisterHooks() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    operatorCallback = std::nullopt;
+#endif
+  }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
