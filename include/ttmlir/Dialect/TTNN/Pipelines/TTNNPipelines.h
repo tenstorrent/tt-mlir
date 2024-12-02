@@ -6,7 +6,8 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Pass/PassOptions.h"
 

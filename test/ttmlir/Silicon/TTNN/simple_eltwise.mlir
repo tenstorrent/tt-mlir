@@ -306,3 +306,13 @@ func.func @addint32(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> ten
   %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
   return %1 : tensor<64x128xi32>
 }
+
+func.func @scatter(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32> {
+  %0 = tensor.empty() : tensor<1x3x320x320xf32>
+  %1 = tensor.empty() : tensor<1x1xi32>
+  %2 = "ttir.scatter"(%arg0, %1, %arg1, %0) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 0>, operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile, #any_device_tile], scatter_dims_to_operand_dims = array<i32: 0>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 1, 2, 3>}> ({
+  ^bb0(%arg3: tensor<1xf32>, %arg4: tensor<1xf32>):
+    "ttir.yield"(%arg4) : (tensor<1xf32>) -> ()
+  }) : (tensor<1x3x320x320xf32>, tensor<1x1xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
+  return %2 : tensor<1x3x320x320xf32>
+}
