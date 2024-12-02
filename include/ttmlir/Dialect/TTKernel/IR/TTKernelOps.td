@@ -180,6 +180,15 @@ def TTKernel_MulOp : TTKernel_Op<"mul"> {
     let arguments = (ins I32:$dst_index);
 }
 
+def TTKernel_MaxOp : TTKernel_Op<"max"> {
+    let summary = "Max operation";
+    let description = [{
+      Max operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
 def TTKernel_MatmulOp : TTKernel_Op<"matmul"> {
     let summary = "Matmul operation";
     let description = [{
@@ -331,6 +340,31 @@ def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
                          I32:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel SFPU operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before max_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_MaxTilesOp : TTKernel_Op<"max_tile"> {
+    let summary = "Max operation";
+    let description = [{
+      Performs element-wise computation of maximum operation
+      DST[dst0_index] <- max(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins I32:$dst0_index, I32:$dst1_index);
 }
 
 //===----------------------------------------------------------------------===//
