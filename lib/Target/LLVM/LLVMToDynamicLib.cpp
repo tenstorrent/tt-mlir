@@ -21,7 +21,6 @@
 
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Target/LLVMIR.h"
 #include "mlir/Target/LLVMIR/LLVMConversion.h"
 #include "mlir/Target/LLVMIR/LLVMTypeConverter.h"
 #include "llvm/IR/Module.h"
