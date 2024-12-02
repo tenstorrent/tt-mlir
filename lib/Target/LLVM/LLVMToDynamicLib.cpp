@@ -2,8 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "llvm/Support/Optional.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetRegistry.h"
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -43,7 +45,7 @@ std::unique_ptr<llvm::MemoryBuffer>
 compileToObject(llvm::Module &module, llvm::LLVMContext &context,
                 const std::string &outputFilename) {
   // Set up target triple
-  auto targetTriple = llvm::sys::getDefaultTargetTriple();
+  auto targetTriple = llvm::sys::getProcessTriple();
   module.setTargetTriple(targetTriple);
 
   // Look up the target
@@ -73,7 +75,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
   }
 
   // Emit object code to the file
-  llvm::legacy::PassManager passManager;
+  llvm::PassManager passManager;
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CGFT_ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
