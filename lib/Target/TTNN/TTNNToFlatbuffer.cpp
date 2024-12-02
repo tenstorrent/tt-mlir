@@ -853,7 +853,7 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createEltwiseOp(cache, scatterOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
     return createOperation(cache, createEltwiseOp(cache, reciprocalOp),
