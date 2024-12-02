@@ -72,8 +72,8 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 
   // Emit object code to the file
   llvm::PassManager<llvm::Module> passManager;
-  if (targetMachine->addPassesToEmitFile(
-          passManager, out, nullptr, llvm::TargetMachine::CGFT_ObjectFile)) {
+  if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
+                                         llvm::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
     return nullptr;
   }
@@ -765,10 +765,11 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
 llvm::LogicalResult translateLLVMToDyLib(mlir::Operation *op,
                                          llvm::raw_ostream &os) {
 
-  if (!verifyAllLLVM(*dyn_cast<ModuleOp *>(op))) {
+  if (!llvm::succeeded(verifyAllLLVM(*dyn_cast<ModuleOp *>(op)))) {
     return llvm::failure();
   }
-  if (!compileAndLinkToSharedLibrary(op, op->getContext(), "temp.so")) {
+  if (!llvm::succeeded(
+          compileAndLinkToSharedLibrary(op, op->getContext(), "temp.so"))) {
     return llvm::failure();
   }
   return llvm::success();
