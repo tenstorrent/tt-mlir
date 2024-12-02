@@ -14,7 +14,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 
-namespace mlir::tt::llvm {
+namespace mlir::tt::llvm_to_cpu {
 
 // Verify that all ops in given module are in LLVM Dialect
 LogicalResult verifyAllLLVM(const mlir::ModuleOp &module);
@@ -38,6 +38,6 @@ LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
 LogicalResult translateLLVMToDyLib(
     Operation *op, llvm::raw_ostream &os,
     std::unordered_map<std::string, GoldenTensor> goldenMap = {});
-} // namespace mlir::tt::llvm
+} // namespace mlir::tt::llvm_to_cpu
 
 #endif

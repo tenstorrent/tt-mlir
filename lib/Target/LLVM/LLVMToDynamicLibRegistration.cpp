@@ -11,7 +11,7 @@
 
 using namespace mlir;
 
-namespace mlir::tt::llvm {
+namespace mlir::tt::llvm_to_cpu {
 
 void registerLLVMToDynamicLibrary() {
   TranslateFromMLIRRegistration reg(
@@ -31,4 +31,4 @@ void registerLLVMToDynamicLibrary() {
       });
 }
 
-} // namespace mlir::tt::llvm
+} // namespace mlir::tt::llvm_to_cpu
