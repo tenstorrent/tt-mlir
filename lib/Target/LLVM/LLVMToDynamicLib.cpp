@@ -45,7 +45,7 @@ std::unique_ptr<llvm::MemoryBuffer>
 compileToObject(llvm::Module &module, llvm::LLVMContext &context,
                 const std::string &outputFilename) {
   // Set up target triple
-  auto targetTriple = llvm::sys::getProcessTriple();
+  auto targetTriple = llvm::sys::getDefaultTargetTriple();
   module.setTargetTriple(targetTriple);
 
   // Look up the target
@@ -765,7 +765,7 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
   return llvm::success();
 }
 
-llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
+llvm::LogicalResult translateLLVMToDyLib(Operator *op, llvm::raw_ostream &os) {
 
   if (!verifyAllLLVM(op)) {
     return llvm::failure();
