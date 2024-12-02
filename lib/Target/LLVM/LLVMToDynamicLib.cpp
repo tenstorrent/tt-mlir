@@ -47,7 +47,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 
   // Look up the target
   std::string errorStr;
-  llvm::Target *target =
+  const llvm::Target *target =
       llvm::TargetRegistry::lookupTarget(module.getTargetTriple(), errorStr);
   if (!target) {
     llvm::errs() << "Error finding target: " << errorStr << "\n";
@@ -78,7 +78,8 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
     return nullptr;
   }
 
-  passManager.run(module);
+  llvm::AnalysisManager<llvm::Module> analysisManager;
+  passManager.run(module, analysisManager);
 
   return nullptr; // No need to return the memory buffer, since we wrote to the
                   // file
