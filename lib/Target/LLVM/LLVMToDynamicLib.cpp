@@ -31,7 +31,7 @@ llvm::Module *convertToLLVMModule(mlir::ModuleOp mlirModule,
   mlir::LLVMTypeConverter typeConverter(mlirModule.getContext());
 
   // Step 2: Create a pass manager
-  llvm::PassManager passManager;
+  llvm::legacy::PassManager passManager;
 
   // Step 3: Set up conversion target
   mlir::LLVMConversionTarget conversionTarget(mlirModule.getContext());
