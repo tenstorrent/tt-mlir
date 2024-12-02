@@ -44,14 +44,11 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp &module) {
 std::unique_ptr<llvm::MemoryBuffer>
 compileToObject(llvm::Module &module, llvm::LLVMContext &context,
                 const std::string &outputFilename) {
-  // Set up target triple
-  auto targetTriple = llvm::sys::getProcessTriple();
-  module.setTargetTriple(targetTriple);
 
   // Look up the target
   std::string errorStr;
   llvm::Target *target =
-      llvm::TargetRegistry::lookupTarget(targetTriple, errorStr);
+      llvm::TargetRegistry::lookupTarget(module.getTargetTriple(), errorStr);
   if (!target) {
     llvm::errs() << "Error finding target: " << errorStr << "\n";
     return nullptr;
@@ -59,8 +56,8 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 
   // Create target machine
   llvm::TargetOptions opt;
-  auto targetMachine =
-      target->createTargetMachine(targetTriple, "generic", "", opt, {});
+  auto targetMachine = target->createTargetMachine(module.getTargetTriple(),
+                                                   "generic", "", opt, {});
 
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
@@ -768,10 +765,10 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
 llvm::LogicalResult translateLLVMToDyLib(mlir::Operation *op,
                                          llvm::raw_ostream &os) {
 
-  if (!verifyAllLLVM(op)) {
+  if (!verifyAllLLVM(*dyn_cast<ModuleOp *>(op))) {
     return llvm::failure();
   }
-  if (!compileAndLinkToSharedLibrary(op, op.getContext(), "temp.so")) {
+  if (!compileAndLinkToSharedLibrary(op, op->getContext(), "temp.so")) {
     return llvm::failure();
   }
   return llvm::success();
