@@ -14,8 +14,9 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
-llvm::LogicalResult verifyAllLLVM(const mlir::ModuleOp &module) {
-  auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
+llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp &module) {
+  auto llvmDialect =
+      module.getContext()->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
   bool isAllLLVM = true;
 
