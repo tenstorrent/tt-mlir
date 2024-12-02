@@ -12,6 +12,11 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     LLVMMCParser
     LLVMLinker
     LLVMBinaryFormat
+    MLIRBytecodeWriter
+    MLIRIR
+    MLIRParser
+    MLIRPass
+    MLIRSupport
 )
 
 target_include_directories(TTMetalTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
