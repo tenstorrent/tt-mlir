@@ -139,23 +139,20 @@ class ModelRunner:
         ]
         perf = perf[columns]
 
-        print(perf)
-        print(name_dict)
-
         # Create the node_data type here
         timing_data = list(zip(perf["LOC"], perf["DEVICE FW DURATION [ns]"]))
-        print(timing_data)
         results = {}
         for loc, duration in timing_data:
             loc = mlir.get_loc_str(loc).replace("'", '"')
-            print(loc, duration)
             if loc in name_dict:
                 for i in range(name_dict[loc]):
                     results[f"{loc}__{i}"] = node_data_builder.NodeDataResult(
                         value=duration
                     )
             else:
-                print(loc)
+                print(
+                    f"Location {loc} not found in graph, ops data for this op was not reported."
+                )
 
         gradient = [
             node_data_builder.GradientItem(stop=0, bgColor="yellow"),
@@ -165,5 +162,4 @@ class ModelRunner:
         data = node_data_builder.GraphNodeData(results=results, gradient=gradient)
 
         res = node_data_builder.ModelNodeData(graphsData={"tt-graph": data})
-        print(res.to_json_string())
         return res
