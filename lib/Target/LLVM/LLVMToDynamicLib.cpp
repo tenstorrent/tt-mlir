@@ -48,7 +48,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 
   // Look up the target
   std::string errorStr;
-  const llvm::Target *target =
+  llvm::Target *target =
       llvm::TargetRegistry::lookupTarget(targetTriple, errorStr);
   if (!target) {
     llvm::errs() << "Error finding target: " << errorStr << "\n";
@@ -454,7 +454,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //       }
 
 //       if (bitcode.get()) {
-//         StringRef bitcodeName = bitcode.get()->getName();
+//         llvm::StringRef bitcodeName = bitcode.get()->getName();
 //         if (failed(linkBitcodeModule(
 //                 variantOp.getLoc(), moduleLinker,
 //                 llvm::Linker::LinkOnlyNeeded, *targetMachine, bitcodeName,
@@ -551,84 +551,85 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //   }
 // }
 
-llvm::LogicalResult runLinkCommand(std::string commandLine, StringRef env) {
-  LLVM_DEBUG(llvm::dbgs() << "Running linker command:\n"
-                          << env << " " << commandLine << "\n");
-  if (!env.empty()) {
+// llvm::LogicalResult runLinkCommand(std::string commandLine, llvm::StringRef
+// env) {
+//   LLVM_DEBUG(llvm::dbgs() << "Running linker command:\n"
+//                           << env << " " << commandLine << "\n");
+//   if (!env.empty()) {
 
-    commandLine = (env + " " + commandLine).str();
-  } else {
-    commandLine = escapeCommandLineComponent(commandLine);
-  }
-  int exitCode = system(commandLine.c_str());
-  if (exitCode == 0)
-    return llvm::success();
-  llvm::errs() << "Linking failed; escaped command line returned exit code "
-               << exitCode << ":\n\n"
-               << commandLine << "\n\n";
-  return llvm::failure();
-}
+//     commandLine = (env + " " + commandLine).str();
+//   } else {
+//     commandLine = escapeCommandLineComponent(commandLine);
+//   }
+//   int exitCode = system(commandLine.c_str());
+//   if (exitCode == 0)
+//     return llvm::success();
+//   llvm::errs() << "Linking failed; escaped command line returned exit code "
+//                << exitCode << ":\n\n"
+//                << commandLine << "\n\n";
+//   return llvm::failure();
+// }
 
-std::optional<Artifacts>
-linkDynamicLibrary(StringRef libraryName,
-                   ArrayRef<Artifact> objectFiles) override {
-  Artifacts artifacts;
+// std::optional<Artifacts>
+// linkDynamicLibrary(llvm::StringRef libraryName,
+//                    ArrayRef<Artifact> objectFiles) override {
+//   Artifacts artifacts;
 
-  // Create the shared object name; if we only have a single input object we
-  // can just reuse that.
-  if (objectFiles.size() == 1) {
-    artifacts.libraryFile =
-        Artifact::createVariant(objectFiles.front().path, "so");
-  } else {
-    artifacts.libraryFile = Artifact::createTemporary(libraryName, "so");
-  }
-  artifacts.libraryFile.close();
+//   // Create the shared object name; if we only have a single input object we
+//   // can just reuse that.
+//   if (objectFiles.size() == 1) {
+//     artifacts.libraryFile =
+//         Artifact::createVariant(objectFiles.front().path, "so");
+//   } else {
+//     artifacts.libraryFile = Artifact::createTemporary(libraryName, "so");
+//   }
+//   artifacts.libraryFile.close();
 
-  SmallVector<std::string, 8> linkCmdAndArgs = {
-      "ld.lld-17",
-      "-o " + artifacts.libraryFile.path,
-  };
+//   llvm::SmallVector<std::string, 8> linkCmdAndArgs = {
+//       "ld.lld-17",
+//       "-o " + artifacts.libraryFile.path,
+//   };
 
-  // Avoids including any libc/startup files that initialize the CRT as
-  // we don't use any of that. Our shared libraries must be freestanding.
-  linkCmdAndArgs.push_back("-nostdlib"); // -nodefaultlibs + -nostartfiles
+//   // Avoids including any libc/startup files that initialize the CRT as
+//   // we don't use any of that. Our shared libraries must be freestanding.
+//   linkCmdAndArgs.push_back("-nostdlib"); // -nodefaultlibs + -nostartfiles
 
-  // Statically link all dependencies so we don't have any runtime deps.
-  // We cannot have any imports in the module we produce.
-  linkCmdAndArgs.push_back("-static");
+//   // Statically link all dependencies so we don't have any runtime deps.
+//   // We cannot have any imports in the module we produce.
+//   linkCmdAndArgs.push_back("-static");
 
-  // Generate a dynamic library (ELF type: ET_DYN), otherwise dlopen()
-  // won't succeed on it. This is not incompatible with -static. The GNU
-  // man page for ld, `man ld`, says the following:
-  //
-  //   -static
-  //       Do not link against shared libraries. [...] This option can be
-  //       used with -shared. Doing so means that a shared library is
-  //       being created but that all of the library's external references
-  //       must be resolved by pulling in entries from static libraries.
-  //
-  // While that much is said in the GNU ld man page, the reality is that
-  // out of ld.bfd, ld.gold and ld.lld, only ld.lld actually implements
-  // that. Meanwhile, ld.bfd interprets -static -shared as just -static,
-  // and ld.gold rejects -static -shared outright as "incompatible".
-  linkCmdAndArgs.push_back("-shared");
+//   // Generate a dynamic library (ELF type: ET_DYN), otherwise dlopen()
+//   // won't succeed on it. This is not incompatible with -static. The GNU
+//   // man page for ld, `man ld`, says the following:
+//   //
+//   //   -static
+//   //       Do not link against shared libraries. [...] This option can be
+//   //       used with -shared. Doing so means that a shared library is
+//   //       being created but that all of the library's external references
+//   //       must be resolved by pulling in entries from static libraries.
+//   //
+//   // While that much is said in the GNU ld man page, the reality is that
+//   // out of ld.bfd, ld.gold and ld.lld, only ld.lld actually implements
+//   // that. Meanwhile, ld.bfd interprets -static -shared as just -static,
+//   // and ld.gold rejects -static -shared outright as "incompatible".
+//   linkCmdAndArgs.push_back("-shared");
 
-  // Strip debug information (only, no relocations) when not requested.
-  if (!targetOptions.target.debugSymbols) {
-    flags.push_back("--strip-debug");
-  }
+//   // Strip debug information (only, no relocations) when not requested.
+//   if (!targetOptions.target.debugSymbols) {
+//     flags.push_back("--strip-debug");
+//   }
 
-  // Link all input objects. Note that we are not linking whole-archive as
-  // we want to allow dropping of unused codegen outputs.
-  for (auto &objectFile : objectFiles) {
-    flags.push_back(objectFile.path);
-  }
+//   // Link all input objects. Note that we are not linking whole-archive as
+//   // we want to allow dropping of unused codegen outputs.
+//   for (auto &objectFile : objectFiles) {
+//     flags.push_back(objectFile.path);
+//   }
 
-  auto commandLine = llvm::join(linkCmdAndArgs, " ");
-  if (failed(runLinkCommand(commandLine)))
-    return std::nullopt;
-  return artifacts;
-}
+//   auto commandLine = llvm::join(linkCmdAndArgs, " ");
+//   if (failed(runLinkCommand(commandLine)))
+//     return std::nullopt;
+//   return artifacts;
+// }
 
 // LogicalResult serializeDynamicLibraryExecutable(
 //     const SerializationOptions &options, const LLVMTarget &target,
@@ -752,13 +753,13 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
   }
 
   // Link the object code into a shared library using LLD
-  if (!linkWithLLD(*objectBuffer, outputPath)) {
-    llvm::errs()
-        << "Failed to link object code into shared library using LLD\n";
-    return llvm::failure();
-  }
+  // if (!linkWithLLD(*objectBuffer, outputPath)) {
+  //   llvm::errs()
+  //       << "Failed to link object code into shared library using LLD\n";
+  //   return llvm::failure();
+  // }
 
-  llvm::outs() << "Shared library created at: " << outputPath << "\n";
+  // llvm::outs() << "Shared library created at: " << outputPath << "\n";
   return llvm::success();
 }
 
