@@ -2,11 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Target/TargetMachine.h"
+#include "llvm/MC/TargetRegistry.h"
 
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
+
+#include "llvm/Target/TargetMachine.h"
 
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
@@ -72,7 +74,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
   }
 
   // Emit object code to the file
-  llvm::PassManager passManager;
+  llvm::PassManager<llvm::Module> passManager;
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CGFT_ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
