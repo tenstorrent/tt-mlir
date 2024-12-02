@@ -100,6 +100,8 @@ PYBIND11_MODULE(_C, m) {
       "Get the input tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
+  m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
+        "Get the location info of the op");
 
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)

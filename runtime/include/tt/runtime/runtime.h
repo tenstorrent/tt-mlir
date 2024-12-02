@@ -71,6 +71,8 @@ void wait(Event event);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
+std::string getOpLocInfo(OpContext opContextHandle);
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 

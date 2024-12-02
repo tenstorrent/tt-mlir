@@ -286,6 +286,7 @@ union OpType {
 table Operation {
   type: OpType;
   debug_info: string;
+  loc_info: string;
 }
 
 table Program {

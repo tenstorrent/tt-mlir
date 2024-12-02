@@ -33,8 +33,18 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
+#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#include "tracy/Tracy.hpp"
+#endif
+
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
+
+void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
+#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+  TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
+#endif
+}
 
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
@@ -74,6 +84,7 @@ public:
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
+      tracyLogOpLocation(op);
       runOperation(op);
       runCallback(executableHandle, op, &context);
     }

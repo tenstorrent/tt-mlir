@@ -479,7 +479,11 @@ toDebugInfo(::flatbuffers::FlatBufferBuilder &fbb, std::string const &name,
             ModuleOp module) {
   std::string source;
   llvm::raw_string_ostream os(source);
-  module->print(os);
+
+  mlir::OpPrintingFlags flags;
+  flags.enableDebugInfo(); // Enable the loc dumping
+  module->print(os, flags);
+
   return ::tt::target::CreateMLIRDirect(fbb, name.c_str(), source.c_str());
 }
 } // namespace mlir::tt
