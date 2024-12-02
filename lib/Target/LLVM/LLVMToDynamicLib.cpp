@@ -10,6 +10,8 @@
 
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
+#include "mlir/Dialect/LLVMIR/LLVMIR.h"
+
 // #include "lld/Common/Driver.h"
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
@@ -20,7 +22,7 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp &module) {
 
   bool isAllLLVM = true;
 
-  module.walk([&](Operation *op) {
+  module.walk([&](mlir::Operation *op) {
     if (op->getDialect() != llvmDialect) {
       isAllLLVM = false;
       llvm::errs() << "Non-LLVM operation found: " << op->getName()
@@ -30,10 +32,10 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp &module) {
 
   if (isAllLLVM) {
     llvm::outs() << "All operations belong to the LLVM dialect.\n";
-    return success();
+    return llvm::success();
   } else {
     llvm::errs() << "Module contains non-LLVM dialect operations.\n";
-    return failure();
+    return llvm::failure();
   }
 }
 
@@ -148,7 +150,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //     llvm::errs() << "Error writing object to temporary file: " <<
 //     ec.message()
 //                  << "\n";
-//     return failure();
+//     return llvm::failure();
 //   }
 //   tempObjectStream << objectBuffer.getBuffer();
 //   tempObjectStream.close();
@@ -171,7 +173,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //   llvm::LLVMContext context;
 //   auto maybeTarget = getVariantTarget(variantOp);
 //   if (!maybeTarget)
-//     return failure();
+//     return llvm::failure();
 //   const LLVMTarget &target = *maybeTarget;
 //   LLVM_DEBUG(dbgs() << "LLVM-CPU SerializeExecutable:\n"
 //                     << "-----------------------------\n";
@@ -414,7 +416,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //   if (failed(linkCmdlineBitcodeFiles(variantOp.getLoc(), moduleLinker,
 //                                      llvm::Linker::OverrideFromSrc,
 //                                      *targetMachine, context))) {
-//     return failure();
+//     return llvm::failure();
 //   }
 
 //   // Link any bitcode objects specified in executable.object attributes and
@@ -422,7 +424,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
 //   if (failed(linkBitcodeObjects(variantOp.getLoc(), moduleLinker,
 //                                 llvm::Linker::LinkOnlyNeeded, *targetMachine,
 //                                 variantOp.getObjectsAttr(), context))) {
-//     return failure();
+//     return llvm::failure();
 //   }
 
 //   // Link our libdevice after all codegen and user objects as they may
@@ -561,11 +563,11 @@ llvm::LogicalResult runLinkCommand(std::string commandLine, StringRef env) {
   }
   int exitCode = system(commandLine.c_str());
   if (exitCode == 0)
-    return success();
+    return llvm::success();
   llvm::errs() << "Linking failed; escaped command line returned exit code "
                << exitCode << ":\n\n"
                << commandLine << "\n\n";
-  return failure();
+  return llvm::failure();
 }
 
 std::optional<Artifacts>
@@ -736,7 +738,7 @@ linkDynamicLibrary(StringRef libraryName,
 //     binaryOp.setMimeTypeAttr(executableBuilder.getStringAttr(mimeType));
 //   }
 
-//   return success();
+//   return llvm::success();
 // }
 
 llvm::LogicalResult
@@ -747,27 +749,27 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
       compileToObject(module, context, "/home/vwells/tt-mlir/temp.o");
   if (!objectBuffer) {
     llvm::errs() << "Failed to compile to object code\n";
-    return failure();
+    return llvm::failure();
   }
 
   // Link the object code into a shared library using LLD
   if (!linkWithLLD(*objectBuffer, outputPath)) {
     llvm::errs()
         << "Failed to link object code into shared library using LLD\n";
-    return failure();
+    return llvm::failure();
   }
 
   llvm::outs() << "Shared library created at: " << outputPath << "\n";
-  return success();
+  return llvm::success();
 }
 
 llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
 
   if (!verifyAllLLVM(op)) {
-    return failure();
+    return llvm::failure();
   }
   if (!compileAndLinkToSharedLibrary(op, op.getContext(), "temp.so")) {
-    return failure();
+    return llvm::failure();
   }
-  return success();
+  return llvm::success();
 }
