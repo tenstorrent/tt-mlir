@@ -1,7 +1,4 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-
-#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
-
 module attributes {} {
   func.func @equal(%arg0: tensor<13x31xf32>, %arg1: tensor<13x31xf32>) -> tensor<13x31xf32> {
     // CHECK: %[[C:.*]] = "ttnn.empty"
@@ -12,7 +9,7 @@ module attributes {} {
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: -> [[TENSOR]]
-    %1 = "ttir.eq"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    %1 = "ttir.eq"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
     return %1 : tensor<13x31xf32>
   }
 }
@@ -27,7 +24,7 @@ module attributes {} {
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: -> [[TENSOR]]
-    %1 = "ttir.ne"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    %1 = "ttir.ne"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
     return %1 : tensor<13x31xf32>
   }
 }
@@ -42,7 +39,7 @@ module attributes {} {
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: -> [[TENSOR]]
-    %1 = "ttir.ge"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    %1 = "ttir.ge"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
     return %1 : tensor<13x31xf32>
   }
 }
@@ -57,7 +54,7 @@ module attributes {} {
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: -> [[TENSOR]]
-    %1 = "ttir.gt"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    %1 = "ttir.gt"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
     return %1 : tensor<13x31xf32>
   }
 }
@@ -72,7 +69,7 @@ module attributes {} {
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: -> [[TENSOR]]
-    %1 = "ttir.le"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    %1 = "ttir.le"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
     return %1 : tensor<13x31xf32>
   }
 }
@@ -87,7 +84,7 @@ module attributes {} {
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: [[TENSOR]]
     // CHECK-SAME: -> [[TENSOR]]
-    %1 = "ttir.lt"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
+    %1 = "ttir.lt"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<13x31xf32>, tensor<13x31xf32>, tensor<13x31xf32>) -> tensor<13x31xf32>
     return %1 : tensor<13x31xf32>
   }
 }
