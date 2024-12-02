@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/TargetRegistry.h"
 
 #include "llvm/Support/FileSystem.h"
@@ -71,10 +72,9 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
   }
 
   // Emit object code to the file
-  llvm::PassManager<llvm::Module> passManager;
-  llvm::PassManagerBase &passManagerBase = passManager;
+  llvm::legacy::PassManager passManager;
 
-  if (targetMachine->addPassesToEmitFile(passManagerBase, out, nullptr,
+  if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
     return nullptr;
