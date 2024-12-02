@@ -131,7 +131,7 @@ void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
 }
-} //  namespace
+} // namespace
 
 namespace mlir::tt {
 
