@@ -4,7 +4,6 @@
 
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetRegistry.h"
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ToolOutputFile.h"
