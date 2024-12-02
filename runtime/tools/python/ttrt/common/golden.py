@@ -2,19 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
 import re
 from functools import partial
 
