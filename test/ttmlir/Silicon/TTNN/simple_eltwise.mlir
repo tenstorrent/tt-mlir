@@ -304,6 +304,22 @@ func.func @gelu(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
 }
 
+func.func @tan(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
+  %0 = tensor.empty() : tensor<64x128xbf16>
+  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttnn.tan"(%{{[0-9]+}}, [[VAL0]])
+  %1 = "ttir.tan"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  return %1 : tensor<64x128xbf16>
+}
+
+func.func @tanh(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
+  %0 = tensor.empty() : tensor<64x128xbf16>
+  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttnn.tanh"(%{{[0-9]+}}, [[VAL0]])
+  %1 = "ttir.tanh"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  return %1 : tensor<64x128xbf16>
+}
+
 func.func @addint32(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
   %0 = tensor.empty() : tensor<64x128xi32>
   %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
@@ -318,34 +334,4 @@ func.func @scatter(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32x32xf32>)
     "ttir.yield"(%arg4) : (tensor<1xf32>) -> ()
   }) : (tensor<1x3x320x320xf32>, tensor<1x1xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
   return %2 : tensor<1x3x320x320xf32>
-}
-
-func.func @logit(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
-  %0 = tensor.empty() : tensor<64x128xbf16>
-  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
-  // CHECK: %{{[0-9]+}} = "ttnn.logit"(%{{[0-9]+}}, [[VAL0]])
-  %1 = "ttir.logit"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-  return %1 : tensor<64x128xbf16>
-}
-
-func.func @tan(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
-  %0 = tensor.empty() : tensor<64x128xbf16>
-  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
-  // CHECK: %{{[0-9]+}} = "ttnn.tan"(%{{[0-9]+}}, [[VAL0]])
-  %1 = "ttir.tan"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-  return %1 : tensor<64x128xbf16>
-}
-
-func.func @tanh(%arg0: tensor<64x128xf32>) -> tensor<64x128xbf16> {
-  %0 = tensor.empty() : tensor<64x128xbf16>
-  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
-  // CHECK: %{{[0-9]+}} = "ttnn.tanh"(%{{[0-9]+}}, [[VAL0]])
-  %1 = "ttir.tanh"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-  return %1 : tensor<64x128xbf16>
-}
-
-func.func @addint32(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
-  %0 = tensor.empty() : tensor<64x128xi32>
-  %1 = "ttir.add"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
-  return %1 : tensor<64x128xi32>
 }

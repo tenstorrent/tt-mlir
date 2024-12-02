@@ -72,7 +72,6 @@ table ArangeOp {
 }
 
 enum EltwiseOpType: uint32 {
-<<<<<<< HEAD
   Add,
   Multiply,
   Subtract,
@@ -114,7 +113,6 @@ enum EltwiseOpType: uint32 {
   Clamp,
   LeakyRelu,
   Scatter,
-  Logistic,
   Tan,
   Tanh
 }

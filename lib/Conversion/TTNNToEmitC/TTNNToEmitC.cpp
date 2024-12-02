@@ -694,7 +694,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::SinOp>,
                DefaultOpConversionPattern<ttnn::CosOp>,
                DefaultOpConversionPattern<ttnn::Expm1Op>,
-               DefaultOpConversionPattern<ttnn::LogitOp>,
                DefaultOpConversionPattern<ttnn::TanOp>,
                DefaultOpConversionPattern<ttnn::TanhOp>,
                DefaultOpConversionPattern<ttnn::LogOp>>(typeConverter, ctx);

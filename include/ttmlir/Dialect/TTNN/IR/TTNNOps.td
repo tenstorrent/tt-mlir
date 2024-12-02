@@ -251,13 +251,6 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
-def TTNN_LogitOp: TTNN_ElementwiseUnaryOp<"logit"> {
-    let summary = "Eltwise logistic op.";
-    let description = [{
-      Eltwise logistic operation.
-    }];
-}
-
 def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
     let summary = "Eltwise tan op.";
     let description = [{

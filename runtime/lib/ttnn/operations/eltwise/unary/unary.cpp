@@ -127,10 +127,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sign);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::Logit: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sigmoid);
-    break;
-  }
   case ::tt::target::ttnn::EltwiseOpType::Tan: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::tan);
     break;
