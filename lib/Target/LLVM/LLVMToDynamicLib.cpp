@@ -8,11 +8,11 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ToolOutputFile.h"
 
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
+
 // #include "lld/Common/Driver.h"
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/raw_ostream.h"
 
 LogicalResult verifyAllLLVM(const mlir::ModuleOp &module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();

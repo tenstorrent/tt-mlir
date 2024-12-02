@@ -8,6 +8,12 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "mlir/IR/MLIRContext.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_ostream.h"
+
 namespace mlir::tt::llvm {
 
 // Verify that all ops in given module are in LLVM Dialect
