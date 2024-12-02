@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include <llvm/Support/CommandLine.h>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
