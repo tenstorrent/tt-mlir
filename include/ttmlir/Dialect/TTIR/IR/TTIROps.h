@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_TTIROPS_H
 #define TTMLIR_DIALECT_TTIR_IR_TTIROPS_H
 
+#include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
+
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
