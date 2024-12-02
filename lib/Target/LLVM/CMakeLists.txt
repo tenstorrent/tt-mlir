@@ -1,4 +1,4 @@
-add_mlir_translation_library(TTMetalTargetFlatbuffer
+add_mlir_translation_library(TTLLVMToDynamicLib
     LLVMToDynamicLib.cpp
     LLVMToDynamicLibRegistration.cpp
 
