@@ -43,4 +43,16 @@ def TTIR_Dialect : Dialect {
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
         Op<TTIR_Dialect, mnemonic, !listconcat(traits, [Pure])>;
 
+//===----------------------------------------------------------------------===//
+// TTIR traits definition.
+//===----------------------------------------------------------------------===//
+
+class TTIR_Trait<string name> : NativeOpTrait<""> {
+  let trait = name;
+  let cppNamespace = "::mlir::tt::ttir::OpTrait";
+}
+
+def ConditionalDPSInvolution : TTIR_Trait<"ConditionalDPSInvolution">;
+def ConditionalDPSIdempotence : TTIR_Trait<"ConditionalDPSIdempotence">;
+
 #endif
