@@ -80,8 +80,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
     return nullptr;
   }
 
-  llvm::AnalysisManager<llvm::Module> analysisManager;
-  passManager.run(module, analysisManager);
+  passManager.run(module);
 
   return nullptr; // No need to return the memory buffer, since we wrote to the
                   // file
