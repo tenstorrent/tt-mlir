@@ -8,7 +8,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
 
-namespace mlir::tt::ttnn {
+namespace mlir::tt::llvm {
 
 // Verify that all ops in given module are in LLVM Dialect
 LogicalResult verifyAllLLVM(const mlir::ModuleOp &module);
@@ -32,6 +32,6 @@ LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
 LogicalResult translateLLVMToDyLib(
     Operation *op, llvm::raw_ostream &os,
     std::unordered_map<std::string, GoldenTensor> goldenMap = {});
-} // namespace mlir::tt::ttnn
+} // namespace mlir::tt::llvm
 
 #endif
