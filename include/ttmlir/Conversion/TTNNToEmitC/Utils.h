@@ -26,6 +26,21 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
 emitc::OpaqueAttr convertBufferType(Builder &builder,
                                     ttnn::BufferTypeAttr attr);
 
+// Create emitc::OpaqueAttr for ttnn::Layout
+//
+emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr);
+
+// Create emitc::OpaqueAttr for BoolAttr
+emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr);
+
+// Create emitc::OpaqueAttr for ttnn::DataType
+//
+emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr);
+
+// Create emitc::OpaqueAttr for std::nullopt
+//
+emitc::OpaqueAttr createStdNullopt(Builder &builder);
+
 // Create ttnn::Shape and return emitc::ExpressionOp
 //
 // ttnn:Shape has a couple constructors, but they are explicit and require

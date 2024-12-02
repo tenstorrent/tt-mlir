@@ -57,6 +57,59 @@ emitc::OpaqueAttr convertBufferType(Builder &builder,
   llvm_unreachable("Unknown ttnn::BufferType");
 }
 
+emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
+  switch (attr.getValue()) {
+  case ttnn::Layout::RowMajor:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::ROW_MAJOR");
+  case ttnn::Layout::Tile:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::TILE");
+  case ttnn::Layout::Invalid:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::INVALID");
+  }
+
+  llvm_unreachable("Unknown ttnn::Layout");
+}
+
+emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr) {
+  return builder.getType<emitc::OpaqueAttr>(attr.getValue() ? "true" : "false");
+}
+
+emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
+  switch (attr.getValue()) {
+  case tt::DataType::BFloat16:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT16");
+  case tt::DataType::Float32:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::FLOAT32");
+  case tt::DataType::UInt32:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT32");
+  case tt::DataType::BFP_BFloat8:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT8_B");
+  case tt::DataType::BFP_BFloat4:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT4_B");
+  case tt::DataType::UInt8:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT8");
+  case tt::DataType::UInt16:
+    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT16");
+  // TODO(svuckovic):
+  // Add support for INT32
+  //
+  // case tt::DataType::Int32:
+  //   return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
+  case tt::DataType::Float16:
+  case tt::DataType::BFP_Float2:
+  case tt::DataType::BFP_Float4:
+  case tt::DataType::BFP_Float8:
+  case tt::DataType::BFP_BFloat2:
+    llvm_unreachable("Unsupported ttnn::DataType");
+  }
+
+  llvm_unreachable("Unkonwn tt::DataType");
+}
+
+emitc::OpaqueAttr createStdNullopt(Builder &builder) {
+  return builder.getType<emitc::OpaqueAttr>("std::nullopt");
+}
+
 emitc::ExpressionOp createShapeOp(ConversionPatternRewriter &rewriter,
                                   ttnn::ShapeAttr shapeAttr,
                                   Block *containingBlock, Location loc) {
