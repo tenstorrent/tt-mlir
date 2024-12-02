@@ -465,31 +465,32 @@ class Perf:
                     # Add post-processing steps to insert location data into the ops_perf data file
                     with open(profiler_csv_file_path, "r") as perf_file:
                         perf_reader = csv.DictReader(perf_file)
-                        perf_data = dict([(row["OP CODE"], row) for row in perf_reader])
+                        headers = list(perf_reader.fieldnames) + ["LOC"]
+                        perf_data = list(perf_reader)
 
-                    prev = None
                     with open(profiler_csv_file_path, "w+") as perf_file, open(
                         tracy_ops_data_file_path, "r"
                     ) as message_file:
                         message_reader = csv.reader(message_file, delimiter=";")
+                        ops_index = 0
+                        prev = None
                         for message in message_reader:
                             message = message[0]  # Don't need timestamp information
                             if message.startswith("`"):
                                 # This is a TTNN Message
                                 # The location data is now in the previous message
-                                # OP Code coming in from metal will always follow the form
-                                # `TT_DNN_DEVICE_OP: "OpCode"
-                                # As such, we can just split for " and get the second element
-                                op_code = message.split('"')[1]
+                                # The order of data is maintained in perf_data so as the messages are received, they update the id last encountered.
+                                # Now that we have a new message, we can update the location data from the previous message
                                 if prev:
                                     # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
-                                    perf_data[op_code]["LOC"] = prev
+                                    if len(perf_data) > ops_index:
+                                        perf_data[ops_index]["LOC"] = prev
+                                        ops_index += 1
                             else:
                                 prev = message
-                        perf_headers = list(perf_data.values())[0].keys()
-                        perf_writer = csv.DictWriter(perf_file, fieldnames=perf_headers)
+                        perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
                         perf_writer.writeheader()
-                        for row in perf_data.values():
+                        for row in perf_data:
                             perf_writer.writerow(row)
 
                     self.file_manager.copy_file(
