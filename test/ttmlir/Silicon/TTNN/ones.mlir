@@ -23,7 +23,7 @@ module {
   }
 
   func.func @ones_4d_irregular_shapes() -> tensor<13x24x56x42xbf16> {
-    // CHECK: {{.*}} = "ttnn.ones"() {{.*}}
+    // CHECK: {{.*}} = "ttnn.ones"() {{.*}} -> tensor<13x24x56x42xbf16>
     %0 = "ttir.ones"() <{shape = array<i32:13, 24, 56, 42>}> : () -> tensor<13x24x56x42xbf16>
     return %0 : tensor<13x24x56x42xbf16>
   }

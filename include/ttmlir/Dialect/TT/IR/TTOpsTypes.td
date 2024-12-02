@@ -11,7 +11,6 @@ include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "ttmlir/Dialect/TT/IR/TTBase.td"
 include "ttmlir/Dialect/TT/IR/TTOpsEnums.td"
-include "mlir/IR/CommonAttrConstraints.td"
 
 //===----------------------------------------------------------------------===//
 // TT attr definitions

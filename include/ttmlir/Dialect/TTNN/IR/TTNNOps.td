@@ -821,7 +821,7 @@ def TTNN_OnesOp : TTNN_Op<"ones"> {
     Given a ShapeAttr `shape`, produces a tensor with the same shape, filled with ones.
 
     Example:
-      %0 = "ttnn.ones"() {shape = [64, 28, 28]} : () -> tensor<64x28x28xi32>
+      %0 = "ttnn.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
 

@@ -1098,7 +1098,7 @@ def TTIR_OnesOp : TTIR_Op<"ones"> {
     Given a `shape`, produces a tensor with the shape, filled with ones.
 
     Example:
-      %0 = "ttnn.ones"() {shape = [64, 28, 28]} : () -> tensor<64x28x28xi32>
+      %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
       // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
   }];
 

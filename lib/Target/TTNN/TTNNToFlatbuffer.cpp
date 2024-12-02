@@ -34,7 +34,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
-#include <flatbuffers/stl_emulation.h>
 #include <fstream>
 #include <optional>
 

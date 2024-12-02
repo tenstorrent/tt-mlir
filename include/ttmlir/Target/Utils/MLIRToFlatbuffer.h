@@ -5,17 +5,16 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include <flatbuffers/stl_emulation.h>
-#include <numeric>
-#include <type_traits>
-
-#include "flatbuffers/flatbuffers.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
-#include "types_generated.h"
+
+#include "flatbuffers/flatbuffers.h"
+
+#include <numeric>
+#include <type_traits>
 
 namespace mlir::tt {
 
