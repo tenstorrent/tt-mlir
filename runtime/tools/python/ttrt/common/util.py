@@ -6,19 +6,11 @@ import os
 import json
 import importlib.machinery
 import importlib.util
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
 from pkg_resources import get_distribution
 import shutil
 
 import torch
 
-import ttrt.binary
 from ttrt.runtime._C import DataType
 
 # environment tweaks
