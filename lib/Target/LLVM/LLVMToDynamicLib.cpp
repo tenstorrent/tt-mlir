@@ -10,7 +10,7 @@
 
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
-#include "mlir/Dialect/LLVMIR/LLVMIR.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 // #include "lld/Common/Driver.h"
 // #include "lld/Common/ErrorHandler.h"
