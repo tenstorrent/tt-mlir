@@ -22,12 +22,12 @@ namespace mlir::tt::llvm_to_cpu {
 LogicalResult verifyAllLLVM(const mlir::ModuleOp &module);
 
 // Compile LLVM Dialect into assembly
-std::unique_ptr<llvm::MemoryBuffer> compileToObject(llvm::Module &module,
-                                                    llvm::LLVMContext &context);
+LogicalResult compileToObject(llvm::Module &module, llvm::LLVMContext &context,
+                              const std::string &outputFilename);
 
 // Convert assembly into a dynamic lib w/ linker library calls
-LogicalResult linkWithLLD(const llvm::MemoryBuffer &objectBuffer,
-                          const std::string &outputPath);
+// LogicalResult linkWithLLD(const llvm::MemoryBuffer &objectBuffer,
+//                           const std::string &outputPath);
 
 // wrapper to compiler LLVM dialect IR into asm + convert asm to dylib
 LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,

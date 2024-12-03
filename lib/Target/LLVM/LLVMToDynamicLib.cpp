@@ -50,9 +50,9 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
   return llvmModule;
 }
 
-std::unique_ptr<llvm::MemoryBuffer>
-compileToObject(llvm::Module &module, llvm::LLVMContext &context,
-                const std::string &outputFilename) {
+llvm::LogicalResult compileToObject(llvm::Module &module,
+                                    llvm::LLVMContext &context,
+                                    const std::string &outputFilename) {
 
   // Look up the target
   std::string errorStr;
@@ -60,7 +60,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
       llvm::TargetRegistry::lookupTarget(module.getTargetTriple(), errorStr);
   if (!target) {
     llvm::errs() << "Error finding target: " << errorStr << "\n";
-    return nullptr;
+    return llvm::failure();
   }
 
   // Create target machine
@@ -76,7 +76,7 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
   llvm::raw_fd_ostream out(outputFilename, EC, llvm::sys::fs::OF_None);
   if (EC) {
     llvm::errs() << "Error opening output file: " << EC.message() << "\n";
-    return nullptr;
+    return llvm::failure();
   }
 
   // Emit object code to the file
@@ -85,13 +85,12 @@ compileToObject(llvm::Module &module, llvm::LLVMContext &context,
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
-    return nullptr;
+    return llvm::failure();
   }
 
   passManager.run(module);
 
-  return nullptr; // No need to return the memory buffer, since we wrote to the
-                  // file
+  return llvm::success();
 }
 
 // std::unique_ptr<llvm::MemoryBuffer>
@@ -772,8 +771,9 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
   return llvm::success();
 }
 
-llvm::LogicalResult translateLLVMToDyLib(mlir::ModuleOp *op,
-                                         llvm::raw_ostream &os) {
+llvm::LogicalResult
+translateLLVMToDyLib(mlir::ModuleOp *op, llvm::raw_ostream &,
+                     std::unordered_map<std::string, GoldenTensor>) {
 
   if (llvm::failed(verifyAllLLVM(*op))) {
     return llvm::failure();
