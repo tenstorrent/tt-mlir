@@ -915,4 +915,18 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PermuteOp : TTNN_Op<"permute"> {
+    let summary = "Permute op.";
+    let description = [{
+      Permute tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$permutation);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif

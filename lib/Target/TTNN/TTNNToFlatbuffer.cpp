@@ -35,6 +35,7 @@
 
 #include <cassert>
 #include <fstream>
+#include <mlir/Support/LLVM.h>
 #include <optional>
 
 namespace mlir::tt {
@@ -419,6 +420,16 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
                                   kHostAllocatedAddress, kHostAllocatedSize);
   return ::tt::target::ttnn::CreateAllGatherOp(*cache.fbb, input, output,
                                                op.getDim(), op.getNumLinks());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
+createOp(FlatbufferObjectCache &cache, PermuteOp op) {
+  auto input = cache.at<::tt::target::TensorRef>(op.getInput());
+  auto permutation = toFlatbuffer(cache, op.getPermutation());
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreatePermuteOp(*cache.fbb, input, permutation,
+                                             output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -969,6 +980,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
     return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
+                           locInfo);
+  }
+  if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
+    return createOperation(cache, createOp(cache, permuteOp), debugString,
                            locInfo);
   }
 

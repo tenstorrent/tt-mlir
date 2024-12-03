@@ -259,6 +259,12 @@ table AllGatherOp {
   num_links: uint32;
 }
 
+table PermuteOp {
+  in: tt.target.TensorRef;
+  permutation: [int32];
+  out: tt.target.TensorRef;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -283,6 +289,7 @@ union OpType {
   DeallocateOp,
   AllGatherOp,
   ArangeOp,
+  PermuteOp
 }
 
 table Operation {
