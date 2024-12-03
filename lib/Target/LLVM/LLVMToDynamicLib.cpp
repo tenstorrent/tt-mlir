@@ -2,17 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/MC/TargetRegistry.h"
-
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/ToolOutputFile.h"
-
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 
@@ -20,10 +15,14 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
-#include "mlir/Conversion/LLVMCommon/Pattern.h"
-#include "mlir/Pass/Pass.h"
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
@@ -68,14 +67,16 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     module.setTargetTriple(defaultTriple);
   }
 
+  // auto relocModel = llvm::Optional<llvm::Reloc::Model>();
+
   // Look up the target
   llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
                << "\n";
   llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
-      llvm::Triple(targetTriple), "", cpu, opt);
+      llvm::Triple(module.getTargetTriple()), "x86-64", "generic", {});
   if (!targetMachine) {
     llvm::errs() << "Failed to create TargetMachine for triple: "
-                 << targetTriple << "\n";
+                 << module.getTargetTriple() << "\n";
     return llvm::failure();
   }
 
