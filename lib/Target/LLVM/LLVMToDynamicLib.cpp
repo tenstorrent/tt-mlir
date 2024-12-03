@@ -28,12 +28,14 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/raw_ostream.h"
 
+namespace mlir::tt::llvm_to_cpu {
+
 // Function to convert MLIR ModuleOp to LLVM Module
 std::unique_ptr<llvm::Module>
 convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
   // Ensure the MLIR module is in the LLVM dialect
   if (!mlirModule.getOperation()
-           ->hasTrait<mlir::OpTrait::IsolatedFromAbove>()) {
+           ->hasTrait<mlir::OpTrait::IsIsolatedFromAbove>()) {
     llvm::errs() << "ModuleOp is not properly isolated\n";
     return nullptr;
   }
@@ -777,10 +779,11 @@ llvm::LogicalResult translateLLVMToDyLib(mlir::ModuleOp *op,
     return llvm::failure();
   }
   llvm::LLVMContext llvmContext;
-  llvm::Module *llvmModule = convertToLLVMModule(op, llvmContext);
-  if (llvm::failed(compileAndLinkToSharedLibrary(*llvmModule, op->getContext(),
+  auto llvmModule = convertToLLVMModule(*op, llvmContext);
+  if (llvm::failed(compileAndLinkToSharedLibrary(*llvmModule.get(), llvmContext,
                                                  "temp.so"))) {
     return llvm::failure();
   }
   return llvm::success();
 }
+} // namespace mlir::tt::llvm_to_cpu
