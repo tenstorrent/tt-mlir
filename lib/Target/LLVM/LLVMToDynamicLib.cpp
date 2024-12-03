@@ -72,15 +72,15 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   // Look up the target
   llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
                << "\n";
+  llvm::SmallVector<std::string, 0> attrs; // Empty feature list
+
   llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
-      llvm::Triple(module.getTargetTriple()), "x86-64", "generic", {});
+      llvm::Triple(module.getTargetTriple()), "x86-64", "generic", attrs);
   if (!targetMachine) {
     llvm::errs() << "Failed to create TargetMachine for triple: "
                  << module.getTargetTriple() << "\n";
     return llvm::failure();
   }
-
-  module.setDataLayout(targetMachine->createDataLayout());
 
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
