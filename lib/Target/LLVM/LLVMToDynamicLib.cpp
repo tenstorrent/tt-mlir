@@ -15,6 +15,7 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
