@@ -52,14 +52,31 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
   return llvmModule;
 }
 
+std::unique_ptr<llvm::TargetMachine>
+createTargetMachine(const std::string &targetTriple) {
+  std::string errorMessage;
+  auto llvmTarget =
+      llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
+  if (!llvmTarget)
+    return nullptr;
+
+  llvm::TargetOptions options;
+
+  std::unique_ptr<llvm::TargetMachine> machine(llvmTarget->createTargetMachine(
+      targetTriple, "generic" /* cpu e.g k8 */,
+      "" /* cpu features e.g avx512f */, toptions, llvm::Reloc::Model::PIC_));
+  return machine;
+}
+
 llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::LLVMContext &context,
                                     const std::string &outputFilename) {
   // Initialize LLVM targets
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
+  LLVMInitializeX86Target();
+  LLVMInitializeX86TargetMC();
+  LLVMInitializeX86TargetInfo();
+  LLVMInitializeX86AsmPrinter();
+  LLVMInitializeX86AsmParser();
 
   // Set target triple if not already set
   if (module.getTargetTriple().empty()) {
@@ -75,8 +92,9 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
                << "\n";
   llvm::SmallVector<std::string, 0> attrs; // Empty feature list
 
-  llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
-      llvm::Triple(module.getTargetTriple()), "x86-64", "generic", attrs);
+  // llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
+  // llvm::Triple(module.getTargetTriple()), "x86-64", "generic", attrs);
+  auto targetMachine = createTargetMachine(module.getTargetTriple());
   if (!targetMachine) {
     llvm::errs() << "Failed to create TargetMachine for triple: "
                  << module.getTargetTriple() << "\n";
