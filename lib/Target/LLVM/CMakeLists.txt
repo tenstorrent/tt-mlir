@@ -19,5 +19,3 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     MLIRPass
     MLIRSupport
 )
-
-target_include_directories(${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
