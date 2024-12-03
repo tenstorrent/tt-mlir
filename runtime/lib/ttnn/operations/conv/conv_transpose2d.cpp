@@ -25,7 +25,7 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op, ProgramContext &contex
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
-  config.shard_layout = ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  config.shard_layout = ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
   ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());

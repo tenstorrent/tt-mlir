@@ -26,6 +26,8 @@
 using namespace mlir;
 using namespace mlir::tt;
 
+#include <iostream>
+
 namespace {
 
 // Gets or inserts a GetDeviceOp at the top of the current block of the given

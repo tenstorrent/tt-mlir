@@ -431,8 +431,8 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
       op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
       op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
-      op.getOutputPaddingHeight(), op.getOutputPaddingWidth(), op.getPaddingWidth(),
-       op.getDilationHeight(), op.getDilationWidth(), op.getGroups());
+      op.getPaddingWidth(), op.getOutputPaddingHeight(), op.getOutputPaddingWidth(),
+      op.getDilationHeight(), op.getDilationWidth(), op.getGroups());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>

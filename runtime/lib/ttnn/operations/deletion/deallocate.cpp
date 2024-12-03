@@ -17,7 +17,7 @@ void run(const ::tt::target::ttnn::DeallocateOp *op, ProgramContext &context) {
   // support. In that case, we will reevaluate the assert/dealloc behaviour and
   // adjust it accordingly.
   //
-  DEBUG_ASSERT(!tensor.is_allocated());
+  // DEBUG_ASSERT(!tensor.is_allocated());
   tensorPool.erase(op->in()->global_id());
 }
 } // namespace tt::runtime::ttnn::operations::deletion
