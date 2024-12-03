@@ -257,7 +257,7 @@ public:
     auto resEncoding =
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding();
     if (resEncoding) {
-      auto resLayout = mlir::cast<LayoutAttr>(resEncoding);
+      auto resLayout = mlir::cast<MetalLayoutAttr>(resEncoding);
       gridAttr = resLayout.getGrid();
     }
 
@@ -339,7 +339,7 @@ struct TTIRGenericOperandsToMemrefRewriter
         auto matchingOperand = generic.getMatchingOperand(blockArgNumber);
         auto operandType = matchingOperand.getType();
 
-        auto bufferLayout = mlir::cast<LayoutAttr>(
+        auto bufferLayout = mlir::cast<MetalLayoutAttr>(
             mlir::cast<RankedTensorType>(operandType).getEncoding());
         auto bufferType = operandType;
 
@@ -349,7 +349,7 @@ struct TTIRGenericOperandsToMemrefRewriter
           assert(static_cast<size_t>(cbIndex) < generic.getCbs().size());
           auto cb = generic.getCbs()[cbIndex];
           auto cbType = cb.getType();
-          auto cbLayout = mlir::cast<LayoutAttr>(
+          auto cbLayout = mlir::cast<MetalLayoutAttr>(
               mlir::cast<RankedTensorType>(cbType).getEncoding());
           bufferLayout = cbLayout;
           bufferType = cbType;
@@ -387,7 +387,7 @@ public:
       if (mlir::isa<BufferAttr>(encoding)) {
         return type;
       }
-      auto layout = mlir::cast<LayoutAttr>(type.getEncoding());
+      auto layout = mlir::cast<MetalLayoutAttr>(type.getEncoding());
       auto buffer =
           BufferAttr::get(ctx, layout.getMemref(), BufferAccess::Alias);
       return RankedTensorType::get(buffer.getShape(), type.getElementType(),
@@ -451,11 +451,11 @@ public:
 
       // Enforcing tiled layout as in kernel we always want to work with tiles.
       auto desiredElementType = rewriter.getType<TileType>(ty.getElementType());
-      auto desiredLayout = rewriter.getAttr<LayoutAttr>(
+      auto desiredLayout = rewriter.getAttr<MetalLayoutAttr>(
           ty, MemorySpace::DeviceL1, generic.getGrid(), desiredElementType);
 
       auto operandTy = operand.getType();
-      auto operandLayout = mlir::cast<LayoutAttr>(
+      auto operandLayout = mlir::cast<MetalLayoutAttr>(
           mlir::cast<RankedTensorType>(operandTy).getEncoding());
 
       if (desiredLayout.getGrid() == operandLayout.getGrid()) {

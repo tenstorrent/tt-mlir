@@ -62,18 +62,18 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       toFlatbuffer(cache, memLayout), size);
 }
 
-flatbuffers::Offset<::tt::target::LayoutDesc>
-layoutAttrToFlatbuffer(FlatbufferObjectCache &cache, LayoutAttr layoutAttr,
-                       ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
-  auto strideInt64 = layoutAttr.getStride(logicalShape);
+flatbuffers::Offset<::tt::target::LayoutDesc> metalLayoutAttrToFlatbuffer(
+    FlatbufferObjectCache &cache, MetalLayoutAttr metalLayoutAttr,
+    ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  auto strideInt64 = metalLayoutAttr.getStride(logicalShape);
   std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
-  auto coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+  auto coreRangeSet = toFlatbuffer(cache, metalLayoutAttr.getGrid(),
+                                   deviceAttr.getWorkerGrid());
   return ::tt::target::CreateLayoutDescDirect(
-      *cache.fbb, &stride, toFlatbuffer(cache, layoutAttr.getOobVal()),
+      *cache.fbb, &stride, toFlatbuffer(cache, metalLayoutAttr.getOobVal()),
       &coreRangeSet,
-      cache.getOrCreate(layoutAttr.getMemref(), memrefAttrToFlatbuffer,
-                        layoutAttr.getMemLayout()));
+      cache.getOrCreate(metalLayoutAttr.getMemref(), memrefAttrToFlatbuffer,
+                        metalLayoutAttr.getMemLayout()));
 }
 
 } // namespace mlir::tt
@@ -277,7 +277,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
           argumentAllocations[input.getArgNumber()]);
       assert(
           argAlloc.getMemorySpace() ==
-              mlir::cast<tt::LayoutAttr>(
+              mlir::cast<tt::MetalLayoutAttr>(
                   mlir::cast<RankedTensorType>(input.getType()).getEncoding())
                   .getMemorySpace() &&
           "argument allocation memory space does not match tensor type "

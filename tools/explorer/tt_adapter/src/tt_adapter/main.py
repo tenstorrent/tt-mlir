@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from typing import Dict
 import model_explorer
-from . import ttir, runner, utils
+from . import runner, utils, mlir
 import dataclasses
 import enum
 
@@ -46,7 +46,7 @@ class TTAdapter(model_explorer.Adapter):
         module = utils.parse_mlir_file(model_path)
 
         # Convert TTIR to Model Explorer Graphs and Display/Return
-        graph = ttir.ttir_to_graph(module)
+        graph = mlir.build_graph(module)
         return {"graphs": [graph]}
 
     def execute(

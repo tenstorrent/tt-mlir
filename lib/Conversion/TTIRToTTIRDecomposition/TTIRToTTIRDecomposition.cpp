@@ -16,6 +16,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <mlir/IR/BuiltinAttributes.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -407,6 +408,13 @@ struct GatherToEmbeddingConversionPattern
     // collapsed slice dims of the gather op
     auto collapsedSliceDims = op.getCollapsedSliceDims();
 
+    RankedTensorType operandType =
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    if (!operandType.getElementType().isBF16()) {
+      return rewriter.notifyMatchFailure(
+          op, "only supports bfloat16 input tensor.");
+    }
+
     if (shape.size() > 1) {
       auto hiddenDim = shape[shape.size() - 1];
       // check if sliceSizes has more than one element
@@ -775,6 +783,257 @@ public:
   }
 };
 
+// SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
+// the sliced dimension is sliced multiple times. For example, if the input
+// tensor is
+//    [[[1, 2, 3],
+//      [4, 5, 6],
+//      [7, 8, 9],
+//      [10, 11, 12],
+//      [13, 14, 15],
+//      [16, 17, 18]],
+//     [[19, 20, 21],
+//      [22, 23, 24],
+//      [25, 26, 27],
+//      [28, 29, 30],
+//      [31, 32, 33],
+//      [34, 35, 36]]],
+//    shape = [2, 6, 3]
+// and the SelectOp is dim=1, begin=0, length=2, stride=4, the output tensor
+// will be
+//    [[[1, 2, 3],
+//      [4, 5, 6],
+//      [13, 14, 15],
+//      [16, 17, 18]],
+//     [[19, 20, 21],
+//      [22, 23, 24],
+//      [31, 32, 33],
+//      [34, 35, 36]]],
+//    shape = [2, 4, 3]
+// In this case 2 slices are created and concatenated to form the output tensor.
+// First slice has begins=[0, 0, 0], ends=[2, 2, 3], steps=[1, 1, 1], and the
+// second slice has begins=[0, 4, 0], ends=[2, 6, 3], steps=[1, 1, 1].
+struct SelectToSliceConversionPattern
+    : public OpConversionPattern<ttir::SelectOp> {
+public:
+  using OpConversionPattern<ttir::SelectOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SelectOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getType());
+
+    auto inputShape = inputType.getShape();
+
+    int32_t dim =
+        op.getDim() < 0 ? inputType.getRank() + op.getDim() : op.getDim();
+
+    int32_t begin = op.getBegin();
+    int32_t length = op.getLength();
+    int32_t stride = op.getStride();
+
+    int32_t inputDimSize = inputType.getShape()[dim];
+    int32_t numSlices = (inputDimSize - begin + stride - 1) / stride;
+
+    llvm::SmallVector<int32_t, 4> begins, ends, steps;
+    for (int32_t i = 0; i < inputType.getRank(); ++i) {
+      // Always slicing with step 1.
+      steps.push_back(1);
+      if (i == dim) {
+        // Push placeholder values for now which will be updated later.
+        begins.push_back(0);
+        ends.push_back(0);
+        continue;
+      }
+
+      // For non-sliced dimensions, begin=0, end=dimSize, step=1.
+      begins.push_back(0);
+      ends.push_back(inputType.getDimSize(i));
+    }
+
+    // Create a slice for each slice of the input tensor. The slices are then
+    // concatenated. The slices are created by updating the begin and end values
+    // for the sliced dimension.
+    llvm::SmallVector<Value> slices;
+    for (int32_t i = 0; i < numSlices; ++i) {
+      int32_t newBegin = begin + i * stride;
+      int32_t newEnd = std::min(newBegin + length, inputDimSize);
+
+      // Make a copy of the input shape and update the dim size.
+      llvm::SmallVector<int64_t> resultShape(inputShape);
+      resultShape[dim] = newEnd - newBegin;
+      auto resultType =
+          RankedTensorType::get(resultShape, inputType.getElementType());
+
+      auto sliceDpsResult = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), resultShape, inputType.getElementType());
+
+      begins[dim] = newBegin;
+      ends[dim] = newEnd;
+
+      auto newOp = rewriter.create<ttir::SliceOp>(
+          op.getLoc(), resultType, adaptor.getInput(), sliceDpsResult,
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(steps), adaptor.getOperandConstraints());
+      slices.push_back(newOp->getResult(0));
+    }
+
+    assert(!slices.empty());
+    if (slices.size() > 1) {
+      auto concatDpsResult = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), outputType.getShape(), outputType.getElementType());
+      auto concatOp = rewriter.create<ttir::ConcatOp>(
+          op.getLoc(), outputType, slices, concatDpsResult,
+          rewriter.getSI32IntegerAttr(dim), adaptor.getOperandConstraints());
+
+      rewriter.replaceOp(op, concatOp.getResult());
+    } else {
+      rewriter.replaceOp(op, slices[0]);
+    }
+
+    return success();
+  }
+};
+
+/*
+ * This pattern rewrites ArangeOp by forcing the arange_dimension to be
+ * rightmost dimension of the output tensor. This is done by replacing the
+ * ArangeOp with a new one that has this property, and then transposing out last
+ * dimension to the dimension specified by the original ArangeOp, and also
+ * inserting a reshape to match the rank of the intended output and broadcasts
+ * to repeat the data along the other dimensions.
+ *
+ * The ArangeOp that is generated here will be equivalent to how ttnn::ArangeOp
+ * behaves. The reason this pass is done in TTIR rather than generated when we
+ * want to lower to TTNN is because in the future we will want to consteval the
+ * ArangeOp, but have the option to not include repeated data in the constant
+ * tensor and broadcast at runtime instead. Consteval will be implemented for
+ * the TTIR dialect only and so this explication of the TMs implicit in ArangeOp
+ * must be done in TTIR.
+ */
+struct ArangeForceLastDimensionPattern
+    : public OpConversionPattern<ttir::ArangeOp> {
+public:
+  using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    const RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    int64_t arangeDimension = adaptor.getArangeDimension();
+    int64_t arangeDimensionNegative = arangeDimension - outputType.getRank();
+    int64_t start = adaptor.getStart();
+    int64_t end = adaptor.getEnd();
+    int64_t step = adaptor.getStep();
+
+    int64_t arangeLength = (end - start) / step;
+
+    ArrayRef<int64_t> ttnnShape = {1, 1, 1, arangeLength};
+    if (ttnnShape == outputType.getShape()) {
+      return success();
+    }
+
+    RankedTensorType arangeOutputType = RankedTensorType::get(
+        SmallVector<int64_t>({1, 1, 1, arangeLength}),
+        outputType.getElementType(), outputType.getEncoding());
+
+    Value output =
+        rewriter
+            .create<ttir::ArangeOp>( // perform arange on the last dimension to
+                                     // match how ttnn behaves
+                op.getLoc(), arangeOutputType, start, end, step, 3)
+            .getResult();
+
+    std::vector<int64_t> outputShape = arangeOutputType.getShape().vec();
+    // Must transpose the output so that the data changes along the axis defined
+    // by arangeDimension
+    if (arangeDimensionNegative != -1) {
+      std::vector<int64_t> transposeShape = outputShape;
+      transposeShape[arangeDimensionNegative + transposeShape.size()] =
+          arangeLength;
+      transposeShape[arangeOutputType.getRank() - 1] = 1;
+      RankedTensorType transposeType = RankedTensorType::get(
+          transposeShape, arangeOutputType.getElementType(),
+          arangeOutputType.getEncoding());
+
+      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), transposeShape, transposeType.getElementType());
+
+      output = rewriter.create<ttir::TransposeOp>(
+          op.getLoc(), transposeType, output, dpsOutput,
+          arangeDimensionNegative + transposeShape.size(),
+          arangeOutputType.getRank() - 1,
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              2, rewriter.getAttr<OperandConstraintAttr>(
+                     OperandConstraint::AnyDeviceTile))));
+
+      outputShape = transposeShape;
+    }
+
+    // Must match up the rank of the output with the rank of the intended output
+    // from the original arange, with the arangeDimension in the correct
+    // position
+    if (outputType.getRank() != static_cast<int64_t>(outputShape.size())) {
+      std::vector<int32_t> reshapeShape;
+      for (uint32_t i = 0; i < outputType.getRank(); i++) {
+        i == arangeDimension ? reshapeShape.push_back(end)
+                             : reshapeShape.push_back(1);
+      }
+
+      RankedTensorType reshapeType = RankedTensorType::get(
+          SmallVector<int64_t>(reshapeShape.begin(), reshapeShape.end()),
+          outputType.getElementType(), outputType.getEncoding());
+      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(),
+          SmallVector<int64_t>(reshapeShape.begin(), reshapeShape.end()),
+          reshapeType.getElementType());
+      output = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), reshapeType, output, dpsOutput,
+          rewriter.getI32ArrayAttr(reshapeShape),
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              2, rewriter.getAttr<OperandConstraintAttr>(
+                     OperandConstraint::AnyDeviceTile))));
+
+      outputShape =
+          std::vector<int64_t>(reshapeShape.begin(), reshapeShape.end());
+    }
+
+    // Must broadcast the rest of the dimensions
+    SmallVector<Attribute> broadcastDims;
+    for (uint32_t i = 0; i < outputShape.size(); i++) {
+      if (i != arangeDimension && outputShape[i] != outputType.getShape()[i]) {
+        outputShape[i] = outputType.getShape()[i];
+        broadcastDims.push_back(rewriter.getI64IntegerAttr(i));
+      }
+    }
+    if (!broadcastDims.empty()) {
+      RankedTensorType broadcastType = RankedTensorType::get(
+          outputShape, outputType.getElementType(), outputType.getEncoding());
+
+      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), outputShape, outputType.getElementType());
+
+      output = rewriter.create<ttir::BroadcastOp>(
+          op.getLoc(), broadcastType, output, dpsOutput,
+          rewriter.getArrayAttr(broadcastDims),
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              2, rewriter.getAttr<OperandConstraintAttr>(
+                     OperandConstraint::AnyDeviceTile))));
+
+      assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
+                 outputType.getShape() &&
+             "Output shape must match the shape of the input tensor");
+    }
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -783,6 +1042,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
   patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
+  patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
+  patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

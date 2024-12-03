@@ -114,8 +114,8 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
         - Some combination of the above
 
       ```llvm
-      #layout = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #tt.layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      #layout = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #tt.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
       %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
@@ -172,8 +172,12 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
 
+def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
+def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
+def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
+
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_ElementwiseOpInterface])> {
+    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_Broadcastable])> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -187,7 +191,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [FourOperands])> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -210,7 +214,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [TwoOperands])> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -424,7 +428,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, traits> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [ThreeOperands])> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -499,18 +503,6 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     let summary = "Eltwise logical xor.";
     let description = [{
       Eltwise logical xor operation.
-    }];
-}
-
-def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
-    let summary = "Eltwise maximum OP.";
-    let description = [{
-      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
-
-      Example:
-        %lhs: [[3, 2, 7], [1, 4, 4]]
-        %rhs: [[1, 4, 2], [1, 2, 3]]
-        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
     }];
 }
 
@@ -719,27 +711,6 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     }];
 }
 
-// CCL ops
-def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
-    let summary = "All gather operation.";
-    let description = [{
-      All gather op.
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
-
-    let hasVerifier = 1;
-}
-
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
@@ -927,6 +898,33 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SelectOp: TTIR_DPSOp<"select"> {
+    let summary = "Select op.";
+    let description = [{
+      Extracts a sub-tensor (slice) from the input tensor along a specified dimension in few steps defined by the
+      `begin`, `length`, and `stride` attributes.
+      The `begin` specifies the start index for the selected dimension of the tensor.
+      The `length` specifies the number of elements to extract from the input tensor along the selected dimension.
+      The `stride` specifies the step size for the start index. The default value is 0. 0 means no stride.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         SI32Attr:$begin,
+                         SI32Attr:$length,
+                         DefaultValuedOptionalAttr<SI32Attr, "0">:$stride,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: decomposing_an_op_index_ttir
 def TTIR_IndexOp: TTIR_DPSOp<"index"> {
     let summary = "Index op.";
@@ -1023,6 +1021,48 @@ def TTIR_ClampOp : TTIR_DPSOp<"clamp"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ArangeOp : TTIR_Op<"arange"> {
+  let summary = "Arange operation.";
+  let description = [{
+    Tensor arange operation.
+
+    Produces a tensor with values from `start` to `end` (exclusive) with a step size of `step`, along the dimension specified by `arange_dimension`.
+
+    Examples:
+      %0 = "ttir.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5xi64>
+      // %0: [0, 1, 2, 3, 4]
+
+      %1 = "ttir.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64, arange_dimension = 0 : i64} : () -> tensor<5xf32>
+      // %1: [0.0, 2.0, 4.0, 6.0, 8.0]
+
+      %2 = "ttir.arange"() {start = 0 : i64, end = 5 : i64, step = 1 : i64, arange_dimension = 0 : i64} : () -> tensor<5x3xi64>
+      // %2: [
+              [0, 0, 0],
+              [1, 1, 1],
+              [2, 2, 2],
+              [3, 3, 3],
+              [4, 4, 4]
+             ]
+
+      %3 = "ttir.arange"() {start = 0 : i64, end = 3 : i64, step = 1 : i64, arange_dimension = 1 : i64} : () -> tensor<5x3xi64>
+      // %3: [
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2],
+              [0, 1, 2]
+             ]
+  }];
+
+  let arguments = (ins SI64Attr:$start,
+                       SI64Attr:$end,
+                       SI64Attr:$step,
+                       I64Attr:$arange_dimension);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
@@ -1066,6 +1106,34 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     }];
 }
 
+def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
+    let summary = "Linear transformation of inputs.";
+    let description = [{
+      Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32xbf16>
+        %b = tensor.empty() : () -> tensor<32x128xbf16>
+        %bias = tensor.empty() : () -> tensor<128xbf16>
+        %output = tensor.empty() : () -> tensor<10x64x128xbf16>
+        %0 = "ttir.linear"(%a, %b, %bias, %output) : (tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>, tensor<10x64x128xbf16>) -> tensor<10x64x128xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 // ANCHOR: adding_an_op_matmul_ttir
 def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let summary = "Matrix multiply operation.";
@@ -1101,11 +1169,10 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(getNumOperands() == 2 && "Input and output operand must have the same rank");
-        assert(sameRank(getOperands()) &&
-               "Elementwise unary op must have only one input and one output operand.");
+        assert(sameRank(getOperation()->getOperands()) &&
+               "Input and output operand must have the same rank");
 
-        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
+        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
 
         SmallVector<AffineMap> indexingMaps(2, builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(
@@ -1113,19 +1180,6 @@ class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};
-      }
-
-      static bool sameRank(mlir::OperandRange operands) {
-        if (operands.empty()) {
-          return true;
-        }
-        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
-        for (auto operand : operands) {
-          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
-            return false;
-          }
-        }
-        return true;
       }
     }];
 }
@@ -1146,28 +1200,15 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       std::pair<::mlir::ArrayAttr, ::mlir::ArrayAttr> getIndexingMaps(Builder &builder) {
-        assert(sameRank(getOperands()) &&
+        assert(sameRank(getOperation()->getOperands()) &&
                "For now all operands must have the same rank");
-        auto rank = mlir::cast<RankedTensorType>(getOperand(0).getType()).getRank();
-        SmallVector<AffineMap> indexingMaps(getNumOperands(),
+        auto rank = mlir::cast<RankedTensorType>(getOperation()->getOperand(0).getType()).getRank();
+        SmallVector<AffineMap> indexingMaps(getOperation()->getNumOperands(),
                                             builder.getMultiDimIdentityMap(rank));
         SmallVector<Attribute> iteratorTypes(
             rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};
-      }
-
-      static bool sameRank(mlir::OperandRange operands) {
-        if (operands.empty()) {
-          return true;
-        }
-        auto rank = mlir::cast<RankedTensorType>(operands[0].getType()).getRank();
-        for (auto operand : operands) {
-          if (mlir::cast<RankedTensorType>(operand.getType()).getRank() != rank) {
-            return false;
-          }
-        }
-        return true;
       }
     }];
 }
@@ -1191,6 +1232,53 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     let description = [{
       Eltwise divide operation.
     }];
+}
+
+def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
+//===----------------------------------------------------------------------===//
+
+def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
+  let summary = "Scatter operation";
+  let description = [{
+    Produces a 'result' tensor which are equal to `input` tensor except that
+    several slices specified by `scatter_indices` are updated with the values
+    `updates`.
+    }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scatter_indices,
+                       AnyRankedTensor:$update,
+                       DenseI32ArrayAttr:$update_window_dims,
+                       DenseI32ArrayAttr:$inserted_window_dims,
+                       DenseI32ArrayAttr:$input_batching_dims,
+                       DenseI32ArrayAttr:$scatter_indices_batching_dims,
+                       DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
+                       I32Attr:$index_vector_dim,
+                       BoolAttr:$indices_are_sorted,
+                       BoolAttr:$unique_indices,
+                       AnyRankedTensor:$output,
+                       TT_OperandConstraintArrayAttr:$operand_constraints);
+
+  let regions = (region SizedRegion<1>:$update_computation);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1220,6 +1308,104 @@ def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
     }];
 
     let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
+}
+
+//===----------------------------------------------------------------------===//
+// TTIR ccl ops
+//===----------------------------------------------------------------------===//
+
+def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
+    let summary = "All gather operation.";
+    let description = [{
+      All gather op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         SI32Attr:$dim,
+                         TT_OperandConstraintArrayAttr:$operand_constraints);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
+    let summary = "AllReduce operation.";
+    let description = [{
+      AllReduce op.
+    }];
+
+    let arguments = (ins
+      Variadic<AnyRankedTensor>:$inputs,
+      AnyRankedTensor:$output,
+      I64ElementsAttr:$replica_groups,
+      SI32Attr:$dim,
+      OptionalAttr<SI32Attr>:$channel_handle,
+      UnitAttr:$use_global_device_ids,
+      TT_ReduceTypeAttr:$reduce_type,
+      TT_OperandConstraintArrayAttr:$operand_constraints
+    );
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
+    let summary = "Mesh shard operation.";
+    let description = [{
+      MeshShard op shards the inputs (FullToShard) or concatnates the outputs (ShardToFull) for ccl ops.
+
+      shard_direction attribute determines whether to shard or concat.
+
+      shard_type attribute determines how to shard or concat.
+        manual: no sharding
+        replicate: all devices have identical data
+        maximal: only one device contains full data
+        devices: shard_shape determines sharded dimensions
+
+      For example, on 2x4 mesh hardware, following op shards arg0 to 8 slices, row divided by 2
+      and col divided by 4.
+
+        %1 = "ttir.mesh_shard"(%arg0, %0) <
+          {... shard_direction = #tt.shard_direction<full_to_shard>,
+               shard_shape = #tt.grid<2x4>,
+               shard_type = #tt.shard_type<devices>}> :  (tensor<8192x784xf32>, ...) -> tensor<4096x196xf32>
+
+      On the other hand, this op concatnates %4 to single tensor by concatnating
+      one of the top row tensor with one of the bottom row tensor.
+
+        %6 = "ttir.mesh_shard"(%4, %5) <
+          {..., shard_direction = #tt.shard_direction<shard_to_full>,
+                shard_shape = #tt.grid<2x1>,
+                shard_type = #tt.shard_type<devices>}> : (tensor<4096x16384xf32>, ...) -> tensor<8192x16384xf32>
+    }];
+
+    let arguments = (ins
+      AnyRankedTensor:$input,
+      AnyRankedTensor:$output,
+      TT_MeshShardTypeAttr:$shard_type,
+      TT_MeshShardDirectionAttr:$shard_direction,
+      TT_GridAttr:$shard_shape,
+      TT_OperandConstraintArrayAttr:$operand_constraints
+    );
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 #endif

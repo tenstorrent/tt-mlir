@@ -22,13 +22,13 @@ inline MemorySpace getMemorySpace(MemRefType memref) {
   return mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue();
 }
 
-inline MemorySpace getMemorySpace(LayoutAttr layout) {
+inline MemorySpace getMemorySpace(MetalLayoutAttr layout) {
   return getMemorySpace(layout.getMemref());
 }
 
 inline MemorySpace getMemorySpace(RankedTensorType ty) {
   assert(ty.getEncoding());
-  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
+  auto layout = mlir::cast<MetalLayoutAttr>(ty.getEncoding());
   return getMemorySpace(layout);
 }
 

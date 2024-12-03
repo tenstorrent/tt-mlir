@@ -33,7 +33,7 @@ been used by the TT dialect to encode the tensor's layout.  This looks like:
 
 ```mlir
 tensor<2x3x64x128xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3),
     undef,
     <1x1>,
@@ -76,7 +76,7 @@ topics:
 
 ### Dimension Collapsing
 
-Probably the most important concept in `tt.layout` is dimension collapsing.
+Probably the most important concept in `tt.metal_layout` is dimension collapsing.
 This is captured by the affine map `linear` property which provides a
 mapping from tensor dim space to a reduced physical dimensional space.  This
 single-handedly touches on most of the tensor layout goals mentioned at the
@@ -106,7 +106,7 @@ to get our remapped offset:
 This remapped offset `(262, 100)` corresponds to the row and column index of the
 collapsed physical memory.
 
-By default, the dim range `[0, -1)` is collapsed, but the `tt.layout` contructor
+By default, the dim range `[0, -1)` is collapsed, but the `tt.metal_layout` contructor
 can actually take a programmable range called `collapseIntervals`.
 `collapseIntervals` is a list of pairs, where each pair is a dim range interval,
 left inclusive, right exclusive. Let's consider a few examples:
@@ -137,7 +137,7 @@ Let's consider the original example again, but on a larger grid than `1x1`, say 
 
 ```mlir
 tensor<2x3x64x128xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1, d2, d3) -> (d0 * 192 + d1 * 64 + d2, d3),
     undef,
     <2x4>,
@@ -173,7 +173,7 @@ Here's a few more example mlir snippets:
 
 ```mlir
 tensor<8x300xf32,
-  #tt.layout<(d0, d1) -> (d0, d1),
+  #tt.metal_layout<(d0, d1) -> (d0, d1),
     undef,
     <1x2>,
     memref<8x150xf32, #tt.memory_space<l1>>
@@ -181,7 +181,7 @@ tensor<8x300xf32,
 >
 
 tensor<8x96x32xf32,
-  #tt.layout<(d0, d1, d2) -> (d0 * 96 + d1, d2),
+  #tt.metal_layout<(d0, d1, d2) -> (d0 * 96 + d1, d2),
     undef,
     <2x1>,
     memref<384x32xf32, #tt.memory_space<l1>>
@@ -189,7 +189,7 @@ tensor<8x96x32xf32,
 >
 
 tensor<8x96x32xf32,
-  #tt.layout<(d0, d1, d2) -> (d0 * 96 + d1, d1, d2),
+  #tt.metal_layout<(d0, d1, d2) -> (d0 * 96 + d1, d1, d2),
     undef,
     <2x1x2>,
     memref<384x96x16xf32, #tt.memory_space<l1>>
@@ -197,7 +197,7 @@ tensor<8x96x32xf32,
 >
 
 tensor<5x3x2x2x7x32x32xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1, d2, d3, d4, d5, d6)
       -> (d0 * 2688 + d1 * 896 + d2 * 448 + d3 * 224 + d4 * 32 + d5, d4, d5, d6),
     undef,
@@ -226,7 +226,7 @@ A tilized tensor is one with a memref that has a tile element type.
 Given some tensor with scalar layout:
 ```mlir
 tensor<3x64x128xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1, d2) -> (d0 * 64 + d1, d2),
     undef,
     <3x2>,
@@ -238,7 +238,7 @@ tensor<3x64x128xf32,
 After tilizing we'll have:
 ```mlir
 tensor<3x64x128xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1, d2) -> (d0 * 64 + d1, d2),
     undef,
     <3x2>,
@@ -256,7 +256,7 @@ intact.
 Padding can be a bit of an overloaded term, but in this context it refers to an
 out of bounds area in the physical memory allocation that has no real tensor
 data in it.  The contents of this area is tracked by `oob_val` and the padding
-area can be automatically derived from the attributes of `tt.layout`.
+area can be automatically derived from the attributes of `tt.metal_layout`.
 
 Padding is a necessary evil that arises when a tensor is not evenly divisible by
 a grid shape or tile shape.  It can also arise due to minimum Noc addressing
@@ -265,7 +265,7 @@ requirements.
 Example of non-divisible grid:
 ```mlir
 tensor<53x63xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1) -> (d0, d1),
     undef,
     <3x2>,
@@ -284,7 +284,7 @@ cores and 1 scalar column of padding on the last column of cores.
 Taking the above example a step further, we could tilize it:
 ```mlir
 tensor<53x63xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1) -> (d0, d1),
     undef,
     <3x2>,
@@ -308,7 +308,7 @@ stride between dimensions.  Consider tensor (w/ batch dim `2`):
 
 ```mlir
 tensor<2x8x32xf32,
-  #tt.layout<
+  #tt.metal_layout<
     (d0, d1, d2) -> (d0 * 8 + d1, d2),
     undef,
     <1x2>,
@@ -356,7 +356,7 @@ consider the following example with a 3d grid and `collapseIntervals=[(1, -1)]`.
 
 ```mlir
 tensor<2x3x64x128xf32,
-  #tt.layout<(d0, d1, d2, d3) -> (d0, d1 * 64 + d2, d3),
+  #tt.metal_layout<(d0, d1, d2, d3) -> (d0, d1 * 64 + d2, d3),
     undef,
     <2x2x4>,
     memref<1x3x1x!tt.tile<32 x 32, bfp_bf8>, #tt.memory_space<l1>>
@@ -387,7 +387,7 @@ under the same grid primitive that also divides tensor rows and columns.
 
 ## Concerns
 
-- `tt.layout` is deliberately flexible and tries to capture as many problematic
+- `tt.metal_layout` is deliberately flexible and tries to capture as many problematic
   use-cases we've ran into in the past in a single, succinct representation.
   This flexibility will need to be further constrained by backends to avoid
   unsupported programming of this attribute.

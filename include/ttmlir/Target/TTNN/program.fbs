@@ -61,47 +61,58 @@ table FullOp {
   out: tt.target.TensorRef;
 }
 
+table ArangeOp {
+  start: float;
+  end: float;
+  step: float;
+  dtype: tt.target.DataType = null; // optional
+  device: tt.target.DeviceRef; // optional
+  memcfg: tt.target.MemoryConfigDesc;  // optional
+  out: tt.target.TensorRef;
+}
+
 enum EltwiseOpType: uint32 {
-  Add = 0,
-  Multiply = 1,
-  Subtract = 2,
-  Relu = 3,
-  GreaterEqual = 4,
-  Sqrt = 5,
-  Div = 6,
-  Sigmoid = 7,
-  Reciprocal = 8,
-  Exp = 9,
-  Maximum = 10,
-  Abs = 11,
-  Neg = 12,
-  Rsqrt = 13,
-  Typecast = 14,
-  Equal = 15,
-  NotEqual = 16,
-  LessEqual = 17,
-  LessThan = 18,
-  GreaterThan = 19,
-  LogicalAnd = 20,
-  LogicalOr = 21,
-  LogicalNot = 22,
-  Cbrt = 23,
-  Minimum = 24,
-  Ceil = 25,
-  Sin = 26,
-  Cos = 27,
-  Log = 28,
-  Log1p = 29,
-  Expm1 = 30,
-  Sign = 31,
-  Remainder = 32,
-  IsFinite = 33,
-  Floor = 34,
-  Where = 35,
-  Gelu = 36,
-  LogicalXor = 37,
-  Clamp = 38,
-  LeakyRelu = 39,
+  Add,
+  Multiply,
+  Subtract,
+  Relu,
+  GreaterEqual,
+  Sqrt,
+  Div,
+  Sigmoid,
+  Reciprocal,
+  Exp,
+  Maximum,
+  Abs,
+  Neg,
+  Rsqrt,
+  Typecast,
+  Equal,
+  NotEqual,
+  LessEqual,
+  LessThan,
+  GreaterThan,
+  LogicalAnd,
+  LogicalOr,
+  LogicalNot,
+  Cbrt,
+  Minimum,
+  Ceil,
+  Sin,
+  Cos,
+  Log,
+  Log1p,
+  Expm1,
+  Sign,
+  Remainder,
+  IsFinite,
+  Floor,
+  Where,
+  Gelu,
+  LogicalXor,
+  Clamp,
+  LeakyRelu,
+  Scatter
 }
 
 table ClampOpParams {
@@ -126,9 +137,9 @@ table EltwiseOp {
 }
 
 enum ReductionOpType: uint32 {
-  Sum = 0,
-  Mean = 1,
-  Max = 2,
+  Sum,
+  Mean,
+  Max,
 }
 
 table ReductionOp {
@@ -176,6 +187,13 @@ table SliceOp {
   begins: [int64];
   ends: [int64];
   step: [int64];
+}
+
+table LinearOp {
+  in0: tt.target.TensorRef;
+  in1: tt.target.TensorRef;
+  bias: tt.target.TensorRef;
+  out: tt.target.TensorRef;
 }
 
 // ANCHOR: adding_an_op_matmul_fbs
@@ -249,6 +267,7 @@ union OpType {
   EmptyOp,
   FullOp,
   EltwiseOp,
+  LinearOp,
   MatmulOp,
   ReductionOp,
   EmbeddingOp,
@@ -261,11 +280,13 @@ union OpType {
   MaxPool2dOp,
   DeallocateOp,
   AllGatherOp,
+  ArangeOp,
 }
 
 table Operation {
   type: OpType;
   debug_info: string;
+  loc_info: string;
 }
 
 table Program {

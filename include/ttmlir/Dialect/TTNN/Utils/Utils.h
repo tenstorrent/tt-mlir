@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include <llvm/Support/CommandLine.h>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -30,10 +32,6 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
 //
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
-
-DataType getDataTypeFromMemRef(mlir::MemRefType memref);
-
-Layout getLayoutFromMemRef(mlir::MemRefType memref);
 
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);

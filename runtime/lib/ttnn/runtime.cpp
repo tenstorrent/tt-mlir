@@ -202,6 +202,12 @@ std::string getOpDebugString(OpContext opContextHandle) {
   return std::string(opContext.debug_info()->c_str());
 }
 
+std::string getOpLocInfo(OpContext opContextHandle) {
+  auto const &opContext =
+      opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
+  return std::string(opContext.loc_info()->c_str());
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   auto const &programContext =
