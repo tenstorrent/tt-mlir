@@ -148,8 +148,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 //       llvm::TargetRegistry::lookupTarget(targetTriple, errorStr);
 //   if (!target) {
 //     llvm::errs() << "Error finding target: " << errorStr << "\n";
-llvm::errs() << "target lookup failed for " << targetTriple
-             << " w msg: " << errorMessage << "\n"; //     return nullptr;
+//     return nullptr;
 
 //   }
 //   // Create target machine
