@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTTKernelToEmitC
+add_mlir_conversion_library(TTMLIRTTKernelToEmitC
   TTKernelToEmitC.cpp
 
   ADDITIONAL_HEADER_DIRS
