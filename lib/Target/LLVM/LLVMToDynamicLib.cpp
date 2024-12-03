@@ -82,14 +82,14 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     return llvm::failure();
   }
 
+  // Set data layout
+  module.setDataLayout(targetMachine->createDataLayout());
+
   // debug info:
   llvm::outs() << "TargetMachine Info: \n";
   llvm::outs() << "Triple: " << targetMachine->getTargetTriple() << "\n";
   llvm::outs() << "DataLayout: "
-               << module->getDataLayout().getStringRepresentation() << "\n";
-
-  // Set data layout
-  module.setDataLayout(targetMachine->createDataLayout());
+               << module.getDataLayout().getStringRepresentation() << "\n";
 
   // Create an output file stream to write the object file
   std::error_code EC;
