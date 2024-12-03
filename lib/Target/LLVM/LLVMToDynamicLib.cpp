@@ -71,18 +71,15 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   // Look up the target
   llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
                << "\n";
-  std::string errorStr;
-  const llvm::Target *target =
-      llvm::TargetRegistry::lookupTarget(module.getTargetTriple(), errorStr);
-  if (!target) {
-    llvm::errs() << "Error finding target: " << errorStr << "\n";
+  llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
+      llvm::Triple(targetTriple), "", cpu, opt);
+  if (!targetMachine) {
+    llvm::errs() << "Failed to create TargetMachine for triple: "
+                 << targetTriple << "\n";
     return llvm::failure();
   }
 
-  // Create target machine
-  llvm::TargetOptions opt;
-  auto targetMachine = target->createTargetMachine(module.getTargetTriple(),
-                                                   "generic", "", opt, {});
+  module.setDataLayout(targetMachine->createDataLayout());
 
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
