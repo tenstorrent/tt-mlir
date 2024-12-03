@@ -749,7 +749,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 //   return llvm::success();
 // }
 
-llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
+llvm::LogicalResult verifyAllLLVM(const mlir::ModuleOp &module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
 
   bool isAllLLVM = true;
