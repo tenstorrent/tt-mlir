@@ -801,10 +801,6 @@ public:
 
     DataType outputDataType = outputLayoutAttr.getDataType();
 
-    if (op->getUsers().empty()) {
-      return rewriter.notifyMatchFailure(
-          op, "ttir.typecast op should have at least one use.");
-    }
     rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
         op, this->getTypeConverter()->convertType(op.getType(0)), input,
         outputDataType);
