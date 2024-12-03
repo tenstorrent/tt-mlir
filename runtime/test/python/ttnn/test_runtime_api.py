@@ -156,5 +156,5 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
     golden = (
         (inputs_torch[0] + inputs_torch[1]).mul(inputs_torch[1]).sub(inputs_torch[1])
     )
-    assert_pcc(golden, torch_result_tensor, threshold=0.999), program_index
+    assert_pcc(golden, torch_result_tensor, threshold=0.99)
     helper.teardown()

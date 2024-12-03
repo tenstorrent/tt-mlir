@@ -28,19 +28,6 @@ struct FullTensorConfig {
 
     layout = ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
-    // TODO(bug #272), determine correct layout by tile shape in the future
-    // currently tile shape is not set correctly, so as a workaround, hardcode
-    // layout
-    if (workaround::Env::get().ignoreTileShape) {
-      layout = ::ttnn::Layout::TILE;
-    }
-
-    // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
-    // using ROW_MAJOR until we fix it
-    if (workaround::Env::get().fullOpForceRowMajor) {
-      layout = ::ttnn::Layout::ROW_MAJOR;
-    }
-
     if (!utils::inSystemMemory(op->out())) {
       memoryConfig = ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
     }
