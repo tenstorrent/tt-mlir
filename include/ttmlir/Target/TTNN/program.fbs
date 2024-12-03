@@ -313,6 +313,12 @@ table MeshShardOp {
   shard_shape: [int64];
 }
 
+table PermuteOp {
+  in: tt.target.TensorRef;
+  permutation: [int32];
+  out: tt.target.TensorRef;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -343,6 +349,7 @@ union OpType {
   ArangeOp,
   UpdateCacheOp,
   FillCacheOp,
+  PermuteOp,
 }
 
 table Operation {

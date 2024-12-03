@@ -1588,7 +1588,7 @@ bool matchSimpleBlock(mlir::Region &region) {
 ::mlir::LogicalResult mlir::tt::ttir::PermuteOp::verify() {
   llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
   const size_t inputRank = inputShape.size();
-  llvm::ArrayRef<int64_t> outputShape = getOutput().getType().getShape();
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
 
   // Check that given attribute `permutation` is a valid permutation of the
   // dimensions.
@@ -1601,13 +1601,13 @@ bool matchSimpleBlock(mlir::Region &region) {
     return emitOpError("Invalid permutation");
   }
 
-  // Check that the output shape matches the shape of input tensor after
+  // Check that the result shape matches the shape of input tensor after
   // permutation is applied.
-  llvm::SmallVector<int64_t> expectedOutputShape(inputShape.size());
-  llvm::transform(permutation, expectedOutputShape.begin(),
+  llvm::SmallVector<int64_t> expectedResultShape(inputShape.size());
+  llvm::transform(permutation, expectedResultShape.begin(),
                   [&](const int32_t i) { return inputShape[i]; });
-  if (!llvm::equal(expectedOutputShape, outputShape)) {
-    return emitOpError("Output shape does not match the expected output shape");
+  if (!llvm::equal(expectedResultShape, resultShape)) {
+    return emitOpError("Result shape does not match the expected result shape");
   }
 
   return success();

@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <numeric>
 #include <optional>
 
 #include "mlir/Dialect/Traits.h"
@@ -1267,6 +1268,39 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
                        std::to_string(inputType.getShape()[1]) + ", " +
                        std::to_string(inputType.getShape()[2]) + ", " +
                        std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PermuteOp
+//===----------------------------------------------------------------------===//
+
+// PermuteOp verification
+::mlir::LogicalResult mlir::tt::ttnn::PermuteOp::verify() {
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  const size_t inputRank = inputShape.size();
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+
+  // Check that given attribute `permutation` is a valid permutation of the
+  // dimensions.
+  llvm::ArrayRef<int32_t> permutation = getPermutation();
+  llvm::SmallVector<int32_t> dimensions(inputRank);
+  std::iota(dimensions.begin(), dimensions.end(), 0);
+  if (inputRank != permutation.size() ||
+      !std::is_permutation(permutation.begin(), permutation.end(),
+                           dimensions.begin())) {
+    return emitOpError("Invalid permutation");
+  }
+
+  // Check that the result shape matches the shape of input tensor after
+  // permutation is applied.
+  llvm::SmallVector<int64_t> expectedResultShape(inputShape.size());
+  llvm::transform(permutation, expectedResultShape.begin(),
+                  [&](const int32_t i) { return inputShape[i]; });
+  if (!llvm::equal(expectedResultShape, resultShape)) {
+    return emitOpError("Result shape does not match the expected result shape");
   }
 
   return success();

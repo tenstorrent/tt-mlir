@@ -1120,6 +1120,22 @@ public:
     return success();
   }
 };
+
+class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
+public:
+  using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getPermutation());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -1201,7 +1217,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern
+           ScatterOpConversionPattern,
+           PermuteOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
