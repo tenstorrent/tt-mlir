@@ -782,11 +782,11 @@ translateLLVMToDyLib(Operation *op, llvm::raw_ostream &,
     return llvm::failure();
   }
 
-  if (llvm::failed(verifyAllLLVM(*moduleOp))) {
+  if (llvm::failed(verifyAllLLVM(moduleOp))) {
     return llvm::failure();
   }
   llvm::LLVMContext llvmContext;
-  auto llvmModule = convertToLLVMModule(*moduleOp, llvmContext);
+  auto llvmModule = convertToLLVMModule(moduleOp, llvmContext);
   if (llvm::failed(compileAndLinkToSharedLibrary(*llvmModule.get(), llvmContext,
                                                  "temp.so"))) {
     return llvm::failure();
