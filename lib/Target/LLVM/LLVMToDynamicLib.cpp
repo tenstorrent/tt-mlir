@@ -794,8 +794,8 @@ llvm::LogicalResult
 compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
                               const std::string &outputPath) {
   // Compile to object code
-  if (llvm::failed(
-          compileToObject(module, context, "/home/vwells/tt-mlir/temp.o"))) {
+  if (llvm::failed(compileToObject(module, context,
+                                   "/home/vwells/sources/tt-mlir/temp.o"))) {
     llvm::errs() << "Failed to compile to object code\n";
     return llvm::failure();
   }
