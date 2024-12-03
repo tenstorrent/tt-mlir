@@ -101,7 +101,8 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // Emit object code to the file
   llvm::legacy::PassManager passManager;
-
+  passManager.add(
+      new llvm::TargetLibraryInfoWrapperPass(machine->getTargetTriple()));
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
