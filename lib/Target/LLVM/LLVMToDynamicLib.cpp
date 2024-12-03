@@ -26,6 +26,7 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/Host.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::llvm_to_cpu {
@@ -54,6 +55,19 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
 llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::LLVMContext &context,
                                     const std::string &outputFilename) {
+  // Initialize LLVM targets
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllAsmPrinters();
+
+  // Set target triple if not already set
+  if (module.getTargetTriple().empty()) {
+    std::string defaultTriple = llvm::sys::getDefaultTargetTriple();
+    llvm::outs() << "Setting default target triple: " << defaultTriple << "\n";
+    module.setTargetTriple(defaultTriple);
+  }
 
   // Look up the target
   llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
