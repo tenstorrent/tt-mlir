@@ -27,7 +27,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/Host.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/raw_ostream.h"
 
 namespace mlir::tt::llvm_to_cpu {
 
