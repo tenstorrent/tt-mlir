@@ -91,6 +91,15 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::NegateOp,
                                                        mlir::tt::ttir::NegOp>>(
       typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::SinOp,
+                                                       mlir::tt::ttir::SinOp>>(
+      typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SigmoidOp, mlir::tt::ttir::SigmoidOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::ReciprocalOp, mlir::tt::ttir::ReciprocalOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::RsqrtOp, mlir::tt::ttir::RsqrtOp>>(typeConverter, ctx);
 }
 
 void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
@@ -102,6 +111,10 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::MaximumOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::MinimumOp, mlir::tt::ttir::MinimumOp>>(typeConverter, ctx);
 }
 
 void addCompareOpsConversionPatterns(MLIRContext *ctx,
@@ -112,6 +125,12 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                                              ctx);
 }
 
+void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
+                                                RewritePatternSet &patterns,
+                                                TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
+      tosa::SelectOp, mlir::tt::ttir::WhereOp>>(typeConverter, ctx);
+}
 } // namespace
 
 namespace mlir::tt {
@@ -120,6 +139,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
+  addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
