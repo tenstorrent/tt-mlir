@@ -4,6 +4,7 @@
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
