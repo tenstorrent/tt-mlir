@@ -64,7 +64,7 @@ createTargetMachine(const std::string &targetTriple) {
 
   std::unique_ptr<llvm::TargetMachine> machine(llvmTarget->createTargetMachine(
       targetTriple, "generic" /* cpu e.g k8 */,
-      "" /* cpu features e.g avx512f */, toptions, llvm::Reloc::Model::PIC_));
+      "" /* cpu features e.g avx512f */, options, llvm::Reloc::Model::PIC_));
   return machine;
 }
 
