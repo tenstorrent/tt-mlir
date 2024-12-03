@@ -753,9 +753,8 @@ llvm::LogicalResult
 compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
                               const std::string &outputPath) {
   // Compile to object code
-  auto objectBuffer =
-      compileToObject(module, context, "/home/vwells/tt-mlir/temp.o");
-  if (!objectBuffer) {
+  if (llvm::failed(
+          compileToObject(module, context, "/home/vwells/tt-mlir/temp.o"))) {
     llvm::errs() << "Failed to compile to object code\n";
     return llvm::failure();
   }
