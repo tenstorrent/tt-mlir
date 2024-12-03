@@ -22,6 +22,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <numeric>
 #include <string>
 
 #define GET_OP_CLASSES
@@ -1574,6 +1575,39 @@ bool matchSimpleBlock(mlir::Region &region) {
       return emitOpError("all dimensions should be in interval [0, ")
              << operandTy.getRank() << "). Got dimension: " << dim;
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PermuteOp
+//===----------------------------------------------------------------------===//
+
+// PermuteOp verification
+::mlir::LogicalResult mlir::tt::ttir::PermuteOp::verify() {
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  const size_t inputRank = inputShape.size();
+  llvm::ArrayRef<int64_t> outputShape = getOutput().getType().getShape();
+
+  // Check that given attribute `permutation` is a valid permutation of the
+  // dimensions.
+  llvm::ArrayRef<int32_t> permutation = getPermutation();
+  llvm::SmallVector<int32_t> dimensions(inputRank);
+  std::iota(dimensions.begin(), dimensions.end(), 0);
+  if (inputRank != permutation.size() ||
+      !std::is_permutation(permutation.begin(), permutation.end(),
+                           dimensions.begin())) {
+    return emitOpError("Invalid permutation");
+  }
+
+  // Check that the output shape matches the shape of input tensor after
+  // permutation is applied.
+  llvm::SmallVector<int64_t> expectedOutputShape(inputShape.size());
+  llvm::transform(permutation, expectedOutputShape.begin(),
+                  [&](const int32_t i) { return inputShape[i]; });
+  if (!llvm::equal(expectedOutputShape, outputShape)) {
+    return emitOpError("Output shape does not match the expected output shape");
   }
 
   return success();

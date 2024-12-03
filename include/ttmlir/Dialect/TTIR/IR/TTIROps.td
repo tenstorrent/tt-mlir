@@ -1308,6 +1308,25 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
+def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
+    let summary = "Permute op.";
+    let description = [{
+      Permute tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI32ArrayAttr:$permutation);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
 //===----------------------------------------------------------------------===//
