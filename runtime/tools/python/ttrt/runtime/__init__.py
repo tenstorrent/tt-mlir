@@ -23,6 +23,7 @@ try:
         get_op_output_tensor,
         get_op_debug_str,
         WorkaroundEnv,
+        get_op_loc_info,
     )
 except ModuleNotFoundError:
     raise ImportError(
