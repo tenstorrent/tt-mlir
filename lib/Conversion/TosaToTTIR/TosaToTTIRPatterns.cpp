@@ -81,6 +81,30 @@ private:
   }
 };
 
+class TosaToTTIRClampOpConversionPattern
+    : public OpConversionPattern<tosa::ClampOp> {
+  using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ClampOp srcOp, tosa::ClampOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
+        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands()[0],
+        outputTensor, adaptor.getMinFp(), adaptor.getMaxFp(),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -93,6 +117,8 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::CeilOp,
                                                        mlir::tt::ttir::CeilOp>>(
       typeConverter, ctx);
+  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
+
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::CosOp,
                                                        mlir::tt::ttir::CosOp>>(
       typeConverter, ctx);
