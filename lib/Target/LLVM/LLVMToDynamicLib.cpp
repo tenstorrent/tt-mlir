@@ -56,6 +56,8 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
                                     const std::string &outputFilename) {
 
   // Look up the target
+  llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
+               << "\n";
   std::string errorStr;
   const llvm::Target *target =
       llvm::TargetRegistry::lookupTarget(module.getTargetTriple(), errorStr);
