@@ -16,6 +16,7 @@
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Target/LLVMIR/ModuleTranslation.h"
 
 // #include "lld/Common/Driver.h"
 // #include "lld/Common/ErrorHandler.h"
@@ -27,54 +28,24 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/raw_ostream.h"
 
-llvm::Module *convertToLLVMModule(mlir::ModuleOp mlirModule,
-                                  llvm::LLVMContext &llvmContext) {
-  // Step 1: Create the LLVM Type Converter
-  mlir::LLVMTypeConverter typeConverter(mlirModule.getContext());
-
-  // Step 2: Create a pass manager
-  llvm::legacy::PassManager passManager;
-
-  // Step 3: Set up conversion target
-  mlir::LLVMConversionTarget conversionTarget(*mlirModule.getContext());
-  conversionTarget.addLegalDialect<mlir::LLVM::LLVMDialect>();
-
-  // Step 4: Run the conversion pass (mlir::lowerToLLVM)
-  mlir::OwningOpRef<mlir::ModuleOp> llvmModule;
-  mlir::applyPassManagerCLOptions(passManager);
-  if (failed(mlir::applyFullConversion(mlirModule, conversionTarget,
-                                       passManager))) {
-    // Handle the error appropriately
-    llvm::errs() << "Failed to convert MLIR Module to LLVM IR module.\n";
+// Function to convert MLIR ModuleOp to LLVM Module
+std::unique_ptr<llvm::Module>
+convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
+  // Ensure the MLIR module is in the LLVM dialect
+  if (!mlirModule.getOperation()
+           ->hasTrait<mlir::OpTrait::IsolatedFromAbove>()) {
+    llvm::errs() << "ModuleOp is not properly isolated\n";
     return nullptr;
   }
 
-  // Step 5: Retrieve the converted llvm::Module
-  auto module = mlir::translateModuleToLLVMIR(*mlirModule, llvmContext);
-  return module;
-}
-
-llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp &module) {
-  auto llvmDialect =
-      module.getContext()->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-
-  bool isAllLLVM = true;
-
-  module.walk([&](mlir::Operation *op) {
-    if (op->getDialect() != llvmDialect) {
-      isAllLLVM = false;
-      llvm::errs() << "Non-LLVM operation found: " << op->getName()
-                   << " at location " << op->getLoc() << "\n";
-    }
-  });
-
-  if (isAllLLVM) {
-    llvm::outs() << "All operations belong to the LLVM dialect.\n";
-    return llvm::success();
-  } else {
-    llvm::errs() << "Module contains non-LLVM dialect operations.\n";
-    return llvm::failure();
+  // Use MLIR's translation utility
+  auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext);
+  if (!llvmModule) {
+    llvm::errs() << "Failed to convert MLIR ModuleOp to LLVM IR\n";
+    return nullptr;
   }
+
+  return llvmModule;
 }
 
 std::unique_ptr<llvm::MemoryBuffer>
@@ -805,9 +776,10 @@ llvm::LogicalResult translateLLVMToDyLib(mlir::ModuleOp *op,
   if (llvm::failed(verifyAllLLVM(*op))) {
     return llvm::failure();
   }
-  if (llvm::failed(compileAndLinkToSharedLibrary(
-          convertToLLVMModule(*op, op->getContext()), op->getContext(),
-          "temp.so"))) {
+  llvm::LLVMContext llvmContext;
+  llvm::Module *llvmModule = convertToLLVMModule(op, llvmContext);
+  if (llvm::failed(compileAndLinkToSharedLibrary(*llvmModule, op->getContext(),
+                                                 "temp.so"))) {
     return llvm::failure();
   }
   return llvm::success();
