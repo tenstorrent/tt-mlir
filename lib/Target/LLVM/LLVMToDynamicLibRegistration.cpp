@@ -5,6 +5,8 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+#include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
@@ -22,6 +24,7 @@ void registerLLVMToDynamicLibrary() {
       },
       [](DialectRegistry &registry) {
         registry.insert<mlir::tt::TTDialect, mlir::LLVM::LLVMDialect>();
+        registerAllToLLVMIRTranslations(registry);
       });
 }
 

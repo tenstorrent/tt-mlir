@@ -41,7 +41,8 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
   }
 
   // Use MLIR's translation utility
-  auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext);
+  auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext,
+                                                  "test-llvm-custom-name");
   if (!llvmModule) {
     llvm::errs() << "Failed to convert MLIR ModuleOp to LLVM IR\n";
     return nullptr;
