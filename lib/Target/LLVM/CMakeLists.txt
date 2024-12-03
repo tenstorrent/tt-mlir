@@ -20,4 +20,4 @@ add_mlir_translation_library(TTLLVMToDynamicLib
     MLIRSupport
 )
 
-target_include_directories(TTMetalTargetFlatbuffer PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
+target_include_directories(PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

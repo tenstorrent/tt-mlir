@@ -22,6 +22,7 @@ static void registerCustomTranslations() {
   static bool initOnce = []() {
     mlir::tt::ttnn::registerTTNNToFlatbuffer();
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
+    mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     return true;
   }();
   (void)initOnce;
