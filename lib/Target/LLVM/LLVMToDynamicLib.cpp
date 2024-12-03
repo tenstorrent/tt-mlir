@@ -57,8 +57,11 @@ createTargetMachine(const std::string &targetTriple) {
   std::string errorMessage;
   auto llvmTarget =
       llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
-  if (!llvmTarget)
+  if (!llvmTarget) {
+    llvm::errs() << "target lookup failed for " << targetTriple
+                 << " w msg: " << errorMessage << "\n";
     return nullptr;
+  }
 
   llvm::TargetOptions options;
 
@@ -145,9 +148,10 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 //       llvm::TargetRegistry::lookupTarget(targetTriple, errorStr);
 //   if (!target) {
 //     llvm::errs() << "Error finding target: " << errorStr << "\n";
-//     return nullptr;
-//   }
+llvm::errs() << "target lookup failed for " << targetTriple
+             << " w msg: " << errorMessage << "\n"; //     return nullptr;
 
+//   }
 //   // Create target machine
 //   llvm::TargetOptions opt;
 //   auto relocModel = llvm::Optional<llvm::Reloc::Model>();
