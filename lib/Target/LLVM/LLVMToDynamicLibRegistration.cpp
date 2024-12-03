@@ -20,14 +20,7 @@ void registerLLVMToDynamicLibrary() {
         return translateLLVMToDyLib(op, os, {});
       },
       [](DialectRegistry &registry) {
-        // clang-format off
-        // registry.insert<mlir::tt::TTDialect,
-        //                 mlir::tt::ttnn::TTNNDialect,
-        //                 mlir::tt::ttkernel::TTKernelDialect,
-        //                 mlir::func::FuncDialect,
-        //                 mlir::emitc::EmitCDialect
-        //                 >();
-        // clang-format on
+        registry.insert<mlir::tt::TTDialect, mlir::LLVM::LLVMDialect>();
       });
 }
 
