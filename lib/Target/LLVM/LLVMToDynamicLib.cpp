@@ -87,7 +87,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // debug info:
   llvm::outs() << "TargetMachine Info: \n";
-  llvm::outs() << "Triple: " << targetMachine->getTargetTriple() << "\n";
+  llvm::outs() << "Triple: " << targetMachine->getTargetTriple().str() << "\n";
   llvm::outs() << "DataLayout: "
                << module.getDataLayout().getStringRepresentation() << "\n";
 
