@@ -1218,6 +1218,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
+           ScatterOpConversionPattern,
            PermuteOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
