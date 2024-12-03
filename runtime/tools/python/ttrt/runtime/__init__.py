@@ -23,7 +23,6 @@ try:
         get_op_output_tensor,
         get_op_debug_str,
         WorkaroundEnv,
-        unregister_hooks,
     )
 except ModuleNotFoundError:
     raise ImportError(
