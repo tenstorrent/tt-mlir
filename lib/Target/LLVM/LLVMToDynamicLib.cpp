@@ -755,6 +755,11 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   bool isAllLLVM = true;
 
   module.walk([&](Operation *op) {
+    // Allow the module operation itself to pass (builtin.module)
+    if (llvm::isa<mlir::ModuleOp>(op)) {
+      return; // Skip the check for the module operation
+    }
+    // check other operations to make sure they're llvm
     if (op->getDialect() != llvmDialect) {
       isAllLLVM = false;
       llvm::errs() << "Non-LLVM operation found: " << op->getName()
