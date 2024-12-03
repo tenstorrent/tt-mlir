@@ -82,6 +82,12 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     return llvm::failure();
   }
 
+  // debug info:
+  llvm::outs() << "TargetMachine Info: \n";
+  llvm::outs() << "Triple: " << targetMachine->getTargetTriple() << "\n";
+  llvm::outs() << "DataLayout: "
+               << module->getDataLayout().getStringRepresentation() << "\n";
+
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
 
