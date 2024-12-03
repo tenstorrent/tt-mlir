@@ -30,18 +30,18 @@ uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
 
 L1InterleavedPolicy::OpConfig L1InterleavedPolicy::getGreedyConfig(
     Operation *baseOp, llvm::DenseMap<Operation *, L1Usage> &opsL1Usage) {
-  uint64_t n, bitIndex, currentMask;
+  uint64_t numOfOps, bitIndex, currentMask;
   uint64_t currentL1Usage, optimalL1Usage;
   llvm::DenseMap<Operation *, TTNNLayoutAttr> optimalLayouts;
   llvm::SmallVector<Operation *> optimalPrecedence;
 
-  constexpr uint64_t nOps = sizeof(n) * 8;
-  n = opsL1Usage.size();
-  assert(n <= nOps);
+  constexpr uint64_t maxNumOfOps = sizeof(numOfOps) * 8;
+  numOfOps = opsL1Usage.size();
+  assert(numOfOps <= maxNumOfOps);
 
   optimalL1Usage = 0;
-  for (currentMask = 0; currentMask < (1 << n); currentMask++) {
-    std::bitset<nOps> bitset(currentMask);
+  for (currentMask = 0; currentMask < (1 << numOfOps); currentMask++) {
+    std::bitset<maxNumOfOps> bitset(currentMask);
     llvm::DenseMap<Operation *, TTNNLayoutAttr> currentLayouts;
     llvm::SmallVector<Operation *> currentPrecedence, optimalL1Precedence,
         L1Precedence;
