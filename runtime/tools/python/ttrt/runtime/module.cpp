@@ -138,4 +138,12 @@ PYBIND11_MODULE(_C, m) {
         os << env;
         return os.str();
       });
+
+  /**
+   * Cleanup code to force a well ordered destruction w.r.t. the GIL
+   */
+  auto cleanup_callback = []() {
+    ::tt::runtime::debug::Hooks::get().unregisterHooks();
+  };
+  m.add_object("_cleanup", py::capsule(cleanup_callback));
 }
