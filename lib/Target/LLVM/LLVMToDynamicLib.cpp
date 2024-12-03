@@ -13,6 +13,7 @@
 
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
+#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 // #include "lld/Common/Driver.h"
