@@ -56,11 +56,10 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::LLVMContext &context,
                                     const std::string &outputFilename) {
   // Initialize LLVM targets
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeX86Target();
+  llvm::InitializeX86TargetMC();
+  llvm::InitializeX86AsmPrinter();
+  llvm::InitializeX86AsmParser();
 
   // Set target triple if not already set
   if (module.getTargetTriple().empty()) {
