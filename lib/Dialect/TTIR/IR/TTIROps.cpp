@@ -817,6 +817,22 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// TypecastOp
+//===----------------------------------------------------------------------===//
+
+// TypecastOp folder
+::llvm::LogicalResult mlir::tt::ttir::TypecastOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+
+  if (getType(0) == getInputs()[0].getType()) {
+    results.push_back(getInputs()[0]);
+    return llvm::success();
+  }
+  return llvm::failure();
+}
+
+//===----------------------------------------------------------------------===//
 // UnsqueezeOp
 //===----------------------------------------------------------------------===//
 

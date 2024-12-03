@@ -365,6 +365,8 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let description = [{
       Eltwise cast operation.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
