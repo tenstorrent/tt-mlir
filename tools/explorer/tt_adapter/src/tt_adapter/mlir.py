@@ -13,7 +13,11 @@ from ttmlir import ir
 def get_loc_str(loc):
     try:
         # Constant loc( at the start of the location and ) at the end. Can just strip these characters
-        res = str(loc)[4:-1]
+        loc = str(loc)
+        if loc.startswith("loc(") and loc.endswith(")"):
+            res = str(loc)[4:-1]
+        else:
+            res = loc  # This is a fallback to just visualize / see what the loc is if not processable.
     except:
         res = "unknown"
     return res

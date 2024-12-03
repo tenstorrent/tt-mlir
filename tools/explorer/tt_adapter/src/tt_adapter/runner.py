@@ -138,6 +138,9 @@ class ModelRunner:
             "LOC",
         ]
         perf = perf[columns]
+        print(perf)
+
+        print(f"Total device duration: {perf['DEVICE FW DURATION [ns]'].sum()}ns")
 
         # Create the node_data type here
         timing_data = list(zip(perf["LOC"], perf["DEVICE FW DURATION [ns]"]))
