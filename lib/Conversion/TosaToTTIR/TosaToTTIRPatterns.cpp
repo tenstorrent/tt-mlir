@@ -129,7 +129,7 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
 }
-  
+
 void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
                                                 RewritePatternSet &patterns,
                                                 TypeConverter &typeConverter) {
@@ -138,8 +138,8 @@ void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
 }
 
 void addLogicalOpsConversionPatterns(MLIRContext *ctx,
-                                   RewritePatternSet &patterns,
-                                   TypeConverter &typeConverter) {
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::LogicalAndOp, mlir::tt::ttir::LogicalAndOp>>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
@@ -161,7 +161,7 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
-  
+
 } // namespace
 
 namespace mlir::tt {
