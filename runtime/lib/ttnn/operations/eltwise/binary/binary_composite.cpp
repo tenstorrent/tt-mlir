@@ -41,6 +41,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::remainder);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::Scatter: {
+    runEltwiseBinaryCompositeOp(op, tensorPool, ::ttnn::scatter);
+    break;
+  }
   default:
     LOG_FATAL("Unsupported Eltwise Binary Composite operation");
   }

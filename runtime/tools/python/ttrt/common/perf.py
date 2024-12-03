@@ -17,9 +17,14 @@ import shutil
 import atexit
 import traceback
 from pathlib import Path
+import csv
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
+
+
+def get_loc_data_hook(binary, programContext, opContext):
+    op_debug_str = ttrt.runtime.get_op_debug_str(opContext)
 
 
 class Perf:
@@ -456,6 +461,38 @@ class Perf:
                         )
 
                     process_ops(None, None, False)
+
+                    # Add post-processing steps to insert location data into the ops_perf data file
+                    with open(profiler_csv_file_path, "r") as perf_file:
+                        perf_reader = csv.DictReader(perf_file)
+                        headers = list(perf_reader.fieldnames) + ["LOC"]
+                        perf_data = list(perf_reader)
+
+                    with open(profiler_csv_file_path, "w+") as perf_file, open(
+                        tracy_ops_data_file_path, "r"
+                    ) as message_file:
+                        message_reader = csv.reader(message_file, delimiter=";")
+                        ops_index = 0
+                        prev = None
+                        for message in message_reader:
+                            message = message[0]  # Don't need timestamp information
+                            if message.startswith("`"):
+                                # This is a TTNN Message
+                                # The location data is now in the previous message
+                                # The order of data is maintained in perf_data so as the messages are received, they update the id last encountered.
+                                # Now that we have a new message, we can update the location data from the previous message
+                                if prev:
+                                    # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
+                                    if len(perf_data) > ops_index:
+                                        perf_data[ops_index]["LOC"] = prev
+                                        ops_index += 1
+                            else:
+                                prev = message
+                        perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
+                        perf_writer.writeheader()
+                        for row in perf_data:
+                            perf_writer.writerow(row)
+
                     self.file_manager.copy_file(
                         perf_folder_path,
                         profiler_csv_file_path,

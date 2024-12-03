@@ -406,8 +406,10 @@ public:
                TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesInitFOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
+               TTMetalToEmitCOpaqueRewriter<ttkernel::MaxTilesOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
                TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
@@ -478,6 +480,8 @@ public:
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/eltwise_binary.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api.h", // max ops
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/tile_move_copy.h",

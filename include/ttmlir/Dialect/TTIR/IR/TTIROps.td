@@ -506,18 +506,6 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
-    let summary = "Eltwise maximum OP.";
-    let description = [{
-      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
-
-      Example:
-        %lhs: [[3, 2, 7], [1, 4, 4]]
-        %rhs: [[1, 4, 2], [1, 2, 3]]
-        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
-    }];
-}
-
 def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
     let summary = "Eltwise minimum OP.";
     let description = [{
@@ -1242,6 +1230,53 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     let description = [{
       Eltwise divide operation.
     }];
+}
+
+def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
+//===----------------------------------------------------------------------===//
+
+def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
+  let summary = "Scatter operation";
+  let description = [{
+    Produces a 'result' tensor which are equal to `input` tensor except that
+    several slices specified by `scatter_indices` are updated with the values
+    `updates`.
+    }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$scatter_indices,
+                       AnyRankedTensor:$update,
+                       DenseI32ArrayAttr:$update_window_dims,
+                       DenseI32ArrayAttr:$inserted_window_dims,
+                       DenseI32ArrayAttr:$input_batching_dims,
+                       DenseI32ArrayAttr:$scatter_indices_batching_dims,
+                       DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
+                       I32Attr:$index_vector_dim,
+                       BoolAttr:$indices_are_sorted,
+                       BoolAttr:$unique_indices,
+                       AnyRankedTensor:$output,
+                       TT_OperandConstraintArrayAttr:$operand_constraints);
+
+  let regions = (region SizedRegion<1>:$update_computation);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+  }];
 }
 
 //===----------------------------------------------------------------------===//

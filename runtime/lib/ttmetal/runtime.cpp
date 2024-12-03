@@ -262,6 +262,12 @@ std::string getOpDebugString(OpContext opContextHandle) {
   return "";
 }
 
+std::string getOpLocInfo(OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op location info for metal runtime not implemented");
+  return "";
+}
+
 Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle) {
   // Not implemented

@@ -1666,6 +1666,137 @@ public:
   }
 };
 
+class StableHLOToTTIRScatterOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ScatterOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
+                  mlir::stablehlo::ScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    Value operand = srcOp.getInputs()[0];
+    Value scatterIndices = srcOp.getScatterIndices();
+    Value update = srcOp.getUpdates()[0];
+    mlir::ArrayAttr binaryConstraints = rewriter.getArrayAttr(
+        SmallVector<Attribute>(4, rewriter.getAttr<OperandConstraintAttr>(
+                                      OperandConstraint::AnyDeviceTile)));
+    auto updateWindowsDims =
+        adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
+    auto insertedWindowDims =
+        adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
+    auto inputBatchingDims =
+        adaptor.getScatterDimensionNumbers().getInputBatchingDims();
+    auto scatterIndicesBatchingDims =
+        adaptor.getScatterDimensionNumbers().getScatterIndicesBatchingDims();
+    auto scatterDimsToOperandDims =
+        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
+    auto indexVectorDim =
+        adaptor.getScatterDimensionNumbers().getIndexVectorDim();
+    auto indicesAreSorted = adaptor.getIndicesAreSorted();
+    auto uniqueIndices = adaptor.getUniqueIndices();
+
+    auto newScatterOp = rewriter.create<mlir::tt::ttir::ScatterOp>(
+        srcOp.getLoc(), outputType, operand, scatterIndices, update,
+        llvm::ArrayRef<int32_t>(
+            convertArrayRefToInt32vector(updateWindowsDims)),
+        llvm::ArrayRef<int32_t>(
+            convertArrayRefToInt32vector(insertedWindowDims)),
+        llvm::ArrayRef<int32_t>(
+            convertArrayRefToInt32vector(inputBatchingDims)),
+        llvm::ArrayRef<int32_t>(
+            convertArrayRefToInt32vector(scatterIndicesBatchingDims)),
+        llvm::ArrayRef<int32_t>(
+            convertArrayRefToInt32vector(scatterDimsToOperandDims)),
+        indexVectorDim, indicesAreSorted, uniqueIndices, outputTensor,
+        binaryConstraints);
+
+    // Replaces with different types do not work and will fail silently, so we
+    // manually set the second operand, since the type changes there from i32 to
+    // i64.
+    newScatterOp.setOperand(
+        1, adaptor.getScatterIndices().getDefiningOp()->getResult(0));
+
+    newScatterOp->getRegion(0).takeBody(adaptor.getUpdateComputation());
+    changeRegionTypes(newScatterOp->getRegion(0), *getTypeConverter(),
+                      rewriter);
+
+    rewriter.replaceOp(srcOp, newScatterOp);
+
+    return success();
+  }
+
+private:
+  std::vector<int32_t>
+  convertArrayRefToInt32vector(const llvm::ArrayRef<int64_t> &source) const {
+    std::vector<int32_t> converted;
+    converted.reserve(source.size());
+
+    for (int64_t value : source) {
+      converted.push_back(static_cast<int32_t>(value));
+    }
+
+    return converted;
+  }
+
+  void changeRegionTypes(mlir::Region &region,
+                         const mlir::TypeConverter &typeConverter,
+                         mlir::PatternRewriter &rewriter) const {
+    Block &block = *region.getBlocks().begin();
+    llvm::SmallVector<mlir::BlockArgument, 4> oldArguments(
+        block.getArguments().begin(), block.getArguments().end());
+    llvm::SmallVector<mlir::Value, 4> newArguments;
+
+    // Add new arguments with updated types to the block.
+    for (auto arg : oldArguments) {
+      if (auto newType = typeConverter.convertType(arg.getType())) {
+        mlir::BlockArgument newArg = block.addArgument(newType, arg.getLoc());
+        newArguments.push_back(newArg);
+      } else {
+        newArguments.push_back(arg); // Type didn't change
+      }
+    }
+
+    for (auto it : llvm::zip(oldArguments, newArguments)) {
+      mlir::BlockArgument oldArg = std::get<0>(it);
+      mlir::Value newArg = std::get<1>(it);
+      if (oldArg != newArg) {
+        oldArg.replaceAllUsesWith(newArg);
+      }
+    }
+
+    for (auto arg : oldArguments) {
+      if (!llvm::is_contained(newArguments, arg)) {
+        block.eraseArgument(arg.getArgNumber());
+      }
+    }
+  }
+};
+
+class StableHLOToTTIRReturnOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ReturnOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ReturnOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ReturnOp srcOp,
+                  mlir::stablehlo::ReturnOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::YieldOp>(srcOp,
+                                                         srcOp.getResults());
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -1846,6 +1977,18 @@ void addIotaOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
           typeConverter, ctx);
 }
 
+void addScatterOpConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
+}
+
+void addReturnOpConversionPatterns(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRReturnOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1872,6 +2015,8 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
+  addScatterOpConversionPatterns(ctx, patterns, typeConverter);
+  addReturnOpConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

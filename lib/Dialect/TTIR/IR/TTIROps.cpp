@@ -1324,6 +1324,68 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 }
 
 //===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+
+bool matchSimpleBlock(mlir::Region &region) {
+  if (!region.hasOneBlock()) {
+    return false;
+  }
+  mlir::Block &block = region.front();
+  if (block.getNumArguments() != 2) {
+    return false;
+  }
+  auto argType1 =
+      mlir::cast<mlir::RankedTensorType>(block.getArgument(0).getType());
+  auto argType2 =
+      mlir::cast<mlir::RankedTensorType>(block.getArgument(1).getType());
+  if (!argType1 || !argType2) {
+    return false;
+  }
+  if (block.getOperations().size() != 1) {
+    return false;
+  }
+  mlir::tt::ttir::YieldOp returnOp =
+      mlir::cast<mlir::tt::ttir::YieldOp>(&block.front());
+  if (!returnOp) {
+    return false;
+  }
+  if (returnOp.getNumOperands() != 1 ||
+      returnOp.getOperand(0) != block.getArgument(1)) {
+    return false;
+  }
+  return true;
+}
+
+::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
+
+  ArrayRef<int64_t> inputShape =
+      mlir::cast<RankedTensorType>(getInput().getType()).getShape();
+
+  if (getUpdateWindowDims().size() + getInsertedWindowDims().size() !=
+      inputShape.size()) {
+    return emitOpError("Batching currently not supported");
+  }
+
+  for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
+    if (inputShape[insertedWindowDims] != 1) {
+      return emitOpError("Dimension size to slice into must be 1");
+    }
+  }
+
+  // We currently do not support custom functions in the scatter function,
+  // which is a possbility in StableHLO dialect. See issue:
+  // https://github.com/tenstorrent/tt-mlir/issues/1278
+  if (!matchSimpleBlock(getUpdateComputation())) {
+    return emitOpError(
+        "Currently not supporting custom scatter function in TTNN "
+        "dialect and TT-metal.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 
@@ -1402,6 +1464,13 @@ void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
                                                         block);
+}
+
+// MaximumOp generic region builder
+void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                   ::mlir::Block *block) {
+  buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
+                                                     block);
 }
 
 //===----------------------------------------------------------------------===//

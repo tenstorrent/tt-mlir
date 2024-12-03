@@ -812,46 +812,6 @@ public:
   }
 };
 
-class BroadcastOpConversionPattern
-    : public OpConversionPattern<ttir::BroadcastOp> {
-  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(ttir::BroadcastOp srcOp, ttir::BroadcastOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    // Fold this operation into all consumer ops. It will only work with TTNN
-    // ops that support implicit broadcasting. We expect each Op's verify
-    // function to assert their arguments to verify that they can broadcast.
-
-    if (srcOp->getUsers().empty()) {
-      // This broadcast chain has already been replaced.
-      rewriter.eraseOp(srcOp);
-      return success();
-    }
-
-    mlir::Value input = srcOp.getOperand(0);
-
-    mlir::Operation *nextOp = srcOp;
-    while (isa<ttir::BroadcastOp>(*nextOp->getUsers().begin())) {
-      assert(nextOp->hasOneUse() &&
-             "Broadcast with multiple uses are not supported");
-      nextOp = *nextOp->getUsers().begin();
-      if (nextOp->getUsers().empty()) {
-        // This broadcast chain has already been replaced.
-        rewriter.eraseOp(srcOp);
-        return success();
-      }
-    }
-
-    rewriter.replaceAllOpUsesWith(nextOp, input);
-    rewriter.eraseOp(srcOp);
-
-    return success();
-  }
-};
-
 class SubtractOpConversionPattern
     : public OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern<ttir::SubtractOp>::OpConversionPattern;
@@ -953,6 +913,21 @@ public:
   }
 };
 
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+public:
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // The ttnn interface has the inverse inputs of the TTIR dialect op (which
+    // matches torch ops).
+    rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
+        op, adaptor.getUpdate(), adaptor.getInput(), adaptor.getOutput());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -1004,7 +979,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
-           BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
@@ -1022,7 +996,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
            AllGatherOpConversionPattern,
-           ArangeOpConversionPattern
+           ArangeOpConversionPattern,
+           ScatterOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
