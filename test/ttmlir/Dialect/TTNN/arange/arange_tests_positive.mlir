@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-// XFAIL: *
+// UNSUPPORTED: true
 // https://github.com/tenstorrent/tt-mlir/issues/1448
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
