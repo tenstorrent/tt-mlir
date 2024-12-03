@@ -19,7 +19,7 @@
 namespace mlir::tt::llvm_to_cpu {
 
 // Verify that all ops in given module are in LLVM Dialect
-LogicalResult verifyAllLLVM(const mlir::ModuleOp &module);
+LogicalResult verifyAllLLVM(mlir::ModuleOp module);
 
 // Compile LLVM Dialect into assembly
 LogicalResult compileToObject(llvm::Module &module, llvm::LLVMContext &context,
