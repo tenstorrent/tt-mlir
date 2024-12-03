@@ -104,6 +104,13 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   llvm::legacy::PassManager passManager;
   passManager.add(
       new llvm::TargetLibraryInfoWrapperPass(targetMachine->getTargetTriple()));
+  passManager.add(
+      llvm::createBasicAliasAnalysisPass()); // Add alias analysis pass
+  passManager.add(llvm::createTargetTransformInfoWrapperPass(
+      targetMachine->getTargetTransformInfo()));
+  passManager.add(
+      llvm::createTargetLoweringPass(targetMachine->getTargetLowering()));
+  passManager.add(llvm::createMachineVerifierPass()); // Optional
   if (targetMachine->addPassesToEmitFile(passManager, out, nullptr,
                                          llvm::CodeGenFileType::ObjectFile)) {
     llvm::errs() << "Target machine cannot emit object file\n";
