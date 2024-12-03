@@ -771,8 +771,16 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
 }
 
 llvm::LogicalResult
-translateLLVMToDyLib(mlir::ModuleOp *op, llvm::raw_ostream &,
+translateLLVMToDyLib(Operation *op, llvm::raw_ostream &,
                      std::unordered_map<std::string, GoldenTensor>) {
+  mlir::ModuleOp moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
+
+  if (!moduleOp) {
+    // Handle the case where the cast failed (op is not a ModuleOp)
+    llvm::errs() << "The operation is not a ModuleOp, cannot perform this "
+                    "translation on anything but entire modules\n";
+    return llvm::failure();
+  }
 
   if (llvm::failed(verifyAllLLVM(*op))) {
     return llvm::failure();

@@ -38,7 +38,7 @@ LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
 // This function signature is required in order to register the conversion in
 // mlir translation framework even though we don't use last 2 args
 LogicalResult translateLLVMToDyLib(
-    mlir::ModuleOp *op, llvm::raw_ostream &os,
+    Operation *op, llvm::raw_ostream &os,
     std::unordered_map<std::string, GoldenTensor> goldenMap = {});
 } // namespace mlir::tt::llvm_to_cpu
 
