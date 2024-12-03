@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
-#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
@@ -74,6 +75,14 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         filterDRAMAndL1Interleaved(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     l1InterleavedPolicy.run();
+    break;
+  }
+  case MemoryLayoutAnalysisPolicyType::BFInterleaved: {
+    BFInterleavedPolicy bfInterleavedPolicy(
+        op, l1ChainConfigs,
+        filterDRAMAndL1Interleaved(analysisInput.legalLayouts),
+        analysisResult.schedule, analysisInput.usableL1CacheSize);
+    bfInterleavedPolicy.run();
     break;
   }
   }

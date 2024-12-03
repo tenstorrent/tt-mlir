@@ -10,7 +10,11 @@
 
 namespace mlir::tt {
 
-enum class MemoryLayoutAnalysisPolicyType { DFSharding, GreedyL1Interleaved };
+enum class MemoryLayoutAnalysisPolicyType {
+  DFSharding,
+  GreedyL1Interleaved,
+  BFInterleaved
+};
 
 struct MemoryLayoutAnalysisPolicyTypeParser
     : public llvm::cl::parser<MemoryLayoutAnalysisPolicyType> {
@@ -23,7 +27,9 @@ public:
     value = llvm::StringSwitch<MemoryLayoutAnalysisPolicyType>(arg)
                 .Case("DFSharding", MemoryLayoutAnalysisPolicyType::DFSharding)
                 .Case("GreedyL1Interleaved",
-                      MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
+                      MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved)
+                .Case("BFInterleaved",
+                      MemoryLayoutAnalysisPolicyType::BFInterleaved);
     return false;
   }
 
@@ -35,6 +41,9 @@ public:
       break;
     case MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved:
       res += "GreedyL1Interleaved";
+      break;
+    case MemoryLayoutAnalysisPolicyType::BFInterleaved:
+      res += "BFInterleaved";
       break;
     }
     return res;

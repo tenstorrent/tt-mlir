@@ -16,7 +16,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
 
 using namespace mlir::tt::ttnn;
 

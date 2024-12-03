@@ -2,31 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
 namespace mlir::tt::ttnn {
-
-uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
-                            DeviceAttr &deviceAttr) {
-  // In case the opLayout is not in L1 memory space, L1 memory usage is 0.
-  //
-  if (opLayout.hasDRAMBufferType()) {
-    return 0;
-  }
-
-  // L1 memory usage of the ops without output tensors cannot be calculated.
-  // So far, this is only false for ttnn.get_device op.
-  //
-  assert(mlir::isa<RankedTensorType>(op->getResult(0).getType()));
-  llvm::ArrayRef<int64_t> opOutputTensorShape =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape();
-
-  uint64_t opL1OutputUsage =
-      opLayout.getTensorSizeInBytes(opOutputTensorShape, deviceAttr);
-  return opL1OutputUsage;
-}
 
 GreedyL1InterleavedPolicy::OpConfig GreedyL1InterleavedPolicy::getGreedyConfig(
     Operation *baseOp, llvm::DenseMap<Operation *, L1Usage> &opsL1Usage) {
@@ -185,8 +166,8 @@ void GreedyL1InterleavedPolicy::run() {
 
           if (op->hasOneUse() && hasL1BufferType(op)) {
             L1Usage l1Usage;
-            l1Usage.outputL1Usage =
-                getOpOutputL1Usage(op, getL1InterleavedLayout(op), deviceAttr);
+            l1Usage.outputL1Usage = utils::getOpOutputL1Usage(
+                op, getL1InterleavedLayout(op), deviceAttr);
             l1Usage.requiredL1Usage = 0;
             opsL1Usage[op] = l1Usage;
           }
@@ -211,8 +192,8 @@ void GreedyL1InterleavedPolicy::run() {
             //
             if (operandOpLayout.hasInterleavedL1TensorMemoryLayout()) {
               L1Usage l1Usage;
-              l1Usage.outputL1Usage =
-                  getOpOutputL1Usage(operandOp, operandOpLayout, deviceAttr);
+              l1Usage.outputL1Usage = utils::getOpOutputL1Usage(
+                  operandOp, operandOpLayout, deviceAttr);
               l1Usage.requiredL1Usage = OpMemSpecMap[operandOp].requiredL1Usage;
               opsL1Usage[operandOp] = l1Usage;
             }
@@ -271,14 +252,15 @@ void GreedyL1InterleavedPolicy::run() {
                   std::max(intermediateRequiredL1Usage,
                            intermediateL1Usage +
                                OpMemSpecMap[operandOp].requiredL1Usage);
-              intermediateL1Usage += getOpOutputL1Usage(
+              intermediateL1Usage += utils::getOpOutputL1Usage(
                   operandOp, OpMemSpecMap[operandOp].layout, deviceAttr);
             }
           }
-          OpMemSpecMap[op].requiredL1Usage = std::max(
-              intermediateRequiredL1Usage,
-              intermediateL1Usage +
-                  getOpOutputL1Usage(op, OpMemSpecMap[op].layout, deviceAttr));
+          OpMemSpecMap[op].requiredL1Usage =
+              std::max(intermediateRequiredL1Usage,
+                       intermediateL1Usage +
+                           utils::getOpOutputL1Usage(
+                               op, OpMemSpecMap[op].layout, deviceAttr));
         }
       }
     }

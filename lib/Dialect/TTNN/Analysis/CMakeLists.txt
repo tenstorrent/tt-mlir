@@ -4,7 +4,8 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         MemoryLayoutAnalysis.cpp
         L1ChainConfig.cpp
         DFShardingPolicy.cpp
-        L1InterleavedPolicy.cpp
+        GreedyL1InterleavedPolicy.cpp
+        BFInterleavedPolicy.cpp
         ShardSolver.cpp
 
         ADDITIONAL_HEADER_DIRS
