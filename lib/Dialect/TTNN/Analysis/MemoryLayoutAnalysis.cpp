@@ -68,8 +68,8 @@ void MemoryLayoutAnalysis::analysisImplementation() {
     dfShardingPolicy.run();
     break;
   }
-  case MemoryLayoutAnalysisPolicyType::L1Interleaved: {
-    L1InterleavedPolicy l1InterleavedPolicy(
+  case MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved: {
+    GreedyL1InterleavedPolicy l1InterleavedPolicy(
         op, l1ChainConfigs,
         filterDRAMAndL1Interleaved(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);

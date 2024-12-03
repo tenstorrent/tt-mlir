@@ -12,7 +12,7 @@
 
 namespace mlir::tt::ttnn {
 
-class L1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
+class GreedyL1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
   struct OpMemSpec {
     TTNNLayoutAttr layout;
@@ -46,7 +46,7 @@ public:
   };
 
 public:
-  L1InterleavedPolicy(
+  GreedyL1InterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,

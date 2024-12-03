@@ -31,9 +31,9 @@ public:
   mlir::func::FuncOp func;
   mlir::tt::DeviceAttr deviceAttr;
 
-  using OpMemSpec = L1InterleavedPolicy::OpMemSpec;
-  using OpConfig = L1InterleavedPolicy::OpConfig;
-  using L1Usage = L1InterleavedPolicy::L1Usage;
+  using OpMemSpec = GreedyL1InterleavedPolicy::OpMemSpec;
+  using OpConfig = GreedyL1InterleavedPolicy::OpConfig;
+  using L1Usage = GreedyL1InterleavedPolicy::L1Usage;
 
   void SetUp() override {
     context.loadDialect<TTNNDialect>();
@@ -174,8 +174,8 @@ TEST_F(L1InterleavedPolicyBase, VerifyGreedyPolicy) {
                                  legalLayouts, opsL1Usage);
 
   // Run greedy config picker policy
-  L1InterleavedPolicy l1InterleavedPolicy(nullptr, l1ChainConfigs, legalLayouts,
-                                          schedule, usableL1CacheSize);
+  GreedyL1InterleavedPolicy l1InterleavedPolicy(
+      nullptr, l1ChainConfigs, legalLayouts, schedule, usableL1CacheSize);
   OpConfig greedyConfig = l1InterleavedPolicy.getGreedyConfig(opD, opsL1Usage);
 
   // Sanity checks

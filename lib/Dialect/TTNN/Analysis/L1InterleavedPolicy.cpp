@@ -28,7 +28,7 @@ uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
   return opL1OutputUsage;
 }
 
-L1InterleavedPolicy::OpConfig L1InterleavedPolicy::getGreedyConfig(
+GreedyL1InterleavedPolicy::OpConfig GreedyL1InterleavedPolicy::getGreedyConfig(
     Operation *baseOp, llvm::DenseMap<Operation *, L1Usage> &opsL1Usage) {
   uint64_t numOfOps, bitIndex, currentMask;
   uint64_t currentL1Usage, optimalL1Usage;
@@ -146,7 +146,7 @@ L1InterleavedPolicy::OpConfig L1InterleavedPolicy::getGreedyConfig(
   return optimalConfig;
 }
 
-void L1InterleavedPolicy::run() {
+void GreedyL1InterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
@@ -308,7 +308,7 @@ void L1InterleavedPolicy::run() {
   }
 }
 
-bool L1InterleavedPolicy::isAnalyzable(Operation *op) {
+bool GreedyL1InterleavedPolicy::isAnalyzable(Operation *op) {
   // Skip operations that are not analyzed by the LegalGridAnalysis.
   //
   if (legalLayouts.count(op) > 0) {
@@ -319,14 +319,14 @@ bool L1InterleavedPolicy::isAnalyzable(Operation *op) {
   return false;
 }
 
-bool L1InterleavedPolicy::hasDRAMBufferType(Operation *op) {
+bool GreedyL1InterleavedPolicy::hasDRAMBufferType(Operation *op) {
   return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
                       [](TTNNLayoutAttr layout) {
                         return layout.hasDRAMBufferType();
                       }) != legalLayouts[op].end();
 }
 
-TTNNLayoutAttr L1InterleavedPolicy::getDRAMLayout(Operation *op) {
+TTNNLayoutAttr GreedyL1InterleavedPolicy::getDRAMLayout(Operation *op) {
   assert(hasDRAMBufferType(op));
   auto dramLayoutIter = std::find_if(
       legalLayouts[op].begin(), legalLayouts[op].end(),
@@ -334,14 +334,15 @@ TTNNLayoutAttr L1InterleavedPolicy::getDRAMLayout(Operation *op) {
   return *dramLayoutIter;
 }
 
-bool L1InterleavedPolicy::hasL1BufferType(Operation *op) {
+bool GreedyL1InterleavedPolicy::hasL1BufferType(Operation *op) {
   return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
                       [](TTNNLayoutAttr layout) {
                         return layout.hasInterleavedL1TensorMemoryLayout();
                       }) != legalLayouts[op].end();
 }
 
-TTNNLayoutAttr L1InterleavedPolicy::getL1InterleavedLayout(Operation *op) {
+TTNNLayoutAttr
+GreedyL1InterleavedPolicy::getL1InterleavedLayout(Operation *op) {
   assert(hasL1BufferType(op));
   auto l1InterleaveLayoutIter =
       std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
