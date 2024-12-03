@@ -15,6 +15,7 @@
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Pass/PassManager.h"
 
 // #include "lld/Common/Driver.h"
 // #include "lld/Common/ErrorHandler.h"
@@ -35,7 +36,7 @@ llvm::Module *convertToLLVMModule(mlir::ModuleOp mlirModule,
   llvm::legacy::PassManager passManager;
 
   // Step 3: Set up conversion target
-  mlir::LLVMConversionTarget conversionTarget(mlirModule.getContext());
+  mlir::LLVMConversionTarget conversionTarget(*mlirModule.getContext());
   conversionTarget.addLegalDialect<mlir::LLVM::LLVMDialect>();
 
   // Step 4: Run the conversion pass (mlir::lowerToLLVM)
@@ -49,7 +50,7 @@ llvm::Module *convertToLLVMModule(mlir::ModuleOp mlirModule,
   }
 
   // Step 5: Retrieve the converted llvm::Module
-  llvm::Module *module = mlir::translateModuleToLLVM(*mlirModule, llvmContext);
+  auto module = mlir::translateModuleToLLVMIR(*mlirModule, llvmContext);
   return module;
 }
 
@@ -801,11 +802,11 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
 llvm::LogicalResult translateLLVMToDyLib(mlir::ModuleOp *op,
                                          llvm::raw_ostream &os) {
 
-  if (!llvm::succeeded(verifyAllLLVM(*op))) {
+  if (llvm::failed(verifyAllLLVM(*op))) {
     return llvm::failure();
   }
-  if (!llvm::succeeded(compileAndLinkToSharedLibrary(
-          convertToLLVMModule(op, op->getContext()), op->getContext(),
+  if (llvm::failed(compileAndLinkToSharedLibrary(
+          convertToLLVMModule(*op, op->getContext()), op->getContext(),
           "temp.so"))) {
     return llvm::failure();
   }
