@@ -749,6 +749,28 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 //   return llvm::success();
 // }
 
+llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
+  auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
+
+  bool isAllLLVM = true;
+
+  module.walk([&](Operation *op) {
+    if (op->getDialect() != llvmDialect) {
+      isAllLLVM = false;
+      llvm::errs() << "Non-LLVM operation found: " << op->getName()
+                   << " at location " << op->getLoc() << "\n";
+    }
+  });
+
+  if (isAllLLVM) {
+    llvm::outs() << "All operations belong to the LLVM dialect.\n";
+    return llvm::success();
+  } else {
+    llvm::errs() << "Module contains non-LLVM dialect operations.\n";
+    return llvm::failure();
+  }
+}
+
 llvm::LogicalResult
 compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
                               const std::string &outputPath) {
@@ -773,14 +795,14 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
 llvm::LogicalResult
 translateLLVMToDyLib(Operation *op, llvm::raw_ostream &,
                      std::unordered_map<std::string, GoldenTensor>) {
-  mlir::ModuleOp moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
 
-  if (!moduleOp) {
-    // Handle the case where the cast failed (op is not a ModuleOp)
+  if (!llvm::isa<mlir::ModuleOp>(op)) {
     llvm::errs() << "The operation is not a ModuleOp, cannot perform this "
                     "translation on anything but entire modules\n";
     return llvm::failure();
   }
+
+  mlir::ModuleOp moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
 
   if (llvm::failed(verifyAllLLVM(moduleOp))) {
     return llvm::failure();
