@@ -139,15 +139,6 @@ PYBIND11_MODULE(_C, m) {
         return os.str();
       });
 
-  /**
-   * Cleanup code to force a well ordered destruction w.r.t. the GIL
-   *
-   * TODO: `clangd` reports that `capsule` is deprecated, figure out how to do
-   * this canonically
-   */
-  static int unused; // the capsule needs something to reference
-  py::capsule cleanup(&unused, [](PyObject *) {
-    ::tt::runtime::debug::Hooks::get().unregisterHooks();
-  });
-  m.add_object("_cleanup", cleanup);
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }
