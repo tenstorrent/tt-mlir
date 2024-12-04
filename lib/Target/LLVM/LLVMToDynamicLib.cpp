@@ -81,6 +81,11 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   LLVMInitializeX86AsmPrinter();
   LLVMInitializeX86AsmParser();
 
+  llvm::errs() << "(debug) Registered targets:\n";
+  for (const auto &Target : llvm::TargetRegistry::targets()) {
+    llvm::errs() << "  " << Target.getName() << "\n";
+  }
+
   // Set target triple if not already set
   if (module.getTargetTriple().empty()) {
     std::string defaultTriple = llvm::sys::getDefaultTargetTriple();
