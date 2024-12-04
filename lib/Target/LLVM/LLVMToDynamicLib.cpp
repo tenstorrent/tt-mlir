@@ -56,8 +56,9 @@ std::unique_ptr<llvm::TargetMachine>
 createTargetMachine(const std::string &targetTriple) {
   std::string errMsg;
   LLVMTargetRef llvmTarget = NULL;
-  if (LLVMGetTargetFromTriple(targetTriple.c_str(), &llvmTarget, &errMsg) !=
-      0) {
+  // TODO: &errMsg.c_str() for char** is very bad idea, but just fiddling
+  if (LLVMGetTargetFromTriple(targetTriple.c_str(), &llvmTarget,
+                              &errMsg.c_str()) != 0) {
     llvm::errs() << "Target not found " << errMsg;
   }
   // auto llvmTarget =
