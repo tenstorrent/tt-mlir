@@ -81,6 +81,31 @@ private:
   }
 };
 
+class TosaToTTIRConcatOpConversionPattern
+    : public OpConversionPattern<tosa::ConcatOp> {
+  using OpConversionPattern<tosa::ConcatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConcatOp srcOp, tosa::ConcatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
+        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
+        Value(outputTensor), adaptor.getAxis(),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -162,6 +187,11 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addConcatOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                  TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -173,6 +203,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addConcatOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
