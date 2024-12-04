@@ -14,7 +14,7 @@ module {
 // -----
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module {
-  func.func @permute_non_valid_permutation(%arg0: tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16> {
+  func.func @permute_subset_permutation(%arg0: tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16> {
     // CHECK: error: 'ttnn.permute' op Expected a permutation of {k | 0 <= k < 3} got (0, 1)
     %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 0, 1>}> : (tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16>
     return %0 : tensor<16x32x64xbf16>
@@ -25,7 +25,7 @@ module {
 // -----
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module {
-  func.func @permute_non_valid_permutation(%arg0: tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16> {
+  func.func @permute_non_valid_shape(%arg0: tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16> {
     // CHECK: error: 'ttnn.permute' op Expected result shape (16, 64, 32), got (16, 32, 64)
     %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 0, 2, 1>}> : (tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16>
     return %0 : tensor<16x32x64xbf16>

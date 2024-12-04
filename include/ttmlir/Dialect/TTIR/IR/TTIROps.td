@@ -1309,9 +1309,17 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 // ANCHOR_END: adding_an_op_matmul_ttir
 
 def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
-    let summary = "Permute op.";
+    let summary = "Permute operation.";
     let description = [{
-      Permute tensor.
+      Permute input tensor dimensions.
+
+      Attributes:
+        - `permutation` array<i64>: The permutation of the input tensor dimensions.
+
+      Example:
+      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %output = tensor.empty() : () -> tensor<3x4x2xi32>
+      %0 = "ttir.permute"(%a, %output) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>, tensor<3x4x2xi32>) -> tensor<3x4x2xi32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
