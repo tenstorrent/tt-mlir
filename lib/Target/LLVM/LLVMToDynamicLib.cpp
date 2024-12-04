@@ -217,6 +217,12 @@ translateLLVMToDyLib(Operation *op, llvm::raw_ostream &,
     return llvm::failure();
   }
 
+  LLVMInitializeX86Target();
+  LLVMInitializeX86TargetMC();
+  LLVMInitializeX86TargetInfo();
+  LLVMInitializeX86AsmPrinter();
+  LLVMInitializeX86AsmParser();
+
   mlir::ModuleOp moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
 
   if (llvm::failed(verifyAllLLVM(moduleOp))) {
