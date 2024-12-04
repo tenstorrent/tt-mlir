@@ -70,9 +70,9 @@ class TTAdapter(model_explorer.Adapter):
             memory_layout_analysis_enabled = False
             memory_layout_analysis_policy = None
 
-        ttnn_ir = self.model_runner.run(
+        perf_data = self.model_runner.run(
             model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
         )
 
         # TODO(odjuricic, #933) Parse TTNN IR and return the post optimized graph.
-        return {"graphs": []}
+        return utils.to_adapter_format({"perf_data": perf_data})
