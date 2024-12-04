@@ -261,7 +261,7 @@ table AllGatherOp {
 
 table PermuteOp {
   in: tt.target.TensorRef;
-  permutation: [int32];
+  permutation: [int64];
   out: tt.target.TensorRef;
 }
 

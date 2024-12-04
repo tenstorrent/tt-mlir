@@ -149,49 +149,19 @@ public:
   matchAndRewrite(mlir::stablehlo::TransposeOp srcOp,
                   mlir::stablehlo::TransposeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    auto input = Value(adaptor.getOperand());
-    auto transposes = getPermutationTransposes(adaptor.getPermutation().vec());
-
-    for (auto transposeDims : transposes) {
-      auto dim0 = std::get<0>(transposeDims);
-      auto dim1 = std::get<1>(transposeDims);
-
-      auto inputType = mlir::cast<RankedTensorType>(input.getType());
-      auto outputShape = inputType.getShape().vec();
-      std::swap(outputShape[dim0], outputShape[dim1]);
-
-      auto outputType = RankedTensorType::get(
-          outputShape, inputType.getElementType(), inputType.getEncoding());
-
-      auto outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputShape, outputType.getElementType());
-
-      input = rewriter.create<mlir::tt::ttir::TransposeOp>(
-          srcOp.getLoc(), outputType, input, outputTensor,
-          rewriter.getSI32IntegerAttr(dim0), rewriter.getSI32IntegerAttr(dim1),
-          rewriter.getArrayAttr(
-              SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                     rewriter.getAttr<OperandConstraintAttr>(
-                                         OperandConstraint::AnyDeviceTile))));
-    }
-    rewriter.replaceOp(srcOp, input);
+    ::mlir::RankedTensorType outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    // stablehlo.transpose and ttir.permute have the same semantics.
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PermuteOp>(
+        srcOp, getTypeConverter()->convertType(srcOp.getResult().getType()),
+        adaptor.getOperand(), outputTensor, adaptor.getPermutation(),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDevice))));
     return success();
-  }
-
-private:
-  std::vector<std::tuple<int64_t, int64_t>>
-  getPermutationTransposes(std::vector<int64_t> permutation) const {
-    std::vector<std::tuple<int64_t, int64_t>> transposes;
-    for (uint32_t i = 0; i < permutation.size(); i++) {
-      while (i != permutation[i]) {
-        transposes.push_back(
-            std::make_tuple(permutation[i], permutation[permutation[i]]));
-        std::swap(permutation[i], permutation[permutation[i]]);
-      }
-    }
-
-    return transposes;
   }
 };
 
@@ -221,19 +191,6 @@ public:
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
-    return success();
-  }
-
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::TransposeOp &srcOp,
-                     mlir::stablehlo::TransposeOp::Adaptor &adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-
-    if (adaptor.getPermutation().size() != 2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "TTIR supports only two dimensional transposeOp.");
-    }
-
     return success();
   }
 };
@@ -1873,13 +1830,6 @@ void addReduceOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
-void addTransposeOpsConversionPatterns(MLIRContext *ctx,
-                                       RewritePatternSet &patterns,
-                                       TypeConverter &typeConverter) {
-
-  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
-}
-
 void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter &typeConverter) {
@@ -1931,6 +1881,12 @@ void addConcatOpsConversionPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRConcatOpConversionPattern>(typeConverter, ctx);
+}
+
+void addTransposeOpConversionPattern(MLIRContext *ctx,
+                                     RewritePatternSet &patterns,
+                                     TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRTransposeOpConversionPattern>(typeConverter, ctx);
 }
 
 void addReshapeOpConversionPattern(MLIRContext *ctx,
@@ -2008,7 +1964,6 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
-  addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addGetDimensionSizeOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
@@ -2017,6 +1972,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addReduceWindowOpConversionPattern(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
+  addTransposeOpConversionPattern(ctx, patterns, typeConverter);
   addReshapeOpConversionPattern(ctx, patterns, typeConverter);
   addLogicalOpConversionPattern(ctx, patterns, typeConverter);
   addCCLOpsConversionPattern(ctx, patterns, typeConverter);

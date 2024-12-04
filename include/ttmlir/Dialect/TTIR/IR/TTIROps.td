@@ -1176,7 +1176,7 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         DenseI32ArrayAttr:$permutation,
+                         DenseI64ArrayAttr:$permutation,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
