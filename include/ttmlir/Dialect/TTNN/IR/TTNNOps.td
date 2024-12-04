@@ -262,6 +262,20 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise tan op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
