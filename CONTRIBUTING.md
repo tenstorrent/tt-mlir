@@ -7,7 +7,7 @@ For all PRs we have an internal policy listed below which your PR will go throug
 
 The initial review will encompase the following:
 * Review the PR for CI / CD Readiness. Includes making sure that the code and PR at a high level makes sense for the project
-* Once approved for CI / CD readiness a Tenstorrent developer will kick off our CI/CD pipeline on your behalf. 
+* Once approved for CI / CD readiness a Tenstorrent developer will kick off our CI/CD pipeline on your behalf.
 
 ### Internal contributions
 For internal contributions we have the following guidelines:
