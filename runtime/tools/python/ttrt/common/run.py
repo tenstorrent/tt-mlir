@@ -380,6 +380,7 @@ class Run:
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
+            current_runtime = ttrt.runtime.get_current_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
@@ -459,20 +460,43 @@ class Run:
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
+                                if (
+                                    current_runtime
+                                    == ttrt.runtime.DeviceRuntime.TTMetal
+                                ):
+                                    event = ttrt.runtime.submit(
+                                        device,
+                                        bin.fbb,
+                                        program_index,
+                                        total_inputs[loop],
+                                        total_outputs[loop],
+                                    )
 
-                                event = ttrt.runtime.submit(
-                                    device,
-                                    bin.fbb,
-                                    program_index,
-                                    total_inputs[loop],
-                                    total_outputs[loop],
-                                )
+                                elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
+                                    runtime_outputs = ttrt.runtime.submit(
+                                        device,
+                                        bin.fbb,
+                                        program_index,
+                                        total_inputs[loop],
+                                    )
+                                    ttrt.runtime.wait(runtime_outputs)
+                                    for i, runtime_output_tensor in enumerate(
+                                        runtime_outputs
+                                    ):
+                                        ttrt.runtime.memcpy(
+                                            total_outputs[loop][i],
+                                            runtime_output_tensor,
+                                        )
+                                        ttrt.runtime.deallocate_tensor(
+                                            runtime_output_tensor, force=True
+                                        )
 
                                 self.logging.debug(
                                     f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
 
-                            ttrt.runtime.wait(event)
+                            if event is not None:
+                                ttrt.runtime.wait(event)
 
                             if self["--identity"]:
                                 self.logging.debug(

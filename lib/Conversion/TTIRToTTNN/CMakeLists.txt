@@ -11,4 +11,5 @@ add_mlir_library(TTMLIRTTIRToTTNN
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
+  TTMLIRTTNNUtils
 )

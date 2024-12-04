@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::embedding {
 void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
@@ -24,7 +25,7 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
   auto embeddingsType = ::ttnn::operations::embedding::EmbeddingsType::GENERIC;
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::ttnn::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::embedding(input, weight, padToken, layout, embeddingsType,
                         outputDataType, outputMemoryConfig);

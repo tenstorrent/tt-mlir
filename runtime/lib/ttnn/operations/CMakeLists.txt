@@ -46,12 +46,13 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/operations/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
+
 target_include_directories(TTRuntimeTTNNOps SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY)
+target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNHelpers)
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   target_link_libraries(TTRuntimeTTNNOps PUBLIC TRACY_LIBRARY)
 endif()
 
 
-add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION)
+add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNHelpers)

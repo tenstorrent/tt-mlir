@@ -134,4 +134,12 @@ Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   }
 }
 
+// Helper method to create a RankedTensorType with the given encoding
+RankedTensorType
+createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
+                                   ttnn::TTNNLayoutAttr encoding) {
+  return RankedTensorType::get(tensorType.getShape(),
+                               tensorType.getElementType(), encoding);
+}
+
 } // namespace mlir::tt::ttnn::utils

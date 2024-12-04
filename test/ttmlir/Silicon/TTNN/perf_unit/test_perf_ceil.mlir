@@ -5,9 +5,9 @@
 #any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 
 func.func @ceil(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
   %0 = tensor.empty() : tensor<64x128xf32>
-  // CHECK: %[[C:.*]] = "ttnn.ceil"[[C:.*]]
+  // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttnn.ceil"(%{{[0-9]+}}, [[VAL0]])
   %1 = "ttir.ceil"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }

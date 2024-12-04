@@ -10,7 +10,7 @@ target_include_directories(TTRuntimeTTMetal PUBLIC
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
 target_include_directories(TTRuntimeTTMetal SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
-target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY)
-add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY tt-metal FBS_GENERATION)
+target_link_libraries(TTRuntimeTTMetal PUBLIC TTMETAL_LIBRARY DEVICE_LIBRARY)
+add_dependencies(TTRuntimeTTMetal TTMETAL_LIBRARY DEVICE_LIBRARY tt-metal FBS_GENERATION)
 
 # Optionally compile profiling code and link tracy client for perf profiling.

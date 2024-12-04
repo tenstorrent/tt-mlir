@@ -47,8 +47,10 @@ preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
 
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::operations::pool::MaxPool2DOp operation =
-      ::ttnn::operations::pool::MaxPool2DOp();
+  const ::ttnn::operations::pool::Pool2DOp<
+      ::ttnn::operations::pool::Pool2DType::MAX_POOL2D>
+      operation = ::ttnn::operations::pool::Pool2DOp<
+          ::ttnn::operations::pool::Pool2DType::MAX_POOL2D>();
 
   ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(input.is_allocated());
@@ -61,7 +63,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
         },
         targetDevice);
   }
-  ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
+  ::ttnn::MemoryConfig outMemConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = operation.invoke(
       0, input, op->batch_size(), op->input_height(), op->input_width(),
       op->channels(), {op->kernel_height(), op->kernel_width()},

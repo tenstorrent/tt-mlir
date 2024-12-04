@@ -292,6 +292,20 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise tan op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
 def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -870,6 +884,8 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
