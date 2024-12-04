@@ -1069,7 +1069,7 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         DenseI32ArrayAttr:$permutation);
+                         DenseI64ArrayAttr:$permutation);
 
     let results = (outs AnyRankedTensor:$result);
 
