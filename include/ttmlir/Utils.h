@@ -127,6 +127,11 @@ inline MlirAttribute wrapArrayOfMlirAttributesAsAttribute(
   return wrap(mlir::ArrayAttr::get(unwrap(ctx), unwrappedAttributesArray));
 }
 
+// Checks if the type of the given `mlir::Value` is a ranked tensor type.
+inline bool isRankedTensor(mlir::Value v) {
+  return mlir::isa<mlir::RankedTensorType>(v.getType());
+}
+
 } // namespace ttmlir::utils
 
 #endif
