@@ -81,7 +81,17 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   LLVMInitializeX86AsmPrinter();
   LLVMInitializeX86AsmParser();
 
-  llvm::errs() << "(debug) Registered targets:\n";
+  llvm::errs()
+      << "(debug) Registered targets after explicit x86 registration :\n";
+  for (const auto &Target : llvm::TargetRegistry::targets()) {
+    llvm::errs() << "  " << Target.getName() << "\n";
+  }
+
+  LLVMInitializeAllTargets();
+  LLVMInitializeAllTargetMCs();
+  LLVMInitializeAllTargetInfos();
+
+  llvm::errs() << "(debug) Registered targets after general registration :\n";
   for (const auto &Target : llvm::TargetRegistry::targets()) {
     llvm::errs() << "  " << Target.getName() << "\n";
   }
