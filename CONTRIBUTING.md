@@ -12,7 +12,7 @@ The initial review will encompase the following:
 ### Internal contributions
 For internal contributions we have the following guidelines:
 
-* A 24 hour merge rule exists. The rule is to wait at least 24 hours since the PR was initially opened for review. This gives members of our teams that span the globe opportunity to provide feedback to PRs. 
+* A 24 hour merge rule exists. The rule is to wait at least 24 hours since the PR was initially opened for review. This gives members of our teams that span the globe opportunity to provide feedback to PRs.
 
 In addition to the 24 hour rule the following prerequisites for landing PR exist:
 * At least 1 reviewer signs off on the change
