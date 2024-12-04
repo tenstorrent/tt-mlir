@@ -993,7 +993,9 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   if (inputRank != permutation.size() ||
       !std::is_permutation(permutation.begin(), permutation.end(),
                            dimensions.begin())) {
-    return emitOpError("Invalid permutation");
+    return emitOpError("Expected a permutation of {k | 0 <= k < " +
+                       std::to_string(inputRank) + "} got (" +
+                       ttmlir::utils::join(permutation, ", ") + ")");
   }
 
   // Check that the result shape matches the shape of input tensor after
@@ -1002,7 +1004,10 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   llvm::transform(permutation, expectedResultShape.begin(),
                   [&](const int32_t i) { return inputShape[i]; });
   if (!llvm::equal(expectedResultShape, resultShape)) {
-    return emitOpError("Result shape does not match the expected result shape");
+    return emitOpError("Expected result shape (" +
+                       ttmlir::utils::join(expectedResultShape, ", ") +
+                       "), got (" + ttmlir::utils::join(resultShape, ", ") +
+                       ")");
   }
 
   return success();
