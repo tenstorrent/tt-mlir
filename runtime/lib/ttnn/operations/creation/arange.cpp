@@ -41,6 +41,6 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
                                       device, memoryConfig);
 
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

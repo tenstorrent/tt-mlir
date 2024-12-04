@@ -8,6 +8,9 @@
 #include "tt/runtime/detail/workarounds.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
+#include "tt/runtime/test/utils.h"
+#endif
 
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
@@ -22,6 +25,7 @@ PYBIND11_MODULE(_C, m) {
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
+  py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
   py::enum_<::tt::target::DataType>(m, "DataType")
@@ -48,6 +52,8 @@ PYBIND11_MODULE(_C, m) {
   m.def("set_compatible_runtime", &tt::runtime::setCompatibleRuntime,
         py::arg("binary"),
         "Set the backend device runtime type to match the binary");
+  m.def("set_current_runtime", &tt::runtime::setCurrentRuntime,
+        py::arg("runtime"), "Set the backend device runtime type");
   m.def("get_current_system_desc", &tt::runtime::getCurrentSystemDesc,
         "Get the current system descriptor");
   m.def(
@@ -62,6 +68,15 @@ PYBIND11_MODULE(_C, m) {
       },
       "Create a tensor with borrowed memory");
   m.def(
+      "create_empty_tensor",
+      [](::tt::runtime::Device device, ::tt::runtime::Layout layout,
+         std::vector<std::uint32_t> const &shape,
+         std::vector<std::uint32_t> const &stride, std::uint32_t itemsize) {
+        return tt::runtime::createTensor(device, layout, shape, stride,
+                                         itemsize);
+      },
+      "Create an empty tensor with the specified layout");
+  m.def(
       "create_multi_device_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          std::vector<std::uint32_t> const &shape,
@@ -69,8 +84,8 @@ PYBIND11_MODULE(_C, m) {
          ::tt::target::DataType dataType,
          std::unordered_map<std::string, std::string> const &strategy) {
         std::vector<std::shared_ptr<void>> data;
-        data.resize(ptrs.size());
-        std::transform(ptrs.begin(), ptrs.end(), data.begin(),
+        data.reserve(ptrs.size());
+        std::transform(ptrs.begin(), ptrs.end(), std::back_inserter(data),
                        [](std::uintptr_t ptr) {
                          return ::tt::runtime::utils::unsafe_borrow_shared(
                              reinterpret_cast<void *>(ptr));
@@ -85,10 +100,50 @@ PYBIND11_MODULE(_C, m) {
         py::arg("num_hw_cqs") = size_t{1},
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
-  m.def("submit", &tt::runtime::submit, py::arg("device"),
-        py::arg("executable"), py::arg("program_index"), py::arg("inputs"),
-        py::arg("outputs"), "Submit a binary for execution");
-  m.def("wait", &tt::runtime::wait, py::arg("event"));
+  m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
+        py::arg("untilize") = false, "Copy the tensor to the host");
+  m.def("to_layout", &tt::runtime::toLayout, py::arg("tensor"),
+        py::arg("device"), py::arg("layout"),
+        "Create a copy of the tensor with the specified layout");
+  m.def("get_layout", &tt::runtime::getLayout, py::arg("executable"),
+        py::arg("program_index"), py::arg("input_index"),
+        "Get the layout of the input tensor");
+  m.def(
+      "submit",
+      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+         std::uint32_t programIndex,
+         const std::vector<::tt::runtime::Tensor> &inputs)
+          -> std::vector<::tt::runtime::Tensor> {
+        return ::tt::runtime::submit(device, executable, programIndex, inputs);
+      },
+      py::arg("device"), py::arg("executable"), py::arg("program_index"),
+      py::arg("inputs"),
+      "Submit a ttnn binary for execution, returns a vector of output tensors");
+  m.def(
+      "submit",
+      [](::tt::runtime::Device device, ::tt::runtime::Binary executable,
+         std::uint32_t programIndex,
+         const std::vector<::tt::runtime::Tensor> &inputs,
+         const std::vector<::tt::runtime::Tensor> &outputs)
+          -> ::tt::runtime::Event {
+        return ::tt::runtime::submit(device, executable, programIndex, inputs,
+                                     outputs);
+      },
+      py::arg("device"), py::arg("executable"), py::arg("program_index"),
+      py::arg("inputs"), py::arg("outputs"),
+      "Submit a ttmetal binary for execution. returns event wrapper");
+  m.def(
+      "wait", [](::tt::runtime::Event event) { ::tt::runtime::wait(event); },
+      py::arg("event"));
+  m.def(
+      "wait", [](::tt::runtime::Tensor tensor) { ::tt::runtime::wait(tensor); },
+      py::arg("tensor"));
+  m.def(
+      "wait",
+      [](const std::vector<::tt::runtime::Tensor> &tensors) {
+        ::tt::runtime::wait(tensors);
+      },
+      py::arg("tensors"));
   m.def(
       "get_op_output_tensor",
       [](tt::runtime::OpContext &opContextHandle,
@@ -100,7 +155,17 @@ PYBIND11_MODULE(_C, m) {
       "Get the input tensor of the op");
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
-
+  m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,
+        "Get the location info of the op");
+  m.def(
+      "memcpy",
+      [](::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
+        ::tt::runtime::memcpy(dst, src);
+      },
+      py::arg("dst"), py::arg("src"),
+      "Copy the data from src tensor to dst tensor");
+  m.def("deallocate_tensor", &tt::runtime::deallocateTensor, py::arg("tensor"),
+        py::arg("force") = false, "Deallocate the tensor memory");
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
@@ -136,4 +201,17 @@ PYBIND11_MODULE(_C, m) {
         os << env;
         return os.str();
       });
+
+#if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
+  auto testing = m.def_submodule("testing");
+  testing.def("get_dram_interleaved_tile_layout",
+              &tt::runtime::ttnn::test::getDramInterleavedTileLayout,
+              py::arg("dtype"), "Get dram interleaved tile layout");
+  testing.def("get_dram_interleaved_row_major_layout",
+              &tt::runtime::ttnn::test::getDramInterleavedRowMajorLayout,
+              py::arg("dtype"), "Get dram interleaved row major layout");
+  testing.def("get_host_row_major_layout",
+              &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
+              "Get host row major layout");
+#endif
 }

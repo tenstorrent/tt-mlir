@@ -1466,6 +1466,13 @@ void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                         block);
 }
 
+// MaximumOp generic region builder
+void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                   ::mlir::Block *block) {
+  buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
+                                                     block);
+}
+
 //===----------------------------------------------------------------------===//
 // KernelOp
 //===----------------------------------------------------------------------===//

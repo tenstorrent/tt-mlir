@@ -5,6 +5,7 @@
 #include "all_gather.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::ccl {
 void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
@@ -13,7 +14,7 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   int32_t dim = op->dim();
   int32_t num_links = op->num_links();
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::all_gather(input, dim, num_links, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);

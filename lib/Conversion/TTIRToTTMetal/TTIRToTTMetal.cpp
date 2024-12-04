@@ -799,6 +799,8 @@ public:
                                                inCB1);
     } else if (mlir::isa<arith::DivFOp>(arithOrMathOp)) {
       builder.create<ttkernel::MulTilesInitFOp>(arithOrMathOp.getLoc());
+    } else if (mlir::isa<arith::MaximumFOp>(arithOrMathOp)) {
+      builder.create<ttkernel::MaxTilesInitOp>(arithOrMathOp.getLoc());
     } else {
       llvm_unreachable("Unhandled binary op init conversion.");
     }
@@ -905,27 +907,13 @@ public:
     assert(cbOperands.size() == 3 &&
            "Expected two input and one output CB for binary op.");
 
-    auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
-    auto inCB0 = cbOperands[0];
-    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
-    auto inCB1 = cbOperands[1];
-    auto outCB = cbOperands[2];
-    auto outCBTileIndex = iterators[blockArgIteratorMapping[2]];
-
-    auto location = arithOrMathOp.getLoc();
-
-    // Perform computation C = A (*) B on tile A from inCB0 and tile B from
-    // inCB1 and store the result C in DST register on dstTileIndex.
+    // Perform computation C = A (*) B on tile A from cbOperands[0] and tile B
+    // from cbOperands[1] and store the result C in DST register on
+    // dstTileIndex.
     if (mlir::isa<arith::AddFOp>(arithOrMathOp)) {
-      Value dstIndex = i32(0, builder);
-      builder.create<ttkernel::TileRegsAcquireOp>(location);
-      builder.create<ttkernel::AddTilesOp>(
-          location, inCB0, inCB1, inCB0TileIndex, inCB1TileIndex, dstIndex);
-      builder.create<ttkernel::TileRegsCommitOp>(location);
-      builder.create<ttkernel::TileRegsWaitOp>(location);
-      builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB,
-                                           outCBTileIndex);
-      builder.create<ttkernel::TileRegsReleaseOp>(location);
+      convertComputeBinaryFPUOp<ttkernel::AddTilesOp>(
+          arithOrMathOp, cbOperands, iterators, blockArgIteratorMapping,
+          builder);
     } else if (mlir::isa<arith::MulFOp>(arithOrMathOp)) {
       commonComputeMulOp(arithOrMathOp, cbOperands, iterators,
                          blockArgIteratorMapping, builder);
@@ -938,6 +926,10 @@ public:
                            blockArgIteratorMapping, builder,
                            operandIndicesRecip);
 
+      auto inCB0 = cbOperands[0];
+      auto inCB1 = cbOperands[1];
+      auto location = arithOrMathOp.getLoc();
+
       Value one = i32(1, builder);
       builder.create<ttkernel::CBWaitFrontOp>(location, inCB1, one);
 
@@ -947,10 +939,93 @@ public:
                          blockArgIteratorMapping, builder);
 
       builder.create<ttkernel::CBPopFrontOp>(location, inCB1, one);
+    } else if (mlir::isa<arith::MaximumFOp>(arithOrMathOp)) {
+      convertComputeBinarySFPUOp<ttkernel::MaxTilesOp>(
+          arithOrMathOp, cbOperands, iterators, blockArgIteratorMapping,
+          builder);
     } else {
       llvm_unreachable("Unhandled conversion for operation which is neither "
                        "unary nor binary.");
     }
+  }
+
+  template <typename TTKernelTilesOp>
+  void convertComputeBinaryFPUOp(
+      Operation &arithOrMathOp, ArrayRef<BlockArgument> cbOperands,
+      ArrayRef<BlockArgument> iterators,
+      const SmallVector<unsigned> &blockArgIteratorMapping,
+      OpBuilder &builder) const {
+    auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
+    auto inCB0 = cbOperands[0];
+    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
+    auto inCB1 = cbOperands[1];
+    auto outCB = cbOperands[2];
+    auto outCBTileIndex = iterators[blockArgIteratorMapping[2]];
+
+    auto location = arithOrMathOp.getLoc();
+
+    Value dstIndex = i32(0, builder);
+
+    // acquire DST register lock (MATH)
+    builder.create<ttkernel::TileRegsAcquireOp>(location);
+    {
+      builder.create<TTKernelTilesOp>(location, inCB0, inCB1, inCB0TileIndex,
+                                      inCB1TileIndex, dstIndex);
+    }
+    builder.create<ttkernel::TileRegsCommitOp>(location);
+    // release DST register lock (MATH)
+
+    // acquire DST register lock (PACK)
+    builder.create<ttkernel::TileRegsWaitOp>(location);
+    {
+      builder.create<ttkernel::PackTileOp>(location, dstIndex, outCB,
+                                           outCBTileIndex);
+    }
+    builder.create<ttkernel::TileRegsReleaseOp>(location);
+    // release DST register lock (PACK)
+  }
+
+  template <typename TTKernelTilesOp>
+  void convertComputeBinarySFPUOp(
+      Operation &arithOrMathOp, ArrayRef<BlockArgument> cbOperands,
+      ArrayRef<BlockArgument> iterators,
+      const SmallVector<unsigned> &blockArgIteratorMapping,
+      OpBuilder &builder) const {
+    auto inCB0TileIndex = iterators[blockArgIteratorMapping[0]];
+    auto inCB0 = cbOperands[0];
+    auto inCB1TileIndex = iterators[blockArgIteratorMapping[1]];
+    auto inCB1 = cbOperands[1];
+    auto outCB = cbOperands[2];
+    auto outCBTileIndex = iterators[blockArgIteratorMapping[2]];
+
+    auto location = arithOrMathOp.getLoc();
+
+    Value dstLhsTileIndex = i32(0, builder);
+    Value dstRhsTileIndex = i32(1, builder); // note: rhs is always lhs+1
+
+    // acquire DST register lock (MATH)
+    builder.create<ttkernel::TileRegsAcquireOp>(location);
+    {
+      // copy inCB0[inCB0TileIndex] and inCB1[inCB1TileIndex] to DST:
+      builder.create<ttkernel::CopyTileOp>(location, inCB0, inCB0TileIndex,
+                                           dstLhsTileIndex);
+      builder.create<ttkernel::CopyTileOp>(location, inCB1, inCB1TileIndex,
+                                           dstRhsTileIndex);
+      // SFPU ooperates on DST tiles:
+      builder.create<TTKernelTilesOp>(location, dstLhsTileIndex,
+                                      dstRhsTileIndex);
+    }
+    builder.create<ttkernel::TileRegsCommitOp>(location);
+    // release DST register lock (MATH)
+
+    // acquire DST register lock (PACK)
+    builder.create<ttkernel::TileRegsWaitOp>(location);
+    {
+      builder.create<ttkernel::PackTileOp>(location, dstLhsTileIndex, outCB,
+                                           outCBTileIndex);
+    }
+    builder.create<ttkernel::TileRegsReleaseOp>(location);
+    // release DST register lock (PACK)
   }
 
   void commonComputeMulOp(Operation &op, ArrayRef<BlockArgument> cbOperands,

@@ -506,18 +506,6 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTIR_MaximumOp :  TTIR_ElementwiseBinaryOp<"maximum"> {
-    let summary = "Eltwise maximum OP.";
-    let description = [{
-      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
-
-      Example:
-        %lhs: [[3, 2, 7], [1, 4, 4]]
-        %rhs: [[1, 4, 2], [1, 2, 3]]
-        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
-    }];
-}
-
 def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
     let summary = "Eltwise minimum OP.";
     let description = [{
@@ -1244,6 +1232,20 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     }];
 }
 
+def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
+    let summary = "Eltwise maximum.";
+    let description = [{
+      Calculates maximum of input tensors' values element-wise and stores result in output tensor.
+
+      Example:
+        %lhs: [[3, 2, 7], [1, 4, 4]]
+        %rhs: [[1, 4, 2], [1, 2, 3]]
+        "ttir.maximum"(%lhs, %rhs, %out) -> %out: [[3, 4, 7], [1, 4, 4]]
+    }];
+}
+
+//===----------------------------------------------------------------------===//
+
 def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
   let summary = "Scatter operation";
   let description = [{
@@ -1275,7 +1277,6 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
   let extraClassDeclaration = [{
     MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
   }];
-
 }
 
 //===----------------------------------------------------------------------===//
