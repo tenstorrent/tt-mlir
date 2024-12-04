@@ -96,8 +96,8 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     llvm::errs() << "  " << Target.getName() << "\n";
   }
 
-  InitializeNativeTarget();
-  InitializeNativeTargetAsmPrinter();
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
 
   llvm::errs() << "(debug) Registered targets after native registration :\n";
   for (const auto &Target : llvm::TargetRegistry::targets()) {
