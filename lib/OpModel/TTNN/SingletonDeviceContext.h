@@ -5,7 +5,7 @@
 #ifndef TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 #define TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 
-#include "TTNNOpModelLib_Impl.hpp"
+#include "TTNNOpModelLib_Impl.h"
 
 namespace mlir::tt::op_model::ttnn {
 

@@ -5,6 +5,7 @@
 #include "TTNNOpModel.h"
 
 #include "TupleCache.h"
+#include "impl/buffers/buffer_constants.hpp"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "SingletonDeviceContext.h"
@@ -138,7 +139,7 @@ getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return shardShape;
 }
 
-Layout getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+Layout getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return layout.isTiled() ? Layout::TILE : Layout::ROW_MAJOR;
 }
 
@@ -214,6 +215,18 @@ getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
                                       shardSpec);
 }
 
+::tt::tt_metal::TensorLayout
+getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  return ::tt::tt_metal::TensorLayout(getDataType(layout.getMemref()),
+                                      getPageLayout(layout),
+                                      getMemoryConfig(layout));
+}
+
+::ttnn::TensorSpec getTensorSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  return ::ttnn::TensorSpec(getTensorShape(layout.getMemref()),
+                            getTensorLayout(layout));
+}
+
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -233,19 +246,19 @@ bool ReluOpInterface::isLegal(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::unary_op_constraints<::ttnn::relu6>(
-      device, input_spec, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::relu, device, input_spec,
+      output_spec.tensor_layout().get_memory_config());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED ReluOpInterface::isLegal: "
                  << query.error_message.value_or("no error message");
     return false;
   }
-#else
+#endif // TTMLIR_ENABLE_OPMODEL
 
   return true;
-#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 std::tuple<size_t, size_t, size_t> ReluOpInterface::getOpL1Usage(
@@ -260,11 +273,12 @@ std::tuple<size_t, size_t, size_t> ReluOpInterface::getOpL1Usage(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::unary_op_constraints<::ttnn::relu6>(
-      device, input_spec, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::relu, device, input_spec,
+      output_spec.tensor_layout().get_memory_config());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED ReluOpInterface::getOpL1Usage: "
                  << query.error_message.value_or("no error message");
     return std::make_tuple(0, 0, 0);
@@ -311,23 +325,22 @@ bool AddOpInterface::isLegal(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
-      device, input_spec_a, input_spec_b, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::add, device, input_spec_a, input_spec_b, output_spec.data_type(),
+      output_spec.tensor_layout().get_memory_config());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED AddOpInterface::isLegal: "
                  << query.error_message.value_or("no error message");
     return false;
   }
-  return true;
-#else
+#endif // TTMLIR_ENABLE_OPMODEL
 
   g_constrainst_cache_add_op.get_or_create(
       {inputLayout_a, inputLayout_b, outputLayout});
 
   return true;
-#endif // TTMLIR_ENABLE_OPMODEL
 }
 
 std::tuple<size_t, size_t, size_t> AddOpInterface::getOpL1Usage(
@@ -344,11 +357,12 @@ std::tuple<size_t, size_t, size_t> AddOpInterface::getOpL1Usage(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
-      device, input_spec_a, input_spec_b, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::add, device, input_spec_a, input_spec_b, output_spec.data_type(),
+      output_spec.tensor_layout().get_memory_config());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED AddOpInterface::isLegal: "
                  << query.error_message.value_or("no error message");
     return std::make_tuple(0, 0, 0);
@@ -379,19 +393,18 @@ bool SoftmaxOpInterface::isLegal(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::softmax_op_constraints(
-      device, input_spec, dim_arg, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::softmax, device, input_spec, dim_arg,
+      output_spec.tensor_layout().get_memory_config());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED SoftmaxOpInterface::isLegal: "
                  << query.error_message.value_or("no error message");
     return false;
   }
-  return true;
-#else
-  return true;
 #endif // TTMLIR_ENABLE_OPMODEL
+  return true;
 }
 
 std::tuple<size_t, size_t, size_t> SoftmaxOpInterface::getOpL1Usage(
@@ -406,11 +419,12 @@ std::tuple<size_t, size_t, size_t> SoftmaxOpInterface::getOpL1Usage(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::softmax_op_constraints(
-      device, input_spec, dim_arg, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::softmax, device, input_spec, dim_arg,
+      output_spec.tensor_layout().get_memory_config());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED SoftmaxOpInterface::getOpL1Usage: "
                  << query.error_message.value_or("no error message");
     return std::make_tuple(0, 0, 0);
@@ -442,19 +456,21 @@ bool MatmulOpInterface::isLegal(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
-      device, input_spec_a, input_spec_b, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::matmul, device, input_spec_a, input_spec_b,
+      false, // transpose_a
+      false, // transpose_b
+      output_spec.tensor_layout().get_memory_config(), output_spec.data_type());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED MatmulOpInterface::isLegal: "
                  << query.error_message.value_or("no error message");
     return false;
   }
-  return true;
-#else
-  return true;
 #endif // TTMLIR_ENABLE_OPMODEL
+
+  return true;
 }
 
 std::tuple<size_t, size_t, size_t> MatmulOpInterface::getOpL1Usage(
@@ -472,11 +488,14 @@ std::tuple<size_t, size_t, size_t> MatmulOpInterface::getOpL1Usage(
   const ::ttnn::TensorSpec output_spec = detail::getTensorSpec(outputLayout);
 
   // run op constraint query
-  auto query = ::ttnn::compiler_interface::binary_op_constraints<::ttnn::add>(
-      device, input_spec_a, input_spec_b, output_spec);
+  auto query = ::ttnn::graph::query_op_constraints(
+      ::ttnn::matmul, device, input_spec_a, input_spec_b,
+      false, // transpose_a
+      false, // transpose_b
+      output_spec.tensor_layout().get_memory_config(), output_spec.data_type());
 
   // check if query was successful
-  if (query.status != ::ttnn::compiler_interface::ExecutionStatus::Success) {
+  if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
     llvm::outs() << "FAILED MatmulOpInterface::isLegal: "
                  << query.error_message.value_or("no error message");
     return std::make_tuple(0, 0, 0);
