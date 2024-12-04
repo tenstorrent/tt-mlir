@@ -121,7 +121,9 @@ private:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr()[0])));
+        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr().size() > 0
+                                          ? adaptor.getDimensionsAttr()[0]
+                                          : 1)));
 
     // If someone changes definition of TTIR_ReductionOp this constant will
     // become outdated, but I currently see no way to get this info (without

@@ -389,6 +389,15 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+// ReshapeOp folder
+::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
+
+  if (getType() == getOperand(0).getType()) {
+    return getOperand(0);
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SliceOp
 //===----------------------------------------------------------------------===//
