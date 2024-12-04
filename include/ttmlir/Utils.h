@@ -13,8 +13,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
 
-#include <cstdint>
-
 namespace ttmlir::utils {
 template <typename T>
 T alignUp(T ptr, T alignment) {
