@@ -56,9 +56,9 @@ std::unique_ptr<llvm::TargetMachine>
 createTargetMachine(const std::string &targetTriple) {
   std::string errMsg;
   LLVMTargetRef llvmTarget = NULL;
-  if (LLVMGetTargetFromTriple(target_triple.c_str(), &llvmTarget, &errMsg) !=
+  if (LLVMGetTargetFromTriple(targetTriple.c_str(), &llvmTarget, &errMsg) !=
       0) {
-    fatal_error("Target not found %s", errMsg);
+    llvm::errs() << "Target not found " << errMsg;
   }
   // auto llvmTarget =
   //     llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
@@ -70,7 +70,7 @@ createTargetMachine(const std::string &targetTriple) {
 
   llvm::TargetOptions options;
 
-  std::unique_ptr<llvm::TargetMachine> machine(llvmTarget.createTargetMachine(
+  std::unique_ptr<llvm::TargetMachine> machine(llvmTarget->createTargetMachine(
       targetTriple, "generic" /* cpu e.g k8 */,
       "" /* cpu features e.g avx512f */, options, llvm::Reloc::Model::PIC_));
   return machine;
