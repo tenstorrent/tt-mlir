@@ -24,6 +24,11 @@ inline bool isDeviceBufferType(BufferType bufferType) {
   return bufferType == BufferType::DRAM || bufferType == BufferType::L1;
 }
 
+// Check if tensor is in DRAM memory
+inline bool isDRAMBufferType(BufferType bufferType) {
+  return bufferType == BufferType::DRAM;
+}
+
 // Check if tensor is in L1 memory
 inline bool isL1BufferType(BufferType bufferType) {
   return bufferType == BufferType::L1;
@@ -39,6 +44,16 @@ Layout TTNNLayoutAttr::getLayout() const {
   return isTiled() ? Layout::Tile : Layout::RowMajor;
 }
 
+// Check if the tensor memory buffer type is L1
+bool TTNNLayoutAttr::hasL1BufferType() const {
+  return isL1BufferType(getBufferType());
+}
+
+// Check if the tensor memory buffer type is DRAM
+bool TTNNLayoutAttr::hasDRAMBufferType() const {
+  return isDRAMBufferType(getBufferType());
+}
+
 // Check if the tensor memory layout is sharded
 bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
   return (getMemLayout() == TensorMemoryLayout::HeightSharded ||
@@ -48,7 +63,7 @@ bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
 
 // Check if the tensor memory layout is sharded in L1 memory
 bool TTNNLayoutAttr::hasShardedL1TensorMemoryLayout() const {
-  return isL1BufferType(getBufferType()) &&
+  return hasL1BufferType() &&
          (getMemLayout() == TensorMemoryLayout::HeightSharded ||
           getMemLayout() == TensorMemoryLayout::WidthSharded ||
           getMemLayout() == TensorMemoryLayout::BlockSharded);
@@ -56,7 +71,13 @@ bool TTNNLayoutAttr::hasShardedL1TensorMemoryLayout() const {
 
 // Check if the tensor memory layout is interleaved and in L1 memory
 bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
-  return isL1BufferType(getBufferType()) &&
+  return hasL1BufferType() &&
+         (getMemLayout() == TensorMemoryLayout::Interleaved);
+}
+
+// Check if the tensor memory layout is interleaved and in DRAM memory
+bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
+  return hasDRAMBufferType() &&
          (getMemLayout() == TensorMemoryLayout::Interleaved);
 }
 
