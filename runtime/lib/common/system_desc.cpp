@@ -12,8 +12,10 @@
 
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
+#include "eth_l1_address_map.h"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
+#include "noc/noc_parameters.h"
 
 namespace tt::runtime::system_desc {
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
