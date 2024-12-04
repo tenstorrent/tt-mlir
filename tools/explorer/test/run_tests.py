@@ -28,20 +28,52 @@ def get_test_files(paths):
     return files
 
 
-def execute_command(model_path, settings):
+def send_command(command, model_path, settings):
     cmd = {
         "extensionId": "tt_adapter",
-        "cmdId": "execute",
+        "cmdId": command,
         "modelPath": model_path,
         "deleteAfterConversion": False,
         "settings": settings,
     }
 
-    result = requests.post(COMMAND_URL, json=cmd)
+    return requests.post(COMMAND_URL, json=cmd, timeout=10)
+
+
+def execute_command(model_path, settings):
+    result = send_command("execute", model_path, settings)
     assert result.ok
     if "error" in result.json():
         print(result.json())
         assert False
+
+
+def wait_for_execution_to_finish():
+    for _ in range(1000):  # Try for up to 100 seconds
+        try:
+            response = send_command("status_check", "", {})
+            print("RESPONSE")
+            print(response)
+            print(response.json())
+            if response.status_code == 200 and response.json().get("graphs")[0].get(
+                "isDone"
+            ):
+                return response.json()
+        except requests.RequestException as e:
+            print(f"Request failed: {e}")
+            raise Exception("Status check request failed")
+        time.sleep(0.1)
+    raise RuntimeError("Execution did not finish within the expected time")
+
+
+def execute_command_and_wait(model_path, settings):
+    execute_command(model_path, settings)
+    adapter_response = wait_for_execution_to_finish()
+    assert "graphs" in adapter_response
+    assert len(adapter_response["graphs"]) == 1
+    response = adapter_response["graphs"][0]
+    assert response["isDone"]
+    assert response["error"] is None
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -53,10 +85,11 @@ def start_server(request):
     server_thread.start()
 
     # Wait for the server to start
-    for _ in range(100):  # Try for up to 10 seconds
+    for _ in range(200):  # Try for up to 20 seconds
         try:
-            response = requests.get(f"http://{HOST}:{PORT}/check_health")
+            response = requests.get(f"http://{HOST}:{PORT}/check_health", timeout=1)
             if response.status_code == 200:
+                print("Explorer server started")
                 break
         except requests.ConnectionError:
             pass
@@ -75,15 +108,7 @@ def start_server(request):
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
 def test_load_model(model_path):
-    cmd = {
-        "extensionId": "tt_adapter",
-        "cmdId": "convert",
-        "modelPath": model_path,
-        "deleteAfterConversion": False,
-        "settings": {},
-    }
-
-    result = requests.post(COMMAND_URL, json=cmd)
+    result = send_command("convert", model_path, {})
     assert result.ok
     if "error" in result.json():
         print(result.json())
@@ -92,18 +117,18 @@ def test_load_model(model_path):
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
-    execute_command(model_path, {"optimizationPolicy": "DF Sharding"})
+    execute_command_and_wait(model_path, {"optimizationPolicy": "DF Sharding"})
 
 
 def test_execute_mnist_l1_interleaved():
-    execute_command(
+    execute_command_and_wait(
         "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
         {"optimizationPolicy": "L1 Interleaved"},
     )
 
 
 def test_execute_mnist_optimizer_disabled():
-    execute_command(
+    execute_command_and_wait(
         "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
         {"optimizationPolicy": "Optimizer Disabled"},
     )
@@ -111,6 +136,6 @@ def test_execute_mnist_optimizer_disabled():
 
 def test_execute_model_invalid_policy():
     with pytest.raises(AssertionError):
-        execute_command(
+        execute_command_and_wait(
             TEST_EXECUTE_MODEL_PATHS[0], {"optimizationPolicy": "Invalid Policy"}
         )

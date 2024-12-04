@@ -43,6 +43,10 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
+        if optimized_model_path := self.model_runner.get_optimized_model_path():
+            print(f"Using optimized model: {optimized_model_path}")
+            model_path = optimized_model_path
+
         module = utils.parse_mlir_file(model_path)
 
         # Convert TTIR to Model Explorer Graphs and Display/Return
@@ -70,9 +74,23 @@ class TTAdapter(model_explorer.Adapter):
             memory_layout_analysis_enabled = False
             memory_layout_analysis_policy = None
 
-        ttnn_ir = self.model_runner.run(
+        self.model_runner.run(
             model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
         )
 
         # TODO(odjuricic, #933) Parse TTNN IR and return the post optimized graph.
         return {"graphs": []}
+
+    def status_check(self, model_path: str, settings: Dict) -> bool:
+        done = not self.model_runner.is_busy()
+        error = self.model_runner.get_error()
+        progress = self.model_runner.get_progress()
+
+        return utils.to_adapter_format(
+            {
+                "isDone": done,
+                "progress": progress,
+                "total": 100,
+                "error": error,
+            }
+        )
