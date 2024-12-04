@@ -17,6 +17,12 @@ target_link_libraries(ttmlir-translate PRIVATE
   MLIRSupport
   MLIRTranslateLib
   ${target_libs}
+  LLVMX86AsmParser
+  LLVMX86CodeGen
+  LLVMX86Desc
+  LLVMX86Disassembler
+  LLVMX86Info
+  LLVMX86TargetMCA
 )
 
 mlir_check_link_libraries(ttmlir-translate)
