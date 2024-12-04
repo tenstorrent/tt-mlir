@@ -24,11 +24,6 @@ struct EmptyTensorConfig {
         dtype(::tt::runtime::ttnn::operations::utils::getDataType(op->out())),
         numShards(op->num_shards()), strategy(op->strategy()) {
     layout = ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
-    // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
-    // using ROW_MAJOR until we fix it
-    if (workaround::Env::get().emptyOpForceRowMajor) {
-      layout = ::ttnn::Layout::ROW_MAJOR;
-    }
     if (op->device()) {
       LOG_ASSERT(op->memcfg(),
                  "Memory config must be provided when device is provided");
