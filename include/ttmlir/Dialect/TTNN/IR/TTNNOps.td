@@ -794,9 +794,7 @@ def TTNN_ClampOp : TTNN_Op<"clamp"> {
     let hasVerifier = 1;
 }
 
-// Note: NoMemoryEffect is used to indicate that operation can be removed if it is not used.
-// Removal of this operation is done by the dead code elimination pass (RemoveDeadValuesPass).
-def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
+def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
