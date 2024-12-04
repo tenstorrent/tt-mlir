@@ -47,7 +47,7 @@ ExternalProject_Add(
     -DCMAKE_CXX_COMPILER=clang++
     -DLLVM_ENABLE_PROJECTS=mlir
     -DLLVM_INSTALL_UTILS=ON
-    -DLLVM_TARGETS_TO_BUILD=X86
+    -DLLVM_TARGETS_TO_BUILD=all
     # Build shared libraries
     # ======================
     -DLLVM_ENABLE_PIC=ON

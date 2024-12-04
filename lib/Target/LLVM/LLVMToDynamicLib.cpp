@@ -20,7 +20,6 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/TargetSelect.h"
@@ -31,50 +30,6 @@
 #include "llvm/TargetParser/Host.h"
 
 namespace mlir::tt::llvm_to_cpu {
-
-void InitializeX86Target() {
-  // Register the target.
-  llvm::RegisterTargetMachine<X86TargetMachine> X(getTheX86_32Target());
-  llvm::RegisterTargetMachine<X86TargetMachine> Y(getTheX86_64Target());
-
-  llvm::PassRegistry &PR = *PassRegistry::getPassRegistry();
-  initializeX86LowerAMXIntrinsicsLegacyPassPass(PR);
-  initializeX86LowerAMXTypeLegacyPassPass(PR);
-  initializeX86PreTileConfigPass(PR);
-  llvm::initializeGlobalISel(PR);
-  llvm::initializeWinEHStatePassPass(PR);
-  llvm::initializeFixupBWInstPassPass(PR);
-  llvm::initializeCompressEVEXPassPass(PR);
-  llvm::initializeFixupLEAPassPass(PR);
-  llvm::initializeFPSPass(PR);
-  llvm::initializeX86FixupSetCCPassPass(PR);
-  llvm::initializeX86CallFrameOptimizationPass(PR);
-  llvm::initializeX86CmovConverterPassPass(PR);
-  llvm::initializeX86TileConfigPass(PR);
-  llvm::initializeX86FastPreTileConfigPass(PR);
-  llvm::initializeX86FastTileConfigPass(PR);
-  llvm::initializeKCFIPass(PR);
-  llvm::initializeX86LowerTileCopyPass(PR);
-  llvm::initializeX86ExpandPseudoPass(PR);
-  llvm::initializeX86ExecutionDomainFixPass(PR);
-  llvm::initializeX86DomainReassignmentPass(PR);
-  llvm::initializeX86AvoidSFBPassPass(PR);
-  llvm::initializeX86AvoidTrailingCallPassPass(PR);
-  llvm::initializeX86SpeculativeLoadHardeningPassPass(PR);
-  llvm::initializeX86SpeculativeExecutionSideEffectSuppressionPass(PR);
-  llvm::initializeX86FlagsCopyLoweringPassPass(PR);
-  llvm::initializeX86LoadValueInjectionLoadHardeningPassPass(PR);
-  llvm::initializeX86LoadValueInjectionRetHardeningPassPass(PR);
-  llvm::initializeX86OptimizeLEAPassPass(PR);
-  llvm::initializeX86PartialReductionPass(PR);
-  llvm::initializePseudoProbeInserterPass(PR);
-  llvm::initializeX86ReturnThunksPass(PR);
-  llvm::initializeX86DAGToDAGISelLegacyPass(PR);
-  llvm::initializeX86ArgumentStackSlotPassPass(PR);
-  llvm::initializeX86FixupInstTuningPassPass(PR);
-  llvm::initializeX86FixupVectorConstantsPassPass(PR);
-  llvm::initializeX86DynAllocaExpanderPass(PR);
-}
 
 // Function to convert MLIR ModuleOp to LLVM Module
 std::unique_ptr<llvm::Module>
@@ -145,12 +100,6 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   llvm::InitializeNativeTargetAsmPrinter();
 
   llvm::errs() << "(debug) Registered targets after native registration :\n";
-  for (const auto &Target : llvm::TargetRegistry::targets()) {
-    llvm::errs() << "  " << Target.getName() << "\n";
-  }
-
-  InitializeX86Target();
-  llvm::errs() << "(debug) Registered targets after manual registration :\n";
   for (const auto &Target : llvm::TargetRegistry::targets()) {
     llvm::errs() << "  " << Target.getName() << "\n";
   }
