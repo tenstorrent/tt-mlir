@@ -89,11 +89,12 @@ public:
   LogicalResult
   matchAndRewrite(tosa::ClampOp srcOp, tosa::ClampOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     RankedTensorType outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands()[0],
         outputTensor, adaptor.getMinFp(), adaptor.getMaxFp(),
@@ -108,7 +109,6 @@ public:
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
-
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::AbsOp,
                                                        mlir::tt::ttir::AbsOp>>(
       typeConverter, ctx);
@@ -117,8 +117,6 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::CeilOp,
                                                        mlir::tt::ttir::CeilOp>>(
       typeConverter, ctx);
-  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
-
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::CosOp,
                                                        mlir::tt::ttir::CosOp>>(
       typeConverter, ctx);
@@ -151,7 +149,6 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       tosa::MaximumOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::MinimumOp, mlir::tt::ttir::MinimumOp>>(typeConverter, ctx);
-  patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
 }
@@ -188,17 +185,33 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addClampOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                                 TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
+}
+
+void addMultiplyOpConversionPattern(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
 
 void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
+  // for conversion patterns that directly use the
+  // TosaToTTIRDefaultDPSOpConversionPattern
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  // for other conversion patterns, alphabetically ordered
+  addClampOpConversionPattern(ctx, patterns, typeConverter);
+  addMultiplyOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
