@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Dialect/TTNN/Analysis/DisjointL1ChainConfigsUnion.h"
+#include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -88,28 +89,200 @@ public:
   void TearDown() override {}
 };
 
-TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertOp) {
-  mlir::Operation *opA = createOp();
-  mlir::Operation *opB = createOp();
-  mlir::Operation *opC = createOp();
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertL1ChainConfig) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
 
-  disjointL1ChainConfigsUnion.insertOp(opA);
-  disjointL1ChainConfigsUnion.insertOp(opB);
-  disjointL1ChainConfigsUnion.insertOp(opC);
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
 
-  ASSERT_EQ(disjointL1ChainConfigsUnion.size(), 3);
+  L1ChainConfig l1ChainConfigA, l1ChainConfigB, l1ChainConfigC;
+  l1ChainConfigA.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfigB.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfigC.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigA);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigB);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigC);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 3);
 }
 
-TEST_F(DisjoinL1ChainConfigsUnionBase, TestFindRepresentativeOpSimple) {
-  mlir::Operation *opA = createOp();
-  mlir::Operation *opB = createOp();
-  mlir::Operation *opC = createOp();
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestFindRepresentativeOp) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
 
-  disjointL1ChainConfigsUnion.insertOp(opA);
-  disjointL1ChainConfigsUnion.insertOp(opB);
-  disjointL1ChainConfigsUnion.insertOp(opC);
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  L1ChainConfig l1ChainConfigA, l1ChainConfigB, l1ChainConfigC;
+  l1ChainConfigA.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfigB.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfigC.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigA);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigB);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigC);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opB);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opC);
+}
+
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestFindRepresentativeOpRecursive1) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  L1ChainConfig l1ChainConfig;
+  l1ChainConfig.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfig.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfig.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfig);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opA);
+}
+
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestFindRepresentativeOpRecursive2) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  L1ChainConfig l1ChainConfigA, l1ChainConfigB, l1ChainConfigC;
+  l1ChainConfigA.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfigB.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfigC.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigA);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigB);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigC);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opB);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opC);
+
+  disjointL1ChainConfigsUnion.mergeChains(opA, opB);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opC);
+
+  disjointL1ChainConfigsUnion.mergeChains(opB, opC);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opA);
+}
+
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestMergeL1ChainConfigs) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  L1ChainConfig l1ChainConfigA, l1ChainConfigB, l1ChainConfigC;
+  l1ChainConfigA.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfigB.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfigC.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigA);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigB);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigC);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 3);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opA), 1);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opB), 1);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opC), 1);
+
+  mlir::Operation *opD;
+  opD = disjointL1ChainConfigsUnion.mergeChains(opB, opC);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 2);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opA), 1);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opD), 2);
+
+  mlir::Operation *opE;
+  opE = disjointL1ChainConfigsUnion.mergeChains(opA, opD);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 1);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opE), 3);
+}
+
+// Smaller chain should always be merged into the larger chain
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestMergePolicy) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  L1ChainConfig l1ChainConfig1, l1ChainConfig2;
+  l1ChainConfig1.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfig2.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfig2.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfig1);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfig2);
+
+  mlir::Operation *opD;
+  opD = disjointL1ChainConfigsUnion.mergeChains(opA, opB);
+
+  ASSERT_EQ(opD, opB);
+}
+
+// Check if two ops belong to the same L1ChainConfig
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestOpsConnectivity) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  L1ChainConfig l1ChainConfig1, l1ChainConfig2;
+  l1ChainConfig1.addOpL1MemSpec(memSpecOpA);
+  l1ChainConfig2.addOpL1MemSpec(memSpecOpB);
+  l1ChainConfig2.addOpL1MemSpec(memSpecOpC);
+
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfig1);
+  disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfig2);
+
+  ASSERT_FALSE(disjointL1ChainConfigsUnion.connected(opA, opB));
+  ASSERT_FALSE(disjointL1ChainConfigsUnion.connected(opA, opC));
+  ASSERT_TRUE(disjointL1ChainConfigsUnion.connected(opB, opC));
 }

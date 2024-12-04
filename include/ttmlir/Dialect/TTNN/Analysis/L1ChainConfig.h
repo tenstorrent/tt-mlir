@@ -18,7 +18,7 @@ struct OpL1MemSpec {
   // Tensor split factor for the output tensor of the op(working with a partial
   // tensor).
   //
-  uint tensorSplitFactor;
+  uint tensorSplitFactor = 1;
 
   // Layout of the output tensor of the op.
   //

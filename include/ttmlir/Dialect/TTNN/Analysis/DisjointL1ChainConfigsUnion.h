@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_DISJOINTL1CHAINCONFIGSUNION_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
-#include <cstdint>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Operation.h>
 
 namespace mlir::tt::ttnn {
@@ -19,22 +19,27 @@ private:
 public:
   DisjoinL1ChainConfigsUnion() = default;
 
-  void insertOp(Operation *op);
+  // Inserts new L1ChainConfig in the union and construct
+  // the parent tree for its ops
+  void insertL1ChainConfig(L1ChainConfig &l1ChainConfig);
 
-  /** @return the "representative" node in op's component */
+  /** @return the "representative" op in op's component */
   Operation *findRepresentativeOp(Operation *op);
 
-  /** @return the reference to the l1ChainConfig that containts op*/
+  /** @return the reference to the l1ChainConfig that containts op */
   L1ChainConfig &findL1ChainConfig(Operation *op);
 
-  /** @return whether the merge changed connectivity */
-  bool mergeChains(Operation *opA, Operation *opB);
+  /** @return the "representative" op of a newly merged L1ChainConfig */
+  Operation *mergeChains(Operation *opA, Operation *opB);
 
   /** @return whether x and y are in the same connected component */
   bool connected(Operation *opA, Operation *opB);
 
   /** @return the number of disjoint L1ChainConfigs */
-  uint64_t size() const;
+  uint64_t getNumberOfL1Chains();
+
+  /** @return the number of ops in the chain that contains op */
+  uint64_t getNumberOfOpsInChain(Operation *op);
 };
 
 } // namespace mlir::tt::ttnn

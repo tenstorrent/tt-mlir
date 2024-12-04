@@ -4,13 +4,21 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/DisjointL1ChainConfigsUnion.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include <cassert>
 
 namespace mlir::tt::ttnn {
 
-void DisjoinL1ChainConfigsUnion::insertOp(Operation *op) {
-  assert(parents.count(op) == 0);
-  parents[op] = op;
-  l1ChainConfigsMap[op] = L1ChainConfig();
+void DisjoinL1ChainConfigsUnion::insertL1ChainConfig(
+    L1ChainConfig &l1ChainConfig) {
+  assert(!l1ChainConfig.isEmpty());
+
+  // Construct parent tree for new l1ChainConfig
+  Operation *parentOp = l1ChainConfig.getOpL1MemSpecs()[0].op;
+  for (auto &opL1MemSpec : l1ChainConfig.getOpL1MemSpecs()) {
+    parents[opL1MemSpec.op] = parentOp;
+  }
+
+  l1ChainConfigsMap[parentOp] = l1ChainConfig;
 }
 
 Operation *DisjoinL1ChainConfigsUnion::findRepresentativeOp(Operation *op) {
@@ -26,32 +34,39 @@ L1ChainConfig &DisjoinL1ChainConfigsUnion::findL1ChainConfig(Operation *op) {
   return l1ChainConfigsMap[findRepresentativeOp(op)];
 }
 
-bool DisjoinL1ChainConfigsUnion::mergeChains(Operation *opa, Operation *opb) {
-  Operation *opa_root = findRepresentativeOp(opa);
-  Operation *opb_root = findRepresentativeOp(opb);
-  if (opa_root == opb_root) {
-    return false;
+Operation *DisjoinL1ChainConfigsUnion::mergeChains(Operation *opA,
+                                                   Operation *opB) {
+  Operation *opA_root = findRepresentativeOp(opA);
+  Operation *opB_root = findRepresentativeOp(opB);
+  if (opA_root == opB_root) {
+    return opA_root;
   }
 
-  L1ChainConfig &l1ChainConfigA = findL1ChainConfig(opa_root);
-  L1ChainConfig &l1ChainConfigB = findL1ChainConfig(opb_root);
-  if (l1ChainConfigA.size() < l1ChainConfigB.size()) {
-    std::swap(opa_root, opb_root);
+  L1ChainConfig &l1ChainConfigA = findL1ChainConfig(opA_root);
+  L1ChainConfig &l1ChainConfigB = findL1ChainConfig(opB_root);
+  if (l1ChainConfigA.size() >= l1ChainConfigB.size()) {
+    l1ChainConfigA.merge(l1ChainConfigB);
+  } else {
+    l1ChainConfigB.merge(l1ChainConfigA);
+    std::swap(opA_root, opB_root);
   }
 
-  l1ChainConfigA.merge(l1ChainConfigB);
-  l1ChainConfigsMap.erase(opb_root);
-  parents[opb_root] = opa_root;
+  l1ChainConfigsMap.erase(opB_root);
+  parents[opB_root] = opA_root;
 
-  return true;
+  return opA_root;
 }
 
 bool DisjoinL1ChainConfigsUnion::connected(Operation *opA, Operation *opB) {
   return findRepresentativeOp(opA) == findRepresentativeOp(opB);
 }
 
-uint64_t DisjoinL1ChainConfigsUnion::size() const {
+uint64_t DisjoinL1ChainConfigsUnion::getNumberOfL1Chains() {
   return l1ChainConfigsMap.size();
+}
+
+uint64_t DisjoinL1ChainConfigsUnion::getNumberOfOpsInChain(Operation *op) {
+  return findL1ChainConfig(op).size();
 }
 
 } // namespace mlir::tt::ttnn
