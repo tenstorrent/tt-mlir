@@ -87,25 +87,6 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
     llvm::errs() << "  " << Target.getName() << "\n";
   }
 
-  LLVMInitializeAllTargets();
-  LLVMInitializeAllTargetMCs();
-  LLVMInitializeAllTargetInfos();
-
-  auto targets = llvm::TargetRegistry::targets();
-
-  llvm::errs() << "(debug) Registered targets after general registration :\n";
-  for (const auto &Target : targets) {
-    llvm::errs() << "  " << Target.getName() << "\n";
-  }
-
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-
-  llvm::errs() << "(debug) Registered targets after native registration :\n";
-  for (const auto &Target : llvm::TargetRegistry::targets()) {
-    llvm::errs() << "  " << Target.getName() << "\n";
-  }
-
   // Set target triple if not already set
   if (module.getTargetTriple().empty()) {
     std::string defaultTriple = llvm::sys::getDefaultTargetTriple();
@@ -218,13 +199,6 @@ translateLLVMToDyLib(Operation *op, llvm::raw_ostream &,
                     "translation on anything but entire modules\n";
     return llvm::failure();
   }
-
-  LLVMInitializeX86Target();
-  LLVMInitializeX86TargetMC();
-  LLVMInitializeX86TargetInfo();
-  LLVMInitializeX86AsmPrinter();
-  LLVMInitializeX86AsmParser();
-
   mlir::ModuleOp moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
 
   if (llvm::failed(verifyAllLLVM(moduleOp))) {
