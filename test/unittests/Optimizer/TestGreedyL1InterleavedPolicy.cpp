@@ -23,7 +23,7 @@ using namespace mlir::tt::ttnn;
 constexpr int TensorDimX = 128;
 constexpr int TensorDimY = 128;
 
-class L1InterleavedPolicyBase : public ::testing::Test {
+class GreedyL1InterleavedPolicyBase : public ::testing::Test {
 public:
   mlir::MLIRContext context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
@@ -121,7 +121,7 @@ public:
   void TearDown() override {}
 };
 
-TEST_F(L1InterleavedPolicyBase, VerifyGreedyPolicy) {
+TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   std::vector<L1ChainConfig> l1ChainConfigs;
   llvm::DenseMap<mlir::Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   llvm::DenseMap<mlir::func::FuncOp, llvm::SmallVector<mlir::Operation *>>

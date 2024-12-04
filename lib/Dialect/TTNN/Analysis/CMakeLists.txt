@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         OpConfigAnalysis.cpp
         MemoryLayoutAnalysis.cpp
         L1ChainConfig.cpp
+        DisjointL1ChainConfigsUnion.cpp
         DFShardingPolicy.cpp
         GreedyL1InterleavedPolicy.cpp
         BFInterleavedPolicy.cpp

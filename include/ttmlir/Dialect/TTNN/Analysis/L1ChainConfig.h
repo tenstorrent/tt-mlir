@@ -7,7 +7,6 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
-#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -70,6 +69,9 @@ public:
   const std::unordered_set<Edge> &getMemReconfigEdges() const {
     return memReconfigEdges;
   }
+
+  uint64_t size() const { return opL1MemSpecs.size(); }
+  void merge(L1ChainConfig &other);
 };
 
 } // namespace mlir::tt::ttnn

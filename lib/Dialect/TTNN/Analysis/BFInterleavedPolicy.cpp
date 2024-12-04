@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Scheduler/Scheduler.h"
 
 namespace mlir::tt::ttnn {
@@ -11,15 +13,87 @@ namespace mlir::tt::ttnn {
 void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
-    // DeviceAttr deviceAttr = getCurrentScopeDevice(func);
+    DeviceAttr deviceAttr = getCurrentScopeDevice(func);
 
     // Start the policy.
     //
     mlir::tt::scheduler::Scheduler scheduler(&func);
     llvm::SmallVector<Operation *> scheduleableOps;
+    llvm::DenseMap<Operation *, uint64_t> currentL1Usage;
 
+    l1ChainConfigs->push_back(L1ChainConfig());
     while (scheduler.hasUnscheduledOps()) {
+      uint64_t optimalChangeInL1Usage, currentChangeInL1Usage;
+      Operation *nextOpForScheduling;
+      TTNNLayoutAttr nextOpLayout;
+
       scheduleableOps = scheduler.getScheduleableOps();
+
+      optimalChangeInL1Usage = std::numeric_limits<uint64_t>::max();
+      for (Operation *op : scheduleableOps) {
+        uint64_t operandsL1Usage, opL1OutputUsage;
+        TTNNLayoutAttr opLayout;
+
+        // Calculate the L1 memory usage of the op's operands.
+        //
+        operandsL1Usage = 0;
+        for (auto operand : op->getOperands()) {
+          // Skip block arguments (%arg0, %arg1, ...)
+          //
+          if (::llvm::isa<mlir::BlockArgument>(operand)) {
+            continue;
+          }
+
+          Operation *operandOp = operand.getDefiningOp();
+
+          // Skip non-analyzable operands.
+          //
+          if (isAnalyzable(operandOp) && currentL1Usage.count(operandOp)) {
+            operandsL1Usage += currentL1Usage[operandOp];
+          }
+        }
+
+        // Calculate the L1 memory usage of the op's output.
+        //
+        opL1OutputUsage = 0;
+        opLayout = getDRAMLayout(op);
+        if (isAnalyzable(op) && hasL1BufferType(op)) {
+          opL1OutputUsage = utils::getOpOutputL1Usage(
+              op, getL1InterleavedLayout(op), deviceAttr);
+          opLayout = getL1InterleavedLayout(op);
+        }
+
+        // Calculate the change in L1 memory usage if the op is scheduled and
+        // check if scheduling of this op leads to optimal change in L1 memory.
+        //
+        currentChangeInL1Usage = opL1OutputUsage - operandsL1Usage;
+        if (currentChangeInL1Usage < optimalChangeInL1Usage) {
+          optimalChangeInL1Usage = currentChangeInL1Usage;
+          nextOpForScheduling = op;
+          nextOpLayout = opLayout;
+        }
+      }
+
+      // Schedule the nextOpForScheduling and update currentL1Usage.
+      //
+      scheduler.scheduleOp(nextOpForScheduling);
+      for (auto operand : nextOpForScheduling->getOperands()) {
+        // Skip block arguments (%arg0, %arg1, ...)
+        //
+        if (::llvm::isa<mlir::BlockArgument>(operand)) {
+          continue;
+        }
+
+        Operation *operandOp = operand.getDefiningOp();
+
+        // Skip non-analyzable operands.
+        //
+        if (isAnalyzable(operandOp) && currentL1Usage.count(operandOp)) {
+          currentL1Usage.erase(operandOp);
+        }
+      }
+      currentL1Usage[nextOpForScheduling] = utils::getOpOutputL1Usage(
+          nextOpForScheduling, nextOpLayout, deviceAttr);
     }
   }
 }
