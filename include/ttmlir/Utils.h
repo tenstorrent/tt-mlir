@@ -12,8 +12,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 
-#include <cstdint>
-
 namespace ttmlir::utils {
 template <typename T>
 T alignUp(T ptr, T alignment) {
