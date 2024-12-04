@@ -174,6 +174,17 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let description = [{
       Eltwise absolute operation.
     }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        wa::TTNNOperandWorkarounds tileLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::Tile);
+        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(tileLayoutWorkaround)
+        .addInputOperandWorkaround(tileLayoutWorkaround)
+        .addOutputOperandWorkaround(tileLayoutWorkaround);
+      }
+    }];
 }
 
 def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
@@ -251,6 +262,20 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise tan op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -325,7 +350,7 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
-class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
+class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTNN_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Eltwise unary op with the float parameter.";
     let description = [{
@@ -345,7 +370,7 @@ class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
     ];
 }
 
-def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
+def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
     let summary = "Eltwise leaky relu operation.";
     let description = [{
       The Leaky ReLU (Rectified Linear Unit) operation computes an element-wise
@@ -783,6 +808,14 @@ def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
                          OptionalAttr<TTNN_LayoutAttr>:$layout,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
+        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+      }
+    }];
 
     let hasVerifier = 1;
 }

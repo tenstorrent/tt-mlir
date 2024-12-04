@@ -9,8 +9,9 @@ import tempfile
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
 import ttmlir.passes
-from . import utils
+from . import utils, mlir
 import pandas as pd
+from model_explorer import node_data_builder
 
 
 class ModelRunner:
@@ -68,6 +69,9 @@ class ModelRunner:
         options_string = " ".join(options)
 
         module = utils.parse_mlir_file(model_path)
+
+        # Collect unique locations
+        name_dict = mlir.get_locs(module)
 
         try:
             print("Running MLIR compile: TTIR to TTNN Backend Pipeline")
@@ -131,8 +135,34 @@ class ModelRunner:
             "DEVICE FW DURATION [ns]",
             "CORE COUNT",
             "OUTPUT_0_MEMORY",
+            "LOC",
         ]
         perf = perf[columns]
         print(perf)
 
-        print("Total device duration: ", perf["DEVICE FW DURATION [ns]"].sum(), "ns")
+        print(f"Total device duration: {perf['DEVICE FW DURATION [ns]'].sum()}ns")
+
+        # Create the node_data type here
+        timing_data = list(zip(perf["LOC"], perf["DEVICE FW DURATION [ns]"]))
+        results = {}
+        for loc, duration in timing_data:
+            loc = mlir.get_loc_str(loc).replace("'", '"')
+            if loc in name_dict:
+                for i in range(name_dict[loc]):
+                    results[f"{loc}__{i}"] = node_data_builder.NodeDataResult(
+                        value=duration
+                    )
+            else:
+                print(
+                    f"Location {loc} not found in graph, ops data for this op was not reported."
+                )
+
+        gradient = [
+            node_data_builder.GradientItem(stop=0, bgColor="yellow"),
+            node_data_builder.GradientItem(stop=1, bgColor="red"),
+        ]
+
+        data = node_data_builder.GraphNodeData(results=results, gradient=gradient)
+
+        res = node_data_builder.ModelNodeData(graphsData={"tt-graph": data})
+        return res

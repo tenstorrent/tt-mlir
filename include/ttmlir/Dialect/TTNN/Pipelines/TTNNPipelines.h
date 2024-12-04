@@ -5,9 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
-#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Pass/PassOptions.h"
 
@@ -112,6 +111,12 @@ struct TTIRToTTNNBackendPipelineOptions
 
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  // Option to enable/disable the workaround pass.
+  //
+  Option<bool> workaroundPassEnabled{*this, "enable-workaround-pass",
+                                     llvm::cl::desc("Enable workaround pass."),
+                                     llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

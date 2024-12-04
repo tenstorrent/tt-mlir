@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
+#include "mlir/IR/BuiltinTypes.h"
+
 namespace mlir::tt::ttnn::utils {
 
 // Map tt::MemorySpace to ttnn::BufferType
@@ -35,6 +37,11 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);
+
+// Helper method to create a RankedTensorType with the given encoding
+RankedTensorType
+createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
+                                   ttnn::TTNNLayoutAttr encoding);
 
 } // namespace mlir::tt::ttnn::utils
 

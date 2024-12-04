@@ -115,6 +115,14 @@ void LegalGridAnalysis::analysisImplementation() {
     return;
   }
 
+  if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+    return;
+  }
+
+  if (llvm::isa<ttnn::EmptyOp>(op)) {
+    return;
+  }
+
   // Get output tensor type.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(op->getResult(0).getType());
