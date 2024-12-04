@@ -94,7 +94,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   auto targets = llvm::TargetRegistry::targets();
 
   llvm::errs() << "(debug) Registered targets after general registration :\n";
-  for (const auto &Target : llvm::TargetRegistry::targets()) {
+  for (const auto &Target : targets) {
     llvm::errs() << "  " << Target.getName() << "\n";
   }
 
