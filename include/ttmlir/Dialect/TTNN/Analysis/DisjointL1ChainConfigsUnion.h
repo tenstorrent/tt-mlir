@@ -19,8 +19,12 @@ private:
 public:
   DisjoinL1ChainConfigsUnion() = default;
 
+  // Inserts OpL1MemSpec in the same L1ChainConfig that op belongs to.
+  // In case the op is not provided, a new L1ChainConfig is created.
+  void insertOpInL1ChainConfig(OpL1MemSpec opL1MemSpec, Operation *referenceOp);
+
   // Inserts new L1ChainConfig in the union and construct
-  // the parent tree for its ops
+  // the parent tree for its ops.
   void insertL1ChainConfig(L1ChainConfig &l1ChainConfig);
 
   /** @return the "representative" op in op's component */

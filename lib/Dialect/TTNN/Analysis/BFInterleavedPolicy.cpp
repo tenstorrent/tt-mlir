@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/DisjointL1ChainConfigsUnion.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -14,6 +15,7 @@ void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
+    DisjoinL1ChainConfigsUnion disjointL1ChainConfigsUnion;
 
     // Start the policy.
     //
@@ -21,7 +23,6 @@ void BFInterleavedPolicy::run() {
     llvm::SmallVector<Operation *> scheduleableOps;
     llvm::DenseMap<Operation *, uint64_t> currentL1Usage;
 
-    l1ChainConfigs->push_back(L1ChainConfig());
     while (scheduler.hasUnscheduledOps()) {
       uint64_t optimalChangeInL1Usage, currentChangeInL1Usage;
       Operation *nextOpForScheduling;

@@ -4,9 +4,20 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/DisjointL1ChainConfigsUnion.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
-#include <cassert>
 
 namespace mlir::tt::ttnn {
+
+void DisjoinL1ChainConfigsUnion::insertOpInL1ChainConfig(
+    OpL1MemSpec opL1MemSpec, Operation *referenceOp) {
+  if (referenceOp == nullptr) {
+    L1ChainConfig l1ChainConfig;
+    l1ChainConfig.addOpL1MemSpec(opL1MemSpec);
+    insertL1ChainConfig(l1ChainConfig);
+  } else {
+    parents[opL1MemSpec.op] = findRepresentativeOp(referenceOp);
+    findL1ChainConfig(referenceOp).addOpL1MemSpec(opL1MemSpec);
+  }
+}
 
 void DisjoinL1ChainConfigsUnion::insertL1ChainConfig(
     L1ChainConfig &l1ChainConfig) {

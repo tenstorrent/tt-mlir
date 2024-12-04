@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstddef>
 #include <gtest/gtest.h>
 #include <mlir/IR/Operation.h>
 
@@ -110,6 +111,48 @@ TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertL1ChainConfig) {
   disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfigC);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 3);
+}
+
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertOpInL1ChainConfig1) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpA, nullptr);
+  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpB, nullptr);
+  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpC, nullptr);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 3);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opB);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opC);
+}
+
+TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertOpInL1ChainConfig2) {
+  mlir::Operation *opA, *opB, *opC;
+  opA = createOp();
+  opB = createOp();
+  opC = createOp();
+
+  OpL1MemSpec memSpecOpA, memSpecOpB, memSpecOpC;
+  memSpecOpA.op = opA;
+  memSpecOpB.op = opB;
+  memSpecOpC.op = opC;
+
+  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpA, nullptr);
+  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpB, opA);
+  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpC, opB);
+
+  ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 1);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opA);
+  ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opA);
 }
 
 TEST_F(DisjoinL1ChainConfigsUnionBase, TestFindRepresentativeOp) {
