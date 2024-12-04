@@ -12,7 +12,8 @@
 
 namespace mlir::tt::scheduler {
 
-bool isTTNNOp(mlir::Operation *op) {
+// TTNN op is scheduleable if it is not an EmptyOp and has at least one result.
+bool isTTNNScheduleableOp(mlir::Operation *op) {
   return isa<ttnn::TTNNDialect>(op->getDialect()) && op->getNumResults() > 0 &&
          !llvm::isa<ttnn::EmptyOp>(op);
 }
@@ -21,8 +22,8 @@ bool isTTIROp(mlir::Operation *op) {
   return isa<ttir::TTIRDialect>(op->getDialect());
 }
 
-bool isTTShedulableOp(mlir::Operation *op) {
-  return isTTNNOp(op) || isTTIROp(op);
+bool Scheduler::isTTShedulableOp(mlir::Operation *op) {
+  return isTTNNScheduleableOp(op) || isTTIROp(op);
 }
 
 // Init the dependencies map of all ops which are TTIR ops
