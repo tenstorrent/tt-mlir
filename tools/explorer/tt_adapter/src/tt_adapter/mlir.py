@@ -522,7 +522,12 @@ def build_graph(module):
                     op_to_graph_node[op] = graph_node
 
                     for operand in op.operands:
-                        if isinstance(operand, ir.Value):
+                        if isinstance(operand, ir.Value) and isinstance(
+                            operand.owner, ir.Block
+                        ):
+                            # If the owner is a block, then it is a constant provided from the toplevel FuncOp.
+                            # Otherwise, the operand is an output of another operation
+
                             # This is a constant and we need to create a node for it.
                             operand_node = operation.make_constant_node(
                                 name_dict, operand.get_name()
