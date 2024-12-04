@@ -34,8 +34,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
-#include <fstream>
-#include <mlir/Support/LLVM.h>
 #include <optional>
 
 namespace mlir::tt {
