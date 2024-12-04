@@ -1,6 +1,6 @@
 # Step 1: Check if TTMLIR_TOOLCHAIN_DIR is already set, if not, set it to /opt/ttmlir-toolchain
 if [ -z "${TTMLIR_TOOLCHAIN_DIR}" ]; then
-  export TTMLIR_TOOLCHAIN_DIR="/localdev/vwells/ttmlir-toolchain-x86"
+  export TTMLIR_TOOLCHAIN_DIR="/opt/ttmlir-toolchain"
 fi
 
 # Step 2: Check if TTMLIR_VENV_DIR is already set, if not, set it to the venv directory inside TTMLIR_TOOLCHAIN_DIR

@@ -54,18 +54,23 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
 
 std::unique_ptr<llvm::TargetMachine>
 createTargetMachine(const std::string &targetTriple) {
-  std::string errorMessage;
-  auto llvmTarget =
-      llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
-  if (!llvmTarget) {
-    llvm::errs() << "target lookup failed for " << targetTriple
-                 << " w msg: " << errorMessage << "\n";
-    return nullptr;
+  std::string errMsg;
+  LLVMTargetRef llvmTarget = NULL;
+  if (LLVMGetTargetFromTriple(target_triple.c_str(), &llvmTarget, &errMsg) !=
+      0) {
+    fatal_error("Target not found %s", errMsg);
   }
+  // auto llvmTarget =
+  //     llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
+  // if (!llvmTarget) {
+  //   llvm::errs() << "target lookup failed for " << targetTriple
+  //                << " w msg: " << errorMessage << "\n";
+  //   return nullptr;
+  // }
 
   llvm::TargetOptions options;
 
-  std::unique_ptr<llvm::TargetMachine> machine(llvmTarget->createTargetMachine(
+  std::unique_ptr<llvm::TargetMachine> machine(llvmTarget.createTargetMachine(
       targetTriple, "generic" /* cpu e.g k8 */,
       "" /* cpu features e.g avx512f */, options, llvm::Reloc::Model::PIC_));
   return machine;
