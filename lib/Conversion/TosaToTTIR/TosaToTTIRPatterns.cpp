@@ -81,7 +81,7 @@ private:
   }
 };
 
-class TosaToTTIRMatMulOpConversionPattern
+class TosaToTTIRMatmulOpConversionPattern
     : public OpConversionPattern<tosa::MatMulOp> {
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
   using Adaptor = tosa::MatMulOp::Adaptor;
@@ -99,6 +99,7 @@ public:
     auto outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     auto operands = adaptor.getOperands();
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
         outputTensor,
@@ -170,12 +171,6 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
 }
 
-void addMatMulOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRMatMulOpConversionPattern>(typeConverter, ctx);
-}
-
 void addElementwiseTernaryOpsConversionPatterns(MLIRContext *ctx,
                                                 RewritePatternSet &patterns,
                                                 TypeConverter &typeConverter) {
@@ -208,6 +203,12 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addMatmulOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -219,7 +220,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-  addMatMulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
