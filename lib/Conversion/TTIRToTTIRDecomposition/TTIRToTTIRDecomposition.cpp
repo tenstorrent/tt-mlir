@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -1052,7 +1053,10 @@ public:
           op.getLoc(), outputType.getShape(), outputType.getElementType());
       auto concatOp = rewriter.create<ttir::ConcatOp>(
           op.getLoc(), outputType, slices, concatDpsResult,
-          rewriter.getSI32IntegerAttr(dim), adaptor.getOperandConstraints());
+          rewriter.getSI32IntegerAttr(dim),
+          rewriter.getArrayAttr(SmallVector<Attribute>(
+              slices.size() + 1, rewriter.getAttr<OperandConstraintAttr>(
+                                     OperandConstraint::AnyDeviceTile))));
 
       rewriter.replaceOp(op, concatOp.getResult());
     } else {
