@@ -61,7 +61,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
         },
         targetDevice);
   }
-  ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
+  ::ttnn::MemoryConfig outMemConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = operation.invoke(
       0, input, op->batch_size(), op->input_height(), op->input_width(),
       op->channels(), {op->kernel_height(), op->kernel_width()},

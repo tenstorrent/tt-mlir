@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 #include <optional>
 
 namespace tt::runtime::ttnn::operations::matmul {
@@ -18,7 +19,7 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   DEBUG_ASSERT(rhs.is_allocated());
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
       std::make_optional(outputMemoryConfig);
@@ -49,7 +50,7 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
       std::make_optional(outputMemoryConfig);

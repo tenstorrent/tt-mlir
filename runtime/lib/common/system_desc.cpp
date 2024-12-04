@@ -32,7 +32,7 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
     break;
   }
 
-  throw std::runtime_error("Unsupported arch");
+  LOG_FATAL("Unsupported arch");
 }
 
 static std::vector<::tt::target::ChipChannel>
@@ -246,7 +246,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
   if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
-    throw std::runtime_error("Failed to verify system desc root buffer");
+    LOG_FATAL("Failed to verify system desc root buffer");
   }
   uint8_t *buf = fbb.GetBufferPointer();
   auto size = fbb.GetSize();

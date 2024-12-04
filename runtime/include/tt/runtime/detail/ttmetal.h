@@ -39,11 +39,15 @@ void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
-Event submit(Device device, Binary executable, std::uint32_t programIndex,
-             std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
-
 void wait(Event event);
+
+void wait(Tensor tensor);
+
+void wait(std::vector<Tensor> const &tensors);
+
+Event submit(Device deviceHandle, Binary executableHandle,
+             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
+             std::vector<Tensor> const &outputs);
 
 std::string getOpDebugString(OpContext opContextHandle);
 
