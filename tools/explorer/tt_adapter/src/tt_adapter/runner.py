@@ -81,6 +81,12 @@ class ModelRunner:
     def is_busy(self):
         return self.runner_thread and self.runner_thread.is_alive()
 
+    def get_logs(self):
+        logs = []
+        while not self.log_queue.empty():
+            logs.append(self.log_queue.get())
+        return "\n".join(logs)
+
     def reset_state(self):
         assert not self.is_busy()
         self.runner_thread = None
@@ -134,6 +140,9 @@ class ModelRunner:
             os.system(f"rm -rf {run_dir}")
 
         os.makedirs(run_dir)
+        # Copy the model to the run directory.
+        os.system(f"cp {model_path} {run_dir}")
+
         self.progress = 10
 
         ############################### Compile ##################################
