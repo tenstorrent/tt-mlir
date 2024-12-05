@@ -19,7 +19,6 @@ TEST_LOAD_MODEL_PATHS = [
 TEST_EXECUTE_MODEL_PATHS = [
     "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
 ]
-MODEL_EXECUTION_TIMEOUT = 100  # seconds
 
 
 def get_test_files(paths):
@@ -49,8 +48,8 @@ def execute_command(model_path, settings):
         assert False
 
 
-def wait_for_execution_to_finish():
-    for _ in range(MODEL_EXECUTION_TIMEOUT):  # Try for up to 100 seconds
+def wait_for_execution_to_finish(timeout):
+    for _ in range(timeout):
         try:
             response = send_command("status_check", "", {})
             if response.status_code == 200 and response.json().get("graphs")[0].get(
@@ -66,9 +65,9 @@ def wait_for_execution_to_finish():
     )
 
 
-def execute_command_and_wait(model_path, settings):
+def execute_command_and_wait(model_path, settings, timeout):
     execute_command(model_path, settings)
-    adapter_response = wait_for_execution_to_finish()
+    adapter_response = wait_for_execution_to_finish(timeout)
     assert "graphs" in adapter_response
     assert len(adapter_response["graphs"]) == 1
     response = adapter_response["graphs"][0]
@@ -117,13 +116,16 @@ def test_load_model(model_path):
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
-    execute_command_and_wait(model_path, {"optimizationPolicy": "DF Sharding"})
+    execute_command_and_wait(
+        model_path, {"optimizationPolicy": "DF Sharding"}, timeout=60
+    )
 
 
 def test_execute_mnist_l1_interleaved():
     execute_command_and_wait(
         "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
         {"optimizationPolicy": "L1 Interleaved"},
+        timeout=60,
     )
 
 
@@ -131,11 +133,14 @@ def test_execute_mnist_optimizer_disabled():
     execute_command_and_wait(
         "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
         {"optimizationPolicy": "Optimizer Disabled"},
+        timeout=60,
     )
 
 
 def test_execute_model_invalid_policy():
     with pytest.raises(AssertionError):
         execute_command_and_wait(
-            TEST_EXECUTE_MODEL_PATHS[0], {"optimizationPolicy": "Invalid Policy"}
+            TEST_EXECUTE_MODEL_PATHS[0],
+            {"optimizationPolicy": "Invalid Policy"},
+            timeout=60,
         )
