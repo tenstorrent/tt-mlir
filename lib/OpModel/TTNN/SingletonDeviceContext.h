@@ -6,6 +6,7 @@
 #define TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 
 #include "TTNNOpModelLib_Impl.h"
+#include "impl/buffers/buffer_constants.hpp"
 
 namespace mlir::tt::op_model::ttnn {
 
@@ -13,20 +14,20 @@ namespace mlir::tt::op_model::ttnn {
 // active while compiler is running multiple graph traces without real
 // allocations and op dispatching.
 
-// TODO (mbezulj): enforce mockup/simulation device when it's enabled in main.
+// TODO (mbezulj): enforce mockup/simulation device when it's enabled in
+// tt-metal.
 
 class SingletonDeviceContext {
 public:
-  static SingletonDeviceContext &get_instance() {
+  static SingletonDeviceContext &getInstance() {
     static SingletonDeviceContext instance;
     return instance;
   }
 
-  ::tt::tt_metal::Device *get_device() { return m_device; }
+  ::tt::tt_metal::Device *getDevice() { return m_device; }
 
-  size_t get_compute_with_storage_grid_size() const {
-    return m_device->compute_with_storage_grid_size().x *
-           m_device->compute_with_storage_grid_size().y;
+  size_t getNumL1Banks() const {
+    return m_device->num_banks(::tt::tt_metal::BufferType::L1);
   }
 
 private:

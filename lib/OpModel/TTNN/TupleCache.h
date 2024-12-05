@@ -16,25 +16,6 @@
 
 namespace mlir::tt::op_model {
 
-// to remove when uplift is done
-enum class ExecutionStatus { Success, Error };
-
-struct ResourceUsage {
-  size_t cb_peak_size_per_core = 0;
-  size_t l1_buffers_peak_per_core = 0;
-  size_t l1_output_buffer_per_core = 0;
-};
-
-struct QueryResponse {
-  ExecutionStatus status = ExecutionStatus::Error;
-  ResourceUsage resource_usage;
-  std::optional<std::string> error_message;
-};
-
-} // namespace mlir::tt::op_model
-
-namespace mlir::tt::op_model {
-
 /// Helper class to hash tuples
 struct TupleHash {
   template <typename... Args>
@@ -93,7 +74,7 @@ public:
   ///
   /// @param key The key for which to retrieve or create the value.
   /// @return The value associated with the key.
-  ValueType get_or_create(const TupleType &key) {
+  ValueType getOrCreate(const TupleType &key) {
     auto exists = cache.find(key) != cache.end();
     if (!exists) {
       misses++;
@@ -103,6 +84,9 @@ public:
     }
     return cache[key];
   }
+
+  /// Retrieves the name of the cache.
+  std::string_view getName() const { return name; }
 
 private:
   std::string_view name;
