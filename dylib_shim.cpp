@@ -71,7 +71,7 @@ int main() {
   auto result = static_cast<tensor_type>(add(
       tensor1, tensor1, 0, 32, 32, 32, 1, tensor2, tensor2, 0, 32, 32, 32, 1));
 
-  if (!result) {
+  if (!result.start) {
     std::cerr << "Function 'add' returned a null pointer." << std::endl;
     std::free(tensor1);
     std::free(tensor2);
