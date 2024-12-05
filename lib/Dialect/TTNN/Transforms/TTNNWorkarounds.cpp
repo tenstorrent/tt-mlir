@@ -360,6 +360,35 @@ public:
   }
 };
 
+// Fold the BroadcastOp if Operand 0 of the instruction requires broadcast. 
+// Otherwise add a dummy instruction to apply the broadcast for other operands.
+// TODO(uazizTT): Canonicalize the instructions such that broadcast operand is moved to operand 0. 
+
+class TTNNBroadcastWorkaround : public OpRewritePattern<ttnn::BroadcastOp> {
+public:
+  using OpRewritePattern<ttnn::BroadcastOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::BroadcastOp op,
+                                PatternRewriter &rewriter) const override {
+
+    /*rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(
+        op, this->getTypeConverter()->convertType(op.getType(0)), input,
+        outputDataType);*/
+
+    auto ConsumerOp = op->getUsers().begin();
+    for (auto eachOp : ConsumerOp->getOperands()) {
+      if (eachOp.getDefiningOp() == op) {
+        //::mlir::tt::DataType dType = op.getResult().getType().getElementType().isInteger();
+        rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(op, op.getType(), op.getOperand(0), DataType::UInt32);
+      }
+    }
+
+    // Check consumer of this broadcast
+
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -368,6 +397,18 @@ public:
   void runOnOperation() final {
     {
       // Placeholder for workaround decomposition patterns.
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTNNBroadcastWorkaround>(&getContext());
+
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      GreedyRewriteConfig config = GreedyRewriteConfig();
+      config.useTopDownTraversal = true;
+      config.maxIterations = GreedyRewriteConfig::kNoLimit;
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+                                              config))) {
+        signalPassFailure();
+        return;
+      }
     }
     {
       RewritePatternSet patterns(&getContext());
