@@ -78,13 +78,13 @@ class TTAdapter(model_explorer.Adapter):
             model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
         )
 
-        # TODO(odjuricic, #933) Parse TTNN IR and return the post optimized graph.
         return {"graphs": []}
 
     def status_check(self, model_path: str, settings: Dict) -> bool:
         done = not self.model_runner.is_busy()
-        error = self.model_runner.get_error()
+        logs = self.model_runner.get_logs()
         progress = self.model_runner.get_progress()
+        error = self.model_runner.get_error()
 
         return utils.to_adapter_format(
             {
@@ -92,5 +92,6 @@ class TTAdapter(model_explorer.Adapter):
                 "progress": progress,
                 "total": 100,
                 "error": error,
+                "stdout": logs,
             }
         )

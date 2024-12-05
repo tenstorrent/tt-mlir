@@ -19,6 +19,7 @@ TEST_LOAD_MODEL_PATHS = [
 TEST_EXECUTE_MODEL_PATHS = [
     "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
 ]
+MODEL_EXECUTION_TIMEOUT = 100  # seconds
 
 
 def get_test_files(paths):
@@ -49,12 +50,9 @@ def execute_command(model_path, settings):
 
 
 def wait_for_execution_to_finish():
-    for _ in range(1000):  # Try for up to 100 seconds
+    for _ in range(MODEL_EXECUTION_TIMEOUT):  # Try for up to 100 seconds
         try:
             response = send_command("status_check", "", {})
-            print("RESPONSE")
-            print(response)
-            print(response.json())
             if response.status_code == 200 and response.json().get("graphs")[0].get(
                 "isDone"
             ):
@@ -62,8 +60,10 @@ def wait_for_execution_to_finish():
         except requests.RequestException as e:
             print(f"Request failed: {e}")
             raise Exception("Status check request failed")
-        time.sleep(0.1)
-    raise RuntimeError("Execution did not finish within the expected time")
+        time.sleep(1)
+    raise RuntimeError(
+        f"Execution did not finish within {MODEL_EXECUTION_TIMEOUT} seconds"
+    )
 
 
 def execute_command_and_wait(model_path, settings):
