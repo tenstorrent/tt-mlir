@@ -54,8 +54,8 @@ int main() {
   }
 
   // Call the add function
-  auto result =
-      add(tensor1, tensor2, 1, 1, 1, 1, 1, output, output, 1, 1, 1, 1, 1);
+  void *result =
+      add(tensor1, tensor1, 1, 1, 1, 1, 1, tensor2, tensor2, 1, 1, 1, 1, 1);
 
   if (!result) {
     std::cerr << "Function 'add' returned a null pointer." << std::endl;
