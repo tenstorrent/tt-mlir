@@ -145,8 +145,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 }
 
 llvm::LogicalResult runLinkCommand(std::string commandLine) {
-  LLVM_DEBUG(llvm::dbgs() << "Running linker command:\n"
-                          << commandLine << "\n");
+  llvm::dbgs() << "Running linker command:\n" << commandLine << "\n";
   const auto exitCode = system(commandLine.c_str());
   if (exitCode == 0) {
     return llvm::success();
@@ -160,7 +159,7 @@ llvm::LogicalResult runLinkCommand(std::string commandLine) {
 // TODO: decide if we have any use cases where we actually need multiple .o
 // files, or we should just pass in a single 1
 llvm::LogicalResult linkDynamicLibrary(const std::string &libraryName,
-                                       ArrayRef<StringRef> objectFileNames,
+                                       ArrayRef<std::string> objectFileNames,
                                        bool removeDebugSymbols) {
   SmallVector<std::string, 8> flags = {
       "ld.lld-17",
@@ -245,9 +244,9 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
     return llvm::failure();
   }
 
-  if (llvm::failed(linkDynamicLibrary(
-          llvm::StringRef("/home/vwells/sources/tt-mlir/generated.so",
-                          {llvm::StringRef(tmpObjFileName)}, false)))) {
+  if (llvm::failed(
+          linkDynamicLibrary("/home/vwells/sources/tt-mlir/generated.so",
+                             {tmpObjFileName}, false))) {
     llvm::errs() << "Failed to link object code to dynamic library\n";
     return llvm::failure();
   }
