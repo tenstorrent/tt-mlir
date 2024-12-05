@@ -6,6 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // TTIR dialect definition.
@@ -38,6 +39,6 @@ def TTIR_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, traits>;
+        Op<TTIR_Dialect, mnemonic, !listconcat(traits, [Pure])>;
 
 #endif

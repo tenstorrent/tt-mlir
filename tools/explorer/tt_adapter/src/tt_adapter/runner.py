@@ -9,10 +9,11 @@ import tempfile
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
 from ttrt import API as ttrt
 import ttmlir.passes
-from . import utils
+from . import utils, mlir
 import pandas as pd
 import threading
 import queue
+from model_explorer import node_data_builder
 
 
 class ExplorerRunException(Exception):
@@ -36,6 +37,7 @@ class ModelRunner:
     progress = 0
     log_queue = queue.Queue()
     optimized_model_path = None
+    ttrt_output_dir = None
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -94,6 +96,7 @@ class ModelRunner:
         self.optimized_model_path = None
         self.runner_error = None
         self.progress = 0
+        self.ttrt_output_dir = None
 
     def log(self, message):
         print(message)
@@ -133,21 +136,23 @@ class ModelRunner:
     def compile_and_run(self, model_path, overrides_string):
         model_name = os.path.basename(model_path)
         flatbuffer_file = model_name + ".ttnn"
-        run_dir = self._explorer_artifacts_dir + "/" + flatbuffer_file
+        self.ttrt_output_dir = self._explorer_artifacts_dir + "/" + flatbuffer_file
 
-        if os.path.exists(run_dir):
+        if os.path.exists(self.ttrt_output_dir):
             self.log("Removing artifacts of previous run.")
-            os.system(f"rm -rf {run_dir}")
+            os.system(f"rm -rf {self.ttrt_output_dir}")
 
-        os.makedirs(run_dir)
+        os.makedirs(self.ttrt_output_dir)
         # Copy the model to the run directory.
-        os.system(f"cp {model_path} {run_dir}")
+        os.system(f"cp {model_path} {self.ttrt_output_dir}")
 
         self.progress = 10
 
         ############################### Compile ##################################
 
-        ttnn_ir_file = f"{run_dir}/{model_name.replace('.mlir', '_ttnn.mlir')}"
+        ttnn_ir_file = (
+            f"{self.ttrt_output_dir}/{model_name.replace('.mlir', '_ttnn.mlir')}"
+        )
         compile_command = [
             f"{self._build_dir}/bin/ttmlir-opt",
             f"--ttir-to-ttnn-backend-pipeline={overrides_string}",
@@ -200,7 +205,7 @@ class ModelRunner:
             self.log(error)
             raise ExplorerRunException(error)
 
-        op_perf_file = f"{run_dir}/perf/ops_perf_results.csv"
+        op_perf_file = f"{self.ttrt_output_dir}/perf/ops_perf_results.csv"
         if not os.path.exists(op_perf_file):
             raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
 
@@ -211,6 +216,7 @@ class ModelRunner:
             "DEVICE FW DURATION [ns]",
             "CORE COUNT",
             "OUTPUT_0_MEMORY",
+            "LOC",
         ]
         perf = perf[columns]
         print(perf)

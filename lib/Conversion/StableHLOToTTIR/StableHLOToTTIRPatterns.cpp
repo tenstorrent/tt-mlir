@@ -121,7 +121,9 @@ private:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr()[0])));
+        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr().size() > 0
+                                          ? adaptor.getDimensionsAttr()[0]
+                                          : 1)));
 
     // If someone changes definition of TTIR_ReductionOp this constant will
     // become outdated, but I currently see no way to get this info (without
@@ -1833,6 +1835,15 @@ void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::Expm1Op, mlir::tt::ttir::Expm1Op>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::SignOp, mlir::tt::ttir::SignOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::LogisticOp, mlir::tt::ttir::SigmoidOp>>(typeConverter,
+                                                               ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::TanOp, mlir::tt::ttir::TanOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::TanhOp, mlir::tt::ttir::TanhOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIROpDefaultConversionPattern<
+      mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
 }
 
 void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,

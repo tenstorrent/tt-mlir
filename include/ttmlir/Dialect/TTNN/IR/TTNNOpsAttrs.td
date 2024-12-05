@@ -92,6 +92,9 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
     {
       return this->getShardSpec().getShardShape().getShape();
     }
+
+    MemoryConfigAttr withBufferType(::mlir::MLIRContext *context, BufferType bufferType);
+    MemoryConfigAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
   }];
 }
 
@@ -148,6 +151,9 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
       bool hasShardedTensorMemoryLayout() const;
       bool hasShardedL1TensorMemoryLayout() const;
       bool hasInterleavedL1TensorMemoryLayout() const;
+      bool hasInterleavedDRAMTensorMemoryLayout() const;
+      bool hasL1BufferType() const;
+      bool hasDRAMBufferType() const;
       bool isTiled() const;
       Layout getLayout() const;
       Type getElementType() const;
