@@ -81,7 +81,7 @@ int main() {
 
   // Print some of the result tensor to verify the addition
   std::cout << "Output tensor (first 10 elements):" << std::endl;
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 32 * 32; i++) {
     std::cout << result.start[i] << " ";
   }
   std::cout << std::endl;
