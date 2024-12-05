@@ -244,12 +244,12 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
     return llvm::failure();
   }
 
-  if (llvm::failed(
-          linkDynamicLibrary("/home/vwells/sources/tt-mlir/generated.so",
-                             {tmpObjFileName}, false))) {
-    llvm::errs() << "Failed to link object code to dynamic library\n";
-    return llvm::failure();
-  }
+  // if (llvm::failed(
+  //         linkDynamicLibrary("/home/vwells/sources/tt-mlir/generated.so",
+  //                            {tmpObjFileName}, false))) {
+  //   llvm::errs() << "Failed to link object code to dynamic library\n";
+  //   return llvm::failure();
+  // }
 
   return llvm::success();
 }
