@@ -21,7 +21,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
-  auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
+  auto config = ::ttnn::operations::conv::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
   ::ttnn::MemoryConfig outMemConfig =
