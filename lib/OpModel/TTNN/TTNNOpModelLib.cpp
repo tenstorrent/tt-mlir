@@ -10,6 +10,7 @@
 #include "TupleCache.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include <llvm/Support/Casting.h>
 #include <mlir/IR/AttrTypeSubElements.h>
@@ -152,15 +153,20 @@ layout_get_shard_spec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
 ::tt::tt_metal::BufferType getBufferType(const mlir::MemRefType &memref) {
   auto memorySpace =
-      mlir::cast<tt::MemorySpaceAttr>(memref.getMemorySpace()).getValue();
+      mlir::cast<mlir::tt::ttnn::BufferTypeAttr>(memref.getMemorySpace())
+          .getValue();
 
   switch (memorySpace) {
-  case tt::MemorySpace::DeviceDRAM:
+  case mlir::tt::ttnn::BufferType::DRAM:
     return ::tt::tt_metal::BufferType::DRAM;
-  case tt::MemorySpace::DeviceL1:
+  case mlir::tt::ttnn::BufferType::L1:
     return ::tt::tt_metal::BufferType::L1;
-  default: // TODO(mbezulj): handle other memory spaces
-    throw std::runtime_error("Unsupported memory space");
+  case mlir::tt::ttnn::BufferType::SystemMemory:
+    return ::tt::tt_metal::BufferType::SYSTEM_MEMORY;
+  case mlir::tt::ttnn::BufferType::L1Small:
+    return ::tt::tt_metal::BufferType::L1_SMALL;
+  case mlir::tt::ttnn::BufferType::Trace:
+    return ::tt::tt_metal::BufferType::TRACE;
   }
 }
 
