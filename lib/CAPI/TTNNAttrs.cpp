@@ -53,10 +53,9 @@ MlirAttribute ttmlirTTNNMemoryConfigAttrGet(
     MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
     MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
   return wrap(MemoryConfigAttr::get(
-      unwrap(ctx),
-      mlir::cast<TensorMemoryLayoutAttr>(unwrap(tensorMemoryLayoutAttr)),
-      mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr)),
-      mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr))));
+      unwrap(ctx), mlir::cast<BufferTypeAttr>(unwrap(bufferTypeAttr)),
+      mlir::cast<ShardSpecAttr>(unwrap(shardSpecAttr)),
+      mlir::cast<TensorMemoryLayoutAttr>(unwrap(tensorMemoryLayoutAttr))));
 }
 
 MlirAttribute ttmlirTTNNShapeAttrGet(MlirContext ctx, int64_t *shape,
@@ -69,14 +68,25 @@ MlirAttribute ttmlirTTNNMeshShapeAttrGet(MlirContext ctx, int64_t y,
   return wrap(MeshShapeAttr::get(unwrap(ctx), y, x));
 }
 
+// Get layout TTNNLayout attribute
+//
+// param ctx: mlir context
+// param linear Affine map for mapping tensor from logical to physical space
+// param grid Grid of cores where tensor is mapped to
+// param memref Memref which holds shard size, shard scalar type and memory
+// param memLayout Memory layout of the tensor
 MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                                           MlirAttribute grid, MlirType memref,
-                                          unsigned memLayout) {
+                                          unsigned *memLayout = nullptr) {
   mlir::AffineMap affineMap = mlir::AffineMap::getFromOpaquePointer(linear.ptr);
-  return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap,
-                                  mlir::cast<GridAttr>(unwrap(grid)),
-                                  mlir::cast<MemRefType>(unwrap(memref)),
-                                  static_cast<TensorMemoryLayout>(memLayout)));
+  TensorMemoryLayoutAttr memLayoutAttr;
+  if (memLayout) {
+    memLayoutAttr = TensorMemoryLayoutAttr::get(
+        unwrap(ctx), static_cast<TensorMemoryLayout>(*memLayout));
+  }
+  return wrap(TTNNLayoutAttr::get(
+      unwrap(ctx), affineMap, mlir::cast<GridAttr>(unwrap(grid)),
+      mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
 }
 
 } // namespace mlir::tt::ttnn

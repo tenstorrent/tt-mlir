@@ -205,10 +205,11 @@ namespace mlir::tt::ttnn {
   //
   if (getMemoryConfig().has_value()) {
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
-    ttnn::TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
+    ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+        layoutAttr.getMemLayout();
     assert(bufferType == getMemoryConfig()->getBufferType().getValue());
-    assert(tensorMemoryLayout ==
-           getMemoryConfig()->getTensorMemoryLayout().getValue());
+    assert(tensorMemoryLayoutAttr ==
+           getMemoryConfig()->getTensorMemoryLayout());
   }
   //
   // ==============================
@@ -547,9 +548,10 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 // Utility methods
-static bool isValidDeviceLayout(TensorMemoryLayout layout) {
-  return layout == TensorMemoryLayout::Interleaved ||
-         isShardedMemoryLayout(layout);
+static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
+  return memLayoutAttr &&
+         (memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved ||
+          isShardedMemoryLayout(memLayoutAttr.getValue()));
 }
 
 // ToMemoryConfigOp verification
@@ -567,11 +569,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
     return emitOpError("Output tensor type missing layout attribute");
   }
   BufferType outputBufferType = outputLayout.getBufferType();
-  TensorMemoryLayout outputMemoryLayout = outputLayout.getMemLayout();
-  if (isSystemBufferType(outputBufferType) &&
-      outputMemoryLayout != TensorMemoryLayout::None) {
-    return emitOpError("System memory space only supports undef memory layout");
-  }
+  TensorMemoryLayoutAttr outputMemoryLayout = outputLayout.getMemLayout();
 
   if (isDeviceBufferType(outputBufferType) &&
       !isValidDeviceLayout(outputMemoryLayout)) {
@@ -580,7 +578,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   }
 
   if (outputBufferType == BufferType::DRAM &&
-      outputMemoryLayout != TensorMemoryLayout::Interleaved) {
+      outputMemoryLayout.getValue() != TensorMemoryLayout::Interleaved) {
     return emitOpError(
         "Device DRAM memory space only supports interleaved memory layout");
   }
@@ -594,7 +592,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    if (outputMemoryLayout == TensorMemoryLayout::BlockSharded) {
+    if (outputMemoryLayout.getValue() == TensorMemoryLayout::BlockSharded) {
       // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
       if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
         return emitOpError(

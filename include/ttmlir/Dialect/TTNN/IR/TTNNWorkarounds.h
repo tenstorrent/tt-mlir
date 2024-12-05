@@ -93,8 +93,9 @@ struct WorkaroundResult {
   // Target tensor buffer type.
   std::pair<BufferType, bool> targetTensorBufferTypeResult;
 
-  // Target tensor memory layout.
-  std::pair<TensorMemoryLayout, bool> targetTensorMemoryLayoutResult;
+  // Target tensor memory layout. Can be nullopt for tensors on host.
+  std::pair<std::optional<TensorMemoryLayout>, bool>
+      targetTensorMemoryLayoutResult;
 
   // Returns true if any of the workarounds were applied.
   bool modified() const {

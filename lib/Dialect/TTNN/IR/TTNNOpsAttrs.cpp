@@ -14,26 +14,6 @@
 
 using namespace mlir::tt::ttnn;
 
-// Check if tensor is on host
-inline bool isSystemBufferType(BufferType bufferType) {
-  return bufferType == BufferType::SystemMemory;
-}
-
-// Check if the tensor is on device
-inline bool isDeviceBufferType(BufferType bufferType) {
-  return bufferType == BufferType::DRAM || bufferType == BufferType::L1;
-}
-
-// Check if tensor is in DRAM memory
-inline bool isDRAMBufferType(BufferType bufferType) {
-  return bufferType == BufferType::DRAM;
-}
-
-// Check if tensor is in L1 memory
-inline bool isL1BufferType(BufferType bufferType) {
-  return bufferType == BufferType::L1;
-}
-
 // Check if the tensor is tiled
 bool TTNNLayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
@@ -42,6 +22,12 @@ bool TTNNLayoutAttr::isTiled() const {
 // Get layout of the tensor (RowMajor/Tile)
 Layout TTNNLayoutAttr::getLayout() const {
   return isTiled() ? Layout::Tile : Layout::RowMajor;
+}
+
+// Get optinoal memory layout
+std::optional<TensorMemoryLayout> TTNNLayoutAttr::getMemLayoutOpt() const {
+  return getMemLayout() ? std::make_optional(getMemLayout().getValue())
+                        : std::nullopt;
 }
 
 // Check if the tensor memory buffer type is L1
@@ -56,29 +42,30 @@ bool TTNNLayoutAttr::hasDRAMBufferType() const {
 
 // Check if the tensor memory layout is sharded
 bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
-  return (getMemLayout() == TensorMemoryLayout::HeightSharded ||
-          getMemLayout() == TensorMemoryLayout::WidthSharded ||
-          getMemLayout() == TensorMemoryLayout::BlockSharded);
+  return isDeviceBufferType() &&
+         (getMemLayout().getValue() == TensorMemoryLayout::HeightSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::WidthSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::BlockSharded);
 }
 
 // Check if the tensor memory layout is sharded in L1 memory
 bool TTNNLayoutAttr::hasShardedL1TensorMemoryLayout() const {
   return hasL1BufferType() &&
-         (getMemLayout() == TensorMemoryLayout::HeightSharded ||
-          getMemLayout() == TensorMemoryLayout::WidthSharded ||
-          getMemLayout() == TensorMemoryLayout::BlockSharded);
+         (getMemLayout().getValue() == TensorMemoryLayout::HeightSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::WidthSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::BlockSharded);
 }
 
 // Check if the tensor memory layout is interleaved and in L1 memory
 bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
   return hasL1BufferType() &&
-         (getMemLayout() == TensorMemoryLayout::Interleaved);
+         (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
 }
 
 // Check if the tensor memory layout is interleaved and in DRAM memory
 bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
   return hasDRAMBufferType() &&
-         (getMemLayout() == TensorMemoryLayout::Interleaved);
+         (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
 }
 
 // Get stride given tensor logical shape
@@ -393,15 +380,32 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
 // replaces the memory layout with the given one.
 //
 // param context The MLIR context.
-// param memLayout The new memory layout.
+// param memLayoutAttr The new memory layout.
 // return The new TTNNLayoutAttr with the given memory layout.
-TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                                TensorMemoryLayout memLayout) {
+TTNNLayoutAttr
+TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                 TensorMemoryLayoutAttr memLayoutAttr) {
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
           context, getScalarShardShape(), getElementType(), getBufferType()),
-      memLayout);
+      memLayoutAttr);
+}
+
+// Construct a new TTNNLayoutAttr
+//
+// This function creates a deep copy of the current TTNNLayoutAttr and
+// replaces the memory layout with the given one.
+//
+// param context The MLIR context.
+// param memLayout The new memory layout.
+// return The new TTNNLayoutAttr with the given memory layout.
+TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                                TensorMemoryLayout memLayout) {
+
+  TensorMemoryLayoutAttr memLayoutAttr =
+      TensorMemoryLayoutAttr::get(context, memLayout);
+  return withMemoryLayout(context, memLayoutAttr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -437,7 +441,7 @@ TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
 TTNNLayoutAttr TTNNLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, BufferType bufferType, GridAttr grid,
-    TensorMemoryLayout memLayout,
+    TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   // Construct a new affine map which will be used to map from logical
   // space to physical space
@@ -450,7 +454,7 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   // Build memref type with the given parameters
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
-  return get(context, linear, grid, memRefType, memLayout);
+  return get(context, linear, grid, memRefType, memLayoutAttr);
 }
 
 // Construct a new MemoryConfig
@@ -463,9 +467,9 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
 // return The new MemoryConfigAttr with the given buffer type.
 MemoryConfigAttr MemoryConfigAttr::withBufferType(::mlir::MLIRContext *context,
                                                   BufferType bufferType) {
-  return MemoryConfigAttr::get(context, getTensorMemoryLayout(),
+  return MemoryConfigAttr::get(context,
                                BufferTypeAttr::get(context, bufferType),
-                               getShardSpec());
+                               getShardSpec(), getTensorMemoryLayout());
 }
 
 // Construct a new MemoryConfig
@@ -479,7 +483,6 @@ MemoryConfigAttr MemoryConfigAttr::withBufferType(::mlir::MLIRContext *context,
 MemoryConfigAttr
 MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
                                    TensorMemoryLayout memLayout) {
-  return MemoryConfigAttr::get(context,
-                               TensorMemoryLayoutAttr::get(context, memLayout),
-                               getBufferType(), getShardSpec());
+  return MemoryConfigAttr::get(context, getBufferType(), getShardSpec(),
+                               TensorMemoryLayoutAttr::get(context, memLayout));
 }
