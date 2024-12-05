@@ -32,6 +32,12 @@ def TTIRToTTIRDecomposition: Pass<"ttir-to-ttir-decomposition", "::mlir::ModuleO
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRToTTIRFusion: Pass<"ttir-to-ttir-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuses patterns of TTIR operations into a smaller set of TTIR operations where possible.";
+  let constructor = "createTTIRToTTIRFusionPass()";
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def ConvertTTIRToTTNN: Pass<"convert-ttir-to-ttnn", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to TTNN dialect.";
   let constructor = "createConvertTTIRToTTNNPass()";

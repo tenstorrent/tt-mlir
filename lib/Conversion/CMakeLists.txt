@@ -2,6 +2,7 @@ add_library(TTMLIRConversions INTERFACE)
 
 add_subdirectory(TosaToTTIR)
 add_subdirectory(TTIRToTTIRDecomposition)
+add_subdirectory(TTIRToTTIRFusion)
 add_subdirectory(TTNNToEmitC)
 add_subdirectory(TTIRToTTNN)
 add_subdirectory(TTIRToTTMetal)
@@ -16,6 +17,7 @@ include_directories(${TTMLIR_SOURCE_DIR}/include)
 set(link_libs
 TTMLIRTosaToTTIR
 TTMLIRTTIRToTTIRDecomposition
+TTMLIRTTIRToTTIRFusion
 TTMLIRTTNNToEmitC
 TTMLIRTTIRToTTNN
 TTMLIRTTIRToTTMetal

@@ -1376,11 +1376,11 @@ bool matchSimpleBlock(mlir::Region &region) {
     return emitOpError("Batching currently not supported");
   }
 
-  for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
-    if (inputShape[insertedWindowDims] != 1) {
-      return emitOpError("Dimension size to slice into must be 1");
-    }
-  }
+  // for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
+  //   if (inputShape[insertedWindowDims] != 1) {
+  //     return emitOpError("Dimension size to slice into must be 1");
+  //   }
+  // }
 
   // We currently do not support custom functions in the scatter function,
   // which is a possbility in StableHLO dialect. See issue:

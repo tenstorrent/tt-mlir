@@ -10,6 +10,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Conversion/TTIRToTTIRFusion/TTIRToTTIRFusion.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
