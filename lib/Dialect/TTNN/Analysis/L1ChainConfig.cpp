@@ -50,6 +50,11 @@ void L1ChainConfig::complete(
   state = L1ChainState::Completed;
 }
 
+void L1ChainConfig::complete() {
+  assert(state == L1ChainState::Resolved);
+  state = L1ChainState::Completed;
+}
+
 void L1ChainConfig::merge(L1ChainConfig &other) {
   assert(getState() == other.getState());
   opL1MemSpecs.insert(opL1MemSpecs.end(), other.opL1MemSpecs.begin(),

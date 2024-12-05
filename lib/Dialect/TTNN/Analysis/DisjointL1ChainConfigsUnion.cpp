@@ -7,8 +7,8 @@
 
 namespace mlir::tt::ttnn {
 
-void DisjoinL1ChainConfigsUnion::insertOpInL1ChainConfig(
-    OpL1MemSpec opL1MemSpec, Operation *referenceOp) {
+void DisjoinL1ChainConfigsUnion::insertOpL1MemSpec(OpL1MemSpec opL1MemSpec,
+                                                   Operation *referenceOp) {
   if (referenceOp == nullptr) {
     L1ChainConfig l1ChainConfig;
     l1ChainConfig.addOpL1MemSpec(opL1MemSpec);
@@ -33,6 +33,14 @@ void DisjoinL1ChainConfigsUnion::insertL1ChainConfig(
 }
 
 Operation *DisjoinL1ChainConfigsUnion::findRepresentativeOp(Operation *op) {
+  if (op == nullptr) {
+    return nullptr;
+  }
+
+  if (!parents.count(op)) {
+    return nullptr;
+  }
+
   if (parents[op] == op) {
     return op;
   }
@@ -45,10 +53,19 @@ L1ChainConfig &DisjoinL1ChainConfigsUnion::findL1ChainConfig(Operation *op) {
   return l1ChainConfigsMap[findRepresentativeOp(op)];
 }
 
-Operation *DisjoinL1ChainConfigsUnion::mergeChains(Operation *opA,
-                                                   Operation *opB) {
+Operation *DisjoinL1ChainConfigsUnion::mergeL1ChainConfigs(Operation *opA,
+                                                           Operation *opB) {
   Operation *opA_root = findRepresentativeOp(opA);
   Operation *opB_root = findRepresentativeOp(opB);
+
+  if (opA_root == nullptr) {
+    return opB_root;
+  }
+
+  if (opB_root == nullptr) {
+    return opA_root;
+  }
+
   if (opA_root == opB_root) {
     return opA_root;
   }

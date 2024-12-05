@@ -2,9 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <cstddef>
 #include <gtest/gtest.h>
-#include <mlir/IR/Operation.h>
 
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
@@ -124,9 +122,9 @@ TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertOpInL1ChainConfig1) {
   memSpecOpB.op = opB;
   memSpecOpC.op = opC;
 
-  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpA, nullptr);
-  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpB, nullptr);
-  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpC, nullptr);
+  disjointL1ChainConfigsUnion.insertOpL1MemSpec(memSpecOpA, nullptr);
+  disjointL1ChainConfigsUnion.insertOpL1MemSpec(memSpecOpB, nullptr);
+  disjointL1ChainConfigsUnion.insertOpL1MemSpec(memSpecOpC, nullptr);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 3);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
@@ -145,9 +143,9 @@ TEST_F(DisjoinL1ChainConfigsUnionBase, TestInsertOpInL1ChainConfig2) {
   memSpecOpB.op = opB;
   memSpecOpC.op = opC;
 
-  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpA, nullptr);
-  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpB, opA);
-  disjointL1ChainConfigsUnion.insertOpInL1ChainConfig(memSpecOpC, opB);
+  disjointL1ChainConfigsUnion.insertOpL1MemSpec(memSpecOpA, nullptr);
+  disjointL1ChainConfigsUnion.insertOpL1MemSpec(memSpecOpB, opA);
+  disjointL1ChainConfigsUnion.insertOpL1MemSpec(memSpecOpC, opB);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 1);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
@@ -227,13 +225,13 @@ TEST_F(DisjoinL1ChainConfigsUnionBase, TestFindRepresentativeOpRecursive2) {
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opB);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opC);
 
-  disjointL1ChainConfigsUnion.mergeChains(opA, opB);
+  disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opA, opB);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opA);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opC), opC);
 
-  disjointL1ChainConfigsUnion.mergeChains(opB, opC);
+  disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opB, opC);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opA), opA);
   ASSERT_EQ(disjointL1ChainConfigsUnion.findRepresentativeOp(opB), opA);
@@ -266,14 +264,14 @@ TEST_F(DisjoinL1ChainConfigsUnionBase, TestMergeL1ChainConfigs) {
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opC), 1);
 
   mlir::Operation *opD;
-  opD = disjointL1ChainConfigsUnion.mergeChains(opB, opC);
+  opD = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opB, opC);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 2);
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opA), 1);
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opD), 2);
 
   mlir::Operation *opE;
-  opE = disjointL1ChainConfigsUnion.mergeChains(opA, opD);
+  opE = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opA, opD);
 
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfL1Chains(), 1);
   ASSERT_EQ(disjointL1ChainConfigsUnion.getNumberOfOpsInChain(opE), 3);
@@ -300,7 +298,7 @@ TEST_F(DisjoinL1ChainConfigsUnionBase, TestMergePolicy) {
   disjointL1ChainConfigsUnion.insertL1ChainConfig(l1ChainConfig2);
 
   mlir::Operation *opD;
-  opD = disjointL1ChainConfigsUnion.mergeChains(opA, opB);
+  opD = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opA, opB);
 
   ASSERT_EQ(opD, opB);
 }

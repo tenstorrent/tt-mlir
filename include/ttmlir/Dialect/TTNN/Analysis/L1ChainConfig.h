@@ -5,7 +5,6 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_L1CHAINCONFIG_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_L1CHAINCONFIG_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 
 namespace mlir::tt::ttnn {
@@ -55,6 +54,7 @@ public:
   void
   complete(const llvm::DenseMap<Operation *, TTNNLayoutAttr> &selectedOpLayout,
            std::unordered_set<Edge> &memReconfigEdges);
+  void complete();
 
   bool isEmpty() { return opL1MemSpecs.empty(); }
   void addOpL1MemSpec(OpL1MemSpec spec) {

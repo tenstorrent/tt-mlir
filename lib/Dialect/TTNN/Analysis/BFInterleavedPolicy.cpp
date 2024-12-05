@@ -20,20 +20,18 @@ void BFInterleavedPolicy::run() {
     // Start the policy.
     //
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    llvm::SmallVector<Operation *> scheduleableOps;
-    llvm::DenseMap<Operation *, uint64_t> currentL1Usage;
+    llvm::DenseMap<Operation *, uint64_t> currentL1UsagePerOp;
+    uint64_t currentL1Usage = 0;
 
     while (scheduler.hasUnscheduledOps()) {
-      uint64_t optimalChangeInL1Usage, currentChangeInL1Usage;
+      uint64_t minimalChangeInL1Usage;
       Operation *nextOpForScheduling;
-      TTNNLayoutAttr nextOpLayout;
+      NextOpType nextOpForSchedulingType;
 
-      scheduleableOps = scheduler.getScheduleableOps();
-
-      optimalChangeInL1Usage = std::numeric_limits<uint64_t>::max();
-      for (Operation *op : scheduleableOps) {
-        uint64_t operandsL1Usage, opL1OutputUsage;
-        TTNNLayoutAttr opLayout;
+      minimalChangeInL1Usage = std::numeric_limits<uint64_t>::max();
+      for (Operation *op : scheduler.getScheduleableOps()) {
+        uint64_t operandsL1Usage, opL1OutputUsage, changeInL1Usage;
+        NextOpType opType;
 
         // Calculate the L1 memory usage of the op's operands.
         //
@@ -49,52 +47,97 @@ void BFInterleavedPolicy::run() {
 
           // Skip non-analyzable operands.
           //
-          if (isAnalyzable(operandOp) && currentL1Usage.count(operandOp)) {
-            operandsL1Usage += currentL1Usage[operandOp];
+          if (isAnalyzable(operandOp) && currentL1UsagePerOp.count(operandOp)) {
+            operandsL1Usage += currentL1UsagePerOp[operandOp];
           }
         }
 
-        // Calculate the L1 memory usage of the op's output.
+        // In case the op has no legal L1 memory layout, the op can only be of
+        // type NextOpType::NoL1ChainConfigOp.
         //
         opL1OutputUsage = 0;
-        opLayout = getDRAMLayout(op);
-        if (isAnalyzable(op) && hasL1BufferType(op)) {
-          opL1OutputUsage = utils::getOpOutputL1Usage(
-              op, getL1InterleavedLayout(op), deviceAttr);
-          opLayout = getL1InterleavedLayout(op);
+        opType = NextOpType::NoL1ChainConfigOp;
+        if (hasL1BufferType(op)) {
+          TTNNLayoutAttr layout = getL1InterleavedLayout(op);
+          opL1OutputUsage = utils::getOpOutputL1Usage(op, layout, deviceAttr);
+
+          // Determine the type of the op based on the operandsL1Usage. If
+          // there is at least one op's operand whose tensor is in L1 memory,
+          // then the op can be assigned to the existing L1ChainConfig and in
+          // that case the op's type should be
+          // NextOpType::MergeL1ChainConfigsOp. Otherwise, new L1ChainConfig
+          // should be created and NextOpType::NewL1ChainConfigOp assigned as
+          // the op's type.
+          //
+          opType = (operandsL1Usage > 0 ? NextOpType::MergeL1ChainConfigsOp
+                                        : NextOpType::NewL1ChainConfigOp);
         }
 
-        // Calculate the change in L1 memory usage if the op is scheduled and
-        // check if scheduling of this op leads to optimal change in L1 memory.
+        // Check if the scheduling of the op is consumes the least amount of L1
+        // memory among all the scheduleable ops.
         //
-        currentChangeInL1Usage = opL1OutputUsage - operandsL1Usage;
-        if (currentChangeInL1Usage < optimalChangeInL1Usage) {
-          optimalChangeInL1Usage = currentChangeInL1Usage;
+        changeInL1Usage = opL1OutputUsage - operandsL1Usage;
+        bool isOpExecutionLegal =
+            currentL1Usage + opL1OutputUsage <= getAvailableL1CacheSize();
+        bool isBestOptionSoFar = changeInL1Usage < minimalChangeInL1Usage;
+        if (isOpExecutionLegal && isBestOptionSoFar) {
           nextOpForScheduling = op;
-          nextOpLayout = opLayout;
+          nextOpForSchedulingType = opType;
+          minimalChangeInL1Usage = changeInL1Usage;
         }
+      }
+
+      // Update DisjointL1ChainConfigsUnion with the nextOpForScheduling.
+      //
+      if (nextOpForSchedulingType != NextOpType::NoL1ChainConfigOp) {
+        // Construct OpL1MemSpec for the nextOpForScheduling.
+        //
+        OpL1MemSpec opL1MemSpec;
+        opL1MemSpec.op = nextOpForScheduling;
+        opL1MemSpec.layout = getL1InterleavedLayout(nextOpForScheduling);
+
+        // Merge L1ChainConfigs of the operands of the nextOpForScheduling if
+        // there are op's operands that are in L1 memory.
+        //
+        Operation *opIter = nullptr;
+        for (auto operand : nextOpForScheduling->getOperands()) {
+          // Skip block arguments (%arg0, %arg1, ...)
+          //
+          if (::llvm::isa<mlir::BlockArgument>(operand)) {
+            continue;
+          }
+
+          Operation *operandOp = operand.getDefiningOp();
+
+          // Skip non-analyzable operands.
+          //
+          if (isAnalyzable(operandOp)) {
+            opIter = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opIter,
+                                                                     operandOp);
+          }
+        }
+
+        // Insert the nextOpForScheduling's OpL1MemSpec in the
+        // DisjointL1ChainConfigsUnion.
+        //
+        disjointL1ChainConfigsUnion.insertOpL1MemSpec(opL1MemSpec, opIter);
       }
 
       // Schedule the nextOpForScheduling and update currentL1Usage.
       //
       scheduler.scheduleOp(nextOpForScheduling);
-      for (auto operand : nextOpForScheduling->getOperands()) {
-        // Skip block arguments (%arg0, %arg1, ...)
-        //
-        if (::llvm::isa<mlir::BlockArgument>(operand)) {
-          continue;
-        }
+    }
 
-        Operation *operandOp = operand.getDefiningOp();
+    (*schedule)[func] = scheduler.getSchedule();
 
-        // Skip non-analyzable operands.
-        //
-        if (isAnalyzable(operandOp) && currentL1Usage.count(operandOp)) {
-          currentL1Usage.erase(operandOp);
-        }
-      }
-      currentL1Usage[nextOpForScheduling] = utils::getOpOutputL1Usage(
-          nextOpForScheduling, nextOpLayout, deviceAttr);
+    // Build, Resolve and Complete all L1ChainConfigs.
+    //
+    for (auto &[op, l1ChainConfig] :
+         disjointL1ChainConfigsUnion.getL1ChainConfigs()) {
+      l1ChainConfig.build();
+      l1ChainConfig.resolve();
+      l1ChainConfig.complete();
+      l1ChainConfigs->push_back(l1ChainConfig);
     }
   }
 }
@@ -111,10 +154,13 @@ bool BFInterleavedPolicy::isAnalyzable(Operation *op) {
 }
 
 bool BFInterleavedPolicy::hasDRAMBufferType(Operation *op) {
-  return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
-                      [](TTNNLayoutAttr layout) {
-                        return layout.hasDRAMBufferType();
-                      }) != legalLayouts[op].end();
+  if (legalLayouts.count(op)) {
+    return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
+                        [](TTNNLayoutAttr layout) {
+                          return layout.hasDRAMBufferType();
+                        }) != legalLayouts[op].end();
+  }
+  return false;
 }
 
 TTNNLayoutAttr BFInterleavedPolicy::getDRAMLayout(Operation *op) {
@@ -126,10 +172,13 @@ TTNNLayoutAttr BFInterleavedPolicy::getDRAMLayout(Operation *op) {
 }
 
 bool BFInterleavedPolicy::hasL1BufferType(Operation *op) {
-  return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
-                      [](TTNNLayoutAttr layout) {
-                        return layout.hasInterleavedL1TensorMemoryLayout();
-                      }) != legalLayouts[op].end();
+  if (legalLayouts.count(op)) {
+    return std::find_if(legalLayouts[op].begin(), legalLayouts[op].end(),
+                        [](TTNNLayoutAttr layout) {
+                          return layout.hasInterleavedL1TensorMemoryLayout();
+                        }) != legalLayouts[op].end();
+  }
+  return false;
 }
 
 TTNNLayoutAttr BFInterleavedPolicy::getL1InterleavedLayout(Operation *op) {

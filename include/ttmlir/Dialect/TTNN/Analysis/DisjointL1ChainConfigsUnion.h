@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_DISJOINTL1CHAINCONFIGSUNION_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
+#include <llvm/ADT/SmallVector.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Operation.h>
 
@@ -21,7 +22,7 @@ public:
 
   // Inserts OpL1MemSpec in the same L1ChainConfig that op belongs to.
   // In case the op is not provided, a new L1ChainConfig is created.
-  void insertOpInL1ChainConfig(OpL1MemSpec opL1MemSpec, Operation *referenceOp);
+  void insertOpL1MemSpec(OpL1MemSpec opL1MemSpec, Operation *referenceOp);
 
   // Inserts new L1ChainConfig in the union and construct
   // the parent tree for its ops.
@@ -34,7 +35,7 @@ public:
   L1ChainConfig &findL1ChainConfig(Operation *op);
 
   /** @return the "representative" op of a newly merged L1ChainConfig */
-  Operation *mergeChains(Operation *opA, Operation *opB);
+  Operation *mergeL1ChainConfigs(Operation *opA, Operation *opB);
 
   /** @return whether x and y are in the same connected component */
   bool connected(Operation *opA, Operation *opB);
@@ -44,6 +45,10 @@ public:
 
   /** @return the number of ops in the chain that contains op */
   uint64_t getNumberOfOpsInChain(Operation *op);
+
+  llvm::DenseMap<Operation *, L1ChainConfig> &getL1ChainConfigs() {
+    return l1ChainConfigsMap;
+  }
 };
 
 } // namespace mlir::tt::ttnn
