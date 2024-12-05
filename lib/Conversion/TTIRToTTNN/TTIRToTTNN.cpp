@@ -634,8 +634,8 @@ static ttnn::ReshapeOp generateInputForMaxPool(Value input,
   // TODO: No need to assert here, verifier should take care of this
   assert(shape.size() == 4 && "Must have 4-dim tensor for maxpool input");
 
-  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[2] * shape[3],
-                                   shape[1]};
+  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
+                                   shape[3]};
   return generateReshape(input, newShape, rewriter);
 }
 
