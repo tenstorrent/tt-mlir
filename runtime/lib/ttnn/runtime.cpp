@@ -296,6 +296,17 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                 DeviceRuntime::TTNN);
 }
 
+void memcpy(void *dst, Tensor src) {
+  const ::ttnn::Tensor &srcTensor = src.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  if (utils::isOnHost(srcTensor.storage_type())) {
+    const void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(srcTensor);
+    size_t size = srcTensor.volume() * srcTensor.element_size();
+    std::memcpy(dst, srcPtr, size);
+  } else {
+    ::tt::tt_metal::memcpy(dst, srcTensor);
+  }
+}
+
 void memcpy(Tensor dst, Tensor src) {
   ::ttnn::Tensor &dstTensor = dst.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
   const ::ttnn::Tensor &srcTensor = src.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
@@ -304,11 +315,10 @@ void memcpy(Tensor dst, Tensor src) {
              "Input output tensor size mismatch in memcpy: ",
              srcTensor.volume(), " * ", srcTensor.element_size(),
              " != ", dstTensor.volume(), " * ", dstTensor.element_size());
-
   if (utils::isOnHost(srcTensor.storage_type()) and
       utils::isOnHost(dstTensor.storage_type())) {
     void *dstPtr = ::tt::tt_metal::get_raw_host_data_ptr(dstTensor);
-    void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(srcTensor);
+    const void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(srcTensor);
     size_t size = srcTensor.volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else {

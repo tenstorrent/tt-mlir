@@ -323,6 +323,21 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
   LOG_FATAL("runtime is not enabled");
 }
 
+void memcpy(void *dst, Tensor src) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::memcpy(dst, src);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 void memcpy(Tensor dst, Tensor src) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
