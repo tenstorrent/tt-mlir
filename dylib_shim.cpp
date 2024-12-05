@@ -55,9 +55,9 @@ int main() {
 
   // Call the add function
   auto result =
-      add(tensor1, tensor2, 4, 4, tensor_size, tensor_size,
+      add(tensor1, tensor2, 1, 1, 1, 1,
           tensor_size * sizeof(float), // Metadata for tensor1 and tensor2
-          output, output, 4, 4, tensor_size, tensor_size,
+          output, nullptr, 1, 1, 1, 1,
           tensor_size * sizeof(float)); // Metadata for output
 
   if (!result) {
