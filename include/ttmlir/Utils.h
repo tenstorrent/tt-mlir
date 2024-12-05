@@ -6,13 +6,13 @@
 #define TTMLIR_UTILS_H
 
 #include <cstdint>
-#include <sstream>
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 
 namespace ttmlir::utils {
 template <typename T>
@@ -72,17 +72,11 @@ constexpr std::underlying_type_t<Enum> enum_as_int(Enum e) {
   return static_cast<std::underlying_type_t<Enum>>(e);
 }
 
-template <typename T>
-std::string join(const llvm::SmallVector<T> &vec,
-                 const std::string &delimiter) {
-  std::ostringstream result;
-  for (size_t i = 0; i < vec.size(); ++i) {
-    result << vec[i];
-    if (i != vec.size() - 1) {
-      result << delimiter;
-    }
-  }
-  return result.str();
+template <typename Range>
+std::string join(Range &&R, llvm::StringRef separator) {
+  return llvm::join(
+      llvm::map_range(R, [](auto &v) { return llvm::Twine(v).str(); }),
+      separator);
 }
 
 // Prepacks `MlirAttribute`s stored in input array into a vector of

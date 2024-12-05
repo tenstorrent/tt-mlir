@@ -913,4 +913,25 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PermuteOp : TTNN_Op<"permute"> {
+    let summary = "Permute operation.";
+    let description = [{
+      Permute input tensor dimensions.
+
+      Attributes:
+        - `permutation` array<i64>: The permutation of the input tensor dimensions.
+
+      Example:
+      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %0 = "ttir.permute"(%a) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>) -> tensor<3x4x2xi32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI64ArrayAttr:$permutation);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif
