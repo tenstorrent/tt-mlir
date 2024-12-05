@@ -29,6 +29,7 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+// a lot of this code is adapted from IREE's LLVMCPU target code
 namespace mlir::tt::llvm_to_cpu {
 
 // Function to convert MLIR ModuleOp to LLVM Module
@@ -142,6 +143,72 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
+llvm::LogicalResult LinkerTool::runLinkCommand(std::string commandLine) {
+  LLVM_DEBUG(llvm::dbgs() << "Running linker command:\n"
+                          << commandLine << "\n");
+  const auto exitCode = system(commandLine.c_str());
+  if (exitCode == 0) {
+    return llvm::success();
+  }
+  llvm::errs() << "Linking failed; escaped command line returned exit code "
+               << exitCode << ":\n\n"
+               << commandLine << "\n\n";
+  return llvm::failure();
+}
+
+// TODO: decide if we have any use cases where we actually need multiple .o
+// files, or we should just pass in a single 1
+llvm::LogicalResult linkDynamicLibrary(const std::string &libraryName,
+                                       ArrayRef<std::string> objectFileNames,
+                                       bool removeDebugSymbols) override {
+  Artifacts artifacts;
+
+  SmallVector<std::string, 8> flags = {
+      "ld.lld-17",
+      "-o " + libraryName,
+  };
+
+  // Avoids including any libc/startup files that initialize the CRT as
+  // we don't use any of that. Our shared libraries must be freestanding.
+  flags.push_back("-nostdlib"); // -nodefaultlibs + -nostartfiles
+
+  // Statically link all dependencies so we don't have any runtime deps.
+  // We cannot have any imports in the module we produce.
+  flags.push_back("-static");
+
+  // Generate a dynamic library (ELF type: ET_DYN), otherwise dlopen()
+  // won't succeed on it. This is not incompatible with -static. The GNU
+  // man page for ld, `man ld`, says the following:
+  //
+  //   -static
+  //       Do not link against shared libraries. [...] This option can be
+  //       used with -shared. Doing so means that a shared library is
+  //       being created but that all of the library's external references
+  //       must be resolved by pulling in entries from static libraries.
+  //
+  // While that much is said in the GNU ld man page, the reality is that
+  // out of ld.bfd, ld.gold and ld.lld, only ld.lld actually implements
+  // that. Meanwhile, ld.bfd interprets -static -shared as just -static,
+  // and ld.gold rejects -static -shared outright as "incompatible".
+  flags.push_back("-shared");
+
+  // Strip debug information (only, no relocations) when not requested.
+  if (removeDebugSymbols) {
+    flags.push_back("--strip-debug");
+  }
+
+  // Link all input objects. Note that we are not linking whole-archive as
+  // we want to allow dropping of unused codegen outputs.
+  for (auto &objectFile : objectFileNames) {
+    flags.push_back(objectFile);
+  }
+
+  auto commandLine = llvm::join(flags, " ");
+  if (llvm::failed(runLinkCommand(commandLine)))
+    return llvm::failure();
+  return llvm::success();
+}
+
 llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
 
@@ -172,21 +239,20 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
 llvm::LogicalResult
 compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
                               const std::string &outputPath) {
+  std::string tmpObjFileName = "/home/vwells/sources/tt-mlir/temp.o";
   // Compile to object code
-  if (llvm::failed(compileToObject(module, context,
-                                   "/home/vwells/sources/tt-mlir/temp.o"))) {
+  if (llvm::failed(compileToObject(module, context, tmpObjFileName))) {
     llvm::errs() << "Failed to compile to object code\n";
     return llvm::failure();
   }
 
-  // Link the object code into a shared library using LLD
-  // if (!linkWithLLD(*objectBuffer, outputPath)) {
-  //   llvm::errs()
-  //       << "Failed to link object code into shared library using LLD\n";
-  //   return llvm::failure();
-  // }
+  if (llvm::failed(linkDynamicLibrary(llvm::StringRef(
+          "/home/vwells/sources/tt-mlir/generated.so",
+          llvm::ArrayRef<std::string, 1>{tmpObjFileName}, false)))) {
+    llvm::errs() << "Failed to link object code to dynamic library\n";
+    return llvm::failure();
+  }
 
-  // llvm::outs() << "Shared library created at: " << outputPath << "\n";
   return llvm::success();
 }
 
