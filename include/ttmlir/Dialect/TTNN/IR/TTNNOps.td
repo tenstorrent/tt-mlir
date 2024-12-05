@@ -730,16 +730,11 @@ def TTNN_ConvTranspose2dOp : TTNN_NamedDPSOp<"conv_transpose2d"> {
                          I32Attr:$batch_size,
                          I32Attr:$input_height,
                          I32Attr:$input_width,
-                         I32Attr:$kernel_height,
-                         I32Attr:$kernel_width,
-                         I32Attr:$stride_height,
-                         I32Attr:$stride_width,
-                         I32Attr:$padding_height,
-                         I32Attr:$padding_width,
-                         I32Attr:$output_padding_height,
-                         I32Attr:$output_padding_width,
-                         I32Attr:$dilation_height,
-                         I32Attr:$dilation_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$output_padding,
+                         DenseI32ArrayAttr:$dilation,
                          I32Attr:$groups);
 
     let results = (outs AnyRankedTensor:$result);

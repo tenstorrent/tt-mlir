@@ -425,14 +425,19 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       getOperandThroughDPSOps(op.getResult()));
 
   auto device = getOperandThroughDPSOps(op.getDevice());
+
+  auto kernelSize = toFlatbuffer(cache, op.getKernelSize());
+  auto stride = toFlatbuffer(cache, op.getStride());
+  auto padding = toFlatbuffer(cache, op.getPadding());
+  auto outputPadding = toFlatbuffer(cache, op.getOutputPadding());
+  auto dilation = toFlatbuffer(cache, op.getDilation());
+
   return ::tt::target::ttnn::CreateConvTranspose2dOp(
       *cache.fbb, in0, in1, in2, output,
       cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
-      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
-      op.getInputWidth(), op.getKernelHeight(), op.getKernelWidth(),
-      op.getStrideHeight(), op.getStrideWidth(), op.getPaddingHeight(),
-      op.getPaddingWidth(), op.getOutputPaddingHeight(), op.getOutputPaddingWidth(),
-      op.getDilationHeight(), op.getDilationWidth(), op.getGroups());
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(), 
+      op.getInputWidth(), kernelSize, stride, padding, outputPadding,
+       dilation, op.getGroups());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>

@@ -22,6 +22,18 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op, ProgramContext &contex
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
+
+  auto copyArray = [](auto source, auto& destination) {
+      std::copy(source->begin(), source->end(), destination.begin());
+  };
+
+  std::array<uint32_t, 2> kernelSize, stride, padding, outputPadding, dilation;
+  copyArray(op->kernel_size(), kernelSize);
+  copyArray(op->stride(), stride);
+  copyArray(op->padding(), padding);
+  copyArray(op->output_padding(), outputPadding);
+  copyArray(op->dilation(), dilation);
+
   auto config = ::ttnn::operations::conv::conv2d::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
@@ -41,11 +53,11 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op, ProgramContext &contex
             op->batch_size(),
             op->input_height(),
             op->input_width(),
-            {op->kernel_height(), op->kernel_width()},
-            {op->stride_height(), op->stride_width()},
-            {op->padding_height(), op->padding_width()},
-            {op->output_padding_height(), op->output_padding_width()},
-            {op->dilation_height(), op->dilation_width()},
+            kernelSize,
+            stride,
+            padding,
+            outputPadding,
+            dilation,
             op->groups(),
             bias,
             config));

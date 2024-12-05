@@ -759,15 +759,11 @@ def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          AnyRankedTensor:$output,
-                         SI32Attr:$stride_height,
-                         SI32Attr:$stride_width,
-                         SI32Attr:$dilation_height,
-                         SI32Attr:$dilation_width,
-                         SI32Attr:$groups,
-                         SI32Attr:$padding_height,
-                         SI32Attr:$padding_width,
-                         SI32Attr:$output_padding_height,
-                         SI32Attr:$output_padding_width,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups,
                          TT_OperandConstraintArrayAttr:$operand_constraints);
 
     let results = (outs AnyRankedTensor:$result);
