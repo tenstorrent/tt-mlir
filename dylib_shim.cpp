@@ -55,10 +55,7 @@ int main() {
 
   // Call the add function
   auto result =
-      add(tensor1, tensor2, 1, 1, 1, 1,
-          tensor_size * sizeof(float), // Metadata for tensor1 and tensor2
-          output, nullptr, 1, 1, 1, 1,
-          tensor_size * sizeof(float)); // Metadata for output
+      add(tensor1, tensor2, 1, 1, 1, 1, 1, output, output, 1, 1, 1, 1, 1);
 
   if (!result) {
     std::cerr << "Function 'add' returned a null pointer." << std::endl;
