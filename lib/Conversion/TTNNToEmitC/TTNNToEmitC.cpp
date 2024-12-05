@@ -757,6 +757,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Module op
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // KV Cache ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::UpdateCacheOp>>(typeConverter,
+                                                                ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::FillCacheOp>>(typeConverter,
+                                                              ctx);
 }
 
 } // namespace mlir::tt

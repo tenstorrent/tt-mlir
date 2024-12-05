@@ -6,8 +6,9 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "ttnn/types.hpp"
+
 #include <functional>
-#include <ttnn/types.hpp>
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::creation {
