@@ -25,6 +25,14 @@ LogicalResult verifyAllLLVM(mlir::ModuleOp module);
 LogicalResult compileToObject(llvm::Module &module, llvm::LLVMContext &context,
                               const std::string &outputFilename);
 
+// link set of .o files into a .so w/ appropriate settings
+llvm::LogicalResult linkDynamicLibrary(const std::string &libraryName,
+                                       ArrayRef<std::string> objectFileNames,
+                                       bool removeDebugSymbols);
+
+// small helper func to actually invoke system call for linker
+llvm::LogicalResult runLinkCommand(std::string commandLine);
+
 // Convert assembly into a dynamic lib w/ linker library calls
 // LogicalResult linkWithLLD(const llvm::MemoryBuffer &objectBuffer,
 //                           const std::string &outputPath);

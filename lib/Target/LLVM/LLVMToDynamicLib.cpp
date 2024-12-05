@@ -15,6 +15,7 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -143,7 +144,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
-llvm::LogicalResult LinkerTool::runLinkCommand(std::string commandLine) {
+llvm::LogicalResult runLinkCommand(std::string commandLine) {
   LLVM_DEBUG(llvm::dbgs() << "Running linker command:\n"
                           << commandLine << "\n");
   const auto exitCode = system(commandLine.c_str());
@@ -159,10 +160,8 @@ llvm::LogicalResult LinkerTool::runLinkCommand(std::string commandLine) {
 // TODO: decide if we have any use cases where we actually need multiple .o
 // files, or we should just pass in a single 1
 llvm::LogicalResult linkDynamicLibrary(const std::string &libraryName,
-                                       ArrayRef<std::string> objectFileNames,
-                                       bool removeDebugSymbols) override {
-  Artifacts artifacts;
-
+                                       ArrayRef<StringRef> objectFileNames,
+                                       bool removeDebugSymbols) {
   SmallVector<std::string, 8> flags = {
       "ld.lld-17",
       "-o " + libraryName,
@@ -246,9 +245,9 @@ compileAndLinkToSharedLibrary(llvm::Module &module, llvm::LLVMContext &context,
     return llvm::failure();
   }
 
-  if (llvm::failed(linkDynamicLibrary(llvm::StringRef(
-          "/home/vwells/sources/tt-mlir/generated.so",
-          llvm::ArrayRef<std::string, 1>{tmpObjFileName}, false)))) {
+  if (llvm::failed(linkDynamicLibrary(
+          llvm::StringRef("/home/vwells/sources/tt-mlir/generated.so",
+                          {llvm::StringRef(tmpObjFileName)}, false)))) {
     llvm::errs() << "Failed to link object code to dynamic library\n";
     return llvm::failure();
   }
