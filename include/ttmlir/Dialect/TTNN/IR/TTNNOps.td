@@ -731,6 +731,23 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
+def TTNN_BroadcastOp : TTNN_NamedDPSOp<"broadcast"> {
+    let summary = "Broadcast operation.";
+    let description = [{
+      Broadcast op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         I64ArrayAttr:$dimension);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+}
+
 def TTNN_Conv2dOp : TTNN_NamedDPSOp<"conv2d"> {
     let summary = "Conv2d operation.";
     let description = [{
