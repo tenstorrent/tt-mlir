@@ -117,7 +117,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<bool> workaroundPassEnabled{*this, "enable-workaround-pass",
                                      llvm::cl::desc("Enable workaround pass."),
-                                     llvm::cl::init(false)};
+                                     llvm::cl::init(true)};
 };
 
 // TTIR to EmitC pipeline options.
