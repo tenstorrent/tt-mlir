@@ -74,6 +74,9 @@ class ModelRunner:
     def get_optimized_model_path(self):
         return self.optimized_model_path
 
+    def get_output_dir(self):
+        return self.ttrt_output_dir
+
     def get_error(self):
         return self.runner_error
 
@@ -101,6 +104,13 @@ class ModelRunner:
     def log(self, message):
         print(message)
         self.log_queue.put(message)
+
+    def get_perf_trace(self):
+        op_perf_file = f"{self.ttrt_output_dir}/perf/ops_perf_results.csv"
+        if not os.path.exists(op_perf_file):
+            raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
+
+        return pd.read_csv(op_perf_file)
 
     def run_in_subprocess(self, command):
         self.log(f"Running command:\n{''.join(command)}\n")
@@ -205,11 +215,7 @@ class ModelRunner:
             self.log(error)
             raise ExplorerRunException(error)
 
-        op_perf_file = f"{self.ttrt_output_dir}/perf/ops_perf_results.csv"
-        if not os.path.exists(op_perf_file):
-            raise FileNotFoundError(f"Performance file {op_perf_file} not found.")
-
-        perf = pd.read_csv(op_perf_file)
+        perf = self.get_perf_trace()
         columns = [
             "GLOBAL CALL COUNT",
             "OP CODE",

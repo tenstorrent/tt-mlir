@@ -2,25 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 # Utility library for parsing MLIR
-
+import re
 from collections import defaultdict
-from model_explorer import graph_builder
+from model_explorer import graph_builder, node_data_builder
 
 from ttmlir.dialects import tt, ttnn, ttir
 from ttmlir import ir
-
-
-def get_loc_str(loc):
-    try:
-        # Constant loc( at the start of the location and ) at the end. Can just strip these characters
-        loc = str(loc)
-        if loc.startswith("loc(") and loc.endswith(")"):
-            res = str(loc)[4:-1]
-        else:
-            res = loc  # This is a fallback to just visualize / see what the loc is if not processable.
-    except:
-        res = "unknown"
-    return res
 
 
 class AttrHandler:
@@ -424,15 +411,41 @@ def parse_ttnn_ttnn_layout(attr):
     return result
 
 
+def get_loc_str(loc):
+    try:
+        # Constant loc( at the start of the location and ) at the end. Can just strip these characters
+        loc = str(loc)
+        if loc.startswith("loc(") and loc.endswith(")"):
+            # Fuzzy parse first string inside location
+            # 'loc("matmul_1"("MNISTLinear":4294967295:10))' -> matmul_1
+            # TODO(odjuricic) Need to have this pybinded.
+            res = re.search(r'"([^"]+)"', loc).group(1)
+        else:
+            res = loc  # This is a fallback to just visualize / see what the loc is if not processable.
+    except:
+        res = "unknown"
+    return res
+
+
+# Help create unique ids for ops with the same location name.
+name_dict = defaultdict(int)
+
+
 class OpHandler:
     def __init__(self, op):
         self.op = op
+        self.location = self._get_loc_str()
+        self.id = self._create_unique_id()
 
-    def get_id(self, names: defaultdict):
-        name = get_loc_str(self.op.location)
-        name_num = names[name]
+    def _get_loc_str(self):
+        return get_loc_str(self.op.location)
+
+    def _create_unique_id(self):
+        global name_dict
+        name = self.location
+        name_num = name_dict[name]
         id = name + "__" + str(name_num)
-        names[name] += 1
+        name_dict[name] += 1
         return id
 
     def get_namespace(self, parent_op=None):
@@ -449,17 +462,17 @@ class OpHandler:
             result.extend(AttrHandler.parse_attr(attr))
         return result
 
-    def make_graph_node(self, name_dict):
+    def make_graph_node(self):
         return graph_builder.GraphNode(
-            id=self.get_id(name_dict),
+            id=self.id,
             label=self.op.name,
             namespace=self.get_namespace(),
             attrs=self.get_attributes(),
         )
 
-    def make_constant_node(self, name_dict, constant_name):
+    def make_constant_node(self, constant_name):
         return graph_builder.GraphNode(
-            id=self.get_id(name_dict),
+            id=self._create_unique_id(),
             label=constant_name,
             namespace=self.get_namespace(),
         )
@@ -476,27 +489,20 @@ FILTERED_OPS = [
 ]
 
 
-def get_locs(module):
-    name_dict = defaultdict(int)
-
-    for op in module.body.operations:
-        for region in op.regions:
-            for block in region.blocks:
-                for op in block.operations:
-                    op = OpHandler(op)
-                    _id = op.get_id(name_dict)
-                    # This will now populate name_dict with all of the locations that are relevant
-
-    # The keys will be all the unique locations, and the values will be the number of times that location appears
-    return name_dict
-
-
-def build_graph(module):
-    name_dict = defaultdict(int)
+def build_graph(module, perf_trace=None):
     output_connections = defaultdict(int)
     graph = graph_builder.Graph(id="tt-graph")
 
     op_to_graph_node = {}
+
+    # Prepare perf data for color overlay
+    perf_node_data = {}
+    loc_to_perf = {}
+    if perf_trace is not None:
+        for _, row in perf_trace.iterrows():
+            loc = row["LOC"]
+            assert loc not in loc_to_perf
+            loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -512,7 +518,12 @@ def build_graph(module):
                 for op in block.operations:
                     # Create all the nodes and constants in the first pass.
                     operation = OpHandler(op)
-                    graph_node = operation.make_graph_node(name_dict)
+                    graph_node = operation.make_graph_node()
+
+                    if operation.location in loc_to_perf:
+                        perf_node_data[operation.id] = node_data_builder.NodeDataResult(
+                            loc_to_perf[operation.location]
+                        )
 
                     if op.name in EMPTY_OPS:
                         append_later.append(graph_node)
@@ -522,10 +533,12 @@ def build_graph(module):
                     op_to_graph_node[op] = graph_node
 
                     for operand in op.operands:
-                        if isinstance(operand, ir.Value):
+                        if isinstance(operand, ir.Value) and isinstance(
+                            operand.owner, ir.Block
+                        ):
                             # This is a constant and we need to create a node for it.
                             operand_node = operation.make_constant_node(
-                                name_dict, operand.get_name()
+                                operand.get_name()
                             )
                             graph.nodes.append(operand_node)
                             op_to_graph_node[operand] = operand_node
@@ -591,5 +604,20 @@ def build_graph(module):
                             )
                         )
                         output_connections[source_node.id] += 1
+
+    # Add performance data to the graph color overlay, if it exists
+    overlay_data = None
+    if perf_node_data:
+        gradient = [
+            node_data_builder.GradientItem(stop=0, bgColor="yellow"),
+            node_data_builder.GradientItem(stop=1, bgColor="red"),
+        ]
+        graph_node_data = node_data_builder.GraphNodeData(
+            results=perf_node_data, gradient=gradient
+        )
+        overlay_data = node_data_builder.ModelNodeData(
+            graphsData={"tt-graph": graph_node_data}
+        )
+
     graph.groupNodeAttributes = group_node_attrs
-    return graph
+    return graph, overlay_data
