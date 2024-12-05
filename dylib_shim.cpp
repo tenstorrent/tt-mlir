@@ -3,16 +3,31 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <array>
+#include <cstdint>
 #include <cstdlib>
 #include <dlfcn.h>
 #include <iostream>
 #include <memory>
 
+struct tensor_type {
+  float *start;
+  float *aligned_start;
+  int64_t start_idx;
+  int64_t size[2];
+  int64_t col_stride[2];
+};
+
 // Define the expected signature for the add function based on the IR
 // The function returns a struct with pointers and metadata.
-using AddFn = void *(*)(float *, float *, int64_t, int64_t, int64_t, int64_t,
-                        int64_t, float *, float *, int64_t, int64_t, int64_t,
-                        int64_t, int64_t);
+using AddFn = tensor_type (*)(float *, float *, int64_t, int64_t, int64_t,
+                              int64_t, int64_t, float *, float *, int64_t,
+                              int64_t, int64_t, int64_t, int64_t);
+
+void *align_to_64(void *ptr) {
+  uintptr_t ptr_val = (uintptr_t)ptr;
+  uintptr_t aligned_ptr = (ptr_val + 63) & ~((uintptr_t)63);
+  return (void *)aligned_ptr;
+}
 
 // Ensure correct memory alignment
 constexpr size_t matrix_size = 32 * 32 * sizeof(float);
@@ -39,9 +54,8 @@ int main() {
   // Allocate and initialize the input tensors (32x32 floats)
   float *tensor1 = (float *)std::aligned_alloc(alignment, matrix_size);
   float *tensor2 = (float *)std::aligned_alloc(alignment, matrix_size);
-  float *output = (float *)std::aligned_alloc(alignment, matrix_size);
 
-  if (!tensor1 || !tensor2 || !output) {
+  if (!tensor1 || !tensor2) {
     std::cerr << "Memory allocation failed" << std::endl;
     dlclose(handle);
     return 1;
@@ -54,14 +68,13 @@ int main() {
   }
 
   // Call the add function
-  void *result = add(tensor1, tensor1, 0, 32, 32, 32, 1, tensor2, tensor2, 0,
-                     32, 32, 32, 1);
+  auto result = static_cast<tensor_type>(add(
+      tensor1, tensor1, 0, 32, 32, 32, 1, tensor2, tensor2, 0, 32, 32, 32, 1));
 
   if (!result) {
     std::cerr << "Function 'add' returned a null pointer." << std::endl;
     std::free(tensor1);
     std::free(tensor2);
-    std::free(output);
     dlclose(handle);
     return 1;
   }
@@ -69,7 +82,7 @@ int main() {
   // Print some of the result tensor to verify the addition
   std::cout << "Output tensor (first 10 elements):" << std::endl;
   for (int i = 0; i < 10; i++) {
-    std::cout << output[i] << " ";
+    std::cout << result->start[i] << " ";
   }
   std::cout << std::endl;
 
