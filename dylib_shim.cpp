@@ -82,14 +82,14 @@ int main() {
   // Print some of the result tensor to verify the addition
   std::cout << "Output tensor (first 10 elements):" << std::endl;
   for (int i = 0; i < 10; i++) {
-    std::cout << result->start[i] << " ";
+    std::cout << result.start[i] << " ";
   }
   std::cout << std::endl;
 
   // Clean up
   std::free(tensor1);
   std::free(tensor2);
-  std::free(output);
+  std::free(result.start);
   dlclose(handle);
 
   return 0;
