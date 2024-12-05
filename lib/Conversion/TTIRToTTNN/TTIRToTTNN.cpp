@@ -602,7 +602,7 @@ static ttnn::PermuteOp generatePermute(Value input,
                                        PatternRewriter &rewriter) {
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
   llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
-  llvm::ArrayRef<int64_t> newShape = {
+  llvm::SmallVector<int64_t, 4> newShape = {
       inputShape[permuteDims[0]], inputShape[permuteDims[1]],
       inputShape[permuteDims[2]], inputShape[permuteDims[3]]};
   auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
@@ -758,8 +758,9 @@ public:
     IntegerAttr input_width =
         rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
 
+    llvm::SmallVector<int64_t, 4> permuteDims = {0, 2, 3, 1};
     Value permutedInput =
-        generatePermute(adaptor.getInput(), {0, 2, 3, 1}, rewriter);
+        generatePermute(adaptor.getInput(), permuteDims, rewriter);
     Value flattenedInput = generateInputForMaxPool(permutedInput, rewriter);
 
     auto output_ty =
@@ -791,11 +792,13 @@ public:
         adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
         adaptor.getPaddingRightAttr());
 
-    ArrayRef<int64_t> intermediateShape = {output_shape[0], output_shape[2],
-                                           output_shape[3], output_shape[1]};
+    llvm::SmallVector<int64_t, 4> intermediateShape = {
+        output_shape[0], output_shape[2], output_shape[3], output_shape[1]};
+    llvm::SmallVector<int64_t, 4> permuteBackDims = {0, 3, 1, 2};
     Value intermediateOutput =
         generateReshape(new_pool, intermediateShape, rewriter);
-    Value output = generatePermute(intermediateOutput, {0, 3, 1, 2}, rewriter);
+    Value output =
+        generatePermute(intermediateOutput, permuteBackDims, rewriter);
 
     rewriter.replaceOp(op, output);
 
