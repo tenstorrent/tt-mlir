@@ -5,8 +5,11 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZEROVERRIDES_H
 
-#include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
-#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include <iostream>
+#include <string>
+#include <unordered_map>
+
+#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 namespace mlir::tt::ttnn {
@@ -65,10 +68,22 @@ public:
                                TensorMemoryLayout, tt::ttnn::Layout,
                                tt::DataType);
 
+  // Wrapper methods we use to expose the adders to the python bindings
+  std::unordered_map<std::string, InputLayoutOverrideParams>
+  getInputLayoutOverridesPybindWrapper() const;
+  std::unordered_map<std::string, OutputLayoutOverrideParams>
+  getOutputLayoutOverridesPybindWrapper() const;
+
+  // Wrapper methods we use to expose the adders to the python bindings
+  void addInputLayoutOverridePybindWrapper(std::string, std::vector<int64_t> &);
+  void addOutputLayoutOverridePybindWrapper(std::string, std::vector<int64_t> &,
+                                            BufferType, TensorMemoryLayout,
+                                            tt::ttnn::Layout, tt::DataType);
+
 private:
   // Options for the TTIR to TTNN backend pipeline,
   // we use them to extract the names and the deafulat values.
-  TTIRToTTNNBackendPipelineOptions pipelineOptions;
+  // TTIRToTTNNBackendPipelineOptions pipelineOptions;
 
   // Flags for enabling/disabling the optimizer passes
   bool enableOptimizer = false;

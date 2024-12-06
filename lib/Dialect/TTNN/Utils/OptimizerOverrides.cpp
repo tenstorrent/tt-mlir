@@ -81,65 +81,79 @@ OptimizerOverridesHandler::getOutputLayoutOverrides() const {
   return outputLayoutOverrides;
 }
 
+std::unordered_map<std::string, InputLayoutOverrideParams>
+OptimizerOverridesHandler::getInputLayoutOverridesPybindWrapper() const {
+  std::unordered_map<std::string, InputLayoutOverrideParams>
+      inputLayoutOverridesWrapper;
+  for (auto &entry : inputLayoutOverrides) {
+    inputLayoutOverridesWrapper[entry.getKey().str()] = entry.getValue();
+  }
+  return inputLayoutOverridesWrapper;
+}
+
+std::unordered_map<std::string, OutputLayoutOverrideParams>
+OptimizerOverridesHandler::getOutputLayoutOverridesPybindWrapper() const {
+  std::unordered_map<std::string, OutputLayoutOverrideParams>
+      outputLayoutOverridesWrapper;
+  for (auto &entry : outputLayoutOverrides) {
+    outputLayoutOverridesWrapper[entry.getKey().str()] = entry.getValue();
+  }
+  return outputLayoutOverridesWrapper;
+}
+
 std::string OptimizerOverridesHandler::toString() const {
 
   std::string options = "";
 
   if (enableOptimizer) {
-    options += std::string(pipelineOptions.optimizerPassEnabled.getArgStr()) +
-               "=true ";
+    options += OptionNames::optimizerPassEnabled + "=true ";
   }
 
   if (enableMemoryReconfig) {
-    options +=
-        std::string(pipelineOptions.memReconfigEnabled.getArgStr()) + "=true ";
+    options += OptionNames::memReconfigEnabled + "=true ";
   }
 
   if (enableMemoryLayoutAnalysis) {
-    options +=
-        std::string(pipelineOptions.memoryLayoutAnalysisEnabled.getArgStr()) +
-        "=true ";
+    options += OptionNames::memoryLayoutAnalysisEnabled + "=true ";
   }
 
   if (enableMemoryLayoutAnalysisPolicy) {
-    options +=
-        std::string(pipelineOptions.memoryLayoutAnalysisPolicy.getArgStr()) +
-        MemoryLayoutAnalysisPolicyTypeParser::toString(
-            memoryLayoutAnalysisPolicy) +
-        " ";
+    options += OptionNames::memoryLayoutAnalysisPolicy + "=" +
+               MemoryLayoutAnalysisPolicyTypeParser::toString(
+                   memoryLayoutAnalysisPolicy) +
+               " ";
   }
 
   // Create input layout overrides.
-  //  Example: insert-memreconfig=input0=0:1,input1=0,input2=0:1:2
+  //  Example:
+  //    insert-memreconfig=input0=0:1,input1=0,input2=0:1:2
   if (inputLayoutOverrides.size() > 0) {
-    options += std::string(pipelineOptions.overrideInputLayout.getArgStr()) +
-               "=" + InputLayoutOverrideParser::toString(inputLayoutOverrides) +
-               " ";
+    options += OptionNames::overrideInputLayout + "=" +
+               InputLayoutOverrideParser::toString(inputLayoutOverrides) + " ";
   }
 
   // Create output layout overrides.
   //  Example:
-  //  override-output-layout=op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16
+  //    override-output-layout=op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16
   //  Example:
-  //  override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32"
+  //    override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32"
   if (outputLayoutOverrides.size() > 0) {
-    options +=
-        std::string(pipelineOptions.overrideOutputLayout.getArgStr()) + "=" +
-        OutputLayoutOverrideParser::toString(outputLayoutOverrides) + " ";
+    options += OptionNames::overrideOutputLayout + "=" +
+               OutputLayoutOverrideParser::toString(outputLayoutOverrides) +
+               " ";
   }
 
   if (systemDescPath.size() > 0) {
-    options += std::string(pipelineOptions.systemDescPath.getArgStr()) +
-               systemDescPath + " ";
+    options += OptionNames::systemDescPath + "=" + systemDescPath + " ";
   }
 
   if (maxLegalLayouts > 0) {
-    options += std::string(pipelineOptions.maxLegalLayouts.getArgStr()) +
+    options += OptionNames::maxLegalLayouts + "=" +
                std::to_string(maxLegalLayouts) + " ";
   }
 
   if (meshShape.size() > 0) {
-    options += std::string(pipelineOptions.meshShape.getArgStr()) + "=";
+    options += OptionNames::meshShape + "=";
     for (int64_t meshShapeValue : meshShape) {
       options += std::to_string(meshShapeValue) + ",";
     }
@@ -173,6 +187,24 @@ void OptimizerOverridesHandler::addOutputLayoutOverride(
     tt::DataType dataType) {
   outputLayoutOverrides[opName] = OutputLayoutOverrideParams{
       std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType};
+}
+
+void OptimizerOverridesHandler::addInputLayoutOverridePybindWrapper(
+    std::string opName, std::vector<int64_t> &operandIdxes) {
+  StringRef opNameStringRef(opName);
+  SmallVector<int64_t> operandIdxesSmallVector(operandIdxes.begin(),
+                                               operandIdxes.end());
+  addInputLayoutOverride(opNameStringRef, operandIdxesSmallVector);
+}
+
+void OptimizerOverridesHandler::addOutputLayoutOverridePybindWrapper(
+    std::string opName, std::vector<int64_t> &grid, BufferType bufferType,
+    TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout,
+    tt::DataType dataType) {
+  StringRef opNameStringRef(opName);
+  SmallVector<int64_t> gridSmallVector(grid.begin(), grid.end());
+  addOutputLayoutOverride(opNameStringRef, gridSmallVector, bufferType,
+                          tensorMemoryLayout, memoryLayout, dataType);
 }
 
 } // namespace mlir::tt::ttnn

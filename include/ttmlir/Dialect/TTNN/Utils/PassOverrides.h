@@ -13,6 +13,19 @@
 
 namespace mlir::tt::ttnn {
 
+struct OptionNames {
+
+  static const std::string optimizerPassEnabled;
+  static const std::string overrideInputLayout;
+  static const std::string overrideOutputLayout;
+  static const std::string memoryLayoutAnalysisEnabled;
+  static const std::string memReconfigEnabled;
+  static const std::string memoryLayoutAnalysisPolicy;
+  static const std::string systemDescPath;
+  static const std::string maxLegalLayouts;
+  static const std::string meshShape;
+};
+
 struct OutputLayoutOverrideParams {
 
   SmallVector<int64_t, 2> grid;
