@@ -6,7 +6,9 @@
 #define TTMLIR_TTMLIR_DIALECT_TTNN_TTNNDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.td"
+include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.td"
 
 //===----------------------------------------------------------------------===//
 // TTNN dialect definition.
@@ -44,6 +46,9 @@ def TTNN_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, !listconcat(traits, [TTNN_OpModelInterface])>;
+        Op<TTNN_Dialect, mnemonic, !listconcat(traits, [Pure, TTNN_OpModelInterface, TTNN_WorkaroundInterface])>;
+
+class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
+        Op<TTNN_Dialect, mnemonic, !listconcat(traits, [MemoryEffects<[MemWrite]>, TTNN_OpModelInterface, TTNN_WorkaroundInterface])>;
 
 #endif

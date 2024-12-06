@@ -40,8 +40,13 @@
 namespace mlir::tt {
 
 ::tt::target::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
-  switch (memLayout) {
+toFlatbuffer(FlatbufferObjectCache &,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  if (!memLayoutAttr) {
+    return ::tt::target::TensorMemoryLayout::None;
+  }
+
+  switch (memLayoutAttr.getValue()) {
   case ttnn::TensorMemoryLayout::SingleBank:
     return ::tt::target::TensorMemoryLayout::SingleBank;
   case ttnn::TensorMemoryLayout::Interleaved:
@@ -52,8 +57,6 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
     return ::tt::target::TensorMemoryLayout::WidthSharded;
   case ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::TensorMemoryLayout::BlockSharded;
-  case ttnn::TensorMemoryLayout::None:
-    return ::tt::target::TensorMemoryLayout::None;
   }
 }
 
@@ -73,7 +76,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
 
 flatbuffers::Offset<::tt::target::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-                       ttnn::TensorMemoryLayout memLayout) {
+                       ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -100,7 +103,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       toFlatbuffer(
           cache,
           mlir::cast<ttnn::BufferTypeAttr>(memref.getMemorySpace()).getValue()),
-      toFlatbuffer(cache, memLayout), size);
+      toFlatbuffer(cache, memLayoutAttr), size);
 }
 
 flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
@@ -436,6 +439,30 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
   }
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
+createOp(FlatbufferObjectCache &cache, UpdateCacheOp op) {
+  auto cacheOperand =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getCache()));
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto updateIndex = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getUpdateIndex()));
+
+  return ::tt::target::ttnn::CreateUpdateCacheOp(
+      *cache.fbb, cacheOperand, input, updateIndex, op.getBatchOffset());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
+createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
+  auto cacheOperand =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getCache()));
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+
+  return ::tt::target::ttnn::CreateFillCacheOp(*cache.fbb, cacheOperand, input,
+                                               op.getBatchOffset());
+}
+
 template <typename EltwiseOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseOp>
 createNonDPSEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
@@ -556,6 +583,10 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
                               ::tt::target::ttnn::EltwiseOpWithFloatParams>(
             cache, op)
             .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, TanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Tan;
+  } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Tanh;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -957,6 +988,22 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
     return createOperation(cache, createOp(cache, arangeOp), debugString,
+                           locInfo);
+  }
+  if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
+    return createOperation(cache, createEltwiseOp(cache, tanOp), debugString,
+                           locInfo);
+  }
+  if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
+    return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
+                           locInfo);
+  }
+  if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
+    return createOperation(cache, createOp(cache, updateCacheOp), debugString,
+                           locInfo);
+  }
+  if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
+    return createOperation(cache, createOp(cache, fillCacheOp), debugString,
                            locInfo);
   }
 

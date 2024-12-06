@@ -86,8 +86,6 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
   case ttnn::TensorMemoryLayout::WidthSharded:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
-  case ttnn::TensorMemoryLayout::None:
-    llvm_unreachable("Unsupported ttnn::TensorMemoryLayout");
   }
 }
 
@@ -694,6 +692,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::SinOp>,
                DefaultOpConversionPattern<ttnn::CosOp>,
                DefaultOpConversionPattern<ttnn::Expm1Op>,
+               DefaultOpConversionPattern<ttnn::TanOp>,
+               DefaultOpConversionPattern<ttnn::TanhOp>,
                DefaultOpConversionPattern<ttnn::LogOp>>(typeConverter, ctx);
 
   // Eltwise binary ops
@@ -755,6 +755,13 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Module op
   //
   patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // KV Cache ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::UpdateCacheOp>>(typeConverter,
+                                                                ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::FillCacheOp>>(typeConverter,
+                                                              ctx);
 }
 
 } // namespace mlir::tt

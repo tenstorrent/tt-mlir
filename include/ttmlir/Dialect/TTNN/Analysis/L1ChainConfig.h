@@ -58,7 +58,7 @@ public:
            std::unordered_set<Edge> &memReconfigEdges);
 
   bool isEmpty() { return opL1MemSpecs.empty(); }
-  void addOpL1MemSpec(OpL1MemSpec &&spec) {
+  void addOpL1MemSpec(OpL1MemSpec spec) {
     assert(state == L1ChainState::InBuild);
     l1ChainedOps.insert(spec.op);
     opL1MemSpecs.push_back(std::move(spec));

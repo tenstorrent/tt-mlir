@@ -6,10 +6,10 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTANALYSIS_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 
 namespace mlir::tt::ttnn {
 

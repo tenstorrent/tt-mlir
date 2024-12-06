@@ -586,6 +586,12 @@ class Binary(Flatbuffer):
             self.input_tensors = []
             self.output_tensors = []
 
+        def num_inputs(self):
+            return len(self.program["inputs"])
+
+        def num_outputs(self):
+            return len(self.program["outputs"])
+
         def populate_inputs(self, init_fn, golden_inputs=[]):
             if len(golden_inputs) > 0:
                 assert len(golden_inputs) == len(self.program["inputs"])

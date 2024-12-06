@@ -6,8 +6,9 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
+#include "ttnn/types.hpp"
+
 #include <functional>
-#include <ttnn/types.hpp>
 #include <variant>
 
 namespace tt::runtime::ttnn::operations::creation {
@@ -41,6 +42,6 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
                                       device, memoryConfig);
 
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

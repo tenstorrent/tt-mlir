@@ -37,6 +37,19 @@ table ToDeviceOp {
   out: tt.target.TensorRef;
 }
 
+table UpdateCacheOp {
+  cache: tt.target.TensorRef;
+  input: tt.target.TensorRef;
+  update_index: tt.target.TensorRef;
+  batch_offset: uint32;
+}
+
+table FillCacheOp {
+  cache: tt.target.TensorRef;
+  input: tt.target.TensorRef;
+  batch_offset: uint32;
+}
+
 table FromDeviceOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -112,7 +125,9 @@ enum EltwiseOpType: uint32 {
   LogicalXor,
   Clamp,
   LeakyRelu,
-  Scatter
+  Scatter,
+  Tan,
+  Tanh
 }
 
 table ClampOpParams {
@@ -281,6 +296,8 @@ union OpType {
   DeallocateOp,
   AllGatherOp,
   ArangeOp,
+  UpdateCacheOp,
+  FillCacheOp,
 }
 
 table Operation {

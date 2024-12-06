@@ -311,57 +311,6 @@ def test_enable_async_ttnn_cmd_run():
     sub_process_command(command)
 
 
-def test_disable_ignore_tile_shape_run():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--disable-ignore-tile-shape"] = True
-    run_instance = API.Run(args=custom_args)
-    run_instance()
-
-
-def test_disable_ignore_tile_shape_cmd_run():
-    command = f"ttrt run {BINARY_FILE_PATH} --disable-ignore-tile-shape --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    sub_process_command(command)
-
-
-def test_disable_empty_op_row_major_run():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--disable-empty-op-row-major"] = True
-    run_instance = API.Run(args=custom_args)
-    run_instance()
-
-
-def test_disable_empty_op_row_major_cmd_run():
-    command = f"ttrt run {BINARY_FILE_PATH} --disable-empty-op-row-major --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    sub_process_command(command)
-
-
-def test_disable_full_op_row_major_run():
-    API.initialize_apis()
-    custom_args = {}
-    custom_args[
-        "--result-file"
-    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    custom_args["binary"] = BINARY_FILE_PATH
-    custom_args["--disable-full-op-row-major"] = True
-    run_instance = API.Run(args=custom_args)
-    run_instance()
-
-
-def test_disable_full_op_row_major_cmd_run():
-    command = f"ttrt run {BINARY_FILE_PATH} --disable-full-op-row-major --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
-    sub_process_command(command)
-
-
 def test_disable_maxpool2d_preshard_run():
     API.initialize_apis()
     custom_args = {}

@@ -14,14 +14,21 @@
 
 namespace mlir::tt::ttnn {
 
-inline bool isSystemBufferType(mlir::tt::ttnn::BufferType bufferType) {
-  return bufferType == mlir::tt::ttnn::BufferType::SystemMemory;
+inline bool isSystemBufferType(BufferType bufferType) {
+  return bufferType == BufferType::SystemMemory;
 }
 
-inline bool isDeviceBufferType(mlir::tt::ttnn::BufferType bufferType) {
-  return bufferType == mlir::tt::ttnn::BufferType::L1 ||
-         bufferType == mlir::tt::ttnn::BufferType::DRAM ||
-         bufferType == mlir::tt::ttnn::BufferType::L1Small;
+inline bool isDeviceBufferType(BufferType bufferType) {
+  return bufferType == BufferType::L1 || bufferType == BufferType::DRAM ||
+         bufferType == BufferType::L1Small;
+}
+
+inline bool isL1BufferType(BufferType bufferType) {
+  return bufferType == BufferType::L1;
+}
+
+inline bool isDRAMBufferType(BufferType bufferType) {
+  return bufferType == BufferType::DRAM;
 }
 
 inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
@@ -29,6 +36,7 @@ inline bool isShardedMemoryLayout(TensorMemoryLayout layout) {
          layout == TensorMemoryLayout::WidthSharded ||
          layout == TensorMemoryLayout::BlockSharded;
 }
+
 } // namespace mlir::tt::ttnn
 
 #define GET_ATTRDEF_CLASSES

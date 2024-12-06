@@ -292,6 +292,20 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise tan op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
 def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -693,6 +707,47 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTIR_UpdateCacheOp : TTIR_DPSOp<"update_cache"> {
+  let summary = "Update static cache tensor.";
+  let description = [{
+      Updates the `cache` tensor in-place with values from `input` at `update_index` and `batch_offset`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       I32Attr:$batch_offset,
+                       TT_OperandConstraintArrayAttr:$operand_constraints);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
+  let summary = "Fill static cache tensor.";
+  let description = [{
+      Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$cache,
+                       AnyRankedTensor:$input,
+                       I32Attr:$batch_offset,
+                       TT_OperandConstraintArrayAttr:$operand_constraints);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+}
+
 def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
@@ -870,6 +925,8 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {

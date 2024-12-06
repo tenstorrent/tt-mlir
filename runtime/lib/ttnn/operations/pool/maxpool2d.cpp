@@ -33,13 +33,12 @@ preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
 
   constexpr bool en_ch_padding = false;
 
-  auto parallel_config =
-      ::ttnn::operations::conv::conv2d::determine_parallel_config(
-          ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, op->batch_size(),
-          op->channels(), output_height, output_width, op->channels(),
-          device.compute_with_storage_grid_size(), ShardOrientation::ROW_MAJOR,
-          en_ch_padding);
-  auto sharded_memory_config = ::ttnn::operations::conv::conv2d::
+  auto parallel_config = ::ttnn::operations::conv::determine_parallel_config(
+      ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED, op->batch_size(),
+      op->channels(), output_height, output_width, op->channels(),
+      device.compute_with_storage_grid_size(), ShardOrientation::ROW_MAJOR,
+      en_ch_padding);
+  auto sharded_memory_config = ::ttnn::operations::conv::
       create_sharded_memory_config_from_parallel_config(inputShape,
                                                         parallel_config, 1);
   return ::ttnn::to_memory_config(input, sharded_memory_config, std::nullopt);
@@ -47,8 +46,10 @@ preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
 
 void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::operations::pool::MaxPool2DOp operation =
-      ::ttnn::operations::pool::MaxPool2DOp();
+  const ::ttnn::operations::pool::Pool2DOp<
+      ::ttnn::operations::pool::Pool2DType::MAX_POOL2D>
+      operation = ::ttnn::operations::pool::Pool2DOp<
+          ::ttnn::operations::pool::Pool2DType::MAX_POOL2D>();
 
   ::ttnn::Tensor input = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(input.is_allocated());
@@ -61,7 +62,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
         },
         targetDevice);
   }
-  ::ttnn::MemoryConfig outMemConfig = utils::createMemoryConfig(op->out());
+  ::ttnn::MemoryConfig outMemConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = operation.invoke(
       0, input, op->batch_size(), op->input_height(), op->input_width(),
       op->channels(), {op->kernel_height(), op->kernel_width()},
