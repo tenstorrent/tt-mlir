@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include <ttnn/operations/embedding_backward/embedding_backward.hpp>
 #include <ttnn/tensor/tensor.hpp>
@@ -22,13 +23,19 @@ void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,
   DEBUG_ASSERT(weight.is_allocated());
   DEBUG_ASSERT(inGrad.is_allocated());
 
-  // TTNN implementation of the op gets mem config and dtype out of gradient
-  // tensor argument.
-  ::ttnn::DataType outputDataType = utils::getDataType(op->in_grad());
-  ::ttnn::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->in_grad());
-  ::ttnn::Tensor out = ::ttnn::embedding_bw(input, weight, inGrad,
-                                            outputDataType, outputMemoryConfig);
+  std::optional<::ttnn::DataType> dtype = std::nullopt;
+  std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
+
+  if (op->dtype()) {
+    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
+  }
+  if (op->memcfg()) {
+    memoryConfig =
+        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
+  }
+  ::ttnn::Tensor out =
+      ::ttnn::embedding_bw(input, weight, inGrad, dtype, memoryConfig);
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::embedding_backward

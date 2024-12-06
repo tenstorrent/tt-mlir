@@ -1,6 +1,7 @@
 add_mlir_library(TTMLIRTTIRToTTNN
   TTIRToTTNN.cpp
   TTIRToTTNNPass.cpp
+  Utils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToTTNN
