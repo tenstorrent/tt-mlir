@@ -130,16 +130,15 @@ private:
     ttnn::BufferType bufferType;
     ttnn::Layout layoutEnum;
     DataType dataType;
-    ttnn::TensorMemoryLayout tensorMemoryLayout;
+    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
     llvm::ArrayRef<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
       return ttnn::MemoryConfigAttr::get(
-          context,
-          ttnn::TensorMemoryLayoutAttr::get(context, tensorMemoryLayout),
-          ttnn::BufferTypeAttr::get(context, bufferType),
+          context, ttnn::BufferTypeAttr::get(context, bufferType),
           ttnn::ShardSpecAttr::get(context,
-                                   ttnn::ShapeAttr::get(context, shardShape)));
+                                   ttnn::ShapeAttr::get(context, shardShape)),
+          tensorMemoryLayout);
     }
 
     bool isOnHost() const {
@@ -219,8 +218,7 @@ private:
     output.dataType = op.getDtype().value();
 
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
-    output.tensorMemoryLayout =
-        outputMemoryConfig.getTensorMemoryLayout().getValue();
+    output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
 
     input.shardShape = inputLayoutAttr.getShardShape();
     output.shardShape = outputMemoryConfig.getShardShapeArray();
@@ -251,8 +249,8 @@ private:
     // device tensor
     if (not opsToCreate.createToDeviceOp and output.isOnDevice()) {
       opsToCreate.createToMemoryConfigOp =
-          (input.tensorMemoryLayout != output.tensorMemoryLayout) and
-          (output.tensorMemoryLayout != ttnn::TensorMemoryLayout::None);
+          output.tensorMemoryLayout &&
+          (input.tensorMemoryLayout != output.tensorMemoryLayout);
       opsToCreate.createToMemoryConfigOp |=
           (input.bufferType == ttnn::BufferType::DRAM and
            output.bufferType == ttnn::BufferType::L1) or

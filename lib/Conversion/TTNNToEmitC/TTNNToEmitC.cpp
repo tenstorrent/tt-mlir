@@ -86,8 +86,6 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
   case ttnn::TensorMemoryLayout::WidthSharded:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
-  case ttnn::TensorMemoryLayout::None:
-    llvm_unreachable("Unsupported ttnn::TensorMemoryLayout");
   }
 }
 

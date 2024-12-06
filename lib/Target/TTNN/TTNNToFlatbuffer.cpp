@@ -40,8 +40,13 @@
 namespace mlir::tt {
 
 ::tt::target::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
-  switch (memLayout) {
+toFlatbuffer(FlatbufferObjectCache &,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  if (!memLayoutAttr) {
+    return ::tt::target::TensorMemoryLayout::None;
+  }
+
+  switch (memLayoutAttr.getValue()) {
   case ttnn::TensorMemoryLayout::SingleBank:
     return ::tt::target::TensorMemoryLayout::SingleBank;
   case ttnn::TensorMemoryLayout::Interleaved:
@@ -52,8 +57,6 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
     return ::tt::target::TensorMemoryLayout::WidthSharded;
   case ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::TensorMemoryLayout::BlockSharded;
-  case ttnn::TensorMemoryLayout::None:
-    return ::tt::target::TensorMemoryLayout::None;
   }
 }
 
@@ -73,7 +76,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
 
 flatbuffers::Offset<::tt::target::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-                       ttnn::TensorMemoryLayout memLayout) {
+                       ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -100,7 +103,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       toFlatbuffer(
           cache,
           mlir::cast<ttnn::BufferTypeAttr>(memref.getMemorySpace()).getValue()),
-      toFlatbuffer(cache, memLayout), size);
+      toFlatbuffer(cache, memLayoutAttr), size);
 }
 
 flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
