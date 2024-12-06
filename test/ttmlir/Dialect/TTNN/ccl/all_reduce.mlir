@@ -1,0 +1,32 @@
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// Unit tests for ttnn all_reduce op
+
+// Verify lowering of ttir all_reduce to ttnn ops
+#any_device_tile = #tt.operand_constraint<dram|l1|tile|none|interleaved|single_bank|height_sharded|width_sharded|block_sharded|any_layout|any_device_tile>
+module attributes {} {
+  func.func @all_reduce(%arg0: tensor<4096x16384xf32>) -> tensor<4096x16384xf32> {
+    %0 = tensor.empty() : tensor<4096x16384xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{channel_handle = 1 : si32, dim = 0 : si32, operand_constraints = [#any_device_tile, #any_device_tile], reduce_type = #tt.reduce_type<sum>, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, use_global_device_ids}> : (tensor<4096x16384xf32>, tensor<4096x16384xf32>) -> tensor<4096x16384xf32>
+    return %1 : tensor<4096x16384xf32>
+  }
+}
+// CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+// CHECK: %[[C:.*]] = "ttnn.reduce_scatter"[[C:.*]]
+// CHECK: %[[C:.*]] = "ttnn.all_gather"[[C:.*]]
+// CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+
+// -----
+
+// Verify lowering of ttir all_reduce to ttnn ops
+#any_device_tile = #tt.operand_constraint<dram|l1|tile|none|interleaved|single_bank|height_sharded|width_sharded|block_sharded|any_layout|any_device_tile>
+module attributes {} {
+  func.func @all_reduce(%arg0: tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32> {
+    %0 = tensor.empty() : tensor<1x1x4096x16384xf32>
+    %1 = "ttir.all_reduce"(%arg0, %0) <{channel_handle = 1 : si32, dim = 0 : si32, operand_constraints = [#any_device_tile, #any_device_tile], reduce_type = #tt.reduce_type<sum>, replica_groups = dense<[[0, 1, 2, 3], [4, 5, 6, 7]]> : tensor<2x4xi64>, use_global_device_ids}> : (tensor<1x1x4096x16384xf32>, tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32>
+    return %1 : tensor<1x1x4096x16384xf32>
+  }
+}
+// CHECK-NOT: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
+// CHECK: %[[C:.*]] = "ttnn.reduce_scatter"[[C:.*]]
+// CHECK: %[[C:.*]] = "ttnn.all_gather"[[C:.*]]
+// CHECK-NOT: %[[C:.*]] = "ttnn.reshape"[[C:.*]]

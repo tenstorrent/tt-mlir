@@ -897,6 +897,50 @@ public:
   }
 };
 
+class AllReduceOpConversionPattern
+    : public OpConversionPattern<ttir::AllReduceOp> {
+public:
+  using OpConversionPattern<ttir::AllReduceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllReduceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
+    size_t scatter_dim = adaptor.getDim();
+    // scatter_num is needed when determining the output shape of workaround
+    // pass of reduce_scatter output and all_gather input
+    int32_t scatter_num =
+        replicaGroupsShape[scatter_dim % replicaGroupsShape.size()];
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
+        op, this->getTypeConverter()->convertType(op.getType(0)),
+        adaptor.getInputs().front(), device, scatter_dim, scatter_num,
+        adaptor.getReduceType());
+
+    return success();
+  }
+};
+
+class MeshShardOpConversionPattern
+    : public OpConversionPattern<ttir::MeshShardOp> {
+public:
+  using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), device, adaptor.getShardDirection(),
+        adaptor.getShardType(), adaptor.getShardShape());
+
+    return success();
+  }
+};
+
 class AllGatherOpConversionPattern
     : public OpConversionPattern<ttir::AllGatherOp> {
 public:
@@ -905,9 +949,11 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllGatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDim());
+        adaptor.getInput(), device, adaptor.getDim());
     return success();
   }
 };
@@ -1035,6 +1081,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            Conv2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
+           MeshShardOpConversionPattern,
+           AllReduceOpConversionPattern,
            AllGatherOpConversionPattern,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,

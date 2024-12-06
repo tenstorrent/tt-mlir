@@ -968,7 +968,61 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult ReduceScatterOp::verify() {
-  // TODO(gfengTT)
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t scatterSplitDim = getScatterSplitDim();
+  auto mathOp = getMathOp();
+
+  if (scatterSplitDim >= inputType.getRank() ||
+      scatterSplitDim < -inputType.getRank()) {
+    return emitOpError("Invalid dimension for reduce scatter op.");
+  }
+
+  // Check reduction op that we currently support in tt_nn
+  if (mathOp != ::mlir::tt::ReduceType::Sum &&
+      mathOp != ::mlir::tt::ReduceType::Max &&
+      mathOp != ::mlir::tt::ReduceType::Min) {
+    return emitOpError("Invalid reduction op for reduce scatter op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllReduceOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getScatterDim();
+  auto mathOp = getMathOp();
+
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError("Invalid dimension for all reduce op.");
+  }
+
+  // Check reduction op that we currently support in tt_nn
+  if (mathOp != ::mlir::tt::ReduceType::Sum &&
+      mathOp != ::mlir::tt::ReduceType::Max &&
+      mathOp != ::mlir::tt::ReduceType::Min) {
+    return emitOpError("Invalid reduction op for all reduce op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MeshShardOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MeshShardOp::verify() {
+  auto shardType = getShardType();
+
+  // Check sharding is one of replicate or devices
+  if (shardType != ::mlir::tt::MeshShardType::Replicate &&
+      shardType != ::mlir::tt::MeshShardType::Devices) {
+    return emitOpError("Invalid shard_type for mesh_shard op.");
+  }
+
   return success();
 }
 
