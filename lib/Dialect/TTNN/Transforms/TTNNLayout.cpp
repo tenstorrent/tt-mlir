@@ -319,7 +319,8 @@ public:
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
       if (mlir::isa<ttir::Conv2dOp>(op.getOperation()) && !isResult) {
         // For the weight input of the conv2d op, it specifically needs to be on
-        // host, so we create a host to_layout op.
+        // host, so we create a host to layout op (issue
+        // https://github.com/tenstorrent/tt-mlir/issues/1528).
         if (operand.getOperandNumber() == 1) {
           modified = changeLayoutToHost(op, operand, rewriter);
         }
