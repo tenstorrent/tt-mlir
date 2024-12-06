@@ -94,9 +94,6 @@ set(LINK_LIBS
     # The below libs have been added to tt-metal repo at some point, but are not
     # currently needed by the targets here - leaving them commented here for
     # reference
-    #
-    # nng
-    # uv
 
     # TTNN
     # _ttnn  # Why doesn't this work?

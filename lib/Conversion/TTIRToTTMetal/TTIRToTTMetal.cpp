@@ -1007,11 +1007,12 @@ public:
     builder.create<ttkernel::TileRegsAcquireOp>(location);
     {
       // copy inCB0[inCB0TileIndex] and inCB1[inCB1TileIndex] to DST:
+      builder.create<ttkernel::CopyTileInitOp>(location);
       builder.create<ttkernel::CopyTileOp>(location, inCB0, inCB0TileIndex,
                                            dstLhsTileIndex);
       builder.create<ttkernel::CopyTileOp>(location, inCB1, inCB1TileIndex,
                                            dstRhsTileIndex);
-      // SFPU ooperates on DST tiles:
+      // SFPU operates on DST tiles:
       builder.create<TTKernelTilesOp>(location, dstLhsTileIndex,
                                       dstRhsTileIndex);
     }

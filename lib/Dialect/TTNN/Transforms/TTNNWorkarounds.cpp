@@ -61,23 +61,29 @@ static mlir::Value
 createToLayoutOp(wa::TTNNWorkaroundInterface &op, OpOperand &inputOperand,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
-                 TensorMemoryLayout targetTensorMemoryLayout) {
+                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout) {
   TTNNLayoutAttr inputLayoutAttr = getLayoutAttrFromOpOperand(inputOperand);
 
   // Create element type based on tensor layout.
   Type elementType = getElementType(rewriter.getContext(), targetTensorLayout,
                                     inputLayoutAttr.getDataType());
 
+  // Create tensor memory layout attribute.
+  ttnn::TensorMemoryLayoutAttr outputMemLayoutAttr =
+      targetTensorMemoryLayout.has_value()
+          ? ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                              targetTensorMemoryLayout.value())
+          : nullptr;
+
   // Create the output memory config attribute.
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
       rewriter.getContext(),
-      ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
-                                        targetTensorMemoryLayout),
       ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
       ttnn::ShardSpecAttr::get(
           op.getContext(),
           ttnn::ShapeAttr::get(rewriter.getContext(),
-                               inputLayoutAttr.getMemref().getShape())));
+                               inputLayoutAttr.getMemref().getShape())),
+      outputMemLayoutAttr);
 
   // Get the input operand type.
   RankedTensorType inputOperandType =
@@ -94,7 +100,7 @@ createToLayoutOp(wa::TTNNWorkaroundInterface &op, OpOperand &inputOperand,
                   .withElementType(rewriter.getContext(), elementType)
                   .withBufferType(rewriter.getContext(), targetTensorBufferType)
                   .withMemoryLayout(rewriter.getContext(),
-                                    targetTensorMemoryLayout)),
+                                    outputMemLayoutAttr)),
           inputOperand.get(),
           LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
           DataTypeAttr::get(rewriter.getContext(),
@@ -185,6 +191,15 @@ static bool workaroundOutputOperand(
   RankedTensorType opResultType =
       mlir::cast<RankedTensorType>(opResult.getType());
 
+  // Create tensor memory layout attribute.
+  TensorMemoryLayoutAttr outputMemLayoutAttr =
+      outputWorkaroundResult.targetTensorMemoryLayoutResult.first.has_value()
+          ? ttnn::TensorMemoryLayoutAttr::get(
+                rewriter.getContext(),
+                outputWorkaroundResult.targetTensorMemoryLayoutResult.first
+                    .value())
+          : nullptr;
+
   // Create the new output result type with the updated tensor layout, buffer
   // type and memory layout.
   RankedTensorType newOutputResultType =
@@ -194,9 +209,7 @@ static bool workaroundOutputOperand(
               .withBufferType(
                   rewriter.getContext(),
                   outputWorkaroundResult.targetTensorBufferTypeResult.first)
-              .withMemoryLayout(
-                  rewriter.getContext(),
-                  outputWorkaroundResult.targetTensorMemoryLayoutResult.first));
+              .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr));
 
   // Update the type of result with applied workarounds.
   rewriter.modifyOpInPlace(op, [&]() {
@@ -231,7 +244,8 @@ static bool workaroundOutputOperand(
       if (outputWorkaroundResult.targetTensorMemoryLayoutResult.second) {
         currentMemoryConfig = currentMemoryConfig.withMemoryLayout(
             rewriter.getContext(),
-            outputWorkaroundResult.targetTensorMemoryLayoutResult.first);
+            outputWorkaroundResult.targetTensorMemoryLayoutResult.first
+                .value());
       }
 
       // Update the changed memory config attribute.

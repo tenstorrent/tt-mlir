@@ -97,11 +97,48 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        Value(outputTensor), adaptor.getAxis(),
+        Value(outputTensor), adaptor.getAxis(),  
+  }
+};
+
+class TosaToTTIRMatmulOpConversionPattern
+    : public OpConversionPattern<tosa::MatMulOp> {
+  using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
+  using Adaptor = tosa::MatMulOp::Adaptor;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::MatMulOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult =
+        checkConversionLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+    auto operands = adaptor.getOperands();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
+        srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
+        outputTensor,
+
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
                                        OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+
+private:
+  LogicalResult
+  checkConversionLegality(tosa::MatMulOp srcOp, Adaptor adaptor,
+                          ConversionPatternRewriter &rewriter) const {
+    if (srcOp.getQuantizationInfo().has_value()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "TTIR MatmulOp currently doesn't support quantization.");
+    }
     return success();
   }
 };
@@ -187,6 +224,12 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
+void addMatmulOpsConversionPatterns(MLIRContext *ctx,
+                                    RewritePatternSet &patterns,
+                                    TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -198,6 +241,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
+  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
 
   patterns.add<TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
 }

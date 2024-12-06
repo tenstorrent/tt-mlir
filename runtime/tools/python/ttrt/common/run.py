@@ -125,27 +125,6 @@ class Run:
             help="enable async mode device execution for TTNN runtime",
         )
         Run.register_arg(
-            name="--disable-ignore-tile-shape",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable ignore tile shape workaround",
-        )
-        Run.register_arg(
-            name="--disable-empty-op-row-major",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable empty op force row major workaround",
-        )
-        Run.register_arg(
-            name="--disable-full-op-row-major",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable full op force row major workaround",
-        )
-        Run.register_arg(
             name="--disable-maxpool2d-preshard",
             type=bool,
             default=False,
@@ -158,6 +137,13 @@ class Run:
             default=False,
             choices=[True, False],
             help="disable swap binary operands workaround",
+        )
+        Run.register_arg(
+            name="--disable-read-update-index-for-kv-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
             name="--result-file",
@@ -370,11 +356,9 @@ class Run:
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
-                not self["--disable-ignore-tile-shape"],
-                not self["--disable-empty-op-row-major"],
-                not self["--disable-full-op-row-major"],
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
+                not self["--disable-read-update-index-for-kv-cache"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")

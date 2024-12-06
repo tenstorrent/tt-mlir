@@ -18,7 +18,7 @@ module @jit_constant attributes {} {
 
   func.func public @test_bfloat16_scalar_empty() -> tensor<bf16> {
     // CHECK-LABEL: func.func public @test_bfloat16_scalar_empty
-    // CHECK: ttnn.empty
+    // CHECK: ttnn.full
     // CHECK-SAME: -> tensor<1xbf16
     %0 = stablehlo.constant dense<0.0> : tensor<bf16>
     return %0 : tensor<bf16>
@@ -26,7 +26,7 @@ module @jit_constant attributes {} {
 
   func.func public @test_bfloat16_empty() -> tensor<64x128xbf16> {
     // CHECK-LABEL: func.func public @test_bfloat16_empty
-    // CHECK: ttnn.empty
+    // CHECK: ttnn.full
     // CHECK-SAME: -> tensor<64x128xbf16
     %0 = stablehlo.constant dense<0.0> : tensor<64x128xbf16>
     return %0 : tensor<64x128xbf16>

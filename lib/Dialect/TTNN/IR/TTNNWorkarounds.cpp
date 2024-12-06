@@ -46,12 +46,16 @@ WorkaroundResult applyWorkarounds(const TTNNOperandWorkarounds &workaround,
       result.targetTensorBufferTypeResult.first !=
       inputLayoutAttr.getBufferType();
 
+  // If the tensor memory layout workaround is present, apply it.
+  // Otherwise, return the input tensor memory layout, which may be
+  // nullopt if tensor is on host.
   result.targetTensorMemoryLayoutResult.first =
-      workaround.tensorMemoryLayoutWorkaround.value_or(
-          inputLayoutAttr.getMemLayout());
+      workaround.tensorMemoryLayoutWorkaround.has_value()
+          ? workaround.tensorMemoryLayoutWorkaround
+          : inputLayoutAttr.getMemLayoutOpt();
   result.targetTensorMemoryLayoutResult.second =
       result.targetTensorMemoryLayoutResult.first !=
-      inputLayoutAttr.getMemLayout();
+      inputLayoutAttr.getMemLayoutOpt();
 
   return result;
 }

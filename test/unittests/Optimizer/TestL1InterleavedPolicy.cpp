@@ -84,16 +84,18 @@ public:
                                      std::vector<TTNNLayoutAttr>> &legalLayouts,
                       BufferType memorySpace,
                       TensorMemoryLayout tensorMemoryLayout) {
+    TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+        TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout);
     if (legalLayouts.find(op) == legalLayouts.end()) {
       legalLayouts[op] = std::vector<TTNNLayoutAttr>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace, mlir::tt::GridAttr::get(&context, {8, 8}),
-          tensorMemoryLayout)};
+          tensorMemoryLayoutAttr)};
     } else {
       legalLayouts[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace, mlir::tt::GridAttr::get(&context, {8, 8}),
-          tensorMemoryLayout));
+          tensorMemoryLayoutAttr));
     }
   }
 

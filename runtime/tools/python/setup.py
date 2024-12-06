@@ -80,7 +80,7 @@ if enable_ttmetal:
     linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_ttnn or enable_ttmetal:
-    runlibs += ["libdevice.so", "libnng.so.1", "libuv.so.1"]
+    runlibs += ["libdevice.so"]
     linklibs += ["TTRuntimeSysDesc", "TTRuntimeDebug", "TTRuntimeWorkarounds"]
 
 if enable_perf:

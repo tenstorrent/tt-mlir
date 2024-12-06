@@ -18,6 +18,8 @@
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
+#include "operations/kv_cache/fill_cache.h"
+#include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
@@ -211,6 +213,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    return operations::kv_cache::run(op->type_as_UpdateCacheOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    return operations::kv_cache::run(op->type_as_FillCacheOp(), context);
   }
   default: {
     LOG_FATAL("Unsupported operation type");

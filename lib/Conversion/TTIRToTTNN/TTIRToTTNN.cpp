@@ -23,6 +23,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <mlir/IR/Operation.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -62,8 +63,8 @@ public:
     // If the tensor is not going to device, we can create the op without
     // device-specific attributes
     //
-    ttnn::TensorMemoryLayout memLayout = layoutAttr.getMemLayout();
-    if (memLayout == ttnn::TensorMemoryLayout::None) {
+    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
+    if (!memLayout) {
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
           op, this->getTypeConverter()->convertType(op.getType()), nullptr,
           shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
@@ -78,12 +79,10 @@ public:
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     llvm::SmallVector<int64_t> shardShape = layoutAttr.getShardShape();
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(op.getContext(), memLayout),
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+        op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
         ttnn::ShardSpecAttr::get(
-            op.getContext(),
-            ttnn::ShapeAttr::get(op.getContext(), shardShape)));
+            op.getContext(), ttnn::ShapeAttr::get(op.getContext(), shardShape)),
+        memLayout);
 
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
@@ -158,17 +157,13 @@ public:
     llvm::SmallVector<int64_t> outputShardShape =
         outputLayoutAttr.getShardShape();
 
-    // Determine output memory config attr
-    ttnn::TensorMemoryLayout outputTensorMemoryLayout =
-        outputLayoutAttr.getMemLayout();
     ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
         rewriter.getContext(),
-        ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
-                                          outputTensorMemoryLayout),
         ttnn::BufferTypeAttr::get(rewriter.getContext(), outputBufferType),
         ttnn::ShardSpecAttr::get(
             op.getContext(),
-            ttnn::ShapeAttr::get(rewriter.getContext(), outputShardShape)));
+            ttnn::ShapeAttr::get(rewriter.getContext(), outputShardShape)),
+        outputLayoutAttr.getMemLayout());
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
@@ -330,6 +325,78 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ClampOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getMin(), adaptor.getMax());
+    return success();
+  }
+};
+
+class UpdateCacheOpConversionPattern
+    : public OpConversionPattern<ttir::UpdateCacheOp> {
+public:
+  using OpConversionPattern<ttir::UpdateCacheOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::UpdateCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // The TTIR version of this op is pure. In TTNN this op is in-place.
+    // We need to replace uses of the result ot the TTIR op with uses
+    // of the cache argument.
+    //
+    // The presence of the MemWrite trait of this op should preserve
+    // the order of this op relative to the cache arguments uses, preserving
+    // program correctness.
+
+    // This op can only work if it is the final use of the cache tensor in the
+    // order of execution. For now, checking that there is only one user (this
+    // op) of the cache tensor will suffice.
+    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
+                                         op.getCache().getUsers().end());
+    if (users.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "UpdateCacheOp must have exactly one user");
+    }
+
+    rewriter.create<ttnn::UpdateCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getUpdateIndex(), adaptor.getBatchOffset());
+
+    rewriter.replaceOp(op, adaptor.getCache());
+    return success();
+  }
+};
+
+class FillCacheOpConversionPattern
+    : public OpConversionPattern<ttir::FillCacheOp> {
+public:
+  using OpConversionPattern<ttir::FillCacheOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FillCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // The TTIR version of this op is pure. In TTNN this op is in-place.
+    // We need to replace uses of the result ot the TTIR op with uses
+    // of the cache argument.
+    //
+    // The presence of the MemWrite trait of this op should preserve
+    // the order of this op relative to the cache arguments uses, preserving
+    // program correctness.
+
+    // This op can only work if it is the final use of the cache tensor in the
+    // order of execution. For now, checking that there is only one user (this
+    // op) of the cache tensor will suffice.
+    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
+                                         op.getCache().getUsers().end());
+    if (users.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "FillCacheOp must have exactly one user");
+    }
+
+    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
+                                       adaptor.getInput(),
+                                       adaptor.getBatchOffset());
+
+    rewriter.replaceOp(op, adaptor.getCache());
     return success();
   }
 };
@@ -506,15 +573,12 @@ public:
           valueAttr.getElementType().isInteger()
               ? getIntegerValue(valueAttr)
               : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
-      if (fillValue == 0) {
-        rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
-            op, this->getTypeConverter()->convertType(op.getType()), device);
-      } else {
-        ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
-        rewriter.replaceOpWithNewOp<ttnn::FullOp>(
-            op, this->getTypeConverter()->convertType(op.getType()), device,
-            fillValueAttr);
-      }
+
+      ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
+      rewriter.replaceOpWithNewOp<ttnn::FullOp>(
+          op, this->getTypeConverter()->convertType(op.getType()), device,
+          fillValueAttr);
+
     } else {
       return rewriter.notifyMatchFailure(
           op, "TTNN doesn't currently support tensor creation from multiple "
@@ -841,15 +905,9 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllGatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    RankedTensorType type =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    tensor::EmptyOp emptyOp = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), this->getTypeConverter()->convertType(type), device);
-
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), emptyOp,
-        adaptor.getDim());
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getDim());
     return success();
   }
 };
@@ -880,11 +938,10 @@ public:
 
     ttnn::MemoryConfigAttr memConfigAttr =
         rewriter.getAttr<ttnn::MemoryConfigAttr>(
-            rewriter.getAttr<ttnn::TensorMemoryLayoutAttr>(
-                layoutAttr.getMemLayout()),
             rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
             rewriter.getAttr<ttnn::ShardSpecAttr>(
-                rewriter.getAttr<ttnn::ShapeAttr>(layoutAttr.getShardShape())));
+                rewriter.getAttr<ttnn::ShapeAttr>(layoutAttr.getShardShape())),
+            layoutAttr.getMemLayout());
 
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
         op, outputType, adaptor.getStart(), adaptor.getEnd(), adaptor.getStep(),
@@ -980,6 +1037,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            SubtractOpConversionPattern,
            AllGatherOpConversionPattern,
            ArangeOpConversionPattern,
+           UpdateCacheOpConversionPattern,
+           FillCacheOpConversionPattern,
            ScatterOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
