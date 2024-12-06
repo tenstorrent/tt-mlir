@@ -81,6 +81,26 @@ private:
   }
 };
 
+class TosaToTTIRConcatOpConversionPattern
+    : public OpConversionPattern<tosa::ConcatOp> {
+  using OpConversionPattern<tosa::ConcatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConcatOp srcOp, tosa::ConcatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
+        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
+        Value(outputTensor), adaptor.getAxis(),  
+  }
+};
+
 class TosaToTTIRMatmulOpConversionPattern
     : public OpConversionPattern<tosa::MatMulOp> {
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -103,6 +123,7 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
         outputTensor,
+
         rewriter.getArrayAttr(
             SmallVector<Attribute>(adaptor.getOperands().size() + 1,
                                    rewriter.getAttr<OperandConstraintAttr>(
@@ -221,6 +242,8 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+
+  patterns.add<TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
