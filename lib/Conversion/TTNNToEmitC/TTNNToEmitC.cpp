@@ -636,8 +636,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     Type newTy = this->getTypeConverter()->convertType(constOp.getType());
-    if (!newTy)
+    if (!newTy) {
       return rewriter.notifyMatchFailure(constOp, "type conversion failed");
+    }
+
     rewriter.replaceOpWithNewOp<emitc::ConstantOp>(constOp, newTy,
                                                    adaptor.getValue());
     return success();
