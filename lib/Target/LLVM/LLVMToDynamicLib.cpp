@@ -167,7 +167,7 @@ linkDynamicLibrary(llvm::StringRef libraryName,
                    ArrayRef<llvm::StringRef> objectFileNames) {
   SmallVector<std::string, 8> flags = {
       "ld.lld-17",
-      std::string("-o ") + libraryName,
+      "-o " + libraryName.str(),
   };
 
   // Avoids including any libc/startup files that initialize the CRT as
