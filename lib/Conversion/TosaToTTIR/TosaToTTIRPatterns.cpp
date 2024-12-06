@@ -187,11 +187,6 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
-void addConcatOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
-}
-
 } // namespace
 
 namespace mlir::tt {
@@ -203,7 +198,8 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-  addConcatOpConversionPattern(ctx, patterns, typeConverter);
+
+  patterns.add<TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
