@@ -202,14 +202,15 @@ namespace mlir::tt {
 
 void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
-  // for conversion patterns that directly use the
-  // TosaToTTIRDefaultDPSOpConversionPattern
+  // Below are conversion patterns that directly use the
+  // TosaToTTIRDefaultDPSOpConversionPattern.
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-  // for other conversion patterns, alphabetically ordered
+  // Below are conversion patterns that don't directly use the
+  // TosaToTTIRDefaultDPSOpConversionPattern, alphabetically ordered.
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addMultiplyOpConversionPattern(ctx, patterns, typeConverter);
 }
