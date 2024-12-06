@@ -136,8 +136,8 @@ public:
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-    attrs.push_back(ttnntoemitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(ttnntoemitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
@@ -206,9 +206,9 @@ public:
       // Create ArrayAttr object holding MemoryConfig attributes
       //
       ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-          {ttnntoemitc::utils::convertTensorMemoryLayout(
+          {ttnn_to_emitc::utils::convertTensorMemoryLayout(
                rewriter, srcOp.getMemoryConfig()->getTensorMemoryLayout()),
-           ttnntoemitc::utils::convertBufferType(
+           ttnn_to_emitc::utils::convertBufferType(
                rewriter, srcOp.getMemoryConfig()->getBufferType())});
 
       // Create MemoryConfig object first, then pass it to the op
@@ -220,7 +220,7 @@ public:
       operands.append(1, memCfgOp.getResult(0));
       attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
     } else {
-      attrs.push_back(ttnntoemitc::utils::createStdNullopt(rewriter));
+      attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     }
 
     ArrayAttr finalAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
@@ -303,9 +303,9 @@ public:
     // Create ArrayAttr object holding MemoryConfig attributes
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {ttnntoemitc::utils::convertTensorMemoryLayout(
+        {ttnn_to_emitc::utils::convertTensorMemoryLayout(
              rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
-         ttnntoemitc::utils::convertBufferType(
+         ttnn_to_emitc::utils::convertBufferType(
              rewriter, srcOp.getMemoryConfig().getBufferType())});
 
     // Create MemoryConfig object first, then pass it to the op
@@ -323,7 +323,7 @@ public:
     llvm::SmallVector<Attribute, 3> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-    attrs.push_back(ttnntoemitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
 
     ArrayAttr finalAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
@@ -353,10 +353,10 @@ public:
 
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
-    attrs.push_back(
-        ttnntoemitc::utils::convertLayoutAttr(rewriter, srcOp.getLayoutAttr()));
-    attrs.push_back(ttnntoemitc::utils::createStdNullopt(rewriter));
-    attrs.push_back(ttnntoemitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::convertLayoutAttr(
+        rewriter, srcOp.getLayoutAttr()));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(createNullDevicePointer(rewriter));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
@@ -390,7 +390,7 @@ public:
 
     // Create ttnn::Shape() call
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnntoemitc::utils::createShapeOp(
+    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
 
     llvm::SmallVector<Value, 3> operands{
@@ -405,7 +405,7 @@ public:
 
       // Create MemoryConfig object first, then pass it to the op
       //
-      emitc::CallOpaqueOp memCfgOp = ttnntoemitc::utils::createMemoryConfigOp(
+      emitc::CallOpaqueOp memCfgOp = ttnn_to_emitc::utils::createMemoryConfigOp(
           rewriter, srcOp.getMemoryConfig().value(), srcOp.getLoc());
 
       // Concat operands and MemoryConfig object
@@ -416,16 +416,16 @@ public:
       //
       arrayAttr = rewriter.getArrayAttr({
           rewriter.getIndexAttr(0), // ttnn::Shape
-          ttnntoemitc::utils::convertDType(rewriter, dataTypeAttr),
-          ttnntoemitc::utils::convertLayoutAttr(rewriter, layoutAttr),
+          ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+          ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
           rewriter.getIndexAttr(1), // ttnn::Device
           rewriter.getIndexAttr(2), // ttnn::MemoryConfig
       });
     } else {
       arrayAttr = rewriter.getArrayAttr({
           rewriter.getIndexAttr(0), // ttnn::Shape
-          ttnntoemitc::utils::convertDType(rewriter, dataTypeAttr),
-          ttnntoemitc::utils::convertLayoutAttr(rewriter, layoutAttr),
+          ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+          ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
       });
     }
 
@@ -478,7 +478,7 @@ public:
 
     // Create ttnn::Shape() call
     //
-    emitc::ExpressionOp shapeExpressionOp = ttnntoemitc::utils::createShapeOp(
+    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, srcOp.getShapeAttr(), srcOp->getBlock(), srcOp.getLoc());
 
     llvm::SmallVector<Value, 3> operands{
@@ -494,23 +494,24 @@ public:
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
         rewriter.getIndexAttr(operandIndex++), // ttnn::Shape
         srcOp.getDtype().has_value()
-            ? ttnntoemitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
-            : ttnntoemitc::utils::createStdNullopt(rewriter), // ttnn::DataType
+            ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::DataType
         srcOp.getLayout().has_value()
-            ? ttnntoemitc::utils::convertLayoutAttr(rewriter,
-                                                    srcOp.getLayoutAttr())
-            : ttnntoemitc::utils::createStdNullopt(rewriter), // ttnn::Layout
+            ? ttnn_to_emitc::utils::convertLayoutAttr(rewriter,
+                                                      srcOp.getLayoutAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Layout
         adaptor.getDevice()
             ? (operands.append(1, adaptor.getDevice()),
                mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
-            : ttnntoemitc::utils::createStdNullopt(rewriter), // ttnn::Device
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Device
         srcOp.getMemoryConfig().has_value()
             ? (operands.append(
-                   1, ttnntoemitc::utils::createMemoryConfigOp(
+                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
                           rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
                           ->getResult(0)),
                mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
-            : ttnntoemitc::utils::createStdNullopt(
+            : ttnn_to_emitc::utils::createStdNullopt(
                   rewriter), // ttnn::MemoryConfig
     });
 
@@ -540,7 +541,7 @@ public:
 
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
         rewriter.getIndexAttr(0),
-        ttnntoemitc::utils::convertBoolAttr(rewriter, srcOp.getForceAttr()),
+        ttnn_to_emitc::utils::convertBoolAttr(rewriter, srcOp.getForceAttr()),
     });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(

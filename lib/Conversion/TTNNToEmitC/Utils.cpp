@@ -6,7 +6,7 @@
 
 #include "mlir/Pass/Pass.h"
 
-namespace mlir::tt::ttnntoemitc::utils {
+namespace mlir::tt::ttnn_to_emitc::utils {
 
 emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
   llvm::ArrayRef shape = attr.getShape();
@@ -172,4 +172,4 @@ emitc::CallOpaqueOp createMemoryConfigOp(ConversionPatternRewriter &rewriter,
   return memCfgOp;
 }
 
-} // namespace mlir::tt::ttnntoemitc::utils
+} // namespace mlir::tt::ttnn_to_emitc::utils

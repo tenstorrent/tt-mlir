@@ -10,7 +10,7 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-namespace mlir::tt::ttnntoemitc::utils {
+namespace mlir::tt::ttnn_to_emitc::utils {
 
 // Create emitc::OpaqueAttr for ttnn::Shape
 //
@@ -63,6 +63,6 @@ emitc::CallOpaqueOp createMemoryConfigOp(ConversionPatternRewriter &rewriter,
                                          ttnn::MemoryConfigAttr memoryConfig,
                                          Location loc);
 
-} // namespace mlir::tt::ttnntoemitc::utils
+} // namespace mlir::tt::ttnn_to_emitc::utils
 
 #endif // TTMLIR_CONVERSION_TTNNTOEMITC_UTILS_H
