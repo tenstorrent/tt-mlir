@@ -129,17 +129,23 @@ public:
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
 
-    // Device only exists if ttnn::TensorMemoryLayout is None
+    // Device only exists if memLayout is *not* null
     //
     auto device =
-        memLayout ? nullptr : ::ttnn::utils::getOrInsertDevice(rewriter, op);
+        memLayout ? ::ttnn::utils::getOrInsertDevice(rewriter, op) : nullptr;
 
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-        ttnn::ShardSpecAttr::get(
-            op.getContext(),
-            ttnn::ShapeAttr::get(op.getContext(), memref.getShape())),
-        memLayout);
+    // MemoryConfigAttr only exists if memLayout is *not* null
+    //
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        memLayout
+            ? ttnn::MemoryConfigAttr::get(
+                  op.getContext(),
+                  ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+                  ttnn::ShardSpecAttr::get(
+                      op.getContext(),
+                      ttnn::ShapeAttr::get(op.getContext(), memref.getShape())),
+                  memLayout)
+            : nullptr;
 
     rewriter.replaceOpWithNewOp<ttnn::OnesOp>(
         op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
