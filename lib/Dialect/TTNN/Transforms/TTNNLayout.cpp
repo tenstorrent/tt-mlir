@@ -282,9 +282,9 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter) {
   Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-  std::optional<Value> layout = createToLayoutOp(
-      rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-      TensorMemoryLayout::None, false /* tiled */);
+  std::optional<Value> layout =
+      createToLayoutOp(rewriter, newLoc, operand.get(),
+                       BufferType::SystemMemory, nullptr, false /* tiled */);
   if (layout.has_value()) {
     rewriter.modifyOpInPlace(
         op, [&]() { op->setOperand(operand.getOperandNumber(), *layout); });
