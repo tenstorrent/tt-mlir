@@ -15,13 +15,13 @@ void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
-    DisjoinL1ChainConfigsUnion disjointL1ChainConfigsUnion;
-
-    // Start the policy.
-    //
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    llvm::DenseMap<Operation *, uint64_t> currentL1UsagePerOp;
+
+    // Initialize the policy.
+    //
+    llvm::DenseMap<Operation *, OpL1MemUsage> currentL1UsagePerOp;
     uint64_t currentL1Usage = 0;
+    DisjoinL1ChainConfigsUnion disjointL1ChainConfigsUnion;
 
     while (scheduler.hasUnscheduledOps()) {
       uint64_t minimalChangeInL1Usage;
@@ -47,8 +47,12 @@ void BFInterleavedPolicy::run() {
 
           // Skip non-analyzable operands.
           //
-          if (isAnalyzable(operandOp) && currentL1UsagePerOp.count(operandOp)) {
-            operandsL1Usage += currentL1UsagePerOp[operandOp];
+          if (isAnalyzable(operandOp)) {
+            if (currentL1UsagePerOp.count(operandOp)) {
+              operandsL1Usage +=
+                  currentL1UsagePerOp[operandOp].numOfUsers *
+                  currentL1UsagePerOp[operandOp].l1MemUsagePerUser;
+            }
           }
         }
 
@@ -59,7 +63,9 @@ void BFInterleavedPolicy::run() {
         opType = NextOpType::NoL1ChainConfigOp;
         if (hasL1BufferType(op)) {
           TTNNLayoutAttr layout = getL1InterleavedLayout(op);
-          opL1OutputUsage = utils::getOpOutputL1Usage(op, layout, deviceAttr);
+          uint64_t numOfUsers = std::distance(op->user_begin(), op->user_end());
+          opL1OutputUsage =
+              numOfUsers * utils::getOpOutputL1Usage(op, layout, deviceAttr);
 
           // Determine the type of the op based on the operandsL1Usage. If
           // there is at least one op's operand whose tensor is in L1 memory,
@@ -112,8 +118,21 @@ void BFInterleavedPolicy::run() {
           // Skip non-analyzable operands.
           //
           if (isAnalyzable(operandOp)) {
-            opIter = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(opIter,
-                                                                     operandOp);
+            if (currentL1UsagePerOp.count(operandOp)) {
+              // Update the state of L1 memory.
+              //
+              currentL1Usage -=
+                  currentL1UsagePerOp[operandOp].l1MemUsagePerUser;
+              currentL1UsagePerOp[operandOp].numOfUsers -= 1;
+              if (currentL1UsagePerOp[operandOp].numOfUsers == 0) {
+                currentL1UsagePerOp.erase(operandOp);
+              }
+
+              // Merge L1ChainConfigs of the op's operands.
+              //
+              opIter = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(
+                  opIter, operandOp);
+            }
           }
         }
 

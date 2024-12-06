@@ -11,35 +11,16 @@ namespace mlir::tt::ttnn {
 
 class BFInterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
-  struct OpMemSpec {
-    TTNNLayoutAttr layout;
-    // Minimum L1 memory usage required for scheduling the op
-    // given the layouts of all the ops that are already scheduled.
-    //
-    uint64_t requiredL1Usage;
-  };
-
-  // This struct is holding information about the greedily choosen
-  // configuration of the @baseOp: 1) layouts and 2) precedence.
+  // In order to keep track of the L1 memory usage, we have know two things
+  // for each op:
+  //    1. The L1 memory usage of each op's output tensor.
+  //    2. The number of op's output tensors allocated in L1 memory. This is
+  //       important for fork ops where the output tensor is used by multiple
+  //       other ops.
   //
-  // The @layouts represents the mapping between the op and its choosen
-  // layout. All the ops that are included in the @layouts map must be
-  // either @baseOp or its operand with legal L1 Interleaved output layout
-  // at the moment of analyzing the @baseOp.
-  //
-  // The @precedence represents the order of the op's operands in which they
-  // should be scheduled. Only op's operands that are included in the @layouts
-  // map are included in the @precedence.
-  //
-  struct OpConfig {
-    Operation *baseOp;
-    llvm::DenseMap<Operation *, TTNNLayoutAttr> layouts;
-    llvm::SmallVector<Operation *> precedence;
-  };
-
-  struct L1Usage {
-    size_t outputL1Usage;
-    size_t requiredL1Usage;
+  struct OpL1MemUsage {
+    uint64_t numOfUsers;
+    uint64_t l1MemUsagePerUser;
   };
 
   // This enum is used to determine the type of action required before
@@ -59,10 +40,9 @@ public:
   //                        creating new L1ChainConfig.
   //
   // NoL1ChainConfigOp:     Requirement for op to be of this type is to either
-  // be
-  //                        non-analyzable or its output layout tensor to have
-  //                        DRAM buffer type. There are no action for this type
-  //                        of op.
+  //                        be non-analyzable or its output layout tensor to
+  //                        have DRAM buffer type. There are no action for this
+  //                        type of op.
   //
   enum class NextOpType {
     MergeL1ChainConfigsOp,
