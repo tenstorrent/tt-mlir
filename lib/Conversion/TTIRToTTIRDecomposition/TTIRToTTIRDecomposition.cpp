@@ -234,17 +234,12 @@ public:
                   ConversionPatternRewriter &rewriter) const override = 0;
 
 protected:
-  LogicalResult isNDimensional(ttir::ConvolutionOp op,
-                               uint32_t numSpatialDims) const {
-    if (op.getConvolutionLayout().getInputSpatialDimensions().size() !=
-        numSpatialDims) {
-      return failure();
-    }
-
-    return success();
+  bool isNDimensional(ttir::ConvolutionOp op, uint32_t numSpatialDims) const {
+    return op.getConvolutionLayout().getInputSpatialDimensions().size() ==
+           numSpatialDims;
   }
 
-  LogicalResult isSupportedConv(ttir::ConvolutionOp op) const {
+  bool isSupportedConv(ttir::ConvolutionOp op) const {
     assert(op.getConvolutionLayout().getInputSpatialDimensions().size() ==
                op.getConvolutionLayout().getOutputSpatialDimensions().size() &&
            "Convolution input, output, and kernel must have the same number of "
@@ -259,16 +254,16 @@ protected:
                                      op.getWindowReversal().end());
     for (bool reversed : windowReversal) {
       if (reversed) {
-        return failure();
+        return false;
       }
     }
 
     // Not currently support batch groups
     if (op.getBatchGroupCount() != 1) {
-      return failure();
+      return false;
     }
 
-    return success();
+    return true;
   }
 };
 
@@ -285,8 +280,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!(succeeded(isSupportedConv(op)) &&
-          succeeded(isNDimensional(op, numSpatialDims)))) {
+    if (!(isSupportedConv(op) && isNDimensional(op, numSpatialDims))) {
       return failure();
     }
 
@@ -459,8 +453,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!(succeeded(isSupportedConv(op)) &&
-          succeeded(isNDimensional(op, numSpatialDims)))) {
+    if (!(isSupportedConv(op) && isNDimensional(op, numSpatialDims))) {
       return failure();
     }
 
