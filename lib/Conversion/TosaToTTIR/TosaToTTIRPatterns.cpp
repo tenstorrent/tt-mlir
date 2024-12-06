@@ -122,6 +122,32 @@ private:
   }
 };
 
+template <typename SrcOp, typename DestOp,
+          typename Adaptor = typename SrcOp::Adaptor>
+class TosaToTTIRReduceOpConversionPattern : public OpConversionPattern<SrcOp> {
+  using OpConversionPattern<SrcOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<DestOp>(
+        srcOp, outputTensor.getType(), adaptor.getInput(), outputTensor,
+        true /*keepdim*/,
+        rewriter.getArrayAttr(SmallVector<Attribute>(1, adaptor.getAxisAttr())),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -209,6 +235,16 @@ void addMatmulOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRMatmulOpConversionPattern>(typeConverter, ctx);
 }
 
+void addReductionOpsConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceMaxOp,
+                                                   mlir::tt::ttir::MaxOp>>(
+      typeConverter, ctx);
+  patterns.add<TosaToTTIRReduceOpConversionPattern<tosa::ReduceSumOp,
+                                                   mlir::tt::ttir::SumOp>>(
+      typeConverter, ctx);
+}
 } // namespace
 
 namespace mlir::tt {
@@ -221,6 +257,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
