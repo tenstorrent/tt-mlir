@@ -34,12 +34,11 @@ module {
 
 // Verify that the result shape matches the shape of the input tensor after permutation is applied.
 // -----
-#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module {
   func.func @permute_non_valid_shape(%arg0: tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16> {
     // CHECK: error: 'ttir.permute' op Expected result shape (16, 64, 32), got (16, 32, 64)
     %0 = tensor.empty() : tensor<16x32x64xbf16>
-    %1 = "ttir.permute"(%arg0, %0) <{operand_constraints = [#any_device, #any_device], permutation = array<i64: 0, 2, 1>}> : (tensor<16x32x64xbf16>, tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16>
+    %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 1>}> : (tensor<16x32x64xbf16>, tensor<16x32x64xbf16>) -> tensor<16x32x64xbf16>
     return %1 : tensor<16x32x64xbf16>
   }
 }
