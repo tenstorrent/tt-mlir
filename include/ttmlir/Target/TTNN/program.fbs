@@ -239,6 +239,12 @@ table AllGatherOp {
   num_links: uint32;
 }
 
+table CPUOp {
+  dylib_id: uint32;
+  args: [tt.target.TensorRef];
+  sym_name: String;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -261,6 +267,7 @@ union OpType {
   MaxPool2dOp,
   DeallocateOp,
   AllGatherOp,
+  CPUOp,
 }
 
 table Operation {

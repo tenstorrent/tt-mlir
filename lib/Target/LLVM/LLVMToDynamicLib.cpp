@@ -201,8 +201,8 @@ linkDynamicLibrary(llvm::StringRef libraryName,
 
   // Link all input objects. Note that we are not linking whole-archive as
   // we want to allow dropping of unused codegen outputs.
-  for (auto &objectFile : objectFileNames) {
-    flags.push_back(objectFile);
+  for (const auto &objectFile : objectFileNames) {
+    flags.push_back(objectFile.str());
   }
 
   auto commandLine = llvm::join(flags, " ");
@@ -252,7 +252,7 @@ llvm::LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
 
   const auto dylibName = createTempFile(tmpDirName, module.getName(), ".so");
   // Link to dynamic library
-  if (llvm::failed(linkDynamicLibrary(dylibName, {tmpObjFileName}, false))) {
+  if (llvm::failed(linkDynamicLibrary(dylibName, {tmpObjFileName}))) {
     llvm::errs() << "Failed to link object code to dynamic library\n";
     return llvm::failure();
   }

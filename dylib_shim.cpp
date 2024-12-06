@@ -13,8 +13,12 @@ struct tensor_type {
   float *start;
   float *aligned_start;
   int64_t start_idx;
-  int64_t size[2];
-  int64_t col_stride[2];
+  //   int64_t size[];
+  int64_t col_stride[];
+};
+
+struct args {
+  tensor_type tensor_args[];
 };
 
 // Define the expected signature for the add function based on the IR
