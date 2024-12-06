@@ -57,6 +57,8 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
+  bufferizationOptions.allowReturnAllocs = true;
+
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
