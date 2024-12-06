@@ -148,9 +148,9 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
-llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine) {
+llvm::LogicalResult runLinkCommand(const std::string &commandLine) {
   llvm::dbgs() << "Running linker command:\n" << commandLine << "\n";
-  const auto exitCode = system(commandLine.c_str());
+  const auto exitCode = system(commandLine);
   if (exitCode == 0) {
     return llvm::success();
   }
@@ -167,7 +167,7 @@ linkDynamicLibrary(llvm::StringRef libraryName,
                    ArrayRef<llvm::StringRef> objectFileNames) {
   SmallVector<std::string, 8> flags = {
       "ld.lld-17",
-      "-o " + libraryName,
+      "-o "s + libraryName,
   };
 
   // Avoids including any libc/startup files that initialize the CRT as

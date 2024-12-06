@@ -21,27 +21,6 @@ namespace mlir::tt::llvm_to_cpu {
 // Verify that all ops in given module are in LLVM Dialect
 LogicalResult verifyAllLLVM(mlir::ModuleOp module);
 
-// Compile LLVM Dialect into assembly
-LogicalResult compileToObject(llvm::Module &module, llvm::LLVMContext &context,
-                              llvm::StringRef outputFilename);
-
-// link set of .o files into a .so w/ appropriate settings
-llvm::LogicalResult
-linkDynamicLibrary(llvm::StringRef libraryName,
-                   ArrayRef<llvm::StringRef> objectFileNames);
-
-// small helper func to actually invoke system call for linker
-llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine);
-
-// Convert assembly into a dynamic lib w/ linker library calls
-// LogicalResult linkWithLLD(const llvm::MemoryBuffer &objectBuffer,
-//                           llvm::StringRef outputPath);
-
-// wrapper to compiler LLVM dialect IR into asm + convert asm to dylib
-LogicalResult compileAndLinkToSharedLibrary(llvm::Module &module,
-                                            llvm::LLVMContext &context,
-                                            llvm::StringRef outputPath);
-
 // Convert a linalg operation to a dylib
 // This function signature is required in order to register the conversion in
 // mlir translation framework even though we don't use last 2 args
