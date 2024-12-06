@@ -95,10 +95,11 @@ public:
     if (!legalityResult.succeeded()) {
       return legalityResult;
     }
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    auto operands = adaptor.getOperands();
+    ValueRange operands = adaptor.getOperands();
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
