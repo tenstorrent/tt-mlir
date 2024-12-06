@@ -920,12 +920,12 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   ::mlir::RankedTensorType inputGradType = getInGradient().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // weightType checks:
-  // 1. weightType must have rank of 2: (dictionary_size, embedding_size).
+  // weightType must have rank of 2: (dictionary_size, embedding_size).
   if (weightType.getRank() != 2) {
     return emitOpError("Input must be a 2D tensor");
   }
 
+  // inputGradType checks.
   if (!inputGradType.getElementType().isBF16()) {
     return emitOpError("Input gradient must be of type bfloat16 or bfloat8");
   }

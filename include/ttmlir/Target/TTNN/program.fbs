@@ -184,6 +184,8 @@ table EmbeddingBackwardOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
   in_grad: tt.target.TensorRef;
+  dtype: tt.target.DataType = null;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 

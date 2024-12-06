@@ -613,6 +613,8 @@ def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          AnyRankedTensor:$in_gradient,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);

@@ -1051,9 +1051,12 @@ public:
     if (slices.size() > 1) {
       auto concatDpsResult = rewriter.create<tensor::EmptyOp>(
           op.getLoc(), outputType.getShape(), outputType.getElementType());
+
       auto concatOp = rewriter.create<ttir::ConcatOp>(
           op.getLoc(), outputType, slices, concatDpsResult,
           rewriter.getSI32IntegerAttr(dim),
+          // Generate an array of AnyDeviceTile constraints for the output and
+          // all the slices.
           rewriter.getArrayAttr(SmallVector<Attribute>(
               slices.size() + 1, rewriter.getAttr<OperandConstraintAttr>(
                                      OperandConstraint::AnyDeviceTile))));

@@ -561,8 +561,7 @@ namespace mlir::tt::ttnn {
     return emitOpError("Input's last dim must be divisible by TILE_WIDTH");
   }
 
-  // weightType checks:
-  // 1. weightType must have rank of 2: (dictionary_size, embedding_size).
+  // weightType must have rank of 2: (dictionary_size, embedding_size).
   if (weightType.getRank() != 2) {
     return emitOpError("Input must be a 2D tensor");
   }
