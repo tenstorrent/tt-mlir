@@ -106,19 +106,19 @@ std::string OptimizerOverridesHandler::toString() const {
   std::string options = "";
 
   if (enableOptimizer) {
-    options += OptionNames::optimizerPassEnabled + "=true ";
+    options += OptionNames::optimizerPassEnabled.str() + "=true ";
   }
 
   if (enableMemoryReconfig) {
-    options += OptionNames::memReconfigEnabled + "=true ";
+    options += OptionNames::memReconfigEnabled.str() + "=true ";
   }
 
   if (enableMemoryLayoutAnalysis) {
-    options += OptionNames::memoryLayoutAnalysisEnabled + "=true ";
+    options += OptionNames::memoryLayoutAnalysisEnabled.str() + "=true ";
   }
 
   if (enableMemoryLayoutAnalysisPolicy) {
-    options += OptionNames::memoryLayoutAnalysisPolicy + "=" +
+    options += OptionNames::memoryLayoutAnalysisPolicy.str() + "=" +
                MemoryLayoutAnalysisPolicyTypeParser::toString(
                    memoryLayoutAnalysisPolicy) +
                " ";
@@ -128,7 +128,7 @@ std::string OptimizerOverridesHandler::toString() const {
   //  Example:
   //    insert-memreconfig=input0=0:1,input1=0,input2=0:1:2
   if (inputLayoutOverrides.size() > 0) {
-    options += OptionNames::overrideInputLayout + "=" +
+    options += OptionNames::overrideInputLayout.str() + "=" +
                InputLayoutOverrideParser::toString(inputLayoutOverrides) + " ";
   }
 
@@ -138,22 +138,22 @@ std::string OptimizerOverridesHandler::toString() const {
   //  Example:
   //    override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32"
   if (outputLayoutOverrides.size() > 0) {
-    options += OptionNames::overrideOutputLayout + "=" +
+    options += OptionNames::overrideOutputLayout.str() + "=" +
                OutputLayoutOverrideParser::toString(outputLayoutOverrides) +
                " ";
   }
 
   if (systemDescPath.size() > 0) {
-    options += OptionNames::systemDescPath + "=" + systemDescPath + " ";
+    options += OptionNames::systemDescPath.str() + "=" + systemDescPath + " ";
   }
 
   if (maxLegalLayouts > 0) {
-    options += OptionNames::maxLegalLayouts + "=" +
+    options += OptionNames::maxLegalLayouts.str() + "=" +
                std::to_string(maxLegalLayouts) + " ";
   }
 
   if (meshShape.size() > 0) {
-    options += OptionNames::meshShape + "=";
+    options += OptionNames::meshShape.str() + "=";
     for (int64_t meshShapeValue : meshShape) {
       options += std::to_string(meshShapeValue) + ",";
     }

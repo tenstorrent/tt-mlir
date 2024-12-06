@@ -87,7 +87,6 @@ void populateOptimizerOverridesModule(py::module &m) {
       .value("Invalid", mlir::tt::ttnn::Layout::Invalid);
 
   py::enum_<mlir::tt::ttnn::TensorMemoryLayout>(m, "TensorMemoryLayout")
-      .value("NONE", mlir::tt::ttnn::TensorMemoryLayout::None)
       .value("Interleaved", mlir::tt::ttnn::TensorMemoryLayout::Interleaved)
       .value("SingleBank", mlir::tt::ttnn::TensorMemoryLayout::SingleBank)
       .value("HeightSharded", mlir::tt::ttnn::TensorMemoryLayout::HeightSharded)

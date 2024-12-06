@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
+#include <string_view>
+
 #include <llvm/Support/CommandLine.h>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -15,15 +17,17 @@ namespace mlir::tt::ttnn {
 
 struct OptionNames {
 
-  static const std::string optimizerPassEnabled;
-  static const std::string overrideInputLayout;
-  static const std::string overrideOutputLayout;
-  static const std::string memoryLayoutAnalysisEnabled;
-  static const std::string memReconfigEnabled;
-  static const std::string memoryLayoutAnalysisPolicy;
-  static const std::string systemDescPath;
-  static const std::string maxLegalLayouts;
-  static const std::string meshShape;
+  static constexpr StringRef optimizerPassEnabled = "enable-optimizer";
+  static constexpr StringRef overrideInputLayout = "insert-memreconfig";
+  static constexpr StringRef overrideOutputLayout = "override-output-layout";
+  static constexpr StringRef memoryLayoutAnalysisEnabled =
+      "memory-layout-analysis-enabled";
+  static constexpr StringRef memReconfigEnabled = "memreconfig-enabled";
+  static constexpr StringRef memoryLayoutAnalysisPolicy =
+      "memory-layout-analysis-policy";
+  static constexpr StringRef systemDescPath = "system-desc-path";
+  static constexpr StringRef maxLegalLayouts = "max-legal-layouts";
+  static constexpr StringRef meshShape = "mesh-shape";
 };
 
 struct OutputLayoutOverrideParams {

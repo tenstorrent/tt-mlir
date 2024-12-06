@@ -6,18 +6,6 @@
 
 namespace mlir::tt::ttnn {
 
-const std::string OptionNames::optimizerPassEnabled = "enable-optimizer";
-const std::string OptionNames::overrideInputLayout = "insert-memreconfig";
-const std::string OptionNames::overrideOutputLayout = "override-output-layout";
-const std::string OptionNames::memoryLayoutAnalysisEnabled =
-    "memory-layout-analysis-enabled";
-const std::string OptionNames::memReconfigEnabled = "memreconfig-enabled";
-const std::string OptionNames::memoryLayoutAnalysisPolicy =
-    "memory-layout-analysis-policy";
-const std::string OptionNames::systemDescPath = "system-desc-path";
-const std::string OptionNames::maxLegalLayouts = "max-legal-layouts";
-const std::string OptionNames::meshShape = "mesh-shape";
-
 bool OutputLayoutOverrideParser::parse(
     llvm::cl::Option &opt, StringRef argName, StringRef arg,
     llvm::StringMap<OutputLayoutOverrideParams> &value) {

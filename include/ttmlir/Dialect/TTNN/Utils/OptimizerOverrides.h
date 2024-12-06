@@ -9,7 +9,8 @@
 #include <string>
 #include <unordered_map>
 
-#include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
+// #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 namespace mlir::tt::ttnn {
