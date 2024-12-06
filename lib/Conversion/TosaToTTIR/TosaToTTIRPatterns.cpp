@@ -131,8 +131,9 @@ public:
   LogicalResult
   matchAndRewrite(SrcOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto outputType = mlir::cast<RankedTensorType>(srcOp.getResult().getType());
-    auto outputTensor = rewriter.create<tensor::EmptyOp>(
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     rewriter.replaceOpWithNewOp<DestOp>(
