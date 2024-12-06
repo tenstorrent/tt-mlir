@@ -65,6 +65,9 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   deallocationOptions.privateFunctionDynamicOwnership = true;
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
+  // this wasn't in original example, but need to eliminate some nasty
+  // bufferization::clone() calls
+  manager.addPass(mlir::createConvertBufferizationToMemref());
 
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
 
