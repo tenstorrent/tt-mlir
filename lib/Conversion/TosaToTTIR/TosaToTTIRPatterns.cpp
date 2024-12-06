@@ -97,7 +97,12 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        Value(outputTensor), adaptor.getAxis(),  
+        Value(outputTensor), adaptor.getAxis(),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
   }
 };
 
