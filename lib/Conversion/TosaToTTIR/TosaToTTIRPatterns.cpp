@@ -149,6 +149,7 @@ void addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
       tosa::MaximumOp, mlir::tt::ttir::MaximumOp>>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::MinimumOp, mlir::tt::ttir::MinimumOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
 }
@@ -185,34 +186,19 @@ void addCompareOpsConversionPatterns(MLIRContext *ctx,
       tosa::GreaterOp, mlir::tt::ttir::GreaterThanOp>>(typeConverter, ctx);
 }
 
-void addClampOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
-                                 TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
-}
-
-void addMultiplyOpConversionPattern(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
-  patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
-}
-
 } // namespace
 
 namespace mlir::tt {
 
 void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                 TypeConverter &typeConverter) {
-  // Below are conversion patterns that directly use the
-  // TosaToTTIRDefaultDPSOpConversionPattern.
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseTernaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
-  // Below are conversion patterns that don't directly use the
-  // TosaToTTIRDefaultDPSOpConversionPattern, alphabetically ordered.
-  addClampOpConversionPattern(ctx, patterns, typeConverter);
-  addMultiplyOpConversionPattern(ctx, patterns, typeConverter);
+
+  patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
