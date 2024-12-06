@@ -99,23 +99,10 @@ enum EltwiseOpType: uint32 {
   Floor = 34,
   Where = 35,
   Gelu = 36,
-  LogicalXor = 37,
-  Clamp = 38,
-  LeakyRelu = 39,
-}
-
-table ClampOpParams {
-  min: float;
-  max: float;
-}
-
-table EltwiseOpWithFloatParams {
-  parameter: float;
 }
 
 union EltwiseOpParams {
-  ClampOpParams,
-  EltwiseOpWithFloatParams,
+
 }
 
 table EltwiseOp {
@@ -239,12 +226,6 @@ table AllGatherOp {
   num_links: uint32;
 }
 
-table CPUOp {
-  dylib_id: uint32;
-  args: [tt.target.TensorRef];
-  sym_name: String;
-}
-
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -267,7 +248,6 @@ union OpType {
   MaxPool2dOp,
   DeallocateOp,
   AllGatherOp,
-  CPUOp,
 }
 
 table Operation {
