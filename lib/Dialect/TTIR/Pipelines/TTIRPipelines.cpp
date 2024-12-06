@@ -60,6 +60,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   manager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
+  deallocationOptions.privateFunctionDynamicOwnership = true;
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
 
