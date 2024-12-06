@@ -23,10 +23,6 @@ from ttrt.common.util import *
 from ttrt.common.query import Query
 
 
-def get_loc_data_hook(binary, programContext, opContext):
-    op_debug_str = ttrt.runtime.get_op_debug_str(opContext)
-
-
 class Perf:
     registered_args = {}
 
