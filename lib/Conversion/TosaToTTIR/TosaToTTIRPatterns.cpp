@@ -98,9 +98,14 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands()[0],
         outputTensor, adaptor.getMinFp(), adaptor.getMaxFp(),
+        rewriter.getArrayAttr(
+            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
+                                   rewriter.getAttr<OperandConstraintAttr>(
+                                       OperandConstraint::AnyDeviceTile))));
+    return success();
   }
 };
-      
+
 class TosaToTTIRMatmulOpConversionPattern
     : public OpConversionPattern<tosa::MatMulOp> {
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -241,7 +246,7 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addLogicalOpsConversionPatterns(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
-  
+
   patterns.add<TosaToTTIRClampOpConversionPattern>(typeConverter, ctx);
 }
 
