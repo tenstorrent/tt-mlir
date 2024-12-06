@@ -17,7 +17,7 @@ module @jit_convolution attributes {} {
     return %0 : tensor<1x128x128x64xf32>
   }
 
-  // Tests 1d convolution that gets translted to 2d.
+  // Tests 1d convolution that gets translated to 2d.
   func.func @test_convolution_1d(%arg0: tensor<1x256x512xf32>, %arg1: tensor<1024x256x1xf32>) -> tensor<1x1024x512xf32> {
     // CHECK: [[VAL0:%[0-9]+]] = tensor.empty() : [[TENSOR_SIZE:tensor<[0-9]+x[0-9]+x[0-9]+xf[0-9]+>]]
     %0 = stablehlo.convolution(%arg0, %arg1)
