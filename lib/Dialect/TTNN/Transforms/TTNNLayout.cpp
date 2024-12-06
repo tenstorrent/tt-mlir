@@ -279,6 +279,20 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                           ttnnMemoryLayoutAttr, tiled);
 }
 
+static bool changeLayoutToHost(DestinationStyleOpInterface &op,
+                               OpOperand &operand, PatternRewriter &rewriter) {
+  Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+  std::optional<Value> layout =
+      createToLayoutOp(rewriter, newLoc, operand.get(),
+                       BufferType::SystemMemory, nullptr, false /* tiled */);
+  if (layout.has_value()) {
+    rewriter.modifyOpInPlace(
+        op, [&]() { op->setOperand(operand.getOperandNumber(), *layout); });
+    return true;
+  }
+  return false;
+}
+
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
@@ -304,6 +318,12 @@ public:
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
       if (mlir::isa<ttir::Conv2dOp>(op.getOperation()) && !isResult) {
+        // For the weight input of the conv2d op, it specifically needs to be on
+        // host, so we create a host to layout op (issue
+        // https://github.com/tenstorrent/tt-mlir/issues/1528).
+        if (operand.getOperandNumber() == 1) {
+          modified = changeLayoutToHost(op, operand, rewriter);
+        }
         continue;
       }
 
