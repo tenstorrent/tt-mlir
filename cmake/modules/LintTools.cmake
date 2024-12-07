@@ -5,6 +5,7 @@ add_custom_target(clang-tidy COMMAND run-clang-tidy.py -p ${PROJECT_BINARY_DIR} 
     clang-tidy-filter-out-external-srcs
     mlir-headers
     mlir-generic-headers
+    tt-metal-download
     FBS_GENERATION
 )
 add_custom_target(clang-format COMMAND git-clang-format)
