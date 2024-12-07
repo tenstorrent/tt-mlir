@@ -43,6 +43,12 @@ RankedTensorType
 createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
                                    ttnn::TTNNLayoutAttr encoding);
 
+// Return the L1 memory usage of the output tensor of the given op.
+// Used within L1 interleaved policies.
+//
+uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
+                            DeviceAttr &deviceAttr);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

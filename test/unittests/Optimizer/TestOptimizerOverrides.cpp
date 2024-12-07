@@ -244,9 +244,9 @@ TEST_F(TestOptimizerOverrides, TestSetMemoryLayoutAnalysisPolicy) {
             mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding);
 
   optimizerOverridesHandler.setMemoryLayoutAnalysisPolicy(
-      mlir::tt::MemoryLayoutAnalysisPolicyType::L1Interleaved);
+      mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
   ASSERT_EQ(optimizerOverridesHandler.getMemoryLayoutAnalysisPolicy(),
-            mlir::tt::MemoryLayoutAnalysisPolicyType::L1Interleaved);
+            mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
 }
 
 // Test the setInputLayoutOverrides method
