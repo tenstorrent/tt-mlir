@@ -9,7 +9,6 @@
 #include <string>
 #include <unordered_map>
 
-// #include "ttmlir/Dialect/TT/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -82,10 +81,6 @@ public:
                                             tt::ttnn::Layout, tt::DataType);
 
 private:
-  // Options for the TTIR to TTNN backend pipeline,
-  // we use them to extract the names and the deafulat values.
-  // TTIRToTTNNBackendPipelineOptions pipelineOptions;
-
   // Flags for enabling/disabling the optimizer passes
   bool enableOptimizer = false;
 
