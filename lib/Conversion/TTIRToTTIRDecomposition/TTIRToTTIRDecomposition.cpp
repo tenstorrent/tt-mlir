@@ -901,33 +901,33 @@ public:
   }
 };
 
-class GetDimensionSizeToConstantConversionPattern
-    : public OpConversionPattern<ttir::GetDimensionSizeOp> {
-public:
-  using OpConversionPattern<ttir::GetDimensionSizeOp>::OpConversionPattern;
+// class GetDimensionSizeToConstantConversionPattern
+//     : public OpConversionPattern<ttir::GetDimensionSizeOp> {
+// public:
+//   using OpConversionPattern<ttir::GetDimensionSizeOp>::OpConversionPattern;
 
-  LogicalResult
-  matchAndRewrite(ttir::GetDimensionSizeOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+//   LogicalResult
+//   matchAndRewrite(ttir::GetDimensionSizeOp op, OpAdaptor adaptor,
+//                   ConversionPatternRewriter &rewriter) const override {
 
-    const RankedTensorType inputTensorType =
-        mlir::cast<RankedTensorType>(op.getOperand().getType());
+//     const RankedTensorType inputTensorType =
+//         mlir::cast<RankedTensorType>(op.getOperand().getType());
 
-    int64_t dimensionIndex = op.getDimension();
+//     int64_t dimensionIndex = op.getDimension();
 
-    int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+//     int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
 
-    mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(op.getType());
+//     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(op.getType());
 
-    mlir::ElementsAttr valueAttr =
-        mlir::DenseElementsAttr::get<int>(valueType, dimSize);
+//     mlir::ElementsAttr valueAttr =
+//         mlir::DenseElementsAttr::get<int>(valueType, dimSize);
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, valueType,
-                                                            valueAttr);
+//     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, valueType,
+//                                                             valueAttr);
 
-    return success();
-  }
-};
+//     return success();
+//   }
+// };
 
 // SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
 // the sliced dimension is sliced multiple times. For example, if the input
@@ -1179,7 +1179,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
-  patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
+  // patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
