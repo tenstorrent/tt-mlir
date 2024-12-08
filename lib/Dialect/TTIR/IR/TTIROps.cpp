@@ -111,7 +111,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       static_cast<int64_t>(inputTensorType.getShape().size())) {
     return failure();
   };
-
+  
   return success();
 }
 
