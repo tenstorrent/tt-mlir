@@ -40,4 +40,7 @@ PYBIND11_MODULE(_ttmlir, m) {
   auto passes =
       m.def_submodule("passes", "Python-Bound Passes & Transformations");
   mlir::ttmlir::python::populatePassesModule(passes);
+  auto optimizer_overrides = m.def_submodule(
+      "optimizer_overrides", "Python-Bound Optimizer Overrides");
+  mlir::ttmlir::python::populateOptimizerOverridesModule(optimizer_overrides);
 }
