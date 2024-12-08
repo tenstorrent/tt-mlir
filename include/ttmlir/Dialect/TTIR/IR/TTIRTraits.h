@@ -6,9 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTRAITS_H
 
 #include "mlir/IR/OpDefinition.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 namespace tt {
@@ -16,31 +14,17 @@ namespace ttir {
 namespace OpTrait {
 
 template <typename ConcreteType>
-class ConditionalDPSInvolution
-    : public mlir::TypeTrait::TraitBase<ConcreteType,
-                                        ConditionalDPSInvolution> {
+class TTIRInvolution
+    : public mlir::TypeTrait::TraitBase<ConcreteType, TTIRInvolution> {
 public:
-  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
-    static_assert(ConcreteType::template hasTrait<
-                      mlir::DestinationStyleOpInterface::Trait>(),
-                  "expected destination passing style operation");
-    static_assert(
-        ConcreteType::template hasTrait<mlir::OpTrait::NOperands<2>::Impl>(),
-        "expected operation to take two operands");
-    // Operation does have the expected traits, foldability has to be
-    // dinamically checked.
-    return mlir::success();
-  }
-
   static mlir::LogicalResult foldTrait(mlir::Operation *op,
                                        ArrayRef<Attribute> operands,
                                        SmallVectorImpl<OpFoldResult> &results) {
-    llvm::errs() << "FOLDING DPS INVOLUTION\n";
     if (isFoldableOperation(op)) {
       results.push_back(op->getOperand(0).getDefiningOp()->getOperand(0));
       return mlir::success();
     }
-    return failure();
+    return mlir::failure();
   }
 
 private:
@@ -49,12 +33,9 @@ private:
   // 2. argument is defined by the same op.
   // 3. 1) is true for the producing op of the argument.
   // op(op(T a, T r0), T r1)
-
-  // TODO (azecevic): refactor this into the separate function
   static bool isFoldableOperation(mlir::Operation *op) {
-    // TODO (azecevic): LEAVE A COMMENT ABOUT OPERANDS(1) == RESULT(0) BECAUSE
-    // OF DPS
-    llvm::errs() << "FOLDABILITY CHECK\n";
+    // Dependant trait of TTIRInvolution is DestionationStyleOpInterface, hence
+    // operands include the result.
     auto operandAndResultSameType = [](Operation *op) {
       return llvm::all_equal(op->getOperandTypes());
     };
@@ -70,31 +51,17 @@ private:
 };
 
 template <typename ConcreteType>
-class ConditionalDPSIdempotence
-    : public mlir::TypeTrait::TraitBase<ConcreteType,
-                                        ConditionalDPSIdempotence> {
+class TTIRIdempotence
+    : public mlir::TypeTrait::TraitBase<ConcreteType, TTIRIdempotence> {
 public:
-  static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
-    static_assert(ConcreteType::template hasTrait<
-                      mlir::DestinationStyleOpInterface::Trait>(),
-                  "expected destination passing style operation");
-    static_assert(
-        ConcreteType::template hasTrait<mlir::OpTrait::NOperands<2>::Impl>(),
-        "expected operation to take two operands");
-    // Operation does have the expected traits, foldability has to be
-    // dinamically checked.
-    return mlir::success();
-  }
-
   static mlir::LogicalResult foldTrait(mlir::Operation *op,
                                        ArrayRef<Attribute> operands,
                                        SmallVectorImpl<OpFoldResult> &results) {
-    llvm::errs() << "FOLDING DPS INVOLUTION\n";
     if (isFoldableOperation(op)) {
       results.push_back(op->getOperand(0));
       return mlir::success();
     }
-    return failure();
+    return mlir::failure();
   }
 
 private:
@@ -104,16 +71,15 @@ private:
   // 3. 1) is true for the producing op of the argument.
   // op(op(T a, T r0), T r1)
   static bool isFoldableOperation(mlir::Operation *op) {
-    // TODO (azecevic): LEAVE A COMMENT ABOUT OPERANDS(1) == RESULT(0) BECAUSE
-    // OF DPS
-    llvm::errs() << "FOLDABILITY CHECK\n";
-    auto operandAndResultSameType = [](Operation *op) {
+    // Dependant trait of TTIRIdempotence is DestionationStyleOpInterface, hence
+    // operands include the result.
+    auto operandAndResultSameType = [](mlir::Operation *op) {
       return llvm::all_equal(op->getOperandTypes());
     };
     if (!operandAndResultSameType(op)) {
       return false;
     }
-    Operation *producerOp = op->getOperand(0).getDefiningOp();
+    mlir::Operation *producerOp = op->getOperand(0).getDefiningOp();
     if (!producerOp || producerOp->getName() != op->getName()) {
       return false;
     }
