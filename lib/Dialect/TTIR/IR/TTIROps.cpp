@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -111,7 +112,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       static_cast<int64_t>(inputTensorType.getShape().size())) {
     return failure();
   };
-  
+
   return success();
 }
 
@@ -376,7 +377,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
-
   if (getType() == getOperand(0).getType()) {
     return getOperand(0);
   }
@@ -804,6 +804,54 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input-output transpose dimension mismatch.");
   }
   return success();
+}
+
+// TransposeOp canonicalization
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        if (op.getDim0() != op.getDim1()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceAllOpUsesWith(op, op.getInput());
+        return success();
+      });
+
+  // Rewrite a transpose of to a canonical form where the 'dim0' is less than
+  // 'dim1'.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        if (op.getDim0() <= op.getDim1()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
+            op, op.getType(), op.getInput(), op.getOutput(), op.getDim1(),
+            op.getDim0(), op.getOperandConstraints());
+        return mlir::success();
+      });
+
+  // Transposing twice in the row over the same dimensions results in identity,
+  // hence y = T(T(x)) can be replaced with y = x.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        auto producerOp =
+            op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>();
+        if (!producerOp || op->getName() != producerOp->getName()) {
+          return mlir::failure();
+        }
+
+        if (op.getDim0() != producerOp.getDim0() ||
+            op.getDim1() != producerOp.getDim1()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceAllOpUsesWith(op, producerOp.getInput());
+        return mlir::success();
+      });
 }
 
 //===----------------------------------------------------------------------===//
