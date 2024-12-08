@@ -191,7 +191,7 @@ def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
 def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_Broadcastable, Pure])> {
+    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_Broadcastable])> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
