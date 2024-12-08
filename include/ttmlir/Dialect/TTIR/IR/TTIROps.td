@@ -19,7 +19,7 @@ include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/IR/OpBase.td"
 
 class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, !listconcat(traits, [TTIROpInterface, DestinationStyleOpInterface])> {
+    TTIR_Op<mnemonic, !listconcat([TTIROpInterface, DestinationStyleOpInterface], traits)> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
@@ -166,12 +166,8 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 // TTIR top level named ops
 //===----------------------------------------------------------------------===//
 
-def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
-def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
-def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
-
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [AttrSizedOperandSegments, TTIR_Broadcastable])> {
+    TTIR_DPSOp<mnemonic, !listconcat([AttrSizedOperandSegments, TTIR_Broadcastable], traits)> {
 
     let description = [{
       Base class for elementwise operations. Elementwise operations can take inputs with different shape,
@@ -184,7 +180,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [FourOperands])> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([FourOperands], traits)> {
     let summary = "Eltwise ternary op.";
     let description = [{
       Eltwise ternary op.
@@ -207,7 +203,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [TwoOperands])> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([TwoOperands], traits)> {
     let summary = "Eltwise unary op.";
     let description = [{
       Eltwise unary op.
@@ -222,7 +218,7 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [ConditionalDPSIdempotence]> {
+def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
     let summary = "Eltwise absolute op.";
     let description = [{
       Eltwise absolute operation.
@@ -236,7 +232,7 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
     }];
 }
 
-def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [ConditionalDPSIdempotence]> {
+def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
     let summary = "Eltwise ceil op.";
     let description = [{
       Eltwise ceil operation.
@@ -250,7 +246,7 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
-def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [ConditionalDPSIdempotence]> {
+def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     let summary = "Eltwise floor op.";
     let description = [{
       Eltwise floor operation.
@@ -264,21 +260,21 @@ def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
   }];
 }
 
-def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite", [ConditionalDPSIdempotence]> {
+def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite", [TTIR_Idempotence]> {
     let summary = "Eltwise isfinite op.";
     let description = [{
       Eltwise isfinite operation.
     }];
 }
 
-def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not", [ConditionalDPSInvolution]> {
+def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not", [TTIR_Involution]> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
     }];
 }
 
-def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [ConditionalDPSInvolution]> {
+def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]> {
     let summary = "Eltwise bitwise NOT.";
     let description = [{
         Performs element-wise NOT of tensor `operand` and produces a `result` tensor.
@@ -291,7 +287,7 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [ConditionalDPSIn
     }];
 }
 
-def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [ConditionalDPSInvolution]> {
+def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
     let summary = "Eltwise negate op.";
     let description = [{
       Eltwise negate operation.
@@ -312,14 +308,14 @@ def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
     }];
 }
 
-def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [ConditionalDPSInvolution]> {
+def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [TTIR_Involution]> {
     let summary = "Eltwise reciprocal.";
     let description = [{
       Eltwise reciprocal operation.
     }];
 }
 
-def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [ConditionalDPSIdempotence]> {
+def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
@@ -341,7 +337,7 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
-def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [ConditionalDPSIdempotence]> {
+def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
     let summary = "Eltwise sign operation.";
     let description = [{
       Returns the sign of the `operand` element-wise and produces a `result`
@@ -451,7 +447,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, !listconcat(traits, [ThreeOperands])> {
+    TTIR_ElementwiseOp<mnemonic, !listconcat([ThreeOperands], traits)> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -607,7 +603,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+    TTIR_DPSOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let summary = "Reduction op.";
     let description = [{
@@ -1345,7 +1341,7 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_GenericElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+    TTIR_ElementwiseUnaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
@@ -1376,7 +1372,7 @@ def TTIR_ExpOp: TTIR_GenericElementwiseUnaryOp<"exp"> {
 }
 
 class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat(traits, [TTIR_GenericRegionOpInterface])> {
+    TTIR_ElementwiseBinaryOp<mnemonic, !listconcat([TTIR_GenericRegionOpInterface], traits)> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }

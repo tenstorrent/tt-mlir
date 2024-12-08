@@ -7,6 +7,8 @@
 
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
+
 
 //===----------------------------------------------------------------------===//
 // TTIR dialect definition.
@@ -41,18 +43,21 @@ def TTIR_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, !listconcat(traits, [Pure])>;
+        Op<TTIR_Dialect, mnemonic, !listconcat([Pure], traits)>;
 
 //===----------------------------------------------------------------------===//
 // TTIR traits definition.
 //===----------------------------------------------------------------------===//
 
-class TTIR_Trait<string name> : NativeOpTrait<""> {
-  let trait = name;
+def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
+def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
+def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
+
+class TTIR_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
   let cppNamespace = "::mlir::tt::ttir::OpTrait";
 }
 
-def ConditionalDPSInvolution : TTIR_Trait<"ConditionalDPSInvolution">;
-def ConditionalDPSIdempotence : TTIR_Trait<"ConditionalDPSIdempotence">;
+def TTIR_Involution : TTIR_Trait<"TTIRInvolution", [DestinationStyleOpInterface, TwoOperands, NoMemoryEffect]>;
+def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterface, TwoOperands, NoMemoryEffect]>;
 
 #endif
