@@ -338,11 +338,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Shape attribute must be non-empty");
   }
 
-  // Check that the shape attribute has at most 5 elements
-  if (shape_size > 5) {
-    return emitOpError("Shape attribute must have at most 5 elements");
-  }
-
   // Cardinality of the input and output tensors must be the same
   if (inputType.getNumElements() != outputType.getNumElements()) {
     return emitOpError(
