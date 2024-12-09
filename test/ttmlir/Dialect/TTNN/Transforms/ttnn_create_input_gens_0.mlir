@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-create-input-gens %s > %t.mlir
+// RUN: ttmlir-opt --ttnn-create-input-gens %s | FileCheck %s
 
 #device = #tt.device<workerGrid = #tt.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1)[s0, s1] -> (0, d0 floordiv s0, d1 floordiv s1, (d0 mod s0) * s1 + d1 mod s1), dramMap = (d0, d1)[s0, s1] -> (0, 0, ((((d0 floordiv s0) * 8 + d1 floordiv s1) * (s1 * s0) + (d0 mod s0) * s1 + d1 mod s1) floordiv 8192) mod 12, (((d0 floordiv s0) * 8 + d1 floordiv s1) * (s1 * s0) + (d0 mod s0) * s1 + d1 mod s1) floordiv 98304 + (((d0 floordiv s0) * 8 + d1 floordiv s1) * (s1 * s0) + (d0 mod s0) * s1 + d1 mod s1) mod 8192), meshShape = , chipIds = [0]>
 #dram = #ttnn.buffer_type<dram>
@@ -7,24 +7,17 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16, #system_memory>>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!tt.tile<32x32, bf16>, #dram>, <interleaved>>
 module attributes {tt.device = #device, tt.system_desc = #system_desc} {
-
-// CHECK: func.func @add(%arg0: [[TENSOR_A:.*]], %arg1: [[TENSOR_B:.*]]) -> [[TENSOR_OUT:.*]] {
+  // CHECK: func.func @add(%arg0: [[TENSOR_A:.*]], %arg1: [[TENSOR_B:.*]]) -> [[TENSOR_OUT:.*]] {
   func.func @add(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !tt.device<#device>
     %1 = "ttnn.to_device"(%arg0, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !tt.device<#device>) -> tensor<32x32xbf16, #ttnn_layout1>
     %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout1>
-    "ttnn.deallocate"(%1) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout1>) -> ()
     %3 = "ttnn.to_device"(%arg1, %0) <{memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout>, !tt.device<#device>) -> tensor<32x32xbf16, #ttnn_layout1>
     %4 = "ttnn.to_layout"(%3) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout1>
-    "ttnn.deallocate"(%3) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout1>) -> ()
     %5 = "ttnn.empty"(%0) <{dtype = #tt.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <<1x1>>, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!tt.device<#device>) -> tensor<32x32xbf16, #ttnn_layout1>
     %6 = "ttnn.add"(%2, %4, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xbf16, #ttnn_layout1>, tensor<32x32xbf16, #ttnn_layout1>, tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout1>
-    "ttnn.deallocate"(%4) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout1>) -> ()
-    "ttnn.deallocate"(%2) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout1>) -> ()
     %7 = "ttnn.from_device"(%6) : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout>
-    "ttnn.deallocate"(%5) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout1>) -> ()
     %8 = "ttnn.to_layout"(%7) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
-    "ttnn.deallocate"(%7) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout>) -> ()
     return %8 : tensor<32x32xbf16, #ttnn_layout>
   }
 
@@ -33,6 +26,7 @@ module attributes {tt.device = #device, tt.system_desc = #system_desc} {
 // CHECK: func.func @createInputsFor_add() -> ([[TENSOR_A]], [[TENSOR_B]]) {
 // CHECK: {{.*}} -> [[TENSOR_A]]
 // CHECK: {{.*}} -> [[TENSOR_B]]
+// CHECK: return %0, %1 : [[TENSOR_A]], [[TENSOR_B]]
 
 // Confirm that the main func is generated, and that the tensor attrs match:
 //
