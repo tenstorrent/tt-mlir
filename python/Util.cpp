@@ -12,7 +12,7 @@ void populateUtilModule(py::module &m) {
     llvm::raw_string_ostream os(source);
     mlir::OpPrintingFlags flags;
     flags.enableDebugInfo(); // Enable the debug print
-    auto op = unwrap(mlirModuleGetOperation(module));
+    auto *op = unwrap(mlirModuleGetOperation(module));
     op->print(os, flags);
     return source;
   });
