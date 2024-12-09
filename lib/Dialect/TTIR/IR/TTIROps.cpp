@@ -883,7 +883,7 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 
         rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
             op, op.getType(), op.getInput(), op.getOutput(), op.getDim1(),
-            op.getDim0(), op.getOperandConstraints());
+            op.getDim0());
         return mlir::success();
       });
 
