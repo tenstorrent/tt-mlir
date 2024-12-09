@@ -625,12 +625,6 @@ class ArithConstantOpConversionPattern
 public:
   using OpConversionPattern::OpConversionPattern;
 
-  ArithConstantOpConversionPattern(const TypeConverter &typeConverter,
-                                   MLIRContext *context,
-                                   PatternBenefit benefit = 1)
-      : OpConversionPattern<arith::ConstantOp>(typeConverter, context,
-                                               benefit) {}
-
   LogicalResult
   matchAndRewrite(arith::ConstantOp constOp, arith::ConstantOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {

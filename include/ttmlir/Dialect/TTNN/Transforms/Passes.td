@@ -39,10 +39,39 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
-    This pass creates input generators for the "forward" functions.
+    This pass creates input generators for the "forward" functions. It
+    additionally creates a main function to run the forward function with the
+    generated inputs.
 
-    The pass is useful for EmitC path. By creating input generators before converting to Emitc Dialect, followed by
-    transformation to C++ code, the resulting code won't require any edits to run.
+    The pass is useful for EmitC path. By creating input generators before
+    converting to Emitc Dialect, followed by transformation to C++ code, the
+    resulting code won't require any edits to run.
+
+    Given a forward function like this:
+
+    ```
+    func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %0 : tensor<32x32xbf16>
+    }
+    ```
+
+    The pass will create two function like this:
+
+    ```
+    func.func @createInputsFor_add() -> (tensor<32x32xbf16>, tensor<32x32xbf16>) {
+      %0 = "ttnn.empty"() <{shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16>
+      %1 = "ttnn.empty"() <{shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16>
+      return %0, %1 : tensor<32x32xbf16>, tensor<32x32xbf16>
+    }
+
+    func.func @main() -> i32 {
+      %0:2 = call @createInputsFor_add() : () -> (tensor<32x32xbf16>, tensor<32x32xbf16>)
+      %1 = call @add(%0#0, %0#1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %c0_i32 = arith.constant 0 : i32
+      return %c0_i32 : i32
+    }
+    ```
   }];
 }
 

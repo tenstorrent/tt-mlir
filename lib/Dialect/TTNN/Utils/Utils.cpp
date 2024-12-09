@@ -80,18 +80,6 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
-  Type elementType = memref.getElementType();
-  DataType dtype = DataType::Float32;
-  if (llvm::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-  } else {
-    dtype = elementTypeToDataType(elementType);
-  }
-  return dtype;
-}
-
 Layout getLayoutFromMemRef(mlir::MemRefType memref) {
   ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
   Type elementType = memref.getElementType();

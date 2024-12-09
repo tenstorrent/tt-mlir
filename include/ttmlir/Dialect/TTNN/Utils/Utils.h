@@ -35,10 +35,6 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-// Get DataType from MemRefType
-//
-DataType getDataTypeFromMemRef(mlir::MemRefType memref);
-
 // Get Layout from MemRefType
 //
 Layout getLayoutFromMemRef(mlir::MemRefType memref);

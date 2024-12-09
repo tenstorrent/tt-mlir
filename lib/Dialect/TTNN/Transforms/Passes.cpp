@@ -931,7 +931,6 @@ public:
       //
       llvm::SmallVector<mlir::RankedTensorType, 2> inputTensors;
       for (auto input : forwardFuncOp.getFunctionType().getInputs()) {
-        assert(llvm::isa<mlir::RankedTensorType>(input));
         inputTensors.push_back(llvm::cast<mlir::RankedTensorType>(input));
       }
 
@@ -947,9 +946,6 @@ public:
       FunctionType functionType =
           mlir::FunctionType::get(&getContext(), {}, returnTypeRange);
 
-      llvm::StringRef inputGenFuncNameAsStringRef =
-          llvm::StringRef(inputGenFuncName);
-
       // Set insertion point to end of first block
       //
       rewriter.setInsertionPointToEnd(firstBlock);
@@ -957,7 +953,7 @@ public:
       // Create the function
       //
       func::FuncOp inputGenFuncOp = rewriter.create<mlir::func::FuncOp>(
-          module->getLoc(), inputGenFuncNameAsStringRef, functionType);
+          module->getLoc(), inputGenFuncName, functionType);
 
       // Add a Block to func op and set insertion point to the beginning of the
       // Block
@@ -981,14 +977,12 @@ public:
 
         // Get the shape of the tensor, tensor layout, and data type
         //
-        mlir::MemRefType memref = layoutAttr.getMemref();
         ShapeAttr shapeAttr =
             ttnn::ShapeAttr::get(&getContext(), tensor.getShape());
-        ttnn::LayoutAttr tensorLayoutAttr = ttnn::LayoutAttr::get(
-            &getContext(), ttnn::utils::getLayoutFromMemRef(memref));
-        DataTypeAttr dTypeAttr = DataTypeAttr::get(
-            &getContext(),
-            ttnn::utils::getDataTypeFromMemRef(layoutAttr.getMemref()));
+        ttnn::LayoutAttr tensorLayoutAttr =
+            ttnn::LayoutAttr::get(&getContext(), layoutAttr.getLayout());
+        DataTypeAttr dTypeAttr =
+            DataTypeAttr::get(&getContext(), layoutAttr.getDataType());
 
         // Create a new tensor
         //
@@ -1022,8 +1016,6 @@ public:
       FunctionType functionType =
           mlir::FunctionType::get(&getContext(), {}, returnTypeRange);
 
-      llvm::StringRef mainFuncNameStringRef = llvm::StringRef(mainFuncName);
-
       // Set insertion point to end of first block
       //
       rewriter.setInsertionPointToEnd(firstBlock);
@@ -1031,7 +1023,7 @@ public:
       // Create the function
       //
       func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
-          module->getLoc(), mainFuncNameStringRef, functionType);
+          module->getLoc(), mainFuncName, functionType);
 
       ::mlir::Block *currFnBlock = mainFuncOp.addEntryBlock();
 
@@ -1068,8 +1060,7 @@ public:
       Value constantZero = rewriter.create<arith::ConstantOp>(
           rewriter.getUnknownLoc(), returnTypeRange.front(),
           rewriter.getI32IntegerAttr(0));
-      rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(),
-                                      ValueRange({constantZero}));
+      rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
     }
   }
 };
