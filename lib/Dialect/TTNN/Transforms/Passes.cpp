@@ -1011,8 +1011,7 @@ public:
 
       // Create function type
       //
-      mlir::TypeRange returnTypeRange =
-          mlir::TypeRange({rewriter.getI32Type()});
+      mlir::TypeRange returnTypeRange = mlir::TypeRange(rewriter.getI32Type());
       FunctionType functionType =
           mlir::FunctionType::get(&getContext(), {}, returnTypeRange);
 
@@ -1058,7 +1057,7 @@ public:
       // needs to be returned, hence create a constant 0 via arith::ConstantOp
       //
       Value constantZero = rewriter.create<arith::ConstantOp>(
-          rewriter.getUnknownLoc(), returnTypeRange.front(),
+          rewriter.getUnknownLoc(), rewriter.getI32Type(),
           rewriter.getI32IntegerAttr(0));
       rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
     }
