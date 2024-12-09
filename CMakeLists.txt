@@ -9,6 +9,7 @@ option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_OP_MODEL "Enable OpModel support" OFF)
+option(TT_EXPLORER_EDITABLE "Enable editable install mode for explorer" OFF)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
