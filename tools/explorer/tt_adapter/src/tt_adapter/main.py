@@ -43,15 +43,19 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
+        perf_trace = None
         if optimized_model_path := self.model_runner.get_optimized_model_path():
             print(f"Using optimized model: {optimized_model_path}")
             model_path = optimized_model_path
 
+            # Get performance results.
+            perf_trace = self.model_runner.get_perf_trace()
+
         module = utils.parse_mlir_file(model_path)
 
         # Convert TTIR to Model Explorer Graphs and Display/Return
-        graph = mlir.build_graph(module)
-        return {"graphs": [graph]}
+        graph, perf_data = mlir.build_graph(module, perf_trace)
+        return {"graphs": [graph], "perf_data": perf_data}
 
     def execute(
         self, model_path: str, settings: Dict
