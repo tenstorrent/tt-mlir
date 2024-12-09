@@ -7,6 +7,7 @@
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
+#include "ttmlir/Conversion/RedundantBroadcastElimination/RedundantBroadcastElimination.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
