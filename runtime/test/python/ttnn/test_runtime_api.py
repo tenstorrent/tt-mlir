@@ -43,7 +43,50 @@ def test_to_layout(helper: Helper, shape, dtype, request):
         ttrt.runtime.memcpy(runtime_output_tensor, host_tensor)
         ttrt.runtime.deallocate_tensor(host_tensor, force=True)
 
-    lambda: assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.999)
+    assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.99)
+    helper.teardown()
+
+
+@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_memcpy_to_pointer(helper: Helper, shape, dtype, request):
+    helper.initialize(request.node.name)
+    helper.check_constraints()
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+    torch_result_tensor = torch.zeros(shape, dtype=dtype)
+
+    # Device to host
+    torch_input_tensor = torch.randn(shape, dtype=dtype)
+    runtime_input_tensor = ttrt.runtime.create_tensor(
+        torch_input_tensor.data_ptr(),
+        list(torch_input_tensor.shape),
+        list(torch_input_tensor.stride()),
+        torch_input_tensor.element_size(),
+        runtime_dtype,
+    )
+    device_layout = ttrt.runtime.testing.get_dram_interleaved_row_major_layout(
+        runtime_dtype
+    )
+    with DeviceContext([helper.query.device_ids[0]]) as device:
+        device_tensor = ttrt.runtime.to_layout(
+            runtime_input_tensor, device, device_layout
+        )
+        ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), device_tensor)
+        ttrt.runtime.deallocate_tensor(device_tensor, force=True)
+
+    assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.99)
+
+    # Host to host
+    torch_input_tensor2 = torch.randn(shape, dtype=dtype)
+    host_tensor = ttrt.runtime.create_tensor(
+        torch_input_tensor2.data_ptr(),
+        list(torch_input_tensor2.shape),
+        list(torch_input_tensor2.stride()),
+        torch_input_tensor2.element_size(),
+        runtime_dtype,
+    )
+    ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), host_tensor)
+    assert_pcc(torch_input_tensor2, torch_result_tensor, threshold=0.99)
     helper.teardown()
 
 
@@ -80,12 +123,12 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
             list(torch_input_tensor.stride()),
             torch_input_tensor.element_size(),
         )
+        # Copy from host to device container
         ttrt.runtime.memcpy(device_tensor, runtime_input_tensor)
-        host_tensor = ttrt.runtime.to_host(device_tensor, untilize=True)
+        # Copy from device to host
+        ttrt.runtime.memcpy(runtime_output_tensor, device_tensor)
         ttrt.runtime.deallocate_tensor(device_tensor, force=True)
-        ttrt.runtime.memcpy(runtime_output_tensor, host_tensor)
-        ttrt.runtime.deallocate_tensor(host_tensor, force=True)
-    lambda: assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.999)
+    assert_pcc(torch_input_tensor, torch_result_tensor, threshold=0.99)
     helper.teardown()
 
 
@@ -145,14 +188,7 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
             ]
         ),
     )
-    runtime_result_tensor = ttrt.runtime.create_tensor(
-        torch_result_tensor.data_ptr(),
-        list(torch_result_tensor.shape),
-        list(torch_result_tensor.stride()),
-        torch_result_tensor.element_size(),
-        Binary.Program.to_data_type(torch_result_tensor.dtype),
-    )
-    ttrt.runtime.memcpy(runtime_result_tensor, activations)
+    ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), activations)
     golden = (
         (inputs_torch[0] + inputs_torch[1]).mul(inputs_torch[1]).sub(inputs_torch[1])
     )

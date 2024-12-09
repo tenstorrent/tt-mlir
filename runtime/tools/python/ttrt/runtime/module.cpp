@@ -159,6 +159,14 @@ PYBIND11_MODULE(_C, m) {
         "Get the location info of the op");
   m.def(
       "memcpy",
+      [](std::uintptr_t dst, ::tt::runtime::Tensor src) {
+        void *dstPtr = reinterpret_cast<void *>(dst);
+        ::tt::runtime::memcpy(dstPtr, src);
+      },
+      py::arg("dst"), py::arg("src"),
+      "Copy the data from src tensor to dst pointer");
+  m.def(
+      "memcpy",
       [](::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
         ::tt::runtime::memcpy(dst, src);
       },
