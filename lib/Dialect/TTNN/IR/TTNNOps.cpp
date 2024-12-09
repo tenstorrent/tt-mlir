@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
+#include <iostream>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.cpp.inc"
@@ -293,17 +294,24 @@ namespace mlir::tt::ttnn {
   auto shape = getShape();
   int64_t shape_size = static_cast<int64_t>(shape.size());
 
+  
+  std::cout<<"shape_size"<<shape_size<<"\n";
+  std::cout<<"static_cast<int64_t>(outputType.getRank())"<<static_cast<int64_t>(outputType.getRank())<<"\n";
+  std::cout<<"static_cast<int64_t>(outputType.getShape().size())"<<static_cast<int64_t>(outputType.getShape().size())<<"\n";
+
+  int64_t output_shape_size = static_cast<int64_t>(outputType.getShape().size());
+
   // Check that the shape size matches the rank of the output tensor
-  if (shape_size != static_cast<int64_t>(outputType.getRank())) {
+  if (output_shape_size != static_cast<int64_t>(outputType.getRank())) {
     return emitOpError("Shape attribute size must match output tensor rank");
   }
   // Check that the shape attribute is non-empty
-  if (shape_size == 0) {
+  if (output_shape_size == 0) {
     return emitOpError("Shape attribute must be non-empty");
   }
 
   // Check that the shape attribute has at most 5 elements
-  if (shape_size > 5) {
+  if (output_shape_size > 5) {
     return emitOpError("Shape attribute must have at most 5 elements");
   }
 
