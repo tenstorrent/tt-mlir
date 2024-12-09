@@ -15,6 +15,9 @@ import socket
 from pkg_resources import get_distribution
 import shutil
 import atexit
+import traceback
+from pathlib import Path
+import csv
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -31,13 +34,6 @@ class Perf:
             default=False,
             choices=[True, False],
             help="clean all artifacts from previous runs",
-        )
-        Perf.register_arg(
-            name="--save-artifacts",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="save all artifacts during run",
         )
         Perf.register_arg(
             name="--log-file",
@@ -73,6 +69,20 @@ class Perf:
             default=False,
             choices=[True, False],
             help="collect performance trace on host only",
+        )
+        Perf.register_arg(
+            name="--port",
+            type=int,
+            default=0,
+            choices=None,
+            help="port to run tracy client server application",
+        )
+        Perf.register_arg(
+            name="--result-file",
+            type=str,
+            default="perf_results.json",
+            choices=None,
+            help="test file to save results to",
         )
         Perf.register_arg(
             name="binary",
@@ -187,6 +197,9 @@ class Perf:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={str(e)}"
+                    )
                     self.results.add_result(test_result)
                     continue
 
@@ -201,6 +214,9 @@ class Perf:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={str(e)}"
+                    )
                     self.results.add_result(test_result)
                     continue
 
@@ -216,6 +232,9 @@ class Perf:
                             "artifacts": self.artifacts.artifacts_folder_path,
                             "program_index": self["--program-index"],
                         }
+                        self.logging.warning(
+                            f"SKIP: test={path} was skipped with exception={message}"
+                        )
                         self.results.add_result(test_result)
                         continue
 
@@ -236,6 +255,9 @@ class Perf:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={str(e)}"
+                    )
                     self.results.add_result(test_result)
                     continue
 
@@ -250,6 +272,9 @@ class Perf:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.warning(
+                        f"SKIP: test={path} was skipped with exception={str(e)}"
+                    )
                     self.results.add_result(test_result)
                     continue
 
@@ -265,6 +290,9 @@ class Perf:
                             "artifacts": self.artifacts.artifacts_folder_path,
                             "program_index": self["--program-index"],
                         }
+                        self.logging.warning(
+                            f"SKIP: test={path} was skipped with exception={message}"
+                        )
                         self.results.add_result(test_result)
                         continue
 
@@ -275,104 +303,55 @@ class Perf:
     def execute(self):
         self.logging.debug(f"------executing perf API")
 
-        sys.path.append(f"{get_ttrt_metal_home_path()}")
-        sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
-
-        import tracy
-        import tracy.tracy_state
-        from tt_metal.tools.profiler.process_ops_logs import process_ops
-        from tt_metal.tools.profiler.common import (
-            PROFILER_LOGS_DIR,
-            TRACY_OPS_TIMES_FILE_NAME,
-            TRACY_OPS_DATA_FILE_NAME,
-            TRACY_FILE_NAME,
-            PROFILER_DEVICE_SIDE_LOG,
+        profiler_logs_dir = (
+            f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs"
         )
+        tracy_file_path = "tracy_profile_log_host.tracy"
+        tracy_ops_times_file_path = "tracy_ops_times.csv"
+        tracy_ops_data_file_path = "tracy_ops_data.csv"
+        profiler_device_side_log_path = (
+            f"{os.getcwd()}/generated/profiler/.logs/profile_log_device.csv"
+        )
+        profiler_csv_file_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/reports/ops_perf_results.csv"
 
-        self.file_manager.remove_directory(PROFILER_LOGS_DIR)
-        self.file_manager.create_directory(PROFILER_LOGS_DIR)
-
-        def get_available_port():
-            ip = socket.gethostbyname(socket.gethostname())
-
-            for port in range(8086, 8500):
-                try:
-                    serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    serv.bind((ip, port))
-                    return str(port)
-                except PermissionError as e:
-                    pass
-                except OSError as e:
-                    pass
-            return None
-
-        def generate_report(binary_perf_folder):
-            child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
-            time_out = 15
-            time_count = 0
-            while not os.path.exists(PROFILER_LOGS_DIR / TRACY_FILE_NAME):
-                if time_count > time_out:
-                    raise Exception(
-                        f"tracy capture output file {PROFILER_LOGS_DIR / TRACY_FILE_NAME} was not generated"
-                    )
-                time_count += 1
-                time.sleep(1)
-
-            with open(PROFILER_LOGS_DIR / TRACY_OPS_TIMES_FILE_NAME, "w") as csv_file:
-                child_call_str = f"-x {','.join(child_calls)}"
-                subprocess.run(
-                    f"{self.tracy_csvexport_tool_path} -u -p TT_DNN {child_call_str} {PROFILER_LOGS_DIR / TRACY_FILE_NAME}",
-                    shell=True,
-                    check=True,
-                    stdout=csv_file,
-                    stderr=subprocess.DEVNULL,
-                )
-
-            with open(PROFILER_LOGS_DIR / TRACY_OPS_DATA_FILE_NAME, "w") as csv_file:
-                subprocess.run(
-                    f'{self.tracy_csvexport_tool_path} -m -s ";" {PROFILER_LOGS_DIR / TRACY_FILE_NAME}',
-                    shell=True,
-                    check=True,
-                    stdout=csv_file,
-                    stderr=subprocess.DEVNULL,
-                )
-            process_ops(binary_perf_folder, "", True)
-
-        def save_perf_artifacts(binary_perf_folder):
-            tracy_ops_times_file = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_TIMES_FILE_NAME}"
-            tracy_ops_data_file = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_OPS_DATA_FILE_NAME}"
-            tracy_file = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/{TRACY_FILE_NAME}"
-
-            try:
-                self.file_manager.check_file_exists(tracy_ops_times_file)
-                self.file_manager.check_file_exists(tracy_ops_data_file)
-                self.file_manager.check_file_exists(tracy_file)
-            except Exception as e:
-                raise Exception(f"an unexpected error occurred: {e}")
-
-            for root, dirs, files in os.walk(binary_perf_folder, topdown=False):
-                if root == binary_perf_folder:
-                    continue
-
-                for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    dest_path = os.path.join(binary_perf_folder, file_name)
-                    self.file_manager.copy_file(dest_path, file_path)
-
-                if os.listdir(root):
-                    self.file_manager.remove_directory(root)
+        self.file_manager.remove_directory(profiler_logs_dir)
+        self.file_manager.create_directory(profiler_logs_dir)
 
         def _execute(binaries):
+            # need to temporary add these sys paths so TTRT whls can find the `process_ops` function
+            # ideally we want process_ops to be in a standalone module we can import from tt_metal
+            sys.path.append(f"{get_ttrt_metal_home_path()}")
+            sys.path.append(f"{get_ttrt_metal_home_path()}/ttnn")
+
+            from tt_metal.tools.profiler.process_ops_logs import process_ops
+
+            def get_available_port():
+                ip = socket.gethostbyname(socket.gethostname())
+
+                for port in range(8086, 8500):
+                    try:
+                        serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        serv.bind((ip, port))
+                        return str(port)
+                    except PermissionError as e:
+                        pass
+                    except OSError as e:
+                        pass
+                return None
+
             if len(binaries) == 0:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
             for bin in binaries:
                 try:
-                    port = get_available_port()
+                    port = (
+                        get_available_port() if self["--port"] == 0 else self["--port"]
+                    )
 
                     if not port:
                         raise Exception("No available port found")
+                    self.logging.debug(f"selected port={port}")
 
                     env_vars = dict(os.environ)
                     env_vars["TRACY_PORT"] = port
@@ -380,31 +359,22 @@ class Perf:
                     if not self["--host-only"]:
                         env_vars["TT_METAL_CLEAR_L1"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
-                        env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "1"
+                        env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
-                    current_pythonpath = env_vars.get("PYTHONPATH", "")
-                    path1 = f"{get_ttrt_metal_home_path()}"
-                    path2 = f"{get_ttrt_metal_home_path()}/ttnn"
-                    new_pythonpath = (
-                        f"{current_pythonpath}{os.pathsep}{path1}{os.pathsep}{path2}"
-                    )
-                    env_vars["PYTHONPATH"] = new_pythonpath
-
-                    tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {PROFILER_LOGS_DIR / TRACY_FILE_NAME} -f -p {port}"
+                    tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
                         tracy_capture_tool_command, shell=True
                     )
 
-                    command_options = f"--program-index {self['--program-index']} --loops {self['--loops']}"
-
-                    library_link_path = self.globals.get_ld_path(
-                        f"{self.globals.get_ttmetal_home_path()}"
-                    )
-                    test_env_flags = f"LD_LIBRARY_PATH={library_link_path}"
+                    command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
 
                     ttrt_executable_path = shutil.which("ttrt")
-                    test_command = f"{test_env_flags} python -m tracy -p {ttrt_executable_path} run {bin.file_path} --save-artifacts {command_options}"
-                    print(f"test command for binary={bin.file_path} is: {test_command}")
+                    test_command = (
+                        f"{ttrt_executable_path} run {bin.file_path} {command_options}"
+                    )
+                    self.logging.info(
+                        f"test command for binary={bin.file_path} is: {test_command}"
+                    )
                     testProcess = subprocess.Popen(
                         [test_command], shell=True, env=env_vars, preexec_fn=os.setsid
                     )
@@ -421,12 +391,6 @@ class Perf:
 
                     try:
                         self.tracy_capture_tool_process.communicate(timeout=15)
-                        if not self["--host-only"]:
-                            self.file_manager.copy_file(
-                                PROFILER_LOGS_DIR / PROFILER_DEVICE_SIDE_LOG,
-                                f"{os.getcwd()}/generated/profiler/.logs/{PROFILER_DEVICE_SIDE_LOG}",
-                            )
-                        generate_report(self.artifacts.get_binary_perf_folder_path(bin))
                     except subprocess.TimeoutExpired as e:
                         self.tracy_capture_tool_process.terminate()
                         self.tracy_capture_tool_process.communicate()
@@ -434,7 +398,111 @@ class Perf:
                             f"No profiling data could be captured. Please make sure you are on the correct build"
                         )
 
-                    save_perf_artifacts(self.artifacts.get_binary_perf_folder_path(bin))
+                    with open(tracy_ops_times_file_path, "w") as csv_file:
+                        child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
+                        child_calls_str = f"-x {','.join(child_calls)}"
+                        subprocess.run(
+                            f"{self.tracy_csvexport_tool_path} -u -p TT_DNN {child_calls_str} {tracy_file_path}",
+                            shell=True,
+                            check=True,
+                            stdout=csv_file,
+                            stderr=subprocess.DEVNULL,
+                        )
+
+                    self.logging.info(
+                        f"host side ops time report generated at {tracy_ops_times_file_path}"
+                    )
+
+                    with open(tracy_ops_data_file_path, "w") as csv_file:
+                        subprocess.run(
+                            f'{self.tracy_csvexport_tool_path} -m -s ";" {tracy_file_path}',
+                            shell=True,
+                            check=True,
+                            stdout=csv_file,
+                            stderr=subprocess.DEVNULL,
+                        )
+
+                    self.logging.info(
+                        f"host side ops data report generated at {tracy_ops_data_file_path}"
+                    )
+
+                    # copy all relevant files to correct folder directory (metal hardcoded path, need to make more dynamic from metal library)
+                    self.file_manager.copy_file(profiler_logs_dir, tracy_file_path)
+                    self.file_manager.copy_file(
+                        profiler_logs_dir, tracy_ops_times_file_path
+                    )
+                    self.file_manager.copy_file(
+                        profiler_logs_dir, tracy_ops_data_file_path
+                    )
+
+                    if not self["--host-only"]:
+                        self.file_manager.copy_file(
+                            profiler_logs_dir, profiler_device_side_log_path
+                        )
+
+                    # copy all relevant files into perf folder for this test
+                    perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
+                    self.artifacts.save_binary(bin, self.query)
+                    self.file_manager.copy_file(perf_folder_path, tracy_file_path)
+                    self.file_manager.copy_file(
+                        perf_folder_path, tracy_ops_times_file_path
+                    )
+                    self.file_manager.copy_file(
+                        perf_folder_path, tracy_ops_data_file_path
+                    )
+
+                    if not self["--host-only"]:
+                        self.file_manager.copy_file(
+                            perf_folder_path, profiler_device_side_log_path
+                        )
+
+                    process_ops(None, None, False)
+
+                    # Add post-processing steps to insert location data into the ops_perf data file
+                    with open(profiler_csv_file_path, "r") as perf_file:
+                        perf_reader = csv.DictReader(perf_file)
+                        headers = list(perf_reader.fieldnames) + ["LOC"]
+                        perf_data = list(perf_reader)
+
+                    with open(profiler_csv_file_path, "w+") as perf_file, open(
+                        tracy_ops_data_file_path, "r"
+                    ) as message_file:
+                        message_reader = csv.reader(message_file, delimiter=";")
+                        ops_index = 0
+                        prev = None
+                        for message in message_reader:
+                            message = message[0]  # Don't need timestamp information
+                            if message.startswith("`"):
+                                # This is a TTNN Message
+                                # The location data is now in the previous message
+                                # The order of data is maintained in perf_data so as the messages are received, they update the id last encountered.
+                                # Now that we have a new message, we can update the location data from the previous message
+                                if prev:
+                                    # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
+                                    if len(perf_data) > ops_index:
+                                        perf_data[ops_index]["LOC"] = prev
+                                        ops_index += 1
+                            else:
+                                prev = message
+                        perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
+                        perf_writer.writeheader()
+                        for row in perf_data:
+                            perf_writer.writerow(row)
+
+                    self.file_manager.copy_file(
+                        perf_folder_path,
+                        profiler_csv_file_path,
+                    )
+
+                    # post-process test results
+                    test_result = []
+                    with open("run_results.json", "r") as file:
+                        test_result = json.load(file)
+
+                    for result in test_result:
+                        if result["result"] != "pass":
+                            raise Exception(f'result["exception"]')
+
                 except Exception as e:
                     test_result = {
                         "file_path": bin.file_path,
@@ -444,8 +512,12 @@ class Perf:
                         "artifacts": self.artifacts.artifacts_folder_path,
                         "program_index": self["--program-index"],
                     }
+                    self.logging.error(
+                        f"ERROR: test={bin.file_path} experienced an error with exception={str(e)}"
+                    )
                     self.results.add_result(test_result)
                     bin.test_result = "error"
+                    traceback.print_exc()
                     continue
 
         self.logging.debug(f"executing ttnn binaries")
@@ -461,13 +533,6 @@ class Perf:
     def postprocess(self):
         self.logging.debug(f"------postprocessing perf API")
 
-        if self["--save-artifacts"]:
-            for bin in self.ttnn_binaries:
-                self.artifacts.save_binary(bin, self.query)
-
-            for bin in self.ttmetal_binaries:
-                self.artifacts.save_binary(bin, self.query)
-
         for bin in self.ttnn_binaries:
             if bin.test_result == "pass":
                 test_result = {
@@ -479,6 +544,9 @@ class Perf:
                     "program_index": self["--program-index"],
                 }
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
         for bin in self.ttmetal_binaries:
             if bin.test_result == "pass":
@@ -491,8 +559,11 @@ class Perf:
                     "program_index": self["--program-index"],
                 }
                 self.results.add_result(test_result)
+                self.logging.info(f"PASS: test case={bin.file_path}")
+            else:
+                self.logging.error(f"ERROR: test case={bin.file_path}")
 
-        self.results.save_results("perf_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing perf API")
 
@@ -515,6 +586,8 @@ class Perf:
         self.logging.debug(
             f"----------------------------finished perf API----------------------------"
         )
+
+        return self.results.get_result_code(), self.results.get_results()
 
     @staticmethod
     def register_arg(name, type, default, choices, help):

@@ -41,14 +41,36 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/"return ::mlir::tt::getCurrentScopeDevice($_op);"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Return whether op can be run on CPU.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"supportsCPUExecution",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Return whether op must be run on CPU.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"supportsOnlyCPUExecution",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
   ];
 }
 
-def TTIR_ElementwiseOpInterface : OpInterface<"ElementwiseOp"> {
+def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
   let cppNamespace = "::mlir::tt::ttir";
 
+  let dependentTraits = [AttrSizedOperandSegments];
+
   let verify = [{
-    return detail::verifyElementwiseOp($_op);
+    return detail::verifyBroadcastable($_op);
   }];
 }
 
@@ -85,6 +107,20 @@ def TTIR_GenericRegionOpInterface : OpInterface<"GenericRegionOp"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/""
     >,
+    StaticInterfaceMethod<
+      /*desc=*/[{
+        Return if the given operands have the same rank.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"sameRank",
+      /*args=*/(ins "::mlir::OperandRange":$operands),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return llvm::all_equal(llvm::map_range(operands, [](Value operand) {
+          return mlir::cast<RankedTensorType>(operand.getType()).getRank();
+        }));
+      }]
+    >
   ];
 }
 

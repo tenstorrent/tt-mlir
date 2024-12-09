@@ -5,113 +5,12 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+
 #include "mlir/Pass/PassOptions.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 
 namespace mlir::tt::ttnn {
-struct LayoutOverrideParser
-    : public llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>> {
-public:
-  LayoutOverrideParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<llvm::StringMap<LayoutOverrideParams>>(opt) {}
-
-  bool parse(llvm::cl::Option &opt, StringRef argName, StringRef arg,
-             llvm::StringMap<LayoutOverrideParams> &value) {
-    SmallVector<StringRef> opOverrideList;
-    constexpr size_t kMaxGridSize = 2;
-    constexpr size_t kvPairSize = 2;
-    constexpr size_t kMaxLayoutOverrideParams = 3;
-    constexpr size_t iOpName = 0;
-    constexpr size_t iLayoutOverrideParams = 1;
-    constexpr size_t iGrid = 0;
-    constexpr size_t iMemorySpace = 1;
-    constexpr size_t iMemoryLayout = 2;
-    constexpr char opSeparator = ',';
-    constexpr char opNameSeparator = '=';
-    constexpr char paramSepataor = ':';
-    constexpr char gridSeparator = 'x';
-
-    arg.split(opOverrideList, opSeparator);
-    for (const StringRef override : opOverrideList) {
-      SmallVector<StringRef, kvPairSize> opOverrideParts;
-      override.split(opOverrideParts, opNameSeparator);
-      if (opOverrideParts.size() != kvPairSize) {
-        opt.error("Invalid format for override grid sizes: " + override);
-        return true;
-      }
-
-      SmallVector<StringRef, kMaxLayoutOverrideParams> layoutParamParts;
-      // Split into layout parameters.
-      opOverrideParts[iLayoutOverrideParams].split(layoutParamParts,
-                                                   paramSepataor);
-      if (layoutParamParts.size() != kMaxLayoutOverrideParams) {
-        opt.error("Invalid number of layout parameters: " +
-                  std::to_string(layoutParamParts.size()));
-        return true;
-      }
-
-      // Parse grid.
-      SmallVector<int64_t, kMaxGridSize> grid;
-      SmallVector<StringRef, kMaxGridSize> gridParts;
-      layoutParamParts[iGrid].split(gridParts, gridSeparator);
-      for (const StringRef gridPart : gridParts) {
-        int64_t gridValue;
-        if (gridPart.getAsInteger(10 /*Radix*/, gridValue)) {
-          opt.error("Invalid grid size: " + gridPart);
-          return true;
-        }
-        grid.push_back(gridValue);
-      }
-
-      // Parse memory space.
-      std::optional<mlir::tt::MemorySpace> memorySpace =
-          mlir::tt::symbolizeMemorySpace(layoutParamParts[iMemorySpace]);
-      if (!memorySpace.has_value()) {
-        opt.error("Invalid memory space: " + layoutParamParts[iMemorySpace]);
-        return true;
-      }
-
-      // Parse tensor memory layout.
-      std::optional<mlir::tt::TensorMemoryLayout> memoryLayout =
-          mlir::tt::symbolizeTensorMemoryLayout(
-              layoutParamParts[iMemoryLayout]);
-      if (!memoryLayout.has_value()) {
-        opt.error("Invalid tensor memory layout: " +
-                  layoutParamParts[iMemoryLayout]);
-        return true;
-      }
-
-      // Set parsed op overrides.
-      value[opOverrideParts[iOpName]] =
-          LayoutOverrideParams{grid, memorySpace.value(), memoryLayout.value()};
-    }
-    return false;
-  }
-
-  static void print(llvm::raw_ostream &os,
-                    const llvm::StringMap<LayoutOverrideParams> &value) {
-    os << "override-output-layout=";
-    size_t count = 0;
-    for (const auto &entry : value) {
-      os << entry.getKey() << "=";
-      const LayoutOverrideParams &params = entry.getValue();
-      // Print grid values
-      for (size_t i = 0; i < params.grid.size(); ++i) {
-        os << params.grid[i];
-        if (i < params.grid.size() - 1) {
-          os << "x";
-        }
-      }
-      // Print memory space and memory layout
-      os << ":" << mlir::tt::stringifyMemorySpace(params.memorySpace);
-      os << ":" << mlir::tt::stringifyTensorMemoryLayout(params.memoryLayout);
-      if (++count < value.size()) {
-        os << ",";
-      }
-    }
-    os << "\n";
-  }
-};
 
 // Options for the TTIR to TTNN backend pipeline.
 //
@@ -121,53 +20,110 @@ struct TTIRToTTNNBackendPipelineOptions
   // configuration for max performance. If this option is false, skip running
   // Optimizer pass, thus leaving all ops on default configuration.
   Option<bool> optimizerPassEnabled{
-      *this, "enable-optimizer",
+      *this, OptionNames::optimizerPassEnabled,
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
+
+  // Option to manually insert TTIR_ToLayoutOp for specific op's operand.
+  // The format is a comma separated list of op names and operand index
+  // separated by ':' separator.
+  //
+  // Full Example: "op1=0,op2=0:1"
+  //
+  // This will insert one memory reconfig op responsible for resharding the
+  // op1's first operand and two memory reconfig ops responsible for resharding
+  // the op2's first and second operand.
+  //
+  // Note: This option is only valid if optimizerPassEnabled is true.
+  //
+  Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
+      overrideInputLayout{
+          *this, OptionNames::overrideInputLayout,
+          llvm::cl::desc(
+              "Manually insert memory reconfig op for specific op's operand."),
+          llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
 
   // Option to override output layout for specific ops.
   // The format is a comma separated list of op names equal to the output layout
   // params separated by ":"
   //
-  // op_name=grid_size:memory_space:tensor_memory_layout
+  // op_name=grid_size:memory_space:tensor_memory_layout:memory_layout:data_type
   //
   // * grid_size=2x2
   // * memory_space: system, mmio, dram or l1
   // * tensor_memory_layout: none, interleaved, single_bank, height_sharded,
   //   width_sharded or block_sharded
+  // * memory_layout: row_major or tile
+  // * data_type: f32, f16, bf16, bfp_f8, bfp_bf8, bfp_f4, bfp_bf4, bfp_f2,
+  //   bfp_bf2, u32, u16, u8
   //
-  // Full Example: "op1=2x2:dram:interleaved,op2=4x4:l1:block_sharded"
+  // Full Example:
+  // "op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16"
   //
-  // This will set the output layout for op1 to grid 2x2,dram,interleaved and
-  // op2 4x4,l1,block_sharded.
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
   //
-  Option<llvm::StringMap<LayoutOverrideParams>, LayoutOverrideParser>
+  Option<llvm::StringMap<OutputLayoutOverrideParams>,
+         OutputLayoutOverrideParser>
       overrideOutputLayout{
-          *this, "override-output-layout",
+          *this, OptionNames::overrideOutputLayout,
           llvm::cl::desc("Override output tensor layout for specific ops."),
-          llvm::cl::init(llvm::StringMap<LayoutOverrideParams>())};
+          llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
 
-  // If this option is true, run sharding pass and try to shard ops.
+  // If this option is true, run memory layout analysis.
   //
-  Option<bool> shardingPassEnabled{
-      *this, "sharding-pass-enabled",
-      llvm::cl::desc("Enable sharding pass to shard ops."),
+  Option<bool> memoryLayoutAnalysisEnabled{
+      *this, OptionNames::memoryLayoutAnalysisEnabled,
+      llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
+
+  // If this option is true, insert memory reconfiguration ops.
+  //
+  Option<bool> memReconfigEnabled{
+      *this, OptionNames::memReconfigEnabled,
+      llvm::cl::desc("Memory layout reconfiguration pass."),
+      llvm::cl::init(true)};
+
+  // Specify policy for memory layout analysis.
+  //
+  Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
+      memoryLayoutAnalysisPolicy{
+          *this, OptionNames::memoryLayoutAnalysisPolicy,
+          llvm::cl::desc("Specify policy for memory layout analysis."),
+          llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
   //
   Option<std::string> systemDescPath{
-      *this, "system-desc-path",
+      *this, OptionNames::systemDescPath,
       llvm::cl::desc(
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
 
+  // Option to override maximum number of legal layouts for grid analysis
+  //
+  Option<int64_t> maxLegalLayouts{
+      *this, OptionNames::maxLegalLayouts,
+      llvm::cl::desc(
+          "Override maximum number of legal layouts for grid analysis."),
+      llvm::cl::init(64)};
+
   ListOption<int64_t> meshShape{
-      *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+      *this, OptionNames::meshShape,
+      llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  // Option to enable/disable the workaround pass.
+  //
+  Option<bool> workaroundPassEnabled{*this, "enable-workaround-pass",
+                                     llvm::cl::desc("Enable workaround pass."),
+                                     llvm::cl::init(false)};
 };
+
+// TTIR to EmitC pipeline options.
+// Inherit from TTIRToTTNNBackendPipelineOptions to reuse the options.
+//
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
 
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
@@ -176,6 +132,12 @@ void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
 void createTTNNPipelineLoweringPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNPipelineLayoutDecompositionPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNPipelineDeallocPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
@@ -187,8 +149,17 @@ void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
 void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
                                                 std::string options);
 
+void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
+                                                         std::string options);
+
+void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
+                                             std::string options);
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTIRToEmitCPipeline(OpPassManager &pm,
+                               const TTIRToEmitCPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".

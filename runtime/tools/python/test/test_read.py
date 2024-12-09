@@ -16,6 +16,7 @@ from pkg_resources import get_distribution
 import shutil
 import atexit
 import pytest
+import inspect
 
 import ttrt
 from ttrt.common.util import *
@@ -24,76 +25,62 @@ from ttrt.common.api import API
 from util import *
 
 
-def test_flatbuffer():
+def test_flatbuffer_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_flatbuffer.__name__}"
 
-
-def test_flatbuffer_cmd():
-    command = f"ttrt read {BINARY_FILE_PATH} --log-file {test_flatbuffer_cmd.__name__}_read.log"
+def test_flatbuffer_cmd_read():
+    command = f"ttrt read {BINARY_FILE_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_flatbuffer_cmd.__name__}"
 
-
-def test_dir_flatbuffer():
+def test_dir_flatbuffer_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = DIRECTORY_PATH
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_dir_flatbuffer.__name__}"
 
-
-def test_dir_flatbuffer_cmd():
-    command = f"ttrt read {DIRECTORY_PATH} --log-file {test_dir_flatbuffer_cmd.__name__}_read.log"
+def test_dir_flatbuffer_cmd_read():
+    command = f"ttrt read {DIRECTORY_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_dir_flatbuffer_cmd.__name__}"
 
-
-def test_logger():
+def test_logger_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
     read_instance = API.Read(args=custom_args, logger=custom_logger)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_logger.__name__}"
 
-
-def test_logger_cmd():
-    command = (
-        f"ttrt read {BINARY_FILE_PATH} --log-file {test_logger_cmd.__name__}_read.log"
-    )
+def test_logger_cmd_read():
+    command = f"ttrt read {BINARY_FILE_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_logger_cmd.__name__}"
 
-
-def test_artifacts():
+def test_artifacts_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     log_file_name = "test.log"
     custom_logger = Logger(log_file_name)
@@ -104,81 +91,65 @@ def test_artifacts():
     read_instance = API.Read(args=custom_args, artifacts=custom_artifacts)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_artifacts.__name__}"
 
-
-def test_artifacts_cmd():
-    command = f"ttrt read {BINARY_FILE_PATH} --artifact-dir {os.getcwd()}/test-artifacts --log-file {test_artifacts_cmd.__name__}_read.log"
+def test_artifacts_cmd_read():
+    command = f"ttrt read {BINARY_FILE_PATH} --artifact-dir {os.getcwd()}/test-artifacts --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_artifacts_cmd.__name__}"
 
-
-def test_clean_artifacts():
+def test_clean_artifacts_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     custom_args["--clean-artifacts"] = True
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_clean_artifacts.__name__}"
 
-
-def test_clean_artifacts_cmd():
-    command = f"ttrt read {BINARY_FILE_PATH} --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_read.log"
+def test_clean_artifacts_cmd_read():
+    command = f"ttrt read {BINARY_FILE_PATH} --clean-artifacts --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_clean_artifacts_cmd.__name__}"
 
-
-def test_save_artifacts():
+def test_save_artifacts_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_save_artifacts.__name__}"
 
-
-def test_save_artifacts_cmd():
-    command = f"ttrt read {BINARY_FILE_PATH} --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_read.log"
+def test_save_artifacts_cmd_read():
+    command = f"ttrt read {BINARY_FILE_PATH} --clean-artifacts --save-artifacts --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_save_artifacts_cmd.__name__}"
 
-
-def test_log_file():
+def test_log_file_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     custom_args["--log-file"] = "test.log"
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_log_file.__name__}"
 
-
-def test_artifact_dir():
+def test_artifact_dir_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     custom_args["--clean-artifacts"] = True
     custom_args["--save-artifacts"] = True
@@ -186,28 +157,19 @@ def test_artifact_dir():
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_artifact_dir.__name__}"
 
-
-def test_section():
+def test_section_read():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = BINARY_FILE_PATH
     custom_args["--section"] = "all"
     read_instance = API.Read(args=custom_args)
     read_instance()
 
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_section.__name__}"
 
-
-def test_section_cmd():
-    command = f"ttrt read {BINARY_FILE_PATH} --section mlir --log-file {test_section_cmd.__name__}_read.log"
+def test_section_cmd_read():
+    command = f"ttrt read {BINARY_FILE_PATH} --section all --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
-
-    assert (
-        check_results("read_results.json") == 0
-    ), f"one of more tests failed in={test_section_cmd.__name__}"

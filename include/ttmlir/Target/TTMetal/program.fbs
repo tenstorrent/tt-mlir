@@ -3,13 +3,18 @@ include "Common/types.fbs";
 namespace tt.target.metal;
 
 enum NocIndex : ushort {
-  Noc0 = 0,
-  Noc1 = 1,
+  Noc0,
+  Noc1,
 }
 
 enum EthType : ushort {
-  Sender = 0,
-  Receiver = 1,
+  Sender,
+  Receiver,
+}
+
+enum UnpackToDestMode : uint8 {
+    UnpackToDestFp32,
+    Default,
 }
 
 table NocConfig {
@@ -19,8 +24,8 @@ table NocConfig {
 table TensixConfig {
   math_fidelity: MathFidelity;
   fp32_dest_acc_en: bool;
-  preserve_fp32_precision: bool;
   math_approx_mode: bool;
+  unpack_to_dest_mode: [UnpackToDestMode];
 }
 
 table EthernetConfig {
@@ -40,17 +45,17 @@ table KernelSource {
 }
 
 enum BinaryType : ushort {
-  BRISC = 0,
-  NCRISC = 1,
-  TRISC0 = 2,
-  TRISC1 = 3,
-  TRISC2 = 4,
-  ERISC = 5,
+  BRISC,
+  NCRISC,
+  TRISC0,
+  TRISC1,
+  TRISC2,
+  ERISC,
 }
 
 enum CoreType : ushort {
-  WORKER = 0,
-  ETH = 1,
+  WORKER,
+  ETH,
 }
 
 table KernelBinary {

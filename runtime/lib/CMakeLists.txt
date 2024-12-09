@@ -17,6 +17,7 @@ endif()
 message(STATUS "Runtimes Enabled: TTNN[${TT_RUNTIME_ENABLE_TTNN}] TTMETAL[${TT_RUNTIME_ENABLE_TTMETAL}]")
 
 add_library(TTBinary STATIC binary.cpp)
+set_property(TARGET TTBinary PROPERTY CXX_STANDARD 20)
 target_include_directories(TTBinary
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include

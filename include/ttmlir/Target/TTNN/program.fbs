@@ -11,14 +11,22 @@ table GetDeviceOp {
 
 table ToMemoryConfigOp {
   in0: tt.target.TensorRef;
-  device: tt.target.DeviceRef;
+  memcfg: MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
 table ToLayoutOp {
   in: tt.target.TensorRef;
   layout: tt.target.TensorLayout;
+  dtype: tt.target.DataType = null;
+  memcfg: tt.target.MemoryConfigDesc;
   device: tt.target.DeviceRef;
+  out: tt.target.TensorRef;
+}
+
+table TypecastOp {
+  in: tt.target.TensorRef;
+  dtype: tt.target.DataType;
   out: tt.target.TensorRef;
 }
 
@@ -27,6 +35,19 @@ table ToDeviceOp {
   device: tt.target.DeviceRef;
   memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
+}
+
+table UpdateCacheOp {
+  cache: tt.target.TensorRef;
+  input: tt.target.TensorRef;
+  update_index: tt.target.TensorRef;
+  batch_offset: uint32;
+}
+
+table FillCacheOp {
+  cache: tt.target.TensorRef;
+  input: tt.target.TensorRef;
+  batch_offset: uint32;
 }
 
 table FromDeviceOp {
@@ -38,50 +59,102 @@ table EmptyOp {
   shape: [int64];
   dtype: DataType;
   layout: TensorLayout;
+  num_shards: uint32;
   device: tt.target.DeviceRef;         // optional
   memcfg: tt.target.MemoryConfigDesc;  // optional
+  strategy: tt.target.DistributionStrategy;
   out: tt.target.TensorRef;
 }
 
 table FullOp {
   device: tt.target.DeviceRef;
   fill_value: float;
+  num_shards: uint32;
+  strategy: tt.target.DistributionStrategy;
+  out: tt.target.TensorRef;
+}
+
+table ArangeOp {
+  start: float;
+  end: float;
+  step: float;
+  dtype: tt.target.DataType = null; // optional
+  device: tt.target.DeviceRef; // optional
+  memcfg: tt.target.MemoryConfigDesc;  // optional
   out: tt.target.TensorRef;
 }
 
 enum EltwiseOpType: uint32 {
-  Add = 0,
-  Multiply = 1,
-  Subtract = 2,
-  Relu = 3,
-  GreaterEqual = 4,
-  Sqrt = 5,
-  Div = 6,
-  Sigmoid = 7,
-  Reciprocal = 8,
-  Exp = 9,
-  Maximum = 10,
-  Abs = 11,
-  Neg = 12,
-  Rsqrt = 13,
-  Typecast = 14,
-  Equal = 15,
-  NotEqual = 16,
-  GreaterThan = 19,
-  LessEqual = 17,
-  LessThan = 18,
+  Add,
+  Multiply,
+  Subtract,
+  Relu,
+  GreaterEqual,
+  Sqrt,
+  Div,
+  Sigmoid,
+  Reciprocal,
+  Exp,
+  Maximum,
+  Abs,
+  Neg,
+  Rsqrt,
+  Typecast,
+  Equal,
+  NotEqual,
+  LessEqual,
+  LessThan,
+  GreaterThan,
+  LogicalAnd,
+  LogicalOr,
+  LogicalNot,
+  Cbrt,
+  Minimum,
+  Ceil,
+  Sin,
+  Cos,
+  Log,
+  Log1p,
+  Expm1,
+  Sign,
+  Remainder,
+  IsFinite,
+  Floor,
+  Where,
+  Gelu,
+  LogicalXor,
+  Clamp,
+  LeakyRelu,
+  Scatter,
+  Tan,
+  Tanh
+}
+
+table ClampOpParams {
+  min: float;
+  max: float;
+}
+
+table EltwiseOpWithFloatParams {
+  parameter: float;
+}
+
+union EltwiseOpParams {
+  ClampOpParams,
+  EltwiseOpWithFloatParams,
 }
 
 table EltwiseOp {
   type: EltwiseOpType;
   ins: [tt.target.TensorRef];
   out: tt.target.TensorRef;
+  params: EltwiseOpParams;
 }
 
 enum ReductionOpType: uint32 {
-  Sum = 0,
-  Mean = 1,
-  Max = 2,
+  Sum,
+  Mean,
+  Max,
 }
 
 table ReductionOp {
@@ -95,7 +168,7 @@ table ReductionOp {
 table EmbeddingOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
-  output: tt.target.TensorRef;
+  out: tt.target.TensorRef;
 }
 
 table SoftmaxOp {
@@ -121,6 +194,21 @@ table ReshapeOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
   shape: [int32];
+}
+
+table SliceOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  begins: [int64];
+  ends: [int64];
+  step: [int64];
+}
+
+table LinearOp {
+  in0: tt.target.TensorRef;
+  in1: tt.target.TensorRef;
+  bias: tt.target.TensorRef;
+  out: tt.target.TensorRef;
 }
 
 // ANCHOR: adding_an_op_matmul_fbs
@@ -172,19 +260,29 @@ table MaxPool2dOp {
   padding_width: uint32;
 }
 
-table DeallocOp {
+table DeallocateOp {
   in: tt.target.TensorRef;
+  force: bool;
+}
+
+table AllGatherOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim: uint32;
+  num_links: uint32;
 }
 
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
   ToLayoutOp,
+  TypecastOp,
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
   FullOp,
   EltwiseOp,
+  LinearOp,
   MatmulOp,
   ReductionOp,
   EmbeddingOp,
@@ -193,13 +291,19 @@ union OpType {
   Conv2dOp,
   ConcatOp,
   ReshapeOp,
+  SliceOp,
   MaxPool2dOp,
-  DeallocOp
+  DeallocateOp,
+  AllGatherOp,
+  ArangeOp,
+  UpdateCacheOp,
+  FillCacheOp,
 }
 
 table Operation {
   type: OpType;
   debug_info: string;
+  loc_info: string;
 }
 
 table Program {

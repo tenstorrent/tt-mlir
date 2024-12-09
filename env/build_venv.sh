@@ -5,8 +5,9 @@
 
 OS=$(uname)
 TTMLIR_VENV=$TTMLIR_TOOLCHAIN_DIR/venv
+TTMLIR_PYTHON_VERSION="${TTMLIR_PYTHON_VERSION:-python3.10}"
 
-python3 -m venv $TTMLIR_VENV
+$TTMLIR_PYTHON_VERSION -m venv $TTMLIR_VENV
 source $CURRENT_SOURCE_DIR/activate
 python -m pip install --upgrade pip
 pip install -r $CURRENT_SOURCE_DIR/build-requirements.txt

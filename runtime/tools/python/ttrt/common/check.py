@@ -61,6 +61,13 @@ class Check:
             help="system desc to check against",
         )
         Check.register_arg(
+            name="--result-file",
+            type=str,
+            default="check_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
+        Check.register_arg(
             name="binary",
             type=str,
             default="",
@@ -141,6 +148,7 @@ class Check:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.warning(f"test={path} was skipped with exception={str(e)}")
                 self.results.add_result(test_result)
 
         for path in ttnn_binary_paths:
@@ -156,6 +164,7 @@ class Check:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.warning(f"test={path} was skipped with exception={str(e)}")
                 self.results.add_result(test_result)
 
         for path in ttmetal_binary_paths:
@@ -171,6 +180,7 @@ class Check:
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
                 }
+                self.logging.warning(f"test={path} was skipped with exception={str(e)}")
                 self.results.add_result(test_result)
 
         self.logging.debug(f"------finished checking constraints for check API")
@@ -186,7 +196,6 @@ class Check:
             for bin in binaries:
                 test_result = {
                     "file_path": bin.file_path,
-                    "result": "fail",
                     "exception": "",
                     "log_file": self.logger.file_name,
                     "artifacts": self.artifacts.artifacts_folder_path,
@@ -200,28 +209,34 @@ class Check:
                         self.logging.info(
                             f"system desc for device did not match flatbuffer: {bin.file_path}"
                         )
+                        test_result["result"] = "error"
                         test_result[
                             "exception"
                         ] = f"system desc for device did not match flatbuffer: {bin.file_path}"
+                        test_result["system_desc"] = "system_desc queried from device"
                     else:
                         self.logging.info(
                             f"system desc for device matched flatbuffer: {bin.file_path}"
                         )
                         test_result["result"] = "pass"
+                        test_result["system_desc"] = "system_desc queried from device"
                 else:
                     for desc in self.system_desc_binaries:
                         if bin.fbb_dict["system_desc"] != desc.fbb_dict["system_desc"]:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
                             )
+                            test_result["result"] = "error"
                             test_result[
                                 "exception"
                             ] = f"system desc for: {desc.file_path} did not match flatbuffer: {bin.file_path}"
+                            test_result["system_desc"] = f"{desc.file_path}"
                         else:
                             self.logging.info(
                                 f"system desc for: {desc.file_path} matched flatbuffer: {bin.file_path}"
                             )
                             test_result["result"] = "pass"
+                            test_result["system_desc"] = f"{desc.file_path}"
 
                 self.results.add_result(test_result)
 
@@ -253,7 +268,7 @@ class Check:
             for bin in self.ttmetal_binaries:
                 self.artifacts.save_binary(bin)
 
-        self.results.save_results("check_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing check API")
 
@@ -276,6 +291,8 @@ class Check:
         self.logging.debug(
             f"----------------------------finished check API----------------------------"
         )
+
+        return self.results.get_result_code(), self.results.get_results()
 
     @staticmethod
     def register_arg(name, type, default, choices, help):

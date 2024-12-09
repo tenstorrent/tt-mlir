@@ -21,11 +21,11 @@ def TTNN_Layout : I32EnumAttr<"Layout", "TTNN Layout",
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-def TTNN_TensorMemoryLayout_Interleaved : I32EnumAttrCase<"Interleaved", 0, "interleaved">;
-def TTNN_TensorMemoryLayout_SingleBank : I32EnumAttrCase<"SingleBank", 1, "single_bank">;
-def TTNN_TensorMemoryLayout_HeightSharded : I32EnumAttrCase<"HeightSharded", 2, "height_sharded">;
-def TTNN_TensorMemoryLayout_WidthSharded : I32EnumAttrCase<"WidthSharded", 3, "width_sharded">;
-def TTNN_TensorMemoryLayout_BlockSharded : I32EnumAttrCase<"BlockSharded", 4, "block_sharded">;
+def TTNN_TensorMemoryLayout_Interleaved : I32EnumAttrCase<"Interleaved", 1, "interleaved">;
+def TTNN_TensorMemoryLayout_SingleBank : I32EnumAttrCase<"SingleBank", 2, "single_bank">;
+def TTNN_TensorMemoryLayout_HeightSharded : I32EnumAttrCase<"HeightSharded", 3, "height_sharded">;
+def TTNN_TensorMemoryLayout_WidthSharded : I32EnumAttrCase<"WidthSharded", 4, "width_sharded">;
+def TTNN_TensorMemoryLayout_BlockSharded : I32EnumAttrCase<"BlockSharded", 5, "block_sharded">;
 
 def TTNN_TensorMemoryLayout : I32EnumAttr<"TensorMemoryLayout", "TTNN Tensor Memory Layout",
                            [
@@ -55,6 +55,26 @@ def TTNN_BufferType : I32EnumAttr<"BufferType", "TTNN Buffer Type",
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_ReduceType_Sum  : I32EnumAttrCase<"Sum",  0, "sum">;
+def TTNN_ReduceType_Mean : I32EnumAttrCase<"Mean", 1, "mean">;
+def TTNN_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
+def TTNN_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
+def TTNN_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
+def TTNN_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+
+def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
+                          [
+                           TTNN_ReduceType_Sum,
+                           TTNN_ReduceType_Mean,
+                           TTNN_ReduceType_Max,
+                           TTNN_ReduceType_Min,
+                           TTNN_ReduceType_Std,
+                           TTNN_ReduceType_Var,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn::operations::reduction";
 }
 
 #endif

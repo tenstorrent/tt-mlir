@@ -2,6 +2,18 @@ add_mlir_dialect(TTIROps ttir)
 add_mlir_doc(TTIRBase TTIRDialect src/autogen/md/Dialect/ -gen-dialect-doc)
 add_mlir_doc(TTIROps TTIROp src/autogen/md/Dialect/ -gen-op-doc)
 
+set(LLVM_TARGET_DEFINITIONS TTIROpsAttrs.td)
+mlir_tablegen(TTIROpsAttrs.h.inc -gen-attrdef-decls)
+mlir_tablegen(TTIROpsAttrs.cpp.inc -gen-attrdef-defs)
+add_public_tablegen_target(TTIROpsAttrsIncGen)
+add_dependencies(mlir-headers TTIROpsAttrsIncGen)
+
+set(LLVM_TARGET_DEFINITIONS TTIROpsEnums.td)
+mlir_tablegen(TTIROpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(TTIROpsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRTTIROpsEnumsIncGen)
+add_dependencies(mlir-headers MLIRTTIROpsEnumsIncGen)
+
 set(LLVM_TARGET_DEFINITIONS TTIROpsInterfaces.td)
 mlir_tablegen(TTIROpsInterfaces.h.inc -gen-op-interface-decls)
 mlir_tablegen(TTIROpsInterfaces.cpp.inc -gen-op-interface-defs)

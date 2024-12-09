@@ -16,6 +16,11 @@
 
 #include "TTIROpsInterfaces.h"
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.h.inc"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h.inc"
 

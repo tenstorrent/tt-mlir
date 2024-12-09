@@ -13,13 +13,23 @@ namespace mlir::tt::ttir {
 //
 struct StableHLOToTTIRPipelineOptions
     : public PassPipelineOptions<StableHLOToTTIRPipelineOptions> {
-  // Option to enable --remove-dead-values optimization pass.
   Option<bool> removeDeadValuesEnabled{
       *this, "enable-remove-dead-values",
       llvm::cl::desc("Enable --remove-dead-values optimization pass."),
-      // Currently this pass fails if module has a name, so keeping the
-      // optimization OFF by default until that issue is fixed on llvm side.
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
+  Option<bool> arithDialectConversionsEnabled{
+      *this, "enable-arith-to-stablehlo",
+      llvm::cl::desc("Enable Arith to StableHLO conversion pass."),
+      // Currently torch-mlir front-end does not convert ConstantOp for Arith
+      // Dialect to StableHLO. This pass makes those conversions until this
+      // is fixed in the upstream torch-mlir.
+      llvm::cl::init(true)};
+  Option<bool> legalizeCompositeToCallEnabled{
+      *this, "enable-composite-to-call",
+      llvm::cl::desc("Enable, --enable-composite-to-call conversion pass."),
+      // This pass will convert stablehlo.composite ops into func.call ops so
+      // that the TTIR inliner pass may inline the ops.
+      llvm::cl::init(true)};
 };
 
 void createStableHLOToTTIRPipeline(

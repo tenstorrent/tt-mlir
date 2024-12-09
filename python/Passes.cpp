@@ -5,9 +5,15 @@
 #include "mlir/InitAllTranslations.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/RegisterAll.h"
+#include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+#include <cstdint>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
+
+namespace mlir::tt::ttnn {
+void registerTTNNToFlatbuffer();
+} // namespace mlir::tt::ttnn
 
 namespace mlir::ttmlir::python {
 
@@ -15,7 +21,7 @@ void populatePassesModule(py::module &m) {
   // When populating passes, need to first register them
 
   mlir::tt::registerAllPasses();
-  mlir::registerAllTranslations();
+  mlir::tt::ttnn::registerTTNNToFlatbuffer();
 
   m.def(
       "ttnn_pipeline_ttir_passes",
@@ -60,6 +66,35 @@ void populatePassesModule(py::module &m) {
       py::arg("module"), py::arg("options") = "");
 
   m.def(
+      "ttnn_pipeline_layout_decomposition_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineLayoutDecompositionPassFromString(pm,
+                                                                      options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_pipeline_dealloc_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineDeallocPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
       "ttir_to_ttnn_backend_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
@@ -67,6 +102,7 @@ void populatePassesModule(py::module &m) {
 
         mlir::DialectRegistry registry;
         mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
         mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
         ctx->appendDialectRegistry(registry);
 
@@ -81,6 +117,30 @@ void populatePassesModule(py::module &m) {
           throw std::runtime_error("Failed to add pipeline to pass manager");
         }
 
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttir_to_ttmetal_backend_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
+        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
+        ctx->appendDialectRegistry(registry);
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-backend-pipeline");
+        mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)>
+            err_handler =
+                [](const llvm::Twine &loc) { return mlir::failure(); };
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
         }
@@ -107,7 +167,8 @@ void populatePassesModule(py::module &m) {
   });
 
   m.def("ttnn_to_flatbuffer_file",
-        [](MlirModule module, std::string &filepath) {
+        [](MlirModule module, std::string &filepath,
+           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
           std::error_code fileError;
@@ -118,11 +179,49 @@ void populatePassesModule(py::module &m) {
                                      ". Error: " + fileError.message());
           }
 
-          if (mlir::failed(
-                  mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file))) {
+          if (mlir::failed(mlir::tt::ttnn::translateTTNNToFlatbuffer(
+                  moduleOp, file, goldenMap))) {
             throw std::runtime_error("Failed to write flatbuffer to file: " +
                                      filepath);
           }
+        });
+
+  m.def("ttmetal_to_flatbuffer_file",
+        [](MlirModule module, std::string &filepath,
+           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
+          mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+          std::error_code fileError;
+          llvm::raw_fd_ostream file(filepath, fileError);
+          if (fileError) {
+            throw std::runtime_error("Failed to open file: " + filepath +
+                                     ". Error: " + fileError.message());
+          }
+          if (mlir::failed(mlir::tt::ttmetal::translateTTMetalToFlatbuffer(
+                  moduleOp, file, goldenMap))) {
+            throw std::runtime_error("Failed to write flatbuffer to file: " +
+                                     filepath);
+          }
+        });
+
+  py::enum_<::tt::target::DataType>(m, "DataType")
+      .value("Float32", ::tt::target::DataType::Float32)
+      .value("Float16", ::tt::target::DataType::Float16);
+
+  py::class_<mlir::tt::GoldenTensor>(m, "GoldenTensor")
+      .def(py::init<std::string, std::vector<int64_t>, std::vector<int64_t>,
+                    ::tt::target::DataType, std::uint8_t *>())
+      .def_readwrite("name", &mlir::tt::GoldenTensor::name)
+      .def_readwrite("shape", &mlir::tt::GoldenTensor::shape)
+      .def_readwrite("strides", &mlir::tt::GoldenTensor::strides)
+      .def_readwrite("dtype", &mlir::tt::GoldenTensor::dtype)
+      .def_readwrite("data", &mlir::tt::GoldenTensor::data);
+
+  m.def("create_golden_tensor",
+        [](std::string name, std::vector<int64_t> shape,
+           std::vector<int64_t> strides, ::tt::target::DataType dtype,
+           std::uintptr_t ptr) {
+          return mlir::tt::GoldenTensor(name, shape, strides, dtype,
+                                        reinterpret_cast<std::uint8_t *>(ptr));
         });
 }
 

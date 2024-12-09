@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdint>
 #include <fstream>
+#include <mlir/IR/BuiltinTypes.h>
 #include <numeric>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -12,7 +14,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Target/Common/system_desc_generated.h"
+#include "ttmlir/Target/Common/Target.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -23,6 +25,16 @@ using namespace mlir::tt;
 
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.cpp.inc"
+
+unsigned mlir::tt::ChipDescAttr::getScratchL1RegionSize() const {
+  // 4KB is the default size for the scratch L1 region.
+  constexpr uint32_t kScratchL1RegionSize = 1 << 12;
+  return kScratchL1RegionSize;
+}
+
+unsigned mlir::tt::ChipDescAttr::getScratchL1RegionAddress() const {
+  return getL1Size() - getScratchL1RegionSize();
+}
 
 mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
@@ -80,6 +92,10 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
   }
   return tt::SystemDescAttr::get(
       context,
+      // CPU Descriptors
+      {tt::CPUDescAttr::get(
+          context, tt::CPURole::Host,
+          mlir::StringAttr::get(context, "x86_64-pc-linux-gnu"))},
       // Chip Descriptors
       {
           tt::ChipDescAttr::get(
@@ -88,7 +104,7 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
               (1 << 30),
               tt::ChipPhysicalCoresAttr::get(context, workerCores, dramCores,
                                              {}, {}),
-              supported_data_types, supported_tile_sizes),
+              supported_data_types, supported_tile_sizes, 32),
       },
       // Chip Descriptor Indices
       {
@@ -123,12 +139,32 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Read relevant information from binary
   auto const *binary_system_desc =
       ::tt::target::GetSizePrefixedSystemDescRoot(buffer.get())->system_desc();
+  auto const *binary_cpu_desc = binary_system_desc->cpu_descs();
   auto const *binary_chip_desc = binary_system_desc->chip_descs();
   auto const *binary_chip_desc_indices =
       binary_system_desc->chip_desc_indices();
   auto const *chip_capabilities = binary_system_desc->chip_capabilities();
   auto const *binary_chip_coords = binary_system_desc->chip_coords();
   auto const *chip_channel_connections = binary_system_desc->chip_channels();
+
+  // Acquire cpu descs
+  std::vector<tt::CPUDescAttr> cpu_desc_list;
+  for (auto const *element : *binary_cpu_desc) {
+    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::mlir::tt::CPURole::Device) ==
+                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::tt::target::CPURole::Device));
+    static_assert(static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::mlir::tt::CPURole::Host) ==
+                  static_cast<std::underlying_type_t<::tt::target::CPURole>>(
+                      ::tt::target::CPURole::Host));
+    const auto *flatbufferTargetTripleString = element->target_triple();
+    cpu_desc_list.emplace_back(tt::CPUDescAttr::get(
+        context, static_cast<mlir::tt::CPURole>(element->role()),
+        mlir::StringAttr::get(
+            context, std::string(flatbufferTargetTripleString->c_str(),
+                                 flatbufferTargetTripleString->size()))));
+  }
 
   // Acquire chip descs
   std::vector<tt::ChipDescAttr> chip_desc_list;
@@ -243,7 +279,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
         element->noc_dram_address_align_bytes(), element->l1_unreserved_base(),
         element->erisc_l1_unreserved_base(), element->dram_unreserved_base(),
         element->dram_unreserved_end(), chip_physical_cores_attr,
-        supported_data_types_attr, supported_tile_sizes_attr);
+        supported_data_types_attr, supported_tile_sizes_attr,
+        element->num_cbs());
     chip_desc_list.push_back(current_chip_desc_attr);
   }
 
@@ -298,8 +335,8 @@ mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
 
   // Generate system desc attribute
   auto system_desc_attr = tt::SystemDescAttr::get(
-      context, chip_desc_list, chip_indices_list, chip_capabilities_list,
-      chip_coordinate_list, chip_channel_list);
+      context, cpu_desc_list, chip_desc_list, chip_indices_list,
+      chip_capabilities_list, chip_coordinate_list, chip_channel_list);
 
   return system_desc_attr;
 }
@@ -338,21 +375,6 @@ unsigned SystemDescAttr::getPcieAddressAlignBytes(unsigned chipIndex) const {
   return getChipDescs()[chipIndex].getPcieAddressAlignBytes();
 }
 
-static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
-                                    ::llvm::ArrayRef<int64_t> shardShape,
-                                    ::mlir::Type elementType,
-                                    MemorySpace memorySpace) {
-  ::llvm::SmallVector<int64_t> scalarShardShape(shardShape);
-  if (mlir::isa<TileType>(elementType)) {
-    scalarShardShape =
-        mlir::cast<TileType>(elementType).getTiledShape(scalarShardShape);
-  }
-  return mlir::MemRefType::get(
-      scalarShardShape, elementType,
-      mlir::AffineMap::getMultiDimIdentityMap(scalarShardShape.size(), context),
-      MemorySpaceAttr::get(context, memorySpace));
-}
-
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
@@ -377,7 +399,7 @@ static mlir::MemRefType buildMemRef(::mlir::MLIRContext *context,
 //   - 7D tensor onto a 4D grid collapseIntervals=[(0, 3), (-3, -1)]:
 //       (d0, d1, d2, d3, d4, d5, d6) -> (d0 <> d1 <> d2, d3, d4 <> d5, d6)
 //
-static mlir::AffineMap collapsedLinearAffineMap(
+mlir::AffineMap collapsedLinearAffineMap(
     ::mlir::MLIRContext *context, ::llvm::ArrayRef<int64_t> shape,
     ::llvm::ArrayRef<int64_t> gridShape,
     ::llvm::ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -430,7 +452,7 @@ static mlir::AffineMap collapsedLinearAffineMap(
   return map;
 }
 
-static mlir::SmallVector<std::int64_t>
+mlir::SmallVector<std::int64_t>
 calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
                            mlir::AffineMap linear, GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
@@ -444,7 +466,7 @@ calculateLogicalShardShape(mlir::ArrayRef<int64_t> tensorShape,
   return shardShape;
 }
 
-LayoutAttr LayoutAttr::get(
+MetalLayoutAttr MetalLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, MemorySpace memorySpace, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
@@ -456,11 +478,12 @@ LayoutAttr LayoutAttr::get(
   auto linear = collapsedLinearAffineMap(context, tensorShape, grid.getShape(),
                                          collapseIntervals);
   auto shardShape = calculateLogicalShardShape(tensorShape, linear, grid);
-  auto memref = buildMemRef(context, shardShape, elementType, memorySpace);
+  auto memref = buildMemRef<MemorySpace, MemorySpaceAttr>(
+      context, shardShape, elementType, memorySpace);
   return get(context, linear, oobVal, grid, memref, memLayout);
 }
 
-LayoutAttr LayoutAttr::get(
+MetalLayoutAttr MetalLayoutAttr::get(
     ::mlir::MLIRContext *context, RankedTensorType ty, MemorySpace memorySpace,
     GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
@@ -470,9 +493,11 @@ LayoutAttr LayoutAttr::get(
              collapseIntervals, oobVal, memLayout);
 }
 
-LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
-                           MemorySpace memorySpace, GridAttr grid,
-                           Type elementType, TensorMemoryLayout memLayout) {
+MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
+                                     RankedTensorType ty,
+                                     MemorySpace memorySpace, GridAttr grid,
+                                     Type elementType,
+                                     TensorMemoryLayout memLayout) {
   assert(ty);
   assert(grid);
   return get(context, ty.getShape(), elementType, memorySpace, grid, {{0, -1}},
@@ -483,7 +508,7 @@ LayoutAttr LayoutAttr::get(::mlir::MLIRContext *context, RankedTensorType ty,
 // compute the physical shape of the tensor, i.e the shape of the tensor
 // after the dimensions have been collapsed onto a grid.
 llvm::SmallVector<int64_t>
-LayoutAttr::getPhysicalShape(ArrayRef<int64_t> logicalShape) const {
+MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> logicalShape) const {
   llvm::SmallVector<int64_t> physicalShape(getGrid().getShape().size());
   SmallVector<AffineExpr> logicalShapeExprs(
       llvm::map_range(logicalShape, [context = getContext()](std::int64_t e) {
@@ -502,7 +527,7 @@ LayoutAttr::getPhysicalShape(ArrayRef<int64_t> logicalShape) const {
 }
 
 llvm::SmallVector<int64_t>
-LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
+MetalLayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
 
   llvm::SmallVector<int64_t> stride(logicalShape.size());
 
@@ -551,7 +576,7 @@ LayoutAttr::getStride(ArrayRef<int64_t> logicalShape) const {
 }
 
 llvm::SmallVector<int64_t>
-LayoutAttr::getShardShape(bool convertTileToScalar) const {
+MetalLayoutAttr::getShardShape(bool convertTileToScalar) const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
   auto elementType = getElementType();
   if (mlir::isa<TileType>(elementType) && convertTileToScalar) {
@@ -560,11 +585,11 @@ LayoutAttr::getShardShape(bool convertTileToScalar) const {
   return shardShape;
 }
 
-mlir::Type LayoutAttr::getElementType() const {
+mlir::Type MetalLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
 
-mlir::Type LayoutAttr::getScalarElementType() const {
+mlir::Type MetalLayoutAttr::getScalarElementType() const {
   auto elementType = getElementType();
   if (mlir::isa<TileType>(elementType)) {
     return mlir::cast<TileType>(elementType).getElementType();
@@ -572,24 +597,33 @@ mlir::Type LayoutAttr::getScalarElementType() const {
   return elementType;
 }
 
-bool LayoutAttr::hasShardedTensorMemoryLayout() const {
+bool MetalLayoutAttr::hasShardedTensorMemoryLayout() const {
   return (getMemLayout() == TensorMemoryLayout::HeightSharded or
           getMemLayout() == TensorMemoryLayout::WidthSharded or
           getMemLayout() == TensorMemoryLayout::BlockSharded);
 }
 
-bool LayoutAttr::hasShardedL1TensorMemoryLayout() const {
+bool MetalLayoutAttr::hasInterleavedTensorMemoryLayout() const {
+  return (getMemLayout() == TensorMemoryLayout::Interleaved);
+}
+
+bool MetalLayoutAttr::hasShardedL1TensorMemoryLayout() const {
   return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
          (getMemLayout() == TensorMemoryLayout::HeightSharded or
           getMemLayout() == TensorMemoryLayout::WidthSharded or
           getMemLayout() == TensorMemoryLayout::BlockSharded);
 }
 
-bool LayoutAttr::isTiled() const {
+bool MetalLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
+  return ::mlir::tt::isL1MemorySpace(getMemorySpace()) and
+         (getMemLayout() == TensorMemoryLayout::Interleaved);
+}
+
+bool MetalLayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
 }
 
-uint64_t LayoutAttr::getElementSizeBytes() const {
+uint64_t MetalLayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
   if (mlir::isa<TileType>(elementType)) {
     auto tileType = mlir::cast<TileType>(elementType);
@@ -598,7 +632,7 @@ uint64_t LayoutAttr::getElementSizeBytes() const {
   return elementType.getIntOrFloatBitWidth() / 8;
 }
 
-uint64_t LayoutAttr::getMemrefSizeBytes() const {
+uint64_t MetalLayoutAttr::getMemrefSizeBytes() const {
   MemRefType ty = getMemref();
   auto shape = ty.getShape();
   uint64_t size = getElementSizeBytes();
@@ -606,45 +640,60 @@ uint64_t LayoutAttr::getMemrefSizeBytes() const {
                          std::multiplies<uint64_t>());
 }
 
-LayoutAttr LayoutAttr::withGrid(
+MetalLayoutAttr MetalLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   return get(context, tensorShape, getElementType(), getMemorySpace(), grid,
              collapseIntervals, getOobVal(), getMemLayout());
 }
 
-LayoutAttr LayoutAttr::withGrid(
+MetalLayoutAttr MetalLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, RankedTensorType ty, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   assert(ty);
-  return LayoutAttr::withGrid(context, ty.getShape(), grid, collapseIntervals);
+  return MetalLayoutAttr::withGrid(context, ty.getShape(), grid,
+                                   collapseIntervals);
 }
 
-LayoutAttr LayoutAttr::withElementType(::mlir::MLIRContext *context,
-                                       Type elementType) {
-  return LayoutAttr::get(
+MetalLayoutAttr MetalLayoutAttr::withElementType(::mlir::MLIRContext *context,
+                                                 Type elementType) {
+  return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), elementType, getMemorySpace()),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+                                                elementType, getMemorySpace()),
       getMemLayout());
 }
 
-LayoutAttr LayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
-                                       MemorySpace memorySpace) {
-  return LayoutAttr::get(
+MetalLayoutAttr MetalLayoutAttr::withMemorySpace(::mlir::MLIRContext *context,
+                                                 MemorySpace memorySpace) {
+  return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), getElementType(), memorySpace),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(context, getShardShape(),
+                                                getElementType(), memorySpace),
       getMemLayout());
 }
 
-LayoutAttr LayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                        TensorMemoryLayout memLayout) {
-  return LayoutAttr::get(
+MetalLayoutAttr
+MetalLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                  TensorMemoryLayout memLayout) {
+  return MetalLayoutAttr::get(
       context, getLinear(), getOobVal(), getGrid(),
-      buildMemRef(context, getShardShape(), getElementType(), getMemorySpace()),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, getShardShape(), getElementType(), getMemorySpace()),
       memLayout);
 }
 
-MemorySpace LayoutAttr::getMemorySpace() const {
+MetalLayoutAttr
+MetalLayoutAttr::withShardShape(::mlir::MLIRContext *context,
+                                llvm::SmallVector<int64_t> shardShape) {
+  return MetalLayoutAttr::get(
+      context, getLinear(), getOobVal(), getGrid(),
+      buildMemRef<MemorySpace, MemorySpaceAttr>(
+          context, shardShape, getElementType(), getMemorySpace()),
+      getMemLayout());
+}
+
+MemorySpace MetalLayoutAttr::getMemorySpace() const {
   return mlir::cast<mlir::tt::MemorySpaceAttr>(getMemref().getMemorySpace())
       .getValue();
 }
@@ -652,7 +701,7 @@ MemorySpace LayoutAttr::getMemorySpace() const {
 // Returns shape of the tensor after tilization is applied to the two inner most
 // dimensions.
 llvm::SmallVector<int64_t>
-LayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
+MetalLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
   assert(isTiled() && "Expected a tiled layout");
 
   mlir::AffineMap linear = getLinear();
@@ -672,7 +721,7 @@ LayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
   return ttmlir::utils::evalShape(tiled, tensorShape);
 }
 
-mlir::AffineMap LayoutAttr::getIdentityTileLinearMap() const {
+mlir::AffineMap MetalLayoutAttr::getIdentityTileLinearMap() const {
   assert(isTiled() && "Expected a tiled layout");
 
   return mlir::AffineMap::getMultiDimIdentityMap(getLinear().getNumResults(),
@@ -691,7 +740,7 @@ mlir::AffineMap LayoutAttr::getIdentityTileLinearMap() const {
 //   (d0, d1)[2, 3] ->
 //     (0, d0 floordiv 2, d1 floordiv 3, (d0 mod 2) * 3 + d1 mod 3)
 //
-mlir::AffineMap LayoutAttr::replaceMemoryMapSymbolsWithShardShape(
+mlir::AffineMap MetalLayoutAttr::replaceMemoryMapSymbolsWithShardShape(
     AffineMap physicalMemoryMap) const {
   mlir::SmallVector<int64_t> shardShape =
       getShardShape(false /*convertTileToScalar*/);
@@ -719,8 +768,8 @@ mlir::AffineMap LayoutAttr::replaceMemoryMapSymbolsWithShardShape(
 // grid. Then it composes the logical grid projection with physical memory
 // mapping.
 mlir::AffineMap
-LayoutAttr::projectOnto(mlir::AffineMap linearMap,
-                        mlir::AffineMap physicalMemoryMap) const {
+MetalLayoutAttr::projectOnto(mlir::AffineMap linearMap,
+                             mlir::AffineMap physicalMemoryMap) const {
   assert(getGrid().getShape().size() == physicalMemoryMap.getNumDims() &&
          "Layout and device grids must have same number of dimensions");
   assert(getLinear().getNumResults() == physicalMemoryMap.getNumDims() &&
@@ -969,7 +1018,7 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 // Sample the last index in the tensor to get the last addressable element of
 // the tensor to determine its footprint in memory.
 uint64_t DeviceAttr::getLayoutSizeBytes(ArrayRef<int64_t> tensorScalarShape,
-                                        LayoutAttr layout,
+                                        MetalLayoutAttr layout,
                                         MemorySpace memorySpace) const {
   SmallVector<int64_t> shape = layout.isTiled()
                                    ? layout.getTiledShape(tensorScalarShape)
@@ -991,9 +1040,9 @@ uint64_t DeviceAttr::getLayoutSizeBytes(ArrayRef<int64_t> tensorScalarShape,
 uint64_t DeviceAttr::getTensorSizeBytes(RankedTensorType tensorType,
                                         MemorySpace memorySpace) const {
   assert(tensorType.getEncoding());
-  return getLayoutSizeBytes(tensorType.getShape(),
-                            mlir::cast<LayoutAttr>(tensorType.getEncoding()),
-                            memorySpace);
+  return getLayoutSizeBytes(
+      tensorType.getShape(),
+      mlir::cast<MetalLayoutAttr>(tensorType.getEncoding()), memorySpace);
 }
 
 ::mlir::LogicalResult

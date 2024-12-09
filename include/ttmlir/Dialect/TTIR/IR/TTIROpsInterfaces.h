@@ -12,7 +12,7 @@ namespace mlir {
 namespace tt {
 namespace ttir {
 namespace detail {
-mlir::LogicalResult verifyElementwiseOp(mlir::Operation *op);
+mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
 } // namespace detail
 } // namespace ttir
 } // namespace tt

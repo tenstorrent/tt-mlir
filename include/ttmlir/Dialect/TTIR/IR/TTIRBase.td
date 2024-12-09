@@ -6,6 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // TTIR dialect definition.
@@ -21,7 +22,7 @@ def TTIR_Dialect : Dialect {
         or dialects that are actually supported by a consuming backend.
     }];
     let cppNamespace = "::mlir::tt::ttir";
-
+    let useDefaultAttributePrinterParser = 1;
     let dependentDialects = [
       "::mlir::arith::ArithDialect",
       "::mlir::func::FuncDialect",
@@ -38,6 +39,6 @@ def TTIR_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, traits>;
+        Op<TTIR_Dialect, mnemonic, !listconcat(traits, [Pure])>;
 
 #endif

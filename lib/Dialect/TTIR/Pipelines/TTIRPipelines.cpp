@@ -9,6 +9,10 @@
 
 #include "ttmlir/Conversion/Passes.h"
 
+#ifdef TTMLIR_ENABLE_STABLEHLO
+#include "stablehlo/transforms/Passes.h"
+#endif
+
 namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 // Pipeline implementation.
@@ -17,6 +21,12 @@ namespace mlir::tt::ttir {
 #ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
     OpPassManager &pm, const StableHLOToTTIRPipelineOptions &options) {
+  if (options.arithDialectConversionsEnabled) {
+    pm.addPass(createConvertArithToStableHLOPass());
+  }
+  if (options.legalizeCompositeToCallEnabled) {
+    pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
+  }
   pm.addPass(createConvertStableHLOToTTIRPass());
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());

@@ -48,6 +48,19 @@ def TT_GridAttr : TT_Attr<"Grid", "grid"> {
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
         return GridAttr::get(context, SmallVector<std::int64_t>(rank, 1));
       }
+
+      uint64_t mutable cGridVolume = 0;
+      uint64_t getGridVolume() const {
+        if (cGridVolume != 0) {
+          return cGridVolume;
+        }
+
+        cGridVolume = 1;
+        for (int64_t dim : getShape()) {
+          cGridVolume *= dim;
+        }
+        return cGridVolume;
+      }
   }];
 }
 
@@ -110,7 +123,8 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$dramUnreservedEnd,
                     "ChipPhysicalCoresAttr":$chipPhysicalCores,
                     ArrayRefParameter<"DataTypeAttr">:$supportedDataTypes,
-                    ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes);
+                    ArrayRefParameter<"TileSizeAttr">:$supportedTileSizes,
+                    "unsigned":$numCBs);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `l1_size` `=` $l1Size `,`
@@ -125,12 +139,31 @@ def TT_ChipDescAttr : TT_Attr<"ChipDesc", "chip_desc"> {
                              `dram_unreserved_end` `=` $dramUnreservedEnd `,`
                              `physical_cores` `=` $chipPhysicalCores `,`
                              `supported_data_types` `=` `[` $supportedDataTypes `]` `,`
-                             `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `}`}];
+                             `supported_tile_sizes` `=` `[` $supportedTileSizes `]` `,`
+                             `num_cbs` `=` $numCBs `}`}];
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
+    unsigned getScratchL1RegionAddress() const;
+    unsigned getScratchL1RegionSize() const;
     unsigned getUsableDramChannelSize() const { return getDramUnreservedEnd() - getDramUnreservedBase(); }
   }];
+}
+
+def TT_CPURoleAttr : EnumAttr<TT_Dialect, TT_CPURole, "cpu_role"> {
+  let assemblyFormat = "$value";
+}
+
+def TT_CPUDescAttr : TT_Attr<"CPUDesc", "cpu_desc"> {
+  let summary = "TT cpu_desc attribute";
+  let description = [{
+    TT cpu_desc attribute
+  }];
+
+  let parameters = (ins "CPURole":$role,
+                        "StringAttr":$target_triple);
+  let assemblyFormat = [{`{` `role` `=` $role `,`
+                             `target_triple` `=` $target_triple `}`}];
 }
 
 def TT_ChipCoordAttr : TT_Attr<"ChipCoord", "chip_coord"> {
@@ -162,12 +195,13 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
     TT system_desc attribute
   }];
 
-  let parameters = (ins ArrayRefParameter<"ChipDescAttr">:$chipDescs,
+  let parameters = (ins ArrayRefParameter<"CPUDescAttr">:$cpuDescs,
+                        ArrayRefParameter<"ChipDescAttr">:$chipDescs,
                         ArrayRefParameter<"unsigned">:$chipDescIndices,
                         ArrayRefParameter<"ChipCapabilityAttr">:$chipCapabilities,
                         ArrayRefParameter<"ChipCoordAttr">:$chipCoords,
                         OptionalArrayRefParameter<"ChipChannelAttr">:$chipChannels);
-  let assemblyFormat = "`<` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
+  let assemblyFormat = "`<` `[` $cpuDescs `]` `,` `[` $chipDescs `]` `,` `[` $chipDescIndices `]` `,` `[` $chipCapabilities `]` `,` `[` $chipCoords `]` (`,` `[` $chipChannels^ `]`)? `>`";
 
   let extraClassDeclaration = [{
     static tt::SystemDescAttr getDefault(MLIRContext *context);
@@ -180,7 +214,7 @@ def TT_SystemDescAttr : TT_Attr<"SystemDesc", "system_desc"> {
   }];
 }
 
-def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
+def TT_MetalLayoutAttr : TT_Attr<"MetalLayout", "metal_layout"> {
   let summary = "Tensor layout attribute";
   let description = [{
     The tensor layout attribute captures how tensor data is sharded across a grid of devices, cores, and
@@ -207,7 +241,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     Examples:
     ```mlir
     tensor<8x300xf32,
-      #tt.layout<(d0, d1) -> (d0, d1),
+      #tt.metal_layout<(d0, d1) -> (d0, d1),
         undef,
         <1x2>,
         memref<8x150xf32, #tt.memory_space<l1>>
@@ -215,7 +249,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     >
 
     tensor<8x96x32xf32,
-      #tt.layout<(d0, d1, d2) -> (d0 * 96 + d1, d2),
+      #tt.metal_layout<(d0, d1, d2) -> (d0 * 96 + d1, d2),
         undef,
         <2x1>,
         memref<384x32xf32, #tt.memory_space<l1>>
@@ -223,7 +257,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     >
 
     tensor<8x96x32xf32,
-      #tt.layout<(d0, d1, d2) -> (d0 * 96 + d1, d1, d2),
+      #tt.metal_layout<(d0, d1, d2) -> (d0 * 96 + d1, d1, d2),
         undef,
         <2x1x2>,
         memref<384x96x16xf32, #tt.memory_space<l1>>
@@ -231,7 +265,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
     >
 
     tensor<5x3x2x2x7x32x32xf32,
-      #tt.layout<
+      #tt.metal_layout<
         (d0, d1, d2, d3, d4, d5, d6)
           -> (d0 * 2688 + d1 * 896 + d2 * 448 + d3 * 224 + d4 * 32 + d5, d4, d5, d6),
         undef,
@@ -250,7 +284,7 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
   let assemblyFormat = "`<` $linear`,` $oob_val`,` $grid`,` $memref (`,` $mem_layout^)? `>`";
 
   let extraClassDeclaration = [{
-      static LayoutAttr get(::mlir::MLIRContext *context,
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             ArrayRef<int64_t> tensorShape,
                             Type elementType,
                             MemorySpace memorySpace = MemorySpace::System,
@@ -258,34 +292,37 @@ def TT_LayoutAttr : TT_Attr<"Layout", "layout"> {
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef,
                             TensorMemoryLayout memLayout = TensorMemoryLayout::None);
-      static LayoutAttr get(::mlir::MLIRContext *context,
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace = MemorySpace::System,
                             GridAttr grid = {},
                             ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
                             OOBVal oobVal = OOBVal::Undef,
                             TensorMemoryLayout memLayout = TensorMemoryLayout::None);
-      static LayoutAttr get(::mlir::MLIRContext *context,
+      static MetalLayoutAttr get(::mlir::MLIRContext *context,
                             RankedTensorType ty,
                             MemorySpace memorySpace,
                             GridAttr grid,
                             Type elementType,
                             TensorMemoryLayout memLayout = TensorMemoryLayout::None);
-      LayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-      LayoutAttr withGrid(::mlir::MLIRContext *context,
+      MetalLayoutAttr withGrid(::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid, ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
+      MetalLayoutAttr withGrid(::mlir::MLIRContext *context,
                           RankedTensorType ty,
                           GridAttr grid,
                           ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-      LayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
-      LayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
-      LayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
+      MetalLayoutAttr withElementType(::mlir::MLIRContext *context, Type elementType);
+      MetalLayoutAttr withMemorySpace(::mlir::MLIRContext *context, MemorySpace memorySpace);
+      MetalLayoutAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
+      MetalLayoutAttr withShardShape(::mlir::MLIRContext *context, llvm::SmallVector<int64_t> shardShape);
 
       uint64_t getMemrefSizeBytes() const;
       MemorySpace getMemorySpace() const;
       bool isSystemMemorySpace() const { return ::mlir::tt::isSystemMemorySpace(getMemorySpace()); }
       bool isDeviceMemorySpace() const { return ::mlir::tt::isDeviceMemorySpace(getMemorySpace()); }
       bool hasShardedTensorMemoryLayout() const;
+      bool hasInterleavedTensorMemoryLayout() const;
       bool hasShardedL1TensorMemoryLayout() const;
+      bool hasInterleavedL1TensorMemoryLayout() const;
       bool isTiled() const;
       Type getElementType() const;
       Type getScalarElementType() const;
@@ -363,7 +400,7 @@ def TT_DeviceAttr : TT_Attr<"Device", "device", []> {
       // - DeviceL1: This ends up being exactly the shard size
       // - DeviceDRAM: Is more nuanced because the whole tensor size gets paged and interleaved between all dram channels,
       //   due to paging and rounding the footprint ends up being close to: the_whole_tensor / num_dram_channels
-      uint64_t getLayoutSizeBytes(ArrayRef<int64_t> tensorShape, LayoutAttr layout, MemorySpace memorySpace) const;
+      uint64_t getLayoutSizeBytes(ArrayRef<int64_t> tensorShape, MetalLayoutAttr layout, MemorySpace memorySpace) const;
 
       // Returns the footprint size in bytes of the tensor distributed across the given memory space.
       // Forwards to getLayoutSizeBytes, see comment there for more info.
@@ -404,6 +441,20 @@ def TT_ArgumentAllocationAttr : TT_Attr<"ArgumentAllocation", "arg_alloc", []> {
   }];
   let parameters = (ins "uint64_t":$address, "uint64_t":$size, "MemorySpace":$memorySpace);
   let assemblyFormat = "`<` $address `,` $size `,` $memorySpace `>`";
+}
+
+def TT_ReduceTypeAttr : EnumAttr<TT_Dialect, TT_ReduceType, "reduce_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_ReduceTypeArrayAttr : TypedArrayAttrBase<TT_ReduceTypeAttr, "">;
+
+def TT_MeshShardDirectionAttr : EnumAttr<TT_Dialect, TT_MeshShardDirection, "shard_direction"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TT_MeshShardTypeAttr : EnumAttr<TT_Dialect, TT_MeshShardType, "shard_type"> {
+  let assemblyFormat = "`<` $value `>`";
 }
 
 //===----------------------------------------------------------------------===//

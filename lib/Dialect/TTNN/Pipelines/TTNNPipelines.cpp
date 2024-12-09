@@ -4,11 +4,13 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
-#include "mlir/Pass/PassManager.h"
-
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
 
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
@@ -19,33 +21,63 @@ void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
-  pm.addPass(mlir::tt::ttir::createTTIRSlidingWindow2dFixShapes());
+
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+
+  // Inlines all private functions. I.e flattens the program into the main
+  // function. Removes all private functions.
+  pm.addPass(mlir::createInlinerPass());
+
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
   ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  implicitDeviceOptions.meshShape = options.meshShape;
+  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
+      options.meshShape.begin(), options.meshShape.end());
   pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
-  mlir::tt::ttir::TTIRLayoutOptions layoutOptions;
-  layoutOptions.initMemorySpace = mlir::tt::MemorySpace::System;
-  layoutOptions.defaultMemorySpace = mlir::tt::MemorySpace::DeviceDRAM;
-  layoutOptions.defaultDeviceMemoryLayout =
-      mlir::tt::TensorMemoryLayout::Interleaved;
-  pm.addPass(mlir::tt::ttir::createTTIRLayout(layoutOptions));
 }
 
 void createTTNNPipelineAnalysisPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
-    ttir::TTIROptimizerOptions optimizerOptions;
+    ttnn::TTNNOptimizerOptions optimizerOptions;
+    optimizerOptions.overrideInputLayout = options.overrideInputLayout;
     optimizerOptions.overrideOutputLayout = options.overrideOutputLayout;
-    optimizerOptions.shardingPassEnabled = options.shardingPassEnabled;
-    pm.addPass(mlir::tt::ttir::createTTIROptimizer(optimizerOptions));
+    optimizerOptions.memoryLayoutAnalysisEnabled =
+        options.memoryLayoutAnalysisEnabled;
+    optimizerOptions.memReconfigEnabled = options.memReconfigEnabled;
+    optimizerOptions.memoryLayoutAnalysisPolicy =
+        options.memoryLayoutAnalysisPolicy;
+    optimizerOptions.maxLegalLayouts = options.maxLegalLayouts;
+    pm.addPass(mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
   }
 }
 
 void createTTNNPipelineLoweringPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Add pass to add layout information.
+  pm.addPass(createTTNNLayout());
+  // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
+  // Add pass to remove unused values.
+  pm.addPass(mlir::createRemoveDeadValuesPass());
+}
+
+// Create a pass to workaround issues in the TTNN dialect.
+void createTTNNPipelineWorkaroundPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  if (options.workaroundPassEnabled) {
+    pm.addPass(createTTNNWorkarounds());
+  }
+}
+
+void createTTNNPipelineLayoutDecompositionPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNDecomposeLayouts());
+}
+
+void createTTNNPipelineDeallocPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNDeallocate());
 }
 
 void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
@@ -69,11 +101,47 @@ void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
   createTTNNPipelineLoweringPasses(pm, *optionsStruct);
 }
 
+void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
+                                                         std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineLayoutDecompositionPass(pm, *optionsStruct);
+}
+
+void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
+                                             std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineDeallocPass(pm, *optionsStruct);
+}
+
+void createTTNNPipelineTTIRBroadcastFoldPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRBroadcastFold());
+}
+
+void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
+                                                       std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineAnalysisPasses(pm, options);
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
+  createTTNNPipelineWorkaroundPass(pm, options);
+  createTTNNPipelineAnalysisPasses(pm, options);
+  createTTNNPipelineLayoutDecompositionPass(pm, options);
+  createTTNNPipelineDeallocPass(pm, options);
+}
+
+void createTTIRToEmitCPipeline(OpPassManager &pm,
+                               const TTIRToEmitCPipelineOptions &options) {
+  createTTIRToTTNNBackendPipeline(pm, options);
+  pm.addPass(createConvertTTNNToEmitCPass());
 }
 
 //===----------------------------------------------------------------------===//
@@ -81,10 +149,21 @@ void createTTIRToTTNNBackendPipeline(
 //===----------------------------------------------------------------------===//
 
 void registerTTNNPipelines() {
+  // TTIR to TTNN backend pipeline.
+  //
   mlir::PassPipelineRegistration<
       mlir::tt::ttnn::TTIRToTTNNBackendPipelineOptions>(
       "ttir-to-ttnn-backend-pipeline",
-      "Pipeline lowering ttir to ttmetal backend.",
+      "Pipeline lowering TTIR to TTNN backend.",
       mlir::tt::ttnn::createTTIRToTTNNBackendPipeline);
+
+  // TTIR to EmitC pipeline.
+  //
+  mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitCPipelineOptions>(
+      "ttir-to-emitc-pipeline",
+      "Pipeline lowering TTIR to EmitC. Under the hood, it runs "
+      "--ttir-to-ttnn-backend-pipeline and then converts the resulting TTNN "
+      "dialect to EmitC.",
+      mlir::tt::ttnn::createTTIRToEmitCPipeline);
 }
 } // namespace mlir::tt::ttnn

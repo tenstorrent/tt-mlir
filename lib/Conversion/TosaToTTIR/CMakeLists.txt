@@ -1,5 +1,6 @@
 add_mlir_library(TTMLIRTosaToTTIR
-  TosaToTTIR.cpp
+  TosaToTTIRPass.cpp
+  TosaToTTIRPatterns.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TosaToTTIR
@@ -8,5 +9,7 @@ add_mlir_library(TTMLIRTosaToTTIR
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
+  MLIRTosaDialect
 )

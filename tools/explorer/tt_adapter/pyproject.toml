@@ -1,0 +1,8 @@
+[project]
+name = "tt-adapter"
+version = "0.0.1"
+description = "Model Explorer Adapter built for TT-MLIR Compiled outputs."
+readme = "README.md"
+
+[tool.poetry]
+packages = [{ include = "src/tt_adapter" }]

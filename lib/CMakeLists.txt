@@ -1,6 +1,7 @@
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
 include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
 
+add_subdirectory(OpModel)
 add_subdirectory(CAPI)
 add_subdirectory(Conversion)
 add_subdirectory(Dialect)
@@ -14,12 +15,11 @@ if (TTMLIR_ENABLE_RUNTIME)
 endif()
 
 set(link_libs
-MLIR
 MLIRTTDialect
 MLIRTTIRDialect
 MLIRTTIRTransforms
 TTMLIRConversions
-MLIRTTIRAnalysis
+MLIRTTNNAnalysis
 MLIRTTNNDialect
 MLIRTTNNTransforms
 MLIRTTKernelDialect

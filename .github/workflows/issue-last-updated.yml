@@ -1,0 +1,131 @@
+name: Update Project Date on Issue Update
+
+
+on:
+  issues:
+    types: [edited, opened]
+  issue_comment:
+    types: [created]
+
+
+env:
+  GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
+
+
+jobs:
+  update_project_date:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set Environment Variables
+        run: |
+          echo "project_id=PVT_kwDOA9MHEM4AjeTl" >> $GITHUB_ENV
+          echo "field_id=PVTF_lADOA9MHEM4AjeTlzgiiU18" >> $GITHUB_ENV
+
+
+      - name: Get Issue ID
+        id: get_issue_id
+        run: |
+          issue_number=${{ github.event.issue.number }}
+          issue_details=$(curl -H "Authorization: Bearer ${{ secrets.ISSUE_TOKEN }}" -s "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+          issue_id=$(echo "$issue_details" | jq -r '.node_id')
+          echo "issue_id=$issue_id" >> $GITHUB_ENV
+
+
+      - name: Get Item ID for Issue
+        id: get_item_id_by_issue_id
+        run: |
+          # Initialize variables
+          CURSOR=null
+          ITEM_ID=""
+
+
+          # Define the GraphQL query as a string
+          QUERY='query($projectId: ID!, $cursor: String) {
+            node(id: $projectId) {
+              ... on ProjectV2 {
+                items(first: 100, after: $cursor) {
+                  nodes {
+                    id
+                    content {
+                      ... on Issue {
+                        id
+                      }
+                    }
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            }
+          }'
+
+
+          while : ; do
+            # Construct JSON payload using jq for proper formatting
+            JSON_PAYLOAD=$(jq -n \
+              --arg query "$QUERY" \
+              --arg projectId "${{ env.project_id }}" \
+              --arg cursor "$CURSOR" \
+              '{ query: $query, variables: { projectId: $projectId, cursor: $cursor }}')
+
+
+            # Make the GraphQL request
+            RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" \
+                                 -H "Content-Type: application/json" \
+                                 -d "$JSON_PAYLOAD" \
+                                 https://api.github.com/graphql)
+
+
+            # Debug: print entire response
+            echo "RESPONSE: $RESPONSE"
+
+
+            # Check if the response contains `items` data
+            ITEMS_DATA=$(echo "$RESPONSE" | jq -r '.data.node.items.nodes' 2>/dev/null)
+            if [[ "$ITEMS_DATA" == "null" ]]; then
+              echo "Error: Items data not found. Please check your PROJECT_ID and GITHUB_TOKEN permissions."
+              break
+            fi
+
+
+            # Parse the item ID if it matches the issue_id
+            ITEM_ID=$(echo "$RESPONSE" | jq -r --arg issue_id "$issue_id" \
+                       '.data.node.items.nodes[] | select(.content.id==$issue_id) | .id')
+
+
+            # If ITEM_ID is found, output it and stop the loop
+            if [[ -n "$ITEM_ID" && "$ITEM_ID" != "null" ]]; then
+              echo "Found ITEM_ID: $ITEM_ID"
+              echo "ITEM_ID=$ITEM_ID" >> $GITHUB_ENV  # Save ITEM_ID to environment for future steps
+              break
+            fi
+
+
+            # Extract pagination information
+            HAS_NEXT_PAGE=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage')
+            CURSOR=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor')
+
+
+            # If no more pages, exit loop
+            if [[ "$HAS_NEXT_PAGE" != "true" ]]; then
+              echo "Issue not found in project items."
+              break
+            fi
+          done
+
+
+      - name: Use Found ITEM_ID
+        if: env.ITEM_ID  # Only runs if ITEM_ID was set
+        run: echo "The ITEM_ID is ${{ env.ITEM_ID }}"
+
+
+      - name: Update Project Field
+        run: |
+          current_date=$(date +%Y-%m-%d)
+          curl -H "Authorization: Bearer ${{ secrets.ISSUE_TOKEN }}" \
+               -H "Content-Type: application/json" \
+               -d "{ \"query\": \"mutation { updateProjectV2ItemFieldValue(input: { projectId: \\\"${{ env.project_id }}\\\", itemId: \\\"${{ env.ITEM_ID }}\\\", fieldId: \\\"${{ env.field_id }}\\\", value: { date: \\\"$current_date\\\" } }) { clientMutationId } }\" }" \
+               -X POST \
+               "https://api.github.com/graphql"

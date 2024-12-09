@@ -10,6 +10,19 @@ cmake --build build -- ttrt
 ttrt --help
 ```
 
+### Building runtime mode
+Add the following flags when building the compiler
+```bash
+-DTTMLIR_ENABLE_RUNTIME=ON
+```
+
+### Building perf mode
+Add the following flags when building the compiler
+```bash
+-DTTMLIR_ENABLE_RUNTIME=ON
+-DTT_RUNTIME_ENABLE_PERF_TRACE=ON
+```
+
 ## LOGGER Levels
 ttrt support logging at different logger levels. You will need to set env var `TTRT_LOGGER_LEVEL`. By default, it will print all log messages.
 ```bash
@@ -33,24 +46,6 @@ source ttrt_env/bin/activate
 pip install ttrt-0.0.235-cp310-cp310-linux_x86_64.whl
 ```
 
-### Building runtime mode
-Add the following flags when building the compiler
-```bash
--DTTMLIR_ENABLE_RUNTIME=ON
-```
-
-If you are building with runtime mode on with `-DTTMLIR_ENABLE_RUNTIME=ON`, you will have to install the following packages when using ttrt
-```bash
-pip install torch
-```
-
-### Building perf mode
-Add the following flags when building the compiler
-```bash
--DTTMLIR_ENABLE_RUNTIME=ON
--DTT_RUNTIME_ENABLE_PERF_TRACE=ON
-```
-
 ## Generate a flatbuffer file from compiler
 The compiler supports a pass to load a system descriptor to compile against. You can feed this pass into ttmlir-opt.
 
@@ -63,7 +58,7 @@ ttrt query --save-artifacts
 4. Use ttmlir-opt tool in compiler to feed system descriptor. See the [ttmlir-opt](./ttmlir-opt.md) documentation for more information on how to generate .mlir files.
 ```bash
 ./build/bin/ttmlir-opt --ttir-load-system-desc="path=/path/to/system_desc.ttsys" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
-or (pip path directly into ttir-to-ttnn-backend-pipeline)
+or (pipe path directly into ttir-to-ttnn-backend-pipeline)
 ./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=/path/to/system_desc.ttsys" test/ttmlir/Dialect/TTNN/simple_subtract.mlir -o ttnn.mlir
 ```
 5. Use ttmlir-translate tool in compiler to generate the flatbuffer executable. See the [ttmlir-translate](./ttmlir-translate.md) documentation for more information on how to generate flatbuffer files.
@@ -153,6 +148,7 @@ ttrt read system_desc.ttsys
 ttrt read --section system_desc system_desc.ttsys
 ttrt read system_desc.ttsys --log-file ttrt.log
 ttrt read out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
+ttrt read out.ttnn --result-file result.json
 ```
 
 ### run
@@ -177,6 +173,7 @@ ttrt run /dir/of/flatbuffers --log-file ttrt.log
 ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt run out.ttnn --load-kernels-from-disk
 ttrt run out.ttnn --enable-async-ttnn
+ttrt run out.ttnn --result-file result.json
 ```
 
 ### query
@@ -191,14 +188,21 @@ ttrt query --save-artifacts
 ttrt query --clean-artifacts
 ttrt query --save-artifacts --log-file ttrt.log
 ttrt query --save-artifacts --artifact-dir /path/to/some/dir
+ttrt query --result-file result.json
 ```
 
 ### perf
 Run performance mode of a binary file or a directory of binary files
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
 Note: You can collect host only related performance data via `--host-only` flag. By default, host and device side performance data are both collected.
-Restriction: `/dir/of/flatbuffers` can only be used if collecting `--host-only` (as performance data is collected upon closing of device, if we run a directory of flatbuffers, we cannot get accurate device performance data since device is only closed at end of execution).
-Restriction: We can only run perf mode (for now) on .mlir files that have only 1 function (func.func)
+If the saving artifacts flag is provided, perf mode will dump the following files in the artifacts directory
+```bash
+ops_perf_results.csv : compiled op performance results
+profile_log_device.csv : dump of all device side profiled results
+tracy_ops_data.csv : op data results dumped in a readable format
+tracy_ops_times.csv : op time results dumped in a readable format
+tracy_profile_log_host.tracy : tracy profiled results file, this file can be fed into the tracy GUI
+```
 
 ```bash
 ttrt perf --help
@@ -213,6 +217,15 @@ ttrt perf /dir/of/flatbuffers --host-only
 ttrt perf /dir/of/flatbuffers --loops 10 --host-only
 ttrt perf /dir/of/flatbuffers --log-file ttrt.log --host-only
 ttrt perf --save-artifacts --artifact-dir /path/to/some/dir
+ttrt perf out.ttnn --result-file result.json
+```
+
+To use the Tracy GUI, run the following instructions on your macbook. You can upload your .tracy file into the GUI to view the profiled dumps.
+```bash
+git clone https://github.com/tenstorrent-metal/tracy.git
+cd tracy/profiler/build/unix
+make all
+./Tracy-release
 ```
 
 ### check
@@ -228,6 +241,7 @@ ttrt check out.ttnn --save-artifacts
 ttrt check out.ttnn --log-file ttrt.log
 ttrt check /dir/of/flatbuffers --system-desc /dir/of/system_desc
 ttrt check --save-artifacts --artifact-dir /path/to/some/dir out.ttnn
+ttrt check out.ttnn --result-file result.json
 ```
 
 ## ttrt as a python package
@@ -283,9 +297,9 @@ run_instance = API.Run(artifacts=custom_artifacts)
 Once all the arguments are setup, you can run your API instance with all your provided arguments. Note, APIs are stateless. Thus, subsequent calls to the same API instance will not preserve previous call artifacts. You can generate a new artifacts directory for subsequent runs if you wish to call the APIs multiple times, for example.
 
 ```bash
-query_instance()
-read_instance()
-run_instance()
+result_code, results = query_instance()
+result_code, results = read_instance()
+result_code, results = run_instance()
 ```
 
 ### Putting it all together
@@ -312,6 +326,7 @@ artifacts_folder_path = "/opt/folder"
 custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifacts_folder_path)
 
 run_instance = API.Run(args=custom_args, logger=custom_logger, artifacts=custom_artifacts)
+result_code, results = run_instance()
 
 ```
 

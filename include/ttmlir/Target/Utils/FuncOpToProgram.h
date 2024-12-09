@@ -14,7 +14,8 @@
 
 namespace mlir::tt {
 
-template <typename OpT> struct Program {
+template <typename OpT>
+struct Program {
   ::flatbuffers::FlatBufferBuilder *fbb;
   const char *name;
   std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> inputs;
@@ -29,6 +30,13 @@ inline std::string getOpDebugString(mlir::Operation *op,
   op->print(os, printFlags);
   return str;
 };
+
+inline std::string getOpLocInfo(mlir::Operation *op) {
+  std::string str;
+  llvm::raw_string_ostream os(str);
+  op->getLoc().print(os);
+  return str;
+}
 
 inline Value getOperandThroughDPSOps(Value value) {
   auto *op = value.getDefiningOp();
@@ -75,7 +83,8 @@ Program<OpT> funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry,
       }
     } else {
       std::string debugStr = getOpDebugString(op, printFlags);
-      program.ops.push_back(fn(cache, op, debugStr));
+      std::string locInfo = getOpLocInfo(op);
+      program.ops.push_back(fn(cache, op, debugStr, locInfo));
     }
   });
 

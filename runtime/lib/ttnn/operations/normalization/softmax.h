@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_SOFTMAX_H
-#define TTNN_RUNTIME_SOFTMAX_H
+#ifndef RUNTIME_LIB_TTNN_OPERATIONS_NORMALIZATION_SOFTMAX_H
+#define RUNTIME_LIB_TTNN_OPERATIONS_NORMALIZATION_SOFTMAX_H
 
 #include "tt/runtime/ttnn/types.h"
 #include "ttmlir/Target/TTNN/program_generated.h"

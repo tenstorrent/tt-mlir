@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cassert>
+#include <cstddef>
+#include <flatbuffers/buffer.h>
 #include <memory>
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -25,6 +27,56 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
+#include "types_generated.h"
+
+namespace mlir::tt {
+flatbuffers::Offset<::tt::target::MemoryDesc>
+memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
+                       ::mlir::tt::TensorMemoryLayout memLayout) {
+  auto shapeInt64 = memref.getShape();
+  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+  DataType dtype = DataType::Float32;
+  ::tt::target::Dim2d tileShape(1, 1);
+  Type elementType = memref.getElementType();
+  std::uint64_t elementSize = 0;
+  if (isa<TileType>(elementType)) {
+    auto tileType = mlir::cast<TileType>(elementType);
+    dtype = tileType.getDataType();
+    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+    elementSize = tileType.getSizeBytes();
+  } else {
+    dtype = elementTypeToDataType(elementType);
+    elementSize = getElementSizeBytes(dtype);
+  }
+
+  std::uint64_t size = elementSize;
+  for (auto dim : shapeInt64) {
+    size *= dim;
+  }
+
+  return ::tt::target::CreateMemoryDescDirect(
+      *cache.fbb, &shape, &tileShape, toFlatbuffer(cache, dtype),
+      toFlatbuffer(
+          cache,
+          mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue()),
+      toFlatbuffer(cache, memLayout), size);
+}
+
+flatbuffers::Offset<::tt::target::LayoutDesc> metalLayoutAttrToFlatbuffer(
+    FlatbufferObjectCache &cache, MetalLayoutAttr metalLayoutAttr,
+    ArrayRef<int64_t> logicalShape, DeviceAttr deviceAttr) {
+  auto strideInt64 = metalLayoutAttr.getStride(logicalShape);
+  std::vector<int32_t> stride(strideInt64.begin(), strideInt64.end());
+  auto coreRangeSet = toFlatbuffer(cache, metalLayoutAttr.getGrid(),
+                                   deviceAttr.getWorkerGrid());
+  return ::tt::target::CreateLayoutDescDirect(
+      *cache.fbb, &stride, toFlatbuffer(cache, metalLayoutAttr.getOobVal()),
+      &coreRangeSet,
+      cache.getOrCreate(metalLayoutAttr.getMemref(), memrefAttrToFlatbuffer,
+                        metalLayoutAttr.getMemLayout()));
+}
+
+} // namespace mlir::tt
 
 namespace mlir::tt::ttmetal {
 
@@ -75,6 +127,24 @@ struct CQBuilder {
   assert(false && "Unsupported MathFidelity");
 }
 
+std::vector<::tt::target::metal::UnpackToDestMode>
+toFlatbuffer(llvm::ArrayRef<ttkernel::UnpackToDestMode> unpackToDestModes) {
+  std::vector<::tt::target::metal::UnpackToDestMode> result;
+  result.reserve(unpackToDestModes.size());
+
+  for (auto mode : unpackToDestModes) {
+    switch (mode) {
+    case ttkernel::UnpackToDestMode::UnpackToDestFp32:
+      result.push_back(::tt::target::metal::UnpackToDestMode::UnpackToDestFp32);
+      break;
+    case ttkernel::UnpackToDestMode::Default:
+      result.push_back(::tt::target::metal::UnpackToDestMode::Default);
+      break;
+    }
+  }
+  return result;
+}
+
 ::tt::target::metal::EthType toFlatbuffer(ttkernel::EthType ethType) {
   switch (ethType) {
   case ttkernel::EthType::Sender:
@@ -113,11 +183,12 @@ toFlatbuffer(::flatbuffers::FlatBufferBuilder &fbb,
     auto tensixConfigAttr =
         mlir::dyn_cast<ttkernel::TensixConfigAttr>(kernelConfig);
     auto configType = ::tt::target::metal::KernelConfig::TensixConfig;
-    auto config = ::tt::target::metal::CreateTensixConfig(
+    auto unpackToDestModeVec =
+        toFlatbuffer(tensixConfigAttr.getUnpackToDestMode());
+    auto config = ::tt::target::metal::CreateTensixConfigDirect(
         fbb, toFlatbuffer(tensixConfigAttr.getMathFidelity()),
         tensixConfigAttr.getFp32DestAccEn(),
-        tensixConfigAttr.getPreserveFp32Precision(),
-        tensixConfigAttr.getMathApproxMode());
+        tensixConfigAttr.getMathApproxMode(), &unpackToDestModeVec);
     return std::make_pair(configType, config.Union());
   }
   case ttkernel::ThreadType::Ethernet: {
@@ -179,7 +250,8 @@ Value getOperandThroughDPSOps(Value value) {
   return value;
 }
 
-static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
+static std::shared_ptr<void> translateModuleToFlatbuffer(
+    Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap) {
   ::flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
 
@@ -205,7 +277,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
           argumentAllocations[input.getArgNumber()]);
       assert(
           argAlloc.getMemorySpace() ==
-              mlir::cast<tt::LayoutAttr>(
+              mlir::cast<tt::MetalLayoutAttr>(
                   mlir::cast<RankedTensorType>(input.getType()).getEncoding())
                   .getMemorySpace() &&
           "argument allocation memory space does not match tensor type "
@@ -233,17 +305,17 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
             emitDispatchOpRegionsAsCpp(dispatchOp, cppKernels);
         assert(success.succeeded() &&
                "failed to emit dispatch op regions as cpp");
-
         for (auto &region : dispatchOp.getRegions()) {
           std::vector<::tt::target::Dim2dRange> coreRangeSet = {
               toFlatbuffer(mlir::cast<CoreRangeAttr>(
                   dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
+          size_t argNumber = 0;
           for (auto arg : region.getArguments()) {
-            assert(arg.getArgNumber() < operands.size());
             auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
             auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-            auto tensorRef = operands[arg.getArgNumber()];
+            auto tensorRef =
+                argNumber >= operands.size() ? 0 : operands[argNumber++];
             cbs.push_back(
                 ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
                                           cbType.getAddress(), cbDesc));
@@ -353,9 +425,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
   return serializedBinary;
 }
 
-LogicalResult translateTTMetalToFlatbuffer(Operation *op,
-                                           llvm::raw_ostream &os) {
-  std::shared_ptr<void> data = translateModuleToFlatbuffer(op);
+LogicalResult translateTTMetalToFlatbuffer(
+    Operation *op, llvm::raw_ostream &os,
+    std::unordered_map<std::string, GoldenTensor> goldenMap) {
+  std::shared_ptr<void> data = translateModuleToFlatbuffer(op, goldenMap);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<char const *>(data.get()), size);

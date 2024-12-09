@@ -3,57 +3,56 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "get_device.h"
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::context {
 
-static std::pair<::tt::tt_metal::Coordinate, ::tt::tt_metal::Coordinate>
-deriveMeshViewCoordinates(const ::ttnn::MeshDevice &meshDevice,
-                          const std::unordered_set<uint32_t> &desiredDeviceIds,
-                          const ::tt::target::Dim2d *meshViewShape) {
-  ::tt::tt_metal::Coordinate topLeft, bottomRight;
-  for (int row = 0; row < meshDevice.num_rows(); row++) {
-    for (int col = 0; col < meshDevice.num_cols(); col++) {
-      const ::ttnn::Device *currDevice = meshDevice.get_device(row, col);
+using ::tt::tt_metal::distributed::MeshOffset;
+using ::tt::tt_metal::distributed::MeshShape;
+using ::tt::tt_metal::distributed::MeshType;
+
+static MeshOffset
+calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
+                    const std::unordered_set<uint32_t> &desiredDeviceIds,
+                    const ::tt::target::Dim2d *subMeshShape) {
+  for (size_t row = 0; row < parentMesh.num_rows(); row++) {
+    for (size_t col = 0; col < parentMesh.num_cols(); col++) {
+      const ::ttnn::Device *currDevice = parentMesh.get_device(row, col);
       if (desiredDeviceIds.contains(currDevice->id())) {
-        topLeft.row = row;
-        topLeft.col = col;
-        // coords are inclusive when constructing mesh view
-        bottomRight.row = topLeft.row + meshViewShape->y() - 1;
-        bottomRight.col = topLeft.col + meshViewShape->x() - 1;
-        return std::make_pair(topLeft, bottomRight);
+        return MeshOffset(row, col);
       }
     }
   }
-  throw std::runtime_error("Device not found in mesh for get device op");
+  LOG_FATAL("Could not find any desired device in parent mesh");
 }
 
-static std::unique_ptr<::ttnn::MeshDeviceView>
-constructMeshView(const ::ttnn::MeshDevice &meshDevice,
-                  const std::unordered_set<uint32_t> &desiredDeviceIds,
-                  const ::tt::target::Dim2d *meshViewShape) {
-  // Carve out a mesh view from MeshDevice
-  auto [topLeft, bottomRight] =
-      deriveMeshViewCoordinates(meshDevice, desiredDeviceIds, meshViewShape);
-
-  return std::make_unique<::ttnn::MeshDeviceView>(meshDevice, topLeft,
-                                                  bottomRight);
+static std::shared_ptr<::ttnn::MeshDevice>
+createSubMesh(::ttnn::MeshDevice &parentMesh,
+              const std::unordered_set<uint32_t> &desiredDeviceIds,
+              const ::tt::target::Dim2d *subMeshShape) {
+  // Carve out a submesh from the parentMesh
+  MeshShape meshShape(subMeshShape->y(), subMeshShape->x());
+  MeshOffset offset =
+      calculateMeshOffset(parentMesh, desiredDeviceIds, subMeshShape);
+  return parentMesh.create_submesh(meshShape, offset, MeshType::RowMajor);
 }
 
 void run(const ::tt::target::ttnn::GetDeviceOp *op, ProgramContext &context) {
-  const ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-  const ::tt::target::Dim2d *meshViewShape = op->mesh();
-  assert(meshViewShape->y() == 1 &&
-         "Expected 1xN mesh shape for get device op");
+  ::ttnn::MeshDevice &meshDevice = context.getParentMesh();
+  const ::tt::target::Dim2d *subMeshShape = op->mesh();
   const ::flatbuffers::Vector<uint32_t> *deviceIds = op->chip_ids();
   std::unordered_set<uint32_t> desiredDeviceIds(deviceIds->begin(),
                                                 deviceIds->end());
-  assert(desiredDeviceIds.size() == deviceIds->size() &&
-         "Duplicate device ids in get device op");
-  std::unique_ptr<::ttnn::MeshDeviceView> meshView =
-      constructMeshView(meshDevice, desiredDeviceIds, meshViewShape);
-  context.addMeshView(op->out()->global_id(), std::move(meshView));
+  LOG_ASSERT(
+      subMeshShape->y() == 1,
+      "Expected mesh row = 1 for get device op, got: ", subMeshShape->y());
+  LOG_ASSERT(desiredDeviceIds.size() == deviceIds->size(),
+             "Duplicate device ids in get device op");
+  std::shared_ptr<::ttnn::MeshDevice> subMesh =
+      createSubMesh(meshDevice, desiredDeviceIds, subMeshShape);
+  context.addSubMesh(op->out()->global_id(), subMesh);
 }
 } // namespace tt::runtime::ttnn::operations::context

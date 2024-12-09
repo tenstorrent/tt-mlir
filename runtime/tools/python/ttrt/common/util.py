@@ -527,6 +527,7 @@ class Binary(Flatbuffer):
         super().__init__(logger, file_manager, file_path, capsule=capsule)
 
         import ttrt.binary
+        import torch
 
         if not capsule:
             self.fbb = ttrt.binary.load_binary_from_path(file_path)
@@ -585,15 +586,26 @@ class Binary(Flatbuffer):
             self.input_tensors = []
             self.output_tensors = []
 
-        def populate_inputs(self, init_fn):
-            for i in self.program["inputs"]:
-                torch_tensor = init_fn(
-                    i["desc"]["shape"],
-                    dtype=Binary.Program.from_data_type(
-                        i["desc"]["layout"]["memory_desc"]["data_type"]
-                    ),
-                )
-                self.input_tensors.append(torch_tensor)
+        def num_inputs(self):
+            return len(self.program["inputs"])
+
+        def num_outputs(self):
+            return len(self.program["outputs"])
+
+        def populate_inputs(self, init_fn, golden_inputs=[]):
+            if len(golden_inputs) > 0:
+                assert len(golden_inputs) == len(self.program["inputs"])
+                for golden_input in golden_inputs:
+                    self.input_tensors.append(golden_input)
+            else:
+                for i in self.program["inputs"]:
+                    torch_tensor = init_fn(
+                        i["desc"]["shape"],
+                        dtype=Binary.Program.from_data_type(
+                            i["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
+                    self.input_tensors.append(torch_tensor)
 
         def populate_outputs(self, init_fn):
             for i in self.program["outputs"]:
@@ -672,3 +684,48 @@ class Results:
             json.dump(self.results, file, indent=2)
 
         self.logging.info(f"results saved to={file_name}")
+
+        # count total tests, skips and failures
+        with open(file_name, "r") as file:
+            data = json.load(file)
+
+        import xml.etree.ElementTree as ET
+
+        total_tests = len(data)
+        failures = sum(1 for item in data if item.get("result", "") != "pass")
+        skipped = sum(1 for item in data if item.get("result", "") == "skipped")
+
+        testsuites = ET.Element("testsuites")
+        testsuites.set("name", "TTRT")
+        testsuites.set("tests", str(total_tests))
+        testsuites.set("failures", str(failures))
+        testsuites.set("skipped", str(skipped))
+
+        testsuite = ET.SubElement(testsuites, "testsuite")
+        testsuite.set("name", "TTRT")
+        testsuite.set("tests", str(total_tests))
+        testsuite.set("failures", str(failures))
+        testsuite.set("skipped", str(skipped))
+
+        for item in data:
+            testcase = ET.SubElement(testsuite, "testcase")
+            testcase.set("name", item.get("file_path", ""))
+            testcase.set("file_path", item.get("file_path", ""))
+            testcase.set("result", item.get("result", ""))
+            testcase.set("exception", item.get("exception", ""))
+            testcase.set("log_file", item.get("log_file", ""))
+            testcase.set("artifacts", item.get("artifacts", ""))
+
+        tree = ET.ElementTree(testsuites)
+        xml_file_path = "ttrt_report.xml"
+        tree.write(xml_file_path, encoding="utf-8", xml_declaration=True)
+
+    def get_result_code(self):
+        for entry in self.results:
+            if entry.get("result") != "pass":
+                return 1
+
+        return 0
+
+    def get_results(self):
+        return self.results

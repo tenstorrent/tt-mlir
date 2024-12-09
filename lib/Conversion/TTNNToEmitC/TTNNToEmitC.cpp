@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -42,6 +43,11 @@ emitc::OpaqueAttr createStdNullopt(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>("std::nullopt");
 }
 
+emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
+  return builder.getType<emitc::OpaqueAttr>(
+      "static_cast<::ttnn::Device *>(nullptr)");
+}
+
 // Create emitc::OpaqueAttr for ttnn::Layout
 //
 emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
@@ -55,6 +61,10 @@ emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
   }
 
   llvm_unreachable("Unknown ttnn::Layout");
+}
+
+emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr) {
+  return builder.getType<emitc::OpaqueAttr>(attr.getValue() ? "true" : "false");
 }
 
 // Create emitc::OpaqueAttr for ttnn::TensorMemoryLayout
@@ -78,8 +88,6 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
   }
-
-  llvm_unreachable("Unknown ttnn::TensorMemoryLayout");
 }
 
 // Create emitc::OpaqueAttr for ttnn::BufferType
@@ -215,26 +223,25 @@ public:
   }
 };
 
-// MultiplyOp conversion pattern
+// Eltwise Binary op conversion pattern
 //
-// TODO(bug #623):
-// Convert all DPS-supported ttnn ops to this conversion pattern (nullopts added
-// for correct signature)
+// Currently, it has to insert nullopts for some parameters that are not
+// modelled in the dialect (output dtype, memcfg)
 //
-class MultiplyOpConversionPattern
-    : public TTNNToEmitCBaseOpConversionPattern<ttnn::MultiplyOp> {
+template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
+class EltwiseBinaryOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<SourceOp> {
 
 public:
-  MultiplyOpConversionPattern(const TypeConverter &typeConverter,
-                              MLIRContext *context, PatternBenefit benefit = 1)
-      : TTNNToEmitCBaseOpConversionPattern<ttnn::MultiplyOp>(typeConverter,
-                                                             context, benefit) {
-  }
+  EltwiseBinaryOpConversionPattern(const TypeConverter &typeConverter,
+                                   MLIRContext *context,
+                                   PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<SourceOp>(typeConverter, context,
+                                                     benefit) {}
 
   LogicalResult
-  matchAndRewrite(ttnn::MultiplyOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this
     //
@@ -302,30 +309,41 @@ public:
   matchAndRewrite(ttnn::ToDeviceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    // Create ArrayAttr object holding MemoryConfig attributes
-    //
-    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {convertTensorMemoryLayout(
-             rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
-         convertBufferType(rewriter, srcOp.getMemoryConfig().getBufferType())});
+    llvm::SmallVector<Attribute, 2> attrs;
+    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
+    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
+    llvm::SmallVector<Value, 2> operands(adaptor.getOperands());
 
-    // Create MemoryConfig object first, then pass it to the op
-    //
-    emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp->getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
-        "ttnn::MemoryConfig", arrayAttrs, nullptr, ValueRange());
+    if (srcOp.getMemoryConfig()) {
+      // Create ArrayAttr object holding MemoryConfig attributes
+      //
+      ArrayAttr arrayAttrs = rewriter.getArrayAttr(
+          {convertTensorMemoryLayout(
+               rewriter, srcOp.getMemoryConfig()->getTensorMemoryLayout()),
+           convertBufferType(rewriter,
+                             srcOp.getMemoryConfig()->getBufferType())});
 
+      // Create MemoryConfig object first, then pass it to the op
+      //
+      emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp->getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
+          "ttnn::MemoryConfig", arrayAttrs, nullptr, ValueRange());
+      operands.append(1, memCfgOp.getResult(0));
+      attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
+    } else {
+      attrs.push_back(createStdNullopt(rewriter));
+    }
+
+    ArrayAttr finalAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
     // Concat operands and MemoryConfig object
     //
-    llvm::SmallVector<Value, 3> operands(adaptor.getOperands());
-    operands.append(1, memCfgOp.getResult(0));
 
     // Convert ToDeviceOp
     //
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        this->convertOpName(srcOp), nullptr, nullptr, operands);
+        this->convertOpName(srcOp), finalAttrs, nullptr, operands);
 
     return success();
   }
@@ -355,6 +373,79 @@ public:
   }
 };
 
+// TypecastOp conversion pattern
+//
+class TypecastOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::TypecastOp> {
+
+public:
+  TypecastOpConversionPattern(const TypeConverter &typeConverter,
+                              MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::TypecastOp>(typeConverter,
+                                                             context, benefit) {
+  }
+
+  LogicalResult
+  matchAndRewrite(ttnn::TypecastOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), nullptr, nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// ToMemoryConfig conversion pattern
+//
+class ToMemoryConfigOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::ToMemoryConfigOp> {
+
+public:
+  ToMemoryConfigOpConversionPattern(const TypeConverter &typeConverter,
+                                    MLIRContext *context,
+                                    PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::ToMemoryConfigOp>(
+            typeConverter, context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(ttnn::ToMemoryConfigOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Create ArrayAttr object holding MemoryConfig attributes
+    //
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr(
+        {convertTensorMemoryLayout(
+             rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
+         convertBufferType(rewriter, srcOp.getMemoryConfig().getBufferType())});
+
+    // Create MemoryConfig object first, then pass it to the op
+    //
+    emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp->getLoc(),
+        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
+        "ttnn::MemoryConfig", arrayAttrs, nullptr, ValueRange());
+
+    // Concat operands and MemoryConfig object
+    //
+    llvm::SmallVector<Value, 2> operands(adaptor.getOperands());
+    operands.append(1, memCfgOp.getResult(0));
+
+    llvm::SmallVector<Attribute, 3> attrs;
+    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
+    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
+    attrs.push_back(createStdNullopt(rewriter));
+
+    ArrayAttr finalAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), finalAttrs, nullptr, operands);
+
+    return success();
+  }
+};
+
 // ToLayoutOp conversion pattern
 //
 class ToLayoutOpConversionPattern
@@ -376,7 +467,7 @@ public:
     attrs.push_back(convertLayoutAttr(rewriter, srcOp.getLayoutAttr()));
     attrs.push_back(createStdNullopt(rewriter));
     attrs.push_back(createStdNullopt(rewriter));
-    attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
+    attrs.push_back(createNullDevicePointer(rewriter));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
@@ -413,7 +504,7 @@ public:
     // specific datatypes on input. However, one of the constructors takes in a
     // tt_metal::Shape - given that it's much easier to construct a
     // tt_metal::Shape, we opted to do that here. The call looks like this:
-    // ttnn::Shape(tt::tt_metal::Shape{dim0, dim1, dim2, ...});
+    // ttnn::Shape(tt::tt_metal::LegacyShape{dim0, dim1, dim2, ...});
     //
     // To make it easier on the eyes, these two calls are packed into one, using
     // EmitC's ExpressionOp.
@@ -428,8 +519,9 @@ public:
     rewriter.setInsertionPointToStart(&bodyBlock);
     emitc::CallOpaqueOp metalShapeOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp->getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(), "tt::metal::Shape"),
-        rewriter.getStringAttr("Shape"),
+        emitc::OpaqueType::get(rewriter.getContext(),
+                               "tt::tt_metal::LegacyShape"),
+        rewriter.getStringAttr("tt::tt_metal::LegacyShape"),
         rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)), nullptr,
         ValueRange());
     emitc::CallOpaqueOp ttnnShapeOp = rewriter.create<emitc::CallOpaqueOp>(
@@ -448,10 +540,7 @@ public:
     //
     ArrayAttr arrayAttr;
     if (adaptor.getDevice()) {
-      mlir::emitc::ApplyOp derefDevice = rewriter.create<emitc::ApplyOp>(
-          srcOp->getLoc(), rewriter.getType<emitc::OpaqueType>("ttnn::Device&"),
-          "*", adaptor.getDevice());
-      operands.append(1, derefDevice->getResult(0));
+      operands.append(1, adaptor.getDevice());
 
       // Create ArrayAttr object holding MemoryConfig attributes
       //
@@ -499,6 +588,87 @@ public:
   }
 };
 
+// DeallocateOp conversion pattern
+//
+class DeallocateOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp> {
+
+public:
+  DeallocateOpConversionPattern(const TypeConverter &typeConverter,
+                                MLIRContext *context,
+                                PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::DeallocateOp>(
+            typeConverter, context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(ttnn::DeallocateOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(0),
+        convertBoolAttr(rewriter, srcOp.getForceAttr()),
+    });
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, srcOp->getResultTypes(), this->convertOpName(srcOp), arrayAttr,
+        nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// arith::ConstantOp conversion pattern
+//
+class ArithConstantOpConversionPattern
+    : public OpConversionPattern<arith::ConstantOp> {
+
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp constOp, arith::ConstantOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Type newTy = this->getTypeConverter()->convertType(constOp.getType());
+    if (!newTy) {
+      return rewriter.notifyMatchFailure(constOp, "type conversion failed");
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(constOp, newTy,
+                                                   adaptor.getValue());
+    return success();
+  }
+};
+
+// Module Op conversion pattern
+//
+// This conversion pattern removes attributes from the ModuleOp. Previously,
+// ttmlir-translate would complain when translating to C++ if there were any
+// attributes from "unregistered" dialects.
+//
+class ModuleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp> {
+
+public:
+  ModuleOpConversionPattern(const TypeConverter &typeConverter,
+                            MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp>(typeConverter,
+                                                           context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::ModuleOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(srcOp, [&]() {
+      for (const NamedAttribute &attr : srcOp->getAttrs()) {
+        srcOp->removeAttr(attr.getName());
+      }
+    });
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -512,34 +682,52 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
-  patterns.add<ToLayoutOpConversionPattern,
-               DefaultOpConversionPattern<ttnn::ToMemoryConfigOp>,
-               ToDeviceOpConversionPattern, FromDeviceOpConversionPattern>(
+  patterns.add<ToLayoutOpConversionPattern, ToMemoryConfigOpConversionPattern,
+               TypecastOpConversionPattern, ToDeviceOpConversionPattern,
+               FromDeviceOpConversionPattern, DeallocateOpConversionPattern>(
       typeConverter, ctx);
 
   // Tensor ops
   //
   patterns
-      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>>(
-          typeConverter, ctx);
+      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>,
+           DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
 
   // Eltwise unary ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AbsOp>,
+               DefaultOpConversionPattern<ttnn::CbrtOp>,
+               DefaultOpConversionPattern<ttnn::ClampOp>,
+               DefaultOpConversionPattern<ttnn::FloorOp>,
+               DefaultOpConversionPattern<ttnn::IsFiniteOp>,
+               DefaultOpConversionPattern<ttnn::LogicalNotOp>,
                DefaultOpConversionPattern<ttnn::NegOp>,
                DefaultOpConversionPattern<ttnn::ReluOp>,
+               DefaultOpConversionPattern<ttnn::LeakyReluOp>,
+               DefaultOpConversionPattern<ttnn::GeluOp>,
                DefaultOpConversionPattern<ttnn::SqrtOp>,
                DefaultOpConversionPattern<ttnn::RsqrtOp>,
+               DefaultOpConversionPattern<ttnn::SignOp>,
                DefaultOpConversionPattern<ttnn::SigmoidOp>,
-               DefaultOpConversionPattern<ttnn::TypecastOp>,
+               DefaultOpConversionPattern<ttnn::Log1pOp>,
                DefaultOpConversionPattern<ttnn::ReciprocalOp>,
-               DefaultOpConversionPattern<ttnn::ExpOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::ExpOp>,
+               DefaultOpConversionPattern<ttnn::CeilOp>,
+               DefaultOpConversionPattern<ttnn::SinOp>,
+               DefaultOpConversionPattern<ttnn::CosOp>,
+               DefaultOpConversionPattern<ttnn::Expm1Op>,
+               DefaultOpConversionPattern<ttnn::TanOp>,
+               DefaultOpConversionPattern<ttnn::TanhOp>,
+               DefaultOpConversionPattern<ttnn::LogOp>>(typeConverter, ctx);
 
   // Eltwise binary ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::AddOp>,
-               DefaultOpConversionPattern<ttnn::SubtractOp>,
-               MultiplyOpConversionPattern,
+  patterns.add<EltwiseBinaryOpConversionPattern<ttnn::AddOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::LogicalAndOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::LogicalOrOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::LogicalXorOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::SubtractOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::MultiplyOp>,
                DefaultOpConversionPattern<ttnn::EqualOp>,
                DefaultOpConversionPattern<ttnn::NotEqualOp>,
                DefaultOpConversionPattern<ttnn::GreaterEqualOp>,
@@ -547,17 +735,23 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::LessEqualOp>,
                DefaultOpConversionPattern<ttnn::LessThanOp>,
                DefaultOpConversionPattern<ttnn::MaximumOp>,
-               DefaultOpConversionPattern<ttnn::DivOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::MinimumOp>,
+               DefaultOpConversionPattern<ttnn::DivOp>,
+               DefaultOpConversionPattern<ttnn::ScatterOp>,
+               DefaultOpConversionPattern<ttnn::RemainderOp>>(typeConverter,
+                                                              ctx);
 
   // Tensor manipulation ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::TransposeOp>,
                DefaultOpConversionPattern<ttnn::ConcatOp>,
-               DefaultOpConversionPattern<ttnn::ReshapeOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::ReshapeOp>,
+               DefaultOpConversionPattern<ttnn::SliceOp>>(typeConverter, ctx);
 
   // Matmul ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::LinearOp>,
+               DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
 
   // Reduction ops
   //
@@ -574,8 +768,28 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Other ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::SoftmaxOp>,
-               DefaultOpConversionPattern<ttnn::EmbeddingOp>>(typeConverter,
+               DefaultOpConversionPattern<ttnn::EmbeddingOp>,
+               DefaultOpConversionPattern<ttnn::WhereOp>>(typeConverter, ctx);
+
+  // CCL ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::AllGatherOp>>(typeConverter,
                                                               ctx);
+
+  // Module op
+  //
+  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // KV Cache ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::UpdateCacheOp>>(typeConverter,
+                                                                ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::FillCacheOp>>(typeConverter,
+                                                              ctx);
+
+  // Arith ops
+  //
+  patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

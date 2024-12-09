@@ -6,6 +6,7 @@
 
 #include "flatbuffers/idl.h"
 
+#include "tt/runtime/detail/logger.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/Common/system_desc_bfbs_generated.h"
@@ -26,15 +27,12 @@ static std::string asJson(void const *fbb, uint8_t const *binarySchema,
   flatbuffers::Parser parser(opts);
 
   if (not parser.Deserialize(binarySchema, schemaSize)) {
-    throw std::runtime_error("Failed to deserialize schema");
+    LOG_FATAL("Failed to deserialize schema");
   }
 
   std::string text;
   const char *err = ::flatbuffers::GenerateText(parser, fbb, &text);
-  if (err) {
-    throw std::runtime_error("Failed to generate JSON: " + std::string(err));
-  }
-
+  LOG_ASSERT(not err, "Failed to generate JSON: ", err);
   return text;
 }
 
@@ -43,9 +41,7 @@ namespace ttnn {
 ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
-  if (not isTTNN) {
-    throw std::runtime_error("Unsupported binary format");
-  }
+  LOG_ASSERT(isTTNN, "Unsupported binary format");
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
@@ -102,6 +98,23 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return outputs;
 }
 
+const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
+                                                     std::string &loc) {
+  auto const *programs = getBinary(binary)->programs();
+  for (auto const *program : *programs) {
+    for (const ::tt::target::GoldenKV *goldenKV :
+         *program->debug_info()->golden_info()->golden_map()) {
+      if (std::string(goldenKV->key()->c_str()) == loc) {
+        return goldenKV->value();
+        ;
+      }
+    }
+  }
+
+  LOG_WARNING("Golden information not found");
+  return nullptr;
+}
+
 } // namespace ttnn
 
 namespace metal {
@@ -110,9 +123,7 @@ namespace metal {
   bool isTTMetal =
       ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           binary.handle.get());
-  if (not isTTMetal) {
-    throw std::runtime_error("Unsupported binary format");
-  }
+  LOG_ASSERT(isTTMetal, "Unsupported binary format");
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
 
@@ -138,8 +149,9 @@ std::vector<TensorDesc> getProgramInputs(Flatbuffer binary,
                                          std::uint32_t programIndex) {
   std::vector<TensorDesc> inputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  assert(program->device_programs()->size() == 1 &&
-         "Currently only one device is supported");
+  LOG_ASSERT(program->device_programs()->size() == 1,
+             "Currently only one device program is supported, got: ",
+             program->device_programs()->size());
   for (auto const *input : *program->device_programs()->Get(0)->inputs()) {
     TensorDesc desc;
     desc.shape = {input->desc()->shape()->begin(),
@@ -158,7 +170,9 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
                                           std::uint32_t programIndex) {
   std::vector<TensorDesc> outputs;
   auto const *program = getBinary(binary)->programs()->Get(programIndex);
-  assert(program->device_programs()->size() == 1);
+  LOG_ASSERT(program->device_programs()->size() == 1,
+             "Currently only one device program is supported, got: ",
+             program->device_programs()->size());
   for (auto const *output : *program->device_programs()->Get(0)->outputs()) {
     TensorDesc desc;
     desc.shape = {output->desc()->shape()->begin(),
@@ -173,14 +187,20 @@ std::vector<TensorDesc> getProgramOutputs(Flatbuffer binary,
   return outputs;
 }
 
+const ::tt::target::GoldenTensor *getDebugInfoGolden(Flatbuffer binary,
+                                                     std::string &loc) {
+  LOG_WARNING("Debug golden information not enabled for metal yet!");
+  return nullptr;
+}
+
 } // namespace metal
 
 namespace system_desc {
 
 ::tt::target::SystemDescRoot const *getBinary(Flatbuffer binary) {
-  if (not ::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
+  if (!::tt::target::SizePrefixedSystemDescRootBufferHasIdentifier(
           binary.handle.get())) {
-    throw std::runtime_error("Unsupported binary format");
+    LOG_FATAL("Unsupported binary format");
   }
   return ::tt::target::GetSizePrefixedSystemDescRoot(binary.handle.get());
 }
@@ -207,10 +227,7 @@ std::string asJson(Flatbuffer binary) {
 Flatbuffer Flatbuffer::loadFromPath(char const *path) {
   // load a flatbuffer from path
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
-  if (!fbb.is_open()) {
-    throw std::runtime_error("Failed to open file: " + std::string(path));
-  }
-
+  LOG_ASSERT(fbb.is_open(), "Failed to open file: ", path);
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
   auto buffer = ::tt::runtime::utils::malloc_shared(size);
@@ -242,7 +259,7 @@ std::string_view Flatbuffer::getFileIdentifier() const {
     return ::tt::target::SystemDescRootIdentifier();
   }
 
-  throw std::runtime_error("Unsupported binary format");
+  LOG_FATAL("Unsupported binary format");
 }
 
 std::string Flatbuffer::getVersion() const {
@@ -261,7 +278,7 @@ std::string Flatbuffer::getVersion() const {
     return system_desc::getVersion(*this);
   }
 
-  throw std::runtime_error("Unsupported binary format");
+  LOG_FATAL("Unsupported binary format");
 }
 
 std::string_view Flatbuffer::getTTMLIRGitHash() const {
@@ -280,7 +297,7 @@ std::string_view Flatbuffer::getTTMLIRGitHash() const {
     return system_desc::getTTMLIRGitHash(*this);
   }
 
-  throw std::runtime_error("Unsupported binary format");
+  LOG_FATAL("Unsupported binary format");
 }
 
 std::string Flatbuffer::asJson() const {
@@ -299,7 +316,7 @@ std::string Flatbuffer::asJson() const {
     return system_desc::asJson(*this);
   }
 
-  throw std::runtime_error("Unsupported binary format");
+  LOG_FATAL("Unsupported binary format");
 }
 
 SystemDesc SystemDesc::loadFromPath(char const *path) {
@@ -322,7 +339,7 @@ Binary::getProgramInputs(std::uint32_t programIndex) const {
     return metal::getProgramInputs(*this, programIndex);
   }
 
-  throw std::runtime_error("Unsupported binary format");
+  LOG_FATAL("Unsupported binary format");
 }
 
 std::vector<TensorDesc>
@@ -337,7 +354,22 @@ Binary::getProgramOutputs(std::uint32_t programIndex) const {
     return metal::getProgramOutputs(*this, programIndex);
   }
 
-  throw std::runtime_error("Unsupported binary format");
+  LOG_FATAL("Unsupported binary format");
+}
+
+const ::tt::target::GoldenTensor *
+Binary::getDebugInfoGolden(std::string &loc) const {
+  if (::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          handle.get())) {
+    return ttnn::getDebugInfoGolden(*this, loc);
+  }
+
+  if (::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
+          handle.get())) {
+    return metal::getDebugInfoGolden(*this, loc);
+  }
+
+  LOG_FATAL("Unsupported binary format for obtaining golden information");
 }
 
 } // namespace tt::runtime

@@ -8,6 +8,7 @@ endif()
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
+option(TTMLIR_ENABLE_OP_MODEL "Enable OpModel support" OFF)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_compile_definitions(TTMLIR_ENABLE_STABLEHLO)
@@ -20,9 +21,22 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
 
+if (APPLE)
+  set(TTMLIR_ENABLE_OP_MODEL OFF)
+  message(WARNING "TTNNOpModelLib is disabled on Apple platforms. Optimizer will not get true performance.")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
+if (TT_RUNTIME_ENABLE_PERF_TRACE)
+  add_compile_options(-DTRACY_ENABLE=ON)
+endif()
+
+if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
+    message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
+endif()
+
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 include(TTMLIRBuildTypes)
 
@@ -35,10 +49,6 @@ set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 
 include(FindMLIR)
 include(TTMLIRVersion)
-
-if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
-    message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
-endif()
 
 set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})

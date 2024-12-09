@@ -1,4 +1,4 @@
-add_mlir_library(TTMLIRTTKernelToEmitC
+add_mlir_conversion_library(TTMLIRTTKernelToEmitC
   TTKernelToEmitC.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -8,5 +8,10 @@ add_mlir_library(TTMLIRTTKernelToEmitC
   TTMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
-  MLIR
+  MLIRIR
+  MLIRPass
+  MLIRArithToEmitC
+  MLIREmitCDialect
+  MLIRTargetCpp
+  MLIRTransformUtils
 )

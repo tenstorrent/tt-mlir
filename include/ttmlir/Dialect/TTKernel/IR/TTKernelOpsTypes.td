@@ -32,13 +32,13 @@ def TTKernel_TensixConfigAttr: TTKernel_Attr<"TensixConfig", "tensix_config", [T
   }];
   let parameters = (ins "MathFidelity":$math_fidelity,
                         "bool":$fp32_dest_acc_en,
-                        "bool":$preserve_fp32_precision,
-                        "bool":$math_approx_mode);
-  let assemblyFormat =  "`<` $math_fidelity`,` $fp32_dest_acc_en`,` $preserve_fp32_precision`,` $math_approx_mode `>`";
+                        "bool":$math_approx_mode,
+                        ArrayRefParameter<"UnpackToDestMode">:$unpack_to_dest_mode);
+  let assemblyFormat =  "`<` $math_fidelity`,` $fp32_dest_acc_en`,` $math_approx_mode`,` `[` $unpack_to_dest_mode `]` `>`";
 
   let extraClassDeclaration = [{
     static TensixConfigAttr get(::mlir::MLIRContext *context){
-      return TensixConfigAttr::get(context, MathFidelity::HiFi4, false, false, false);
+      return TensixConfigAttr::get(context, MathFidelity::HiFi4, false, false, {UnpackToDestMode::Default});
     };
 
     ThreadType getThreadType() const { return ThreadType::Tensix; }
@@ -122,6 +122,16 @@ def TTKernel_ReduceTypeAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceType, "r
 
 def TTKernel_ReduceDimAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceDim, "reduce_dim"> {
   let assemblyFormat = "`<` $value `>`";
+}
+
+def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
+    let summary = "TTKernel l1 address";
+    let description = "L1 address type in TTKernel dialect";
+}
+
+def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
+    let summary = "TTKernel l1 address pointer";
+    let description = "L1 pointer address type in TTKernel dialect";
 }
 
 #endif
