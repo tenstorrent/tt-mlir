@@ -32,7 +32,11 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
   add_compile_options(-DTRACY_ENABLE=ON)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=/opt/ttmlir-toolchain)
+if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
+    message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
+endif()
+
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter --system-header-prefix=ENV{TTMLIR_TOOLCHAIN_DIR})
 
 include(TTMLIRBuildTypes)
 
@@ -45,10 +49,6 @@ set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 
 include(FindMLIR)
 include(TTMLIRVersion)
-
-if (NOT DEFINED ENV{TTMLIR_TOOLCHAIN_DIR})
-    message(FATAL_ERROR "TTMLIR_TOOLCHAIN_DIR environment variable not set. Please run 'source env/activate'.")
-endif()
 
 set(TTMLIR_TOOLCHAIN_DIR $ENV{TTMLIR_TOOLCHAIN_DIR})
 set(TTMLIR_SOURCE_DIR ${PROJECT_SOURCE_DIR})

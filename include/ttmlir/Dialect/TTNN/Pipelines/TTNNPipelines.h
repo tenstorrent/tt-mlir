@@ -20,7 +20,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // configuration for max performance. If this option is false, skip running
   // Optimizer pass, thus leaving all ops on default configuration.
   Option<bool> optimizerPassEnabled{
-      *this, "enable-optimizer",
+      *this, OptionNames::optimizerPassEnabled,
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
@@ -38,7 +38,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<llvm::StringMap<InputLayoutOverrideParams>, InputLayoutOverrideParser>
       overrideInputLayout{
-          *this, "insert-memreconfig",
+          *this, OptionNames::overrideInputLayout,
           llvm::cl::desc(
               "Manually insert memory reconfig op for specific op's operand."),
           llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
@@ -66,21 +66,21 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<llvm::StringMap<OutputLayoutOverrideParams>,
          OutputLayoutOverrideParser>
       overrideOutputLayout{
-          *this, "override-output-layout",
+          *this, OptionNames::overrideOutputLayout,
           llvm::cl::desc("Override output tensor layout for specific ops."),
           llvm::cl::init(llvm::StringMap<OutputLayoutOverrideParams>())};
 
   // If this option is true, run memory layout analysis.
   //
   Option<bool> memoryLayoutAnalysisEnabled{
-      *this, "memory-layout-analysis-enabled",
+      *this, OptionNames::memoryLayoutAnalysisEnabled,
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
 
   // If this option is true, insert memory reconfiguration ops.
   //
   Option<bool> memReconfigEnabled{
-      *this, "memreconfig-enabled",
+      *this, OptionNames::memReconfigEnabled,
       llvm::cl::desc("Memory layout reconfiguration pass."),
       llvm::cl::init(true)};
 
@@ -88,7 +88,7 @@ struct TTIRToTTNNBackendPipelineOptions
   //
   Option<MemoryLayoutAnalysisPolicyType, MemoryLayoutAnalysisPolicyTypeParser>
       memoryLayoutAnalysisPolicy{
-          *this, "memory-layout-analysis-policy",
+          *this, OptionNames::memoryLayoutAnalysisPolicy,
           llvm::cl::desc("Specify policy for memory layout analysis."),
           llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
@@ -96,7 +96,7 @@ struct TTIRToTTNNBackendPipelineOptions
   // against.
   //
   Option<std::string> systemDescPath{
-      *this, "system-desc-path",
+      *this, OptionNames::systemDescPath,
       llvm::cl::desc(
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
@@ -104,13 +104,14 @@ struct TTIRToTTNNBackendPipelineOptions
   // Option to override maximum number of legal layouts for grid analysis
   //
   Option<int64_t> maxLegalLayouts{
-      *this, "max-legal-layouts",
+      *this, OptionNames::maxLegalLayouts,
       llvm::cl::desc(
           "Override maximum number of legal layouts for grid analysis."),
       llvm::cl::init(64)};
 
   ListOption<int64_t> meshShape{
-      *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+      *this, OptionNames::meshShape,
+      llvm::cl::desc("Set the multi-device mesh shape.")};
 
   // Option to enable/disable the workaround pass.
   //

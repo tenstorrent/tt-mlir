@@ -60,6 +60,7 @@ void populateTTIRModule(py::module &m);
 void populateTTKernelModule(py::module &m);
 void populateTTNNModule(py::module &m);
 void populateOverridesModule(py::module &m);
+void populateOptimizerOverridesModule(py::module &m);
 void populatePassesModule(py::module &m);
 } // namespace mlir::ttmlir::python
 

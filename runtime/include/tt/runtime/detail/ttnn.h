@@ -103,6 +103,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout);
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
+void memcpy(void *dst, Tensor src);
+
 void memcpy(Tensor dst, Tensor src);
 
 void deallocateTensor(Tensor &tensor, bool force = false);
