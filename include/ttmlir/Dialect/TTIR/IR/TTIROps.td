@@ -317,7 +317,6 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
     }];
 }
 
-// TODO (azecevic): CHECK THIS OP
 def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
     let summary = "Eltwise reciprocal square root.";
     let description = [{
@@ -498,14 +497,14 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
     }];
 }
 
-def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and"> {
+def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise logical and.";
     let description = [{
       Eltwise logical and operation.
     }];
 }
 
-def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or"> {
+def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise logical or.";
     let description = [{
       Eltwise logical or operation.
@@ -519,7 +518,7 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
