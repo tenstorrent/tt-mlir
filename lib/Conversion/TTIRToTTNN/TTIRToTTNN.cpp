@@ -279,11 +279,30 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.replaceOpWithNewOp<ttnn::BroadcastOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension());
+    // Fold the BroadcastOp only if it is Operand 0 of the instruction
+    // TODO(uazizTT): Remove this restriction for operand number once implicit
+    // broadcast for all operands is supported.
+    bool AllUsesReplaced = false;
+    auto replaceIfFn = [&](OpOperand &use) {
+      return use.getOperandNumber() == 0;
+    };
 
-    return success();
+    rewriter.replaceOpUsesWithIf(op, op->getOperand(0), replaceIfFn,
+                                 &AllUsesReplaced);
+    if (AllUsesReplaced) {
+      rewriter.eraseOp(op);
+      return success();
+    } else {
+      // For Broadcasts other than operand 0, convert them to TTNN Broadcast to
+      // apply a workaround to handle them.
+      // TODO(uazizTT): Canonicalize the instructions such that broadcast
+      // operand is moved to operand 0.
+      rewriter.replaceOpWithNewOp<ttnn::BroadcastOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), adaptor.getOutput(), adaptor.getDimension());
+
+      return success();
+    }
   }
 };
 
@@ -1031,7 +1050,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
-	         ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
+	   ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            SoftmaxOpConversionPattern,
