@@ -4,19 +4,19 @@
 module @sysmem_creation attributes {} {
   func.func @test_empty_int() -> tensor<64x128xi32> {
     %0 = "ttir.constant"() <{value = dense<0> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
-    // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+    // CHECK: %[[C:.*]] = "ttnn.full"[[C:.*]]
     return %0 : tensor<64x128xi32>
   }
 
   func.func @test_empty_float() -> tensor<64x128xf32> {
     %0 = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<64x128xf32>}> : () -> tensor<64x128xf32>
-    // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+    // CHECK: %[[C:.*]] = "ttnn.full"[[C:.*]]
     return %0 : tensor<64x128xf32>
   }
 
   func.func @test_empty_float_scalar() -> tensor<1x1xf32> {
     %0 = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<1x1xf32>}> : () -> tensor<1x1xf32>
-    // CHECK: %[[C:.*]] = "ttnn.empty"[[C:.*]]
+    // CHECK: %[[C:.*]] = "ttnn.full"[[C:.*]]
     return %0 : tensor<1x1xf32>
   }
 

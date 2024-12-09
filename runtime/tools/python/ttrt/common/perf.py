@@ -17,6 +17,7 @@ import shutil
 import atexit
 import traceback
 from pathlib import Path
+import csv
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -33,13 +34,6 @@ class Perf:
             default=False,
             choices=[True, False],
             help="clean all artifacts from previous runs",
-        )
-        Perf.register_arg(
-            name="--save-artifacts",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="save all artifacts during run",
         )
         Perf.register_arg(
             name="--log-file",
@@ -82,6 +76,13 @@ class Perf:
             default=0,
             choices=None,
             help="port to run tracy client server application",
+        )
+        Perf.register_arg(
+            name="--result-file",
+            type=str,
+            default="perf_results.json",
+            choices=None,
+            help="test file to save results to",
         )
         Perf.register_arg(
             name="binary",
@@ -441,21 +442,53 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
-                    if self["--save-artifacts"]:
-                        self.file_manager.copy_file(perf_folder_path, tracy_file_path)
-                        self.file_manager.copy_file(
-                            perf_folder_path, tracy_ops_times_file_path
-                        )
-                        self.file_manager.copy_file(
-                            perf_folder_path, tracy_ops_data_file_path
-                        )
+                    self.artifacts.save_binary(bin, self.query)
+                    self.file_manager.copy_file(perf_folder_path, tracy_file_path)
+                    self.file_manager.copy_file(
+                        perf_folder_path, tracy_ops_times_file_path
+                    )
+                    self.file_manager.copy_file(
+                        perf_folder_path, tracy_ops_data_file_path
+                    )
 
-                        if not self["--host-only"]:
-                            self.file_manager.copy_file(
-                                perf_folder_path, profiler_device_side_log_path
-                            )
+                    if not self["--host-only"]:
+                        self.file_manager.copy_file(
+                            perf_folder_path, profiler_device_side_log_path
+                        )
 
                     process_ops(None, None, False)
+
+                    # Add post-processing steps to insert location data into the ops_perf data file
+                    with open(profiler_csv_file_path, "r") as perf_file:
+                        perf_reader = csv.DictReader(perf_file)
+                        headers = list(perf_reader.fieldnames) + ["LOC"]
+                        perf_data = list(perf_reader)
+
+                    with open(profiler_csv_file_path, "w+") as perf_file, open(
+                        tracy_ops_data_file_path, "r"
+                    ) as message_file:
+                        message_reader = csv.reader(message_file, delimiter=";")
+                        ops_index = 0
+                        prev = None
+                        for message in message_reader:
+                            message = message[0]  # Don't need timestamp information
+                            if message.startswith("`"):
+                                # This is a TTNN Message
+                                # The location data is now in the previous message
+                                # The order of data is maintained in perf_data so as the messages are received, they update the id last encountered.
+                                # Now that we have a new message, we can update the location data from the previous message
+                                if prev:
+                                    # Get the location data from the previous message and add it as new data for the perf_data (as a new col)
+                                    if len(perf_data) > ops_index:
+                                        perf_data[ops_index]["LOC"] = prev
+                                        ops_index += 1
+                            else:
+                                prev = message
+                        perf_writer = csv.DictWriter(perf_file, fieldnames=headers)
+                        perf_writer.writeheader()
+                        for row in perf_data:
+                            perf_writer.writerow(row)
+
                     self.file_manager.copy_file(
                         perf_folder_path,
                         profiler_csv_file_path,
@@ -500,13 +533,6 @@ class Perf:
     def postprocess(self):
         self.logging.debug(f"------postprocessing perf API")
 
-        if self["--save-artifacts"]:
-            for bin in self.ttnn_binaries:
-                self.artifacts.save_binary(bin, self.query)
-
-            for bin in self.ttmetal_binaries:
-                self.artifacts.save_binary(bin, self.query)
-
         for bin in self.ttnn_binaries:
             if bin.test_result == "pass":
                 test_result = {
@@ -537,7 +563,7 @@ class Perf:
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
 
-        self.results.save_results("perf_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing perf API")
 

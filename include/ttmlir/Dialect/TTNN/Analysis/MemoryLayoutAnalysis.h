@@ -9,27 +9,26 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 
 namespace mlir::tt::ttnn {
 
-enum class MemoryLayoutAnalysisPolicyType {
-  DFSharding,
-};
-
 struct MemoryLayoutAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   unsigned usableL1CacheSize = 0;
   std::unordered_set<Edge> overrideReshardEdges;
+  MemoryLayoutAnalysisPolicyType policy;
 
   MemoryLayoutAnalysisInput() : legalLayouts() {}
 
   MemoryLayoutAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
       unsigned usableL1CacheSize,
-      const std::unordered_set<Edge> &overrideReshardEdges)
+      const std::unordered_set<Edge> &overrideReshardEdges,
+      MemoryLayoutAnalysisPolicyType policy)
       : legalLayouts(legalLayouts), usableL1CacheSize(usableL1CacheSize),
-        overrideReshardEdges(overrideReshardEdges) {}
+        overrideReshardEdges(overrideReshardEdges), policy(policy) {}
 
   bool operator==(const MemoryLayoutAnalysisInput &rhs) const {
     return legalLayouts == rhs.legalLayouts;
@@ -41,7 +40,7 @@ struct MemoryLayoutAnalysisInput {
 };
 
 struct MemoryLayoutAnalysisResult {
-  llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>> legalLayouts;
+  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   std::unordered_set<Edge> memReconfigEdges;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
@@ -49,7 +48,7 @@ struct MemoryLayoutAnalysisResult {
       : legalLayouts(), memReconfigEdges(), schedule() {}
 
   MemoryLayoutAnalysisResult(
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
       const std::unordered_set<Edge> &memReconfigEdges)
       : legalLayouts(legalLayouts), memReconfigEdges(memReconfigEdges) {}

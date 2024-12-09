@@ -91,7 +91,7 @@ public:
           }
 
           rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocOp>(lastOp->getLoc(), result);
+          rewriter.create<DeallocateOp>(lastOp->getLoc(), result);
         }
       });
     });
@@ -130,16 +130,15 @@ private:
     ttnn::BufferType bufferType;
     ttnn::Layout layoutEnum;
     DataType dataType;
-    ttnn::TensorMemoryLayout tensorMemoryLayout;
+    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
     llvm::ArrayRef<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
       return ttnn::MemoryConfigAttr::get(
-          context,
-          ttnn::TensorMemoryLayoutAttr::get(context, tensorMemoryLayout),
-          ttnn::BufferTypeAttr::get(context, bufferType),
+          context, ttnn::BufferTypeAttr::get(context, bufferType),
           ttnn::ShardSpecAttr::get(context,
-                                   ttnn::ShapeAttr::get(context, shardShape)));
+                                   ttnn::ShapeAttr::get(context, shardShape)),
+          tensorMemoryLayout);
     }
 
     bool isOnHost() const {
@@ -198,45 +197,30 @@ private:
     }
   };
 
-  ttnn::Layout getLayoutFromMemRef(mlir::MemRefType memref) const {
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    Type elementType = memref.getElementType();
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
-    return ttnnLayoutEnum;
-  }
-
   std::pair<LayoutInfo, LayoutInfo>
   getInputOutputLayouts(ttnn::ToLayoutOp op) const {
     LayoutInfo input, output;
 
     auto inputLayoutAttr =
-        mlir::cast<tt::LayoutAttr>(op.getInput().getType().getEncoding());
-    auto inputMemref = inputLayoutAttr.getMemref();
+        mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
 
     assert(op.getMemoryConfig().has_value());
     MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
 
-    input.bufferType =
-        ttnn::utils::toTTNNBufferType(inputLayoutAttr.getMemorySpace());
+    input.bufferType = inputLayoutAttr.getBufferType();
     output.bufferType = outputMemoryConfig.getBufferType().getValue();
 
-    input.layoutEnum = getLayoutFromMemRef(inputMemref);
+    input.layoutEnum = inputLayoutAttr.getLayout();
     output.layoutEnum = op.getLayout();
 
-    input.dataType = ttnn::utils::getDataTypeFromMemRef(inputMemref);
+    input.dataType = inputLayoutAttr.getDataType();
     assert(op.getDtype().has_value());
     output.dataType = op.getDtype().value();
 
-    input.tensorMemoryLayout =
-        ttnn::utils::toTTNNTensorMemoryLayout(inputLayoutAttr.getMemLayout());
-    output.tensorMemoryLayout =
-        outputMemoryConfig.getTensorMemoryLayout().getValue();
+    input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
+    output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
 
-    input.shardShape = inputMemref.getShape();
+    input.shardShape = inputLayoutAttr.getShardShape();
     output.shardShape = outputMemoryConfig.getShardShapeArray();
     return {input, output};
   }
@@ -265,8 +249,8 @@ private:
     // device tensor
     if (not opsToCreate.createToDeviceOp and output.isOnDevice()) {
       opsToCreate.createToMemoryConfigOp =
-          (input.tensorMemoryLayout != output.tensorMemoryLayout) and
-          (output.tensorMemoryLayout != ttnn::TensorMemoryLayout::None);
+          output.tensorMemoryLayout &&
+          (input.tensorMemoryLayout != output.tensorMemoryLayout);
       opsToCreate.createToMemoryConfigOp |=
           (input.bufferType == ttnn::BufferType::DRAM and
            output.bufferType == ttnn::BufferType::L1) or
@@ -477,7 +461,7 @@ private:
     }
 
     /* If the output is not tilized, typecast on host */
-    else if (not output.isTilized()) {
+    if (not output.isTilized()) {
       currentInput =
           this->createTypecastOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =

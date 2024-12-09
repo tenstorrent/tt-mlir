@@ -8,6 +8,12 @@ mlir_tablegen(TTIROpsAttrs.cpp.inc -gen-attrdef-defs)
 add_public_tablegen_target(TTIROpsAttrsIncGen)
 add_dependencies(mlir-headers TTIROpsAttrsIncGen)
 
+set(LLVM_TARGET_DEFINITIONS TTIROpsEnums.td)
+mlir_tablegen(TTIROpsEnums.h.inc -gen-enum-decls)
+mlir_tablegen(TTIROpsEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(MLIRTTIROpsEnumsIncGen)
+add_dependencies(mlir-headers MLIRTTIROpsEnumsIncGen)
+
 set(LLVM_TARGET_DEFINITIONS TTIROpsInterfaces.td)
 mlir_tablegen(TTIROpsInterfaces.h.inc -gen-op-interface-decls)
 mlir_tablegen(TTIROpsInterfaces.cpp.inc -gen-op-interface-defs)

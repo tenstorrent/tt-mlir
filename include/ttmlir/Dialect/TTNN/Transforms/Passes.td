@@ -21,4 +21,19 @@ def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNLayout : Pass<"ttnn-layout", "::mlir::ModuleOp"> {
+  let summary = "Add layout information to tensors.";
+  let description = [{
+    This pass adds layout information to tensors.
+  }];
+}
+
+def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
+  let summary = "Apply TTNN workarounds to the IR.";
+  let description = [{
+    This pass applies necessary TTNN workarounds to the IR in order to create
+    a valid and functional IR that can be executed on the hardware.
+  }];
+}
+
 #endif

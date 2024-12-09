@@ -10,9 +10,12 @@
 #include <string_view>
 #include <vector>
 
-#include "tt/runtime/utils.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/Common/debug_info_generated.h"
 #include "ttmlir/Target/Common/system_desc_generated.h"
 #include "ttmlir/Target/Common/types_generated.h"
+#pragma clang diagnostic pop
 
 namespace tt::runtime {
 
@@ -28,8 +31,12 @@ struct ObjectImpl {
   std::shared_ptr<void> handle;
 
   ObjectImpl(std::shared_ptr<void> handle) : handle(handle) {}
-  template <typename T> T &as() { return *static_cast<T *>(handle.get()); }
-  template <typename T> T const &as() const {
+  template <typename T>
+  T &as() {
+    return *static_cast<T *>(handle.get());
+  }
+  template <typename T>
+  T const &as() const {
     return *static_cast<T const *>(handle.get());
   }
 };
@@ -46,12 +53,14 @@ struct RuntimeCheckedObjectImpl {
     return associatedRuntime == runtime;
   }
 
-  template <typename T> T &as(DeviceRuntime expectedRuntime) {
+  template <typename T>
+  T &as(DeviceRuntime expectedRuntime) {
     assert(associatedRuntime == expectedRuntime &&
            "Associated runtime does not match expected runtime of cast");
     return *static_cast<T *>(handle.get());
   }
-  template <typename T> T const &as(DeviceRuntime expectedRuntime) const {
+  template <typename T>
+  T const &as(DeviceRuntime expectedRuntime) const {
     assert(associatedRuntime == expectedRuntime &&
            "Associated runtime does not match expected runtime of cast");
     return *static_cast<T const *>(handle.get());
@@ -100,6 +109,7 @@ struct Binary : public Flatbuffer {
 
   std::vector<TensorDesc> getProgramInputs(std::uint32_t programIndex) const;
   std::vector<TensorDesc> getProgramOutputs(std::uint32_t programIndex) const;
+  const ::tt::target::GoldenTensor *getDebugInfoGolden(std::string &loc) const;
 };
 
 struct Device : public detail::RuntimeCheckedObjectImpl {
@@ -112,9 +122,28 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
+  Event event;
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(nullptr, runtime) {}
+
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
+         std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(eventHandle, runtime) {}
+};
+
+struct Layout : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
+struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
+struct OpContext : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
 } // namespace tt::runtime

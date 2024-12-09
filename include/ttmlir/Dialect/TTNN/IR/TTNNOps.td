@@ -146,10 +146,44 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseOp<mnemonic, traits> {
+    let summary = "Eltwise ternary op.";
+    let description = [{
+      Eltwise ternary op.
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
+      [{
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
+      }]>
+    ];
+}
+
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
+    let summary = "Eltwise where.";
+    let description = [{
+      Eltwise where operation.
+    }];
+}
+
 def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let summary = "Eltwise absolute.";
     let description = [{
       Eltwise absolute operation.
+    }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        wa::TTNNOperandWorkarounds tileLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::Tile);
+        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(tileLayoutWorkaround)
+        .addInputOperandWorkaround(tileLayoutWorkaround)
+        .addOutputOperandWorkaround(tileLayoutWorkaround);
+      }
     }];
 }
 
@@ -167,6 +201,18 @@ def TTNN_CeilOp : TTNN_ElementwiseUnaryOp<"ceil"> {
     }];
 }
 
+def TTNN_SignOp: TTNN_ElementwiseUnaryOp<"sign"> {
+    let summary = "Eltwise sign operation.";
+    let description = [{
+      Returns the sign of the `operand` element-wise and produces a `result`
+      tensor.
+
+      Example:
+        %a: [[3, -2, 0], [1, -4, 4]]
+        "ttnn.sign"(%a, %out) -> %out: [[1, -1, 0], [1, -1, 1]]
+    }];
+}
+
 def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     let summary = "Eltwise cosine.";
     let description = [{
@@ -178,6 +224,27 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
     let summary = "Eltwise exponential.";
     let description = [{
       Eltwise exponential operation.
+    }];
+}
+
+def TTNN_FloorOp: TTNN_ElementwiseUnaryOp<"floor"> {
+    let summary = "Eltwise floor op.";
+    let description = [{
+      Eltwise floor operation.
+    }];
+}
+
+def TTNN_GeluOp: TTNN_ElementwiseUnaryOp<"gelu"> {
+  let summary = "Eltwise GELU.";
+  let description = [{
+    Eltwise GELU operation.
+  }];
+}
+
+def TTNN_IsFiniteOp: TTNN_ElementwiseUnaryOp<"isfinite"> {
+    let summary = "Eltwise isfinite op.";
+    let description = [{
+      Eltwise isfinite operation.
     }];
 }
 
@@ -195,6 +262,20 @@ def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     }];
 }
 
+def TTNN_TanOp: TTNN_ElementwiseUnaryOp<"tan"> {
+    let summary = "Eltwise tan op.";
+    let description = [{
+      Eltwise tan operation.
+    }];
+}
+
+def TTNN_TanhOp: TTNN_ElementwiseUnaryOp<"tanh"> {
+    let summary = "Eltwise tanh op.";
+    let description = [{
+      Eltwise tanh operation.
+    }];
+}
+
 def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -202,7 +283,9 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
     }];
 }
 
-def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu"> {
+def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      > {
     let summary = "Eltwise ReLU.";
     let description = [{
       Eltwise ReLU operation.
@@ -241,6 +324,72 @@ def TTNN_LogOp : TTNN_ElementwiseUnaryOp<"log"> {
     let summary = "Eltwise logarithm.";
     let description = [{
       Eltwise logarithm operation.
+    }];
+}
+
+def TTNN_Log1pOp: TTNN_ElementwiseUnaryOp<"log1p"> {
+    let summary = "Eltwise log1p operation.";
+    let description = [{
+        Performs element-wise logarithm plus one operation on `operand` tensor and
+        puts the result in the output tensor.
+
+        Example:
+          %a: [0.0, -0.999, 7.0, 6.38905621, 15.0]
+          "ttnn.logp1"(%a, %out) -> %out: [0.0, -6.90776825, 2.07944155, 2.0, 2.77258873]
+      }];
+}
+
+def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
+  let description = [{
+    Performs element-wise exponential minus one operation on `operand` tensor
+    and stores the result in the output tensor.
+
+    Example:
+        %a: [[0, 1], [0, 0]]
+        "ttnn.exmp1"(%a, %out) -> %out: [[0, 1.71828], [0, 0]]
+  }];
+}
+
+class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_ElementwiseUnaryOp<mnemonic, traits> {
+    let summary = "Eltwise unary op with the float parameter.";
+    let description = [{
+      Eltwise unary op with the float parameter.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         Variadic<AnyRankedTensor>:$outputs,
+                         F32Attr:$parameter);
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
+      [{
+        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
+      }]>
+    ];
+}
+
+def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
+    let summary = "Eltwise leaky relu operation.";
+    let description = [{
+      The Leaky ReLU (Rectified Linear Unit) operation computes an element-wise
+      activation function over its input tensor. It is defined as:
+
+      y = x if x > 0
+      y = parameter * x if x <= 0
+
+      where `parameter` is a small, user-defined constant that determines the slope for
+      negative inputs.
+
+      Attributes:
+      - `parameter` (float): The slope for negative values.
+
+      Inputs:
+      - `input` (Tensor): The input tensor to be activated.
+
+      Outputs:
+      - `output` (Tensor): The tensor after applying the Leaky ReLU activation.
     }];
 }
 
@@ -314,6 +463,13 @@ def TTNN_LogicalOrOp : TTNN_ElementwiseBinaryOp<"logical_or"> {
     }];
 }
 
+def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
+    let summary = "Eltwise logical xor.";
+    let description = [{
+      Eltwise logical xor operation.
+    }];
+}
+
 def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum OP.";
     let description = [{
@@ -353,6 +509,21 @@ def TTNN_SubtractOp : TTNN_ElementwiseBinaryOp<"subtract"> {
     }];
 }
 
+def TTNN_RemainderOp : TTNN_ElementwiseBinaryOp<"remainder"> {
+    let summary = "Eltwise remainder.";
+    let description = [{
+      Performs element-wise remainder of dividend lhs and divisor rhs tensors and produces a
+      result tensor.
+
+      Example:
+
+      // %lhs: [17, -17, 17, -17]
+      // %rhs: [3, 3, -3, -3]
+      %result = "ttnn.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
+      // %result: [2, -2, 2, -2]
+    }];
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
     let summary = "Reduction op.";
     let description = [{
@@ -387,18 +558,50 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
-def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
+def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
       Embedding operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
                          AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
     let hasVerifier = 1;
+}
+
+def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
+  let summary = "Update static cache tensor.";
+  let description = [{
+      Updates the `cache` tensor in-place with values from `input` at `update_index` and `batch_offset`.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$update_index,
+                       I32Attr:$batch_offset);
+
+  let hasVerifier = 1;
+}
+
+def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
+  let summary = "Fill static cache tensor.";
+  let description = [{
+      Fills the `cache` tensor in-place with values from `input` at `batch_offset`.
+  }];
+
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
+                       AnyRankedTensor:$input,
+                       I32Attr:$batch_offset);
+
+  let hasVerifier = 1;
 }
 
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
@@ -485,6 +688,34 @@ def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let hasVerifier = 1;
 }
 
+def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
+    let summary = "Linear transformation of inputs.";
+
+    let description = [{
+      Produces the matmul of tensors `a` and `b` with optional addition with `bias`.
+
+      Example:
+        // %a = [[1., 2.]], [2., 1.]]
+        // %b = [[0., 1.], [1., 0.]]
+        // %bias = [[1.]]
+        "ttnn.linear"(%a, %b, %bias, %result) : (tensor<2x2xf16>, tensor<2x2xf16>, tensor<1xf16>, tensor<2x2xf16>) -> tensor<2x2xf16>
+        // %result = [[3., 2.], [2., 3.]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$a,
+                         AnyRankedTensor:$b,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+
 // ANCHOR: adding_an_op_matmul_ttnn
 def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
     let arguments = (ins AnyRankedTensor:$a,
@@ -567,9 +798,30 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
     let hasVerifier = 1;
 }
 
-// Note: NoMemoryEffect is used to indicate that operation can be removed if it is not used.
-// Removal of this operation is done by the dead code elimination pass (RemoveDeadValuesPass).
-def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
+def TTNN_ClampOp : TTNN_Op<"clamp"> {
+    let summary = "Clamp op.";
+    let description = [{
+      Clamp tensor values to a specified range.
+
+      Example:
+        min: 2.000000+00
+        input: [[0, 1, 2, 3, 4, 5, 6, 7]]
+        max: 5.000000+00
+
+        "ttnn.clamp"(%arg0) <{max = 2.000000e+00 : f32, min = 5.000000e+00 : f32}>
+        -> %out = [[2, 2, 2, 3, 4, 5, 5, 5]]
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                         F32Attr:$min,
+                         F32Attr:$max);
+
+    let results = (outs Variadic<AnyRankedTensor>:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_EmptyOp : TTNN_Op<"empty"> {
     let summary = "Empty op.";
     let description = [{
       Tensor empty operation
@@ -582,7 +834,41 @@ def TTNN_EmptyOp : TTNN_Op<"empty", [NoMemoryEffect]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
+        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+      }
+    }];
+
     let hasVerifier = 1;
+}
+
+def TTNN_ArangeOp : TTNN_Op<"arange"> {
+  let summary = "Arange operation.";
+  let description = [{
+    Tensor arange operation.
+
+    Produces a (1, 1, 1, N)-shaped tensor with values from `start` to `end` (exclusive) with a step size of `step`.
+
+    Examples:
+      %0 = "ttnn.arange"() {start = 0 : i64, end = 5 : i64 step = 1 : i64} : () -> tensor<1x1x1x5xi64>
+      // %0: [[[[0, 1, 2, 3, 4]]]]
+
+      %1 = "ttnn.arange"() {start = 0 : i64, end = 10 : i64, step = 2 : i64} : () -> tensor<1x1x1x5xf32>
+      // %1: [[[[0.0, 2.0, 4.0, 6.0, 8.0]]]]
+  }];
+
+  let arguments = (ins I64Attr:$start,
+                       I64Attr:$end,
+                       I64Attr:$step,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       Optional<TT_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+  let hasVerifier = 1;
 }
 
 def TTNN_FullOp : TTNN_Op<"full"> {
@@ -601,19 +887,20 @@ def TTNN_AllocOp : TTNN_Op<"alloc"> {
       Tensor Alloc operation
     }];
 
-    let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
+    let arguments = (ins I64Attr:$address, I64Attr:$size, TTNN_BufferTypeAttr:$buffer_type);
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
 
-def TTNN_DeallocOp : TTNN_Op<"dealloc"> {
-    let summary = "Dealloc op.";
+def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
+    let summary = "Deallocate op.";
     let description = [{
-      Tensor Dealloc operation
+      Tensor Deallocate operation
     }];
 
-    let arguments = (ins AnyRankedTensor:$input);
+    let arguments = (ins AnyRankedTensor:$input,
+                         DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
@@ -629,6 +916,13 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
+    let summary = "Scatter op.";
+    let description = [{
+      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
+      }];
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {

@@ -42,8 +42,9 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: ON, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: ON, name: "op_model" , ttrt_flags: ""}
         ]
 
     name: Build tt-mlir
@@ -61,10 +62,21 @@ jobs:
     - name: Set reusable strings
       id: strings
       shell: bash
+      env:
+        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -73,7 +85,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
 
     # Build project
 
@@ -92,6 +104,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
+        -DTTMLIR_ENABLE_OP_MODEL=${{ matrix.build.enable_op_model }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
@@ -101,30 +114,56 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
-    # - name: Lint
-    #   shell: bash
-    #   if: matrix.build.enable_perf == 'OFF'
-    #   run: |
-    #     source env/activate
-    #     cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+    - name: Lint
+      id: lint
+      shell: bash
+      if: matrix.build.enable_perf == 'OFF'
+      run: |
+        source env/activate
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} -- clang-tidy
+
+    - name: Unique-ify clang-tidy fixes
+      shell: bash
+      if: failure() && steps.lint.outcome == 'failure'
+      run: |
+        source env/activate
+        python tools/scripts/filter-clang-tidy-fixes.py ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+
+    - name: Clang-tidy PR Comments
+      uses: platisd/clang-tidy-pr-comments@a8811fa17cd6bd02c52a3791b44f9840777e396a
+      if: failure() && steps.lint.outcome == 'failure'
+      with:
+        # The GitHub token (or a personal access token)
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        # The path to the clang-tidy fixes generated above
+        clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
+        # Optionally set to true if you want the Action to request
+        # changes in case warnings are found
+        request_changes: false
+        # Optionally set the number of comments per review
+        # to avoid GitHub API timeouts for heavily loaded
+        # pull requests
+        suggestions_per_comment: 10
+        python_path: "python3"
 
     - name: Run Test
       shell: bash
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ inputs.config }} -- check-ttmlir
+        cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}-${{ inputs.config }}
-        path: build/test/report.xml
+        name: test-reports-${{ matrix.build.runs-on }}-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ inputs.config }}
+        path: ${{ steps.strings.outputs.test_report_path }}
 
     - name: Show Test Report
       uses: mikepenz/action-junit-report@v4
       if: success() || failure()
       with:
-        report_paths: build/test/report.xml
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
         check_name: MLIR Tests
 
     # Build and upload ttrt
@@ -171,7 +210,7 @@ jobs:
 
   run-tests:
 
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs:
       - docker-ci-image
       - build-ttmlir
@@ -184,6 +223,7 @@ jobs:
           {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
           {runs-on: n300, enable_perf: ON, name: "perf"},
         ]
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
 
     runs-on:
       - in-service
@@ -207,10 +247,22 @@ jobs:
     - name: Set reusable strings
       id: strings
       shell: bash
+      env:
+        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -275,13 +327,28 @@ jobs:
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
+        cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
 
-    - name: Upload ttrt test report
+    - name: Upload ttrt test report json
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
         path: ${{ matrix.build.name }}_results.json
+
+    - name: Upload Test Report xml
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.test_group_id }}
+        path: ${{ steps.strings.outputs.test_report_path }}
+
+    - name: Show Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
+      with:
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
+        check_name: TTRT ${{ matrix.build.runs-on }} ${{ matrix.build.name }} Tests
 
   run-ttrt-tests:
 
@@ -311,6 +378,7 @@ jobs:
         - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
+
     - uses: actions/checkout@v4
       with:
           fetch-depth: 0
@@ -318,10 +386,21 @@ jobs:
     - name: Set reusable strings
       id: strings
       shell: bash
+      env:
+        job-name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
         echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+        # Github job context unfortunately doesn't contain job_id, this is the workaround how to fetch it using GH API
+        echo "Expected job name: ${{ env.job-name }}"
+        JOB_ID=$(curl -s -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" | \
+          jq -r '.jobs[] | select(.name | contains("${{ env.job-name }}")) | .id ')
+        echo "Current job id: $JOB_ID"
+        echo "job-id=$JOB_ID" >> "$GITHUB_OUTPUT"
+        echo "test_report_path=report_$JOB_ID.xml" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -378,31 +457,118 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/tools/python/test/test_read.py
+        pytest -ssv runtime/tools/python/test \
+        --junit-xml=${{ steps.strings.outputs.test_report_path }}
 
-    - name: ttrt query tests
+    - name: Upload Test Report
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.test_report_path }}
+
+    - name: Show Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: success() || failure()
+      with:
+        report_paths: ${{ steps.strings.outputs.test_report_path }}
+        check_name: Run ttrt tests
+
+  run-runtime-api-tests:
+
+    timeout-minutes: 30
+    needs:
+      - build-image
+      - build-ttmlir
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {runs-on: n150, enable_perf: OFF, name: "run"},
+        ]
+
+    runs-on:
+      - in-service
+      - ${{ matrix.build.runs-on }}
+
+    container:
+      image: ${{ needs.build-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: Use build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: install-artifacts-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.install-output-dir }}
+
+    # This is needed to preserve file permissions
+    # https://github.com/actions/upload-artifact?tab=readme-ov-file#permission-loss
+    - name: 'Untar install directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.install-output-dir }}
+      run: tar xvf artifact.tar
+
+    - name: Remove existing whls files
+      shell: bash
+      run: |
+        rm -f *.whl
+
+    - name: Download ttrt run whls
+      uses: actions/download-artifact@v4
+      with:
+        name: ttrt-whl-${{ matrix.build.name }}
+
+    # Runtime tests currently require ttrt whls to be installed
+    - name: Install ttrt run whls
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/tools/python/test/test_query.py
+        pip show ttrt && pip uninstall -y ttrt
+        pip install ttrt-${{ env.version }}*.whl --force-reinstall
+        pip install pytest
 
-    - name: ttrt check tests
+    - name: Generate system descriptor
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/tools/python/test/test_check.py
+        ttrt query --save-artifacts
 
-    - name: ttrt run tests
+    - name: Generate tests
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/tools/python/test/test_run.py
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
-    - name: ttrt perf tests
+    - name: ttnn api tests
       shell: bash
       run: |
         source env/activate
-        pytest -ssv runtime/tools/python/test/test_perf.py
+        pytest -ssv runtime/test/python/ttnn/test_runtime_api.py
 
   build-and-test-explorer:
     needs: docker-ci-image
@@ -411,14 +577,21 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: n150, enable_perf: ON, name: "perf"},
         ]
 
     name: Build and test tt-explorer
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
-      image: ${{ needs.docker-ci-image.outputs.image }}
+      image: ${{ needs.docker-ci-image.outputs.docker-image }}
+      options: --device /dev/tenstorrent/0
+      volumes:
+        - /dev/hugepages:/dev/hugepages
+        - /dev/hugepages-1G:/dev/hugepages-1G
+        - /etc/udev/rules.d:/etc/udev/rules.d
+        - /lib/modules:/lib/modules
+        - /opt/tt_metal_infra/provisioning/provisioning_env:/opt/tt_metal_infra/provisioning/provisioning_env
 
     steps:
 
@@ -432,6 +605,7 @@ jobs:
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
+        echo "install-output-dir=$(pwd)/install" >> "$GITHUB_OUTPUT"
 
     - name: Git safe dir
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
@@ -440,7 +614,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
 
     - name: Configure CMake
       shell: bash
@@ -452,10 +626,11 @@ jobs:
         -DCMAKE_C_COMPILER=clang-17 \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-        -DTTMLIR_ENABLE_RUNTIME=OFF \
+        -DTTMLIR_ENABLE_RUNTIME=ON \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=OFF \
+        -DTTMLIR_ENABLE_OP_MODEL=${{ matrix.build.enable_op_model }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build tt-explorer
@@ -469,3 +644,4 @@ jobs:
       run: |
         source env/activate
         pytest tools/explorer/test/run_tests.py
+        # collect results

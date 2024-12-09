@@ -16,6 +16,7 @@ from pkg_resources import get_distribution
 import shutil
 import atexit
 import pytest
+import inspect
 
 import ttrt
 from ttrt.common.util import *
@@ -24,31 +25,29 @@ from ttrt.common.api import API
 from util import *
 
 
-def test_flatbuffer():
+def test_flatbuffer_perf():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_flatbuffer.__name__}"
 
-
-def test_flatbuffer_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file {test_flatbuffer_cmd.__name__}_perf.log --host-only"
+def test_flatbuffer_cmd_perf():
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_flatbuffer_cmd.__name__}"
 
-
-def test_logger():
+def test_logger_perf():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     log_file_name = "test.log"
@@ -56,168 +55,90 @@ def test_logger():
     perf_instance = API.Perf(args=custom_args, logger=custom_logger)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_logger.__name__}"
 
-
-def test_clean_artifacts():
+def test_clean_artifacts_perf():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--clean-artifacts"] = True
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_clean_artifacts.__name__}"
 
-
-def test_clean_artifacts_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --log-file {test_clean_artifacts_cmd.__name__}_perf.log --host-only"
+def test_clean_artifacts_cmd_perf():
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_clean_artifacts_cmd.__name__}"
 
-
-def test_save_artifacts():
+def test_log_file_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = PERF_BINARY_FILE_PATH
-    custom_args["--host-only"] = True
-    custom_args["--clean-artifacts"] = True
-    custom_args["--save-artifacts"] = True
-    perf_instance = API.Perf(args=custom_args)
-    perf_instance()
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_save_artifacts.__name__}"
-
-
-def test_save_artifacts_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --save-artifacts --log-file {test_save_artifacts_cmd.__name__}_perf.log --host-only"
-    sub_process_command(command)
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_save_artifacts_cmd.__name__}"
-
-
-def test_log_file():
-    API.initialize_apis()
-    custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--log-file"] = "test.log"
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_log_file.__name__}"
 
-
-def test_log_file_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file test.log --log-file {test_log_file_cmd.__name__}_perf.log --host-only"
+def test_log_file_cmd_perf():
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_log_file_cmd.__name__}"
 
-
-def test_artifact_dir():
+def test_program_index_perf():
     API.initialize_apis()
     custom_args = {}
-    custom_args["binary"] = PERF_BINARY_FILE_PATH
-    custom_args["--host-only"] = True
-    custom_args["--clean-artifacts"] = True
-    custom_args["--save-artifacts"] = True
-    custom_args["--artifact-dir"] = f"{os.getcwd()}/ttrt-artifacts"
-    perf_instance = API.Perf(args=custom_args)
-    perf_instance()
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_artifact_dir.__name__}"
-
-
-def test_artifact_dir_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --clean-artifacts --save-artifacts --artifact-dir {os.getcwd()}/ttrt-artifacts --log-file {test_artifact_dir_cmd.__name__}_perf.log --host-only"
-    sub_process_command(command)
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_artifact_dir_cmd.__name__}"
-
-
-def test_program_index():
-    API.initialize_apis()
-    custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--program-index"] = "0"
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_program_index.__name__}"
 
-
-def test_program_index_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --program-index 0 --log-file {test_program_index_cmd.__name__}_perf.log --host-only"
+def test_program_index_cmd_perf():
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --program-index 0 --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_program_index_cmd.__name__}"
 
-
-def test_loops():
+def test_loops_perf():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     custom_args["--host-only"] = True
     custom_args["--loops"] = 1
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_loops.__name__}"
 
-
-def test_loops_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --loops 1 --log-file {test_loops_cmd.__name__}_perf.log --host-only"
+def test_loops_cmd_perf():
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --loops 1 --host-only --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_loops_cmd.__name__}"
 
-
-def test_device():
+def test_device_perf():
     API.initialize_apis()
     custom_args = {}
+    custom_args[
+        "--result-file"
+    ] = f"ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     custom_args["binary"] = PERF_BINARY_FILE_PATH
     perf_instance = API.Perf(args=custom_args)
     perf_instance()
 
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_device.__name__}"
 
-
-def test_device_cmd():
-    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file {test_device_cmd.__name__}_perf.log"
+def test_device_cmd_perf():
+    command = f"ttrt perf {PERF_BINARY_FILE_PATH} --log-file ttrt-results/{inspect.currentframe().f_code.co_name}.log --result-file ttrt-results/{inspect.currentframe().f_code.co_name}.json"
     sub_process_command(command)
-
-    assert (
-        check_results("perf_results.json") == 0
-    ), f"one of more tests failed in={test_device_cmd.__name__}"

@@ -7,7 +7,16 @@
 
 namespace tt::runtime::ttnn::operations::binary {
 
-void getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
+bool shouldSwapBinaryOperands(const ::tt::target::ttnn::EltwiseOp *op,
+                              ::ttnn::Tensor **lhs, ::ttnn::Tensor **rhs) {
+  // For scatter, we expect the left-hand side operator to be lesser or equal in
+  // volume to the right hand side, so we omit the swap.
+  return (op->type() != ::tt::target::ttnn::EltwiseOpType::Scatter &&
+          workaround::Env::get().swapBinaryOperands &&
+          (*lhs)->volume() < (*rhs)->volume());
+}
+
+void getEltwiseBinaryOpInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
                                     ProgramTensorPool &tensorPool,
                                     ::ttnn::Tensor **lhs,
                                     ::ttnn::Tensor **rhs) {
@@ -21,8 +30,7 @@ void getEltwiseBinaryOPInputTensors(const ::tt::target::ttnn::EltwiseOp *op,
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
   // rhs operand). We should add this check in the compiler.
-  if (workaround::Env::get().swapBinaryOperands &&
-      (*lhs)->volume() < (*rhs)->volume()) {
+  if (shouldSwapBinaryOperands(op, lhs, rhs)) {
     std::swap(*lhs, *rhs);
   }
 }

@@ -5,46 +5,14 @@
 #ifndef TT_RUNTIME_DETAIL_TTMETAL_H
 #define TT_RUNTIME_DETAIL_TTMETAL_H
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcast-qual"
-#pragma clang diagnostic ignored "-Wctad-maybe-unsupported"
-#pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
-#pragma clang diagnostic ignored "-Wignored-qualifiers"
-#pragma clang diagnostic ignored "-Wvla-extension"
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#pragma clang diagnostic ignored "-Wsign-compare"
-#pragma clang diagnostic ignored "-Wc++20-extensions"
-#pragma clang diagnostic ignored "-Wc++20-designator"
-#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
-#pragma clang diagnostic ignored "-Wunused-variable"
-#pragma clang diagnostic ignored "-Wsuggest-override"
-#pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
-#pragma clang diagnostic ignored "-Wnested-anon-types"
-#pragma clang diagnostic ignored "-Wreorder-ctor"
-#pragma clang diagnostic ignored "-Wmismatched-tags"
-#pragma clang diagnostic ignored "-Wunused-lambda-capture"
-#pragma clang diagnostic ignored "-Wmissing-field-initializers"
-#pragma clang diagnostic ignored "-Wunused-private-field"
-#pragma clang diagnostic ignored "-Wimplicit-fallthrough"
-#pragma clang diagnostic ignored "-Wstring-conversion"
-#pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
-#pragma clang diagnostic ignored "-Wunused-local-typedef"
-#pragma clang diagnostic ignored "-Wunused-function"
-#pragma clang diagnostic ignored "-Wpessimizing-move"
-#pragma clang diagnostic ignored "-Wparentheses"
-#pragma clang diagnostic ignored "-Wdeprecated-volatile"
-#pragma clang diagnostic ignored "-Wdeprecated-this-capture"
-#pragma clang diagnostic ignored "-Wc++23-extensions"
-#pragma clang diagnostic ignored "-Wunused-but-set-variable"
-#pragma clang diagnostic ignored "-Wlogical-op-parentheses"
-#pragma clang diagnostic ignored "-Wundefined-inline"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
+#include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
 #include "tt_metal/host_api.hpp"
-#pragma clang diagnostic pop
 
 #include "tt/runtime/types.h"
+#include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTMetal/Target.h"
 
 namespace tt::runtime::ttmetal {
@@ -71,11 +39,24 @@ void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
-Event submit(Device device, Binary executable, std::uint32_t programIndex,
-             std::vector<Tensor> const &inputs,
+void wait(Event event);
+
+void wait(Tensor tensor);
+
+void wait(std::vector<Tensor> const &tensors);
+
+Event submit(Device deviceHandle, Binary executableHandle,
+             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
              std::vector<Tensor> const &outputs);
 
-void wait(Event event);
+std::string getOpDebugString(OpContext opContextHandle);
+
+std::string getOpLocInfo(OpContext opContextHandle);
+
+Tensor getOpOutputTensor(OpContext opContextHandle,
+                         CallbackContext programContextHandle);
+
+std::vector<float> getTensorData(Tensor tensor);
 
 using InputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>,
@@ -159,12 +140,12 @@ createBufferFromTensorRef(::tt::tt_metal::Device *device,
                           .page_size = pageSize,
                           .buffer_type = bufferType,
                           .buffer_layout = TensorMemoryLayout::BLOCK_SHARDED,
-                          .shard_parameters = shardSpecBuffer,
-                          .allocate = false};
-  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
-      ::tt::tt_metal::CreateBuffer(shardedBufferConfig);
+                          .shard_parameters = shardSpecBuffer};
+
   assert(tensorRef->address());
-  buffer->set_address(tensorRef->address());
+  std::shared_ptr<::tt::tt_metal::Buffer> buffer =
+      ::tt::tt_metal::CreateBuffer(shardedBufferConfig, tensorRef->address());
+
   return buffer;
 }
 #pragma clang diagnostic pop

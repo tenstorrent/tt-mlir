@@ -22,13 +22,13 @@ inline MemorySpace getMemorySpace(MemRefType memref) {
   return mlir::cast<MemorySpaceAttr>(memref.getMemorySpace()).getValue();
 }
 
-inline MemorySpace getMemorySpace(LayoutAttr layout) {
+inline MemorySpace getMemorySpace(MetalLayoutAttr layout) {
   return getMemorySpace(layout.getMemref());
 }
 
 inline MemorySpace getMemorySpace(RankedTensorType ty) {
   assert(ty.getEncoding());
-  auto layout = mlir::cast<LayoutAttr>(ty.getEncoding());
+  auto layout = mlir::cast<MetalLayoutAttr>(ty.getEncoding());
   return getMemorySpace(layout);
 }
 
@@ -108,7 +108,8 @@ public:
     memorySpaceInfo.resize(getMaxEnumValForMemorySpace() + 1llu);
     memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceL1)] =
         SimpleAllocator::MemorySpaceInfo(chipDesc.getL1UnreservedBase(),
-                                         chipDesc.getL1Size(),
+                                         chipDesc.getL1Size() -
+                                             chipDesc.getScratchL1RegionSize(),
                                          chipDesc.getNocL1AddressAlignBytes());
     memorySpaceInfo[ttmlir::utils::enum_as_int(MemorySpace::DeviceDRAM)] =
         SimpleAllocator::MemorySpaceInfo(

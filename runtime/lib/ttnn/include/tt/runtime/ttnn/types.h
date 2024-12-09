@@ -2,82 +2,131 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_TYPES_H
-#define TTNN_RUNTIME_TYPES_H
+#ifndef TT_RUNTIME_TTNN_TYPES_H
+#define TT_RUNTIME_TTNN_TYPES_H
 
 #include "tt/runtime/detail/ttnn.h"
+#include "tt/runtime/types.h"
+#include <optional>
+#include <unordered_map>
 
 namespace tt::runtime::ttnn {
+using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::Device>,
+                                   std::reference_wrapper<::ttnn::MeshDevice>>;
 
-using TensorMap = std::unordered_map<uint32_t, ::ttnn::Tensor *>;
-struct ProgramTensorPool {
-  ProgramTensorPool(const TensorMap &liveTensors,
-                    const std::unordered_set<uint32_t> &programInputs,
-                    const std::unordered_set<uint32_t> &programOutputs)
+struct LayoutDesc {
+  ::ttnn::BufferType bufferType;
+  ::ttnn::Layout layout;
+  ::ttnn::DataType dataType;
+  std::optional<::ttnn::MemoryConfig> memoryConfig;
+
+  LayoutDesc(const ::ttnn::BufferType &bufferType, const ::ttnn::Layout &layout,
+             const ::ttnn::DataType &dataType,
+             const std::optional<::ttnn::MemoryConfig> &memoryConfig)
+      : bufferType(bufferType), layout(layout), dataType(dataType),
+        memoryConfig(memoryConfig) {}
+
+  bool isOnHost() const {
+    return bufferType == ::ttnn::BufferType::SYSTEM_MEMORY;
+  }
+  bool isOnDevice() const { return !isOnHost(); }
+
+  bool isTilized() const { return layout == ::ttnn::Layout::TILE; }
+};
+
+class LayoutConverter {
+public:
+  LayoutDesc inputDesc;
+  LayoutDesc outputDesc;
+  bool shouldTilize = false;
+  bool shouldUntilize = false;
+  bool shouldTypecast = false;
+  bool shouldToDevice = false;
+  bool shouldToMemoryConfig = false;
+  bool shouldFromDevice = false;
+
+  LayoutConverter(const LayoutDesc &inputDesc, const LayoutDesc &outputDesc);
+  ::ttnn::Tensor convertTensorLayout(const ::ttnn::Tensor &input,
+                                     std::optional<DeviceVariant> targetDevice);
+
+private:
+  ::ttnn::Tensor toLayoutIfNeeded(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor typecastIfNeeded(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor toDeviceIfNeeded(const ::ttnn::Tensor &input,
+                                  std::optional<DeviceVariant> targetDevice,
+                                  bool force = false);
+  ::ttnn::Tensor toMemoryConfigIfNeeded(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor fromDeviceIfNeeded(const ::ttnn::Tensor &input);
+
+  ::ttnn::Tensor
+  handleHostInputNoLayoutNoTypecast(const ::ttnn::Tensor &input,
+                                    std::optional<DeviceVariant> targetDevice);
+  ::ttnn::Tensor
+  handleHostInputLayoutNoTypecast(const ::ttnn::Tensor &input,
+                                  std::optional<DeviceVariant> targetDevice);
+  ::ttnn::Tensor
+  handleHostInputNoLayoutTypecast(const ::ttnn::Tensor &input,
+                                  std::optional<DeviceVariant> targetDevice);
+  ::ttnn::Tensor
+  handleHostInputLayoutTypecast(const ::ttnn::Tensor &input,
+                                std::optional<DeviceVariant> targetDevice);
+  ::ttnn::Tensor
+  convertHostTensorLayout(const ::ttnn::Tensor &input,
+                          std::optional<DeviceVariant> targetDevice);
+
+  ::ttnn::Tensor
+  handleDeviceInputNoLayoutNoTypecast(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor handleDeviceInputLayoutNoTypecast(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor handleDeviceInputNoLayoutTypecast(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input);
+  ::ttnn::Tensor convertDeviceTensorLayout(const ::ttnn::Tensor &input);
+};
+
+class ProgramTensorPool {
+public:
+  ProgramTensorPool(
+      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
+      const std::vector<uint32_t> &programInputs,
+      const std::vector<uint32_t> &programOutputs)
       : programInputs(programInputs), programOutputs(programOutputs),
         liveTensors(liveTensors) {}
+  ProgramTensorPool(const ProgramTensorPool &) = delete;
+  ProgramTensorPool &operator=(const ProgramTensorPool &) = delete;
+  ProgramTensorPool(ProgramTensorPool &&) = default;
+  ProgramTensorPool &operator=(ProgramTensorPool &&) = default;
 
-  auto try_emplace(std::uint32_t globalId, const ::ttnn::Tensor &tensor) {
-    auto it = liveTensors.find(globalId);
-    if (it != liveTensors.end()) {
-      return std::make_pair(it, false);
-    }
-    assert(!intermedTensors.contains(globalId));
-    intermedTensors.try_emplace(globalId, tensor);
-    return liveTensors.try_emplace(globalId, &intermedTensors.at(globalId));
-  }
+  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+  try_emplace(std::uint32_t globalId, const ::ttnn::Tensor &tensor);
 
-  auto insert_or_assign(std::uint32_t globalId, const ::ttnn::Tensor &tensor) {
-    intermedTensors.insert_or_assign(globalId, tensor);
-    return liveTensors.insert_or_assign(globalId,
-                                        &intermedTensors.at(globalId));
-  }
+  std::pair<std::unordered_map<std::uint32_t, ::ttnn::Tensor *>::iterator, bool>
+  insert_or_assign(std::uint32_t globalId, const ::ttnn::Tensor &tensor);
 
-  ::ttnn::Tensor &at(std::uint32_t globalId) {
-    assert(liveTensors.contains(globalId));
-    return *liveTensors.at(globalId);
-  }
+  ::ttnn::Tensor &at(std::uint32_t globalId);
 
-  size_t erase(std::uint32_t globalId) {
-    assert(liveTensors.contains(globalId) &&
-           intermedTensors.contains(globalId));
-    intermedTensors.erase(globalId);
-    return liveTensors.erase(globalId);
-  }
+  const ::ttnn::Tensor &at(std::uint32_t globalId) const;
 
-  void copyTensorToUserOutput(const ::ttnn::Tensor &srcTensor,
-                              std::uint32_t outputGlobalId) {
-    assert(liveTensors.contains(outputGlobalId));
-    assert(isUserOutput(outputGlobalId));
-    ::ttnn::Tensor &outputTensor = *liveTensors.at(outputGlobalId);
-    void *src = ::tt::tt_metal::get_raw_host_data_ptr(srcTensor);
-    void *dst = ::tt::tt_metal::get_raw_host_data_ptr(outputTensor);
-    size_t size = outputTensor.volume() * outputTensor.element_size();
-    std::memcpy(dst, src, size);
-  }
+  size_t erase(std::uint32_t globalId);
+
+  std::vector<Tensor> gatherOutputTensors();
 
   bool contains(std::uint32_t globalId) const {
     return liveTensors.contains(globalId);
   }
 
-  bool isUserOutput(std::uint32_t globalId) const {
-    return programOutputs.contains(globalId);
-  }
-
-  const std::unordered_set<std::uint32_t> &getProgramInputs() const {
+  const std::vector<std::uint32_t> &getProgramInputs() const {
     return programInputs;
   }
 
-  const std::unordered_set<std::uint32_t> &getProgramOutputs() const {
+  const std::vector<std::uint32_t> &getProgramOutputs() const {
     return programOutputs;
   }
 
 private:
-  std::unordered_set<std::uint32_t> programInputs;
-  std::unordered_set<std::uint32_t> programOutputs;
+  std::vector<std::uint32_t> programInputs;
+  std::vector<std::uint32_t> programOutputs;
   // A superset of intermedTensors, containing pointers to all tensors created
-  // by the program and the input/output tensors passed in by the user
-  TensorMap liveTensors;
+  // by the program and the input tensors passed in by the user
+  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
 
   // A subset of liveTensors, containing values of any intermediate tensors
   // created by the program
@@ -86,53 +135,56 @@ private:
 
 class ProgramContext {
 public:
-  ProgramContext(const TensorMap &liveTensors,
-                 const std::unordered_set<uint32_t> &programInputs,
-                 const std::unordered_set<uint32_t> &programOutputs,
-                 ::ttnn::MeshDevice *meshDevice)
-      : tensorPool(
-            ProgramTensorPool(liveTensors, programInputs, programOutputs)),
-        meshDevice(meshDevice) {}
+  ProgramContext(
+      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
+      const std::vector<uint32_t> &programInputs,
+      const std::vector<uint32_t> &programOutputs,
+      ::ttnn::MeshDevice *parentMesh);
+  ProgramContext(const ProgramContext &) = delete;
+  ProgramContext &operator=(const ProgramContext &) = delete;
+  ProgramContext(ProgramContext &&) = default;
+  ProgramContext &operator=(ProgramContext &&) = default;
 
-  const ::ttnn::MeshDevice &getMeshDevice() const {
-    assert(meshDevice && "Mesh device not initialized");
-    return *meshDevice;
-  }
+  //
+  // Parent Mesh Operations
+  //
+  ::ttnn::MeshDevice &getParentMesh() { return *parentMesh; }
 
-  ::ttnn::MeshDeviceView &getMeshView(uint32_t globalId) {
-    assert(meshViews.contains(globalId) &&
-           "Mesh view with global id not initialized");
-    return *(meshViews.at(globalId));
-  }
+  const ::ttnn::MeshDevice &getParentMesh() const { return *parentMesh; }
 
+  size_t parentMeshSize() const { return parentMesh->num_devices(); }
+
+  //
+  // Sub Mesh Operations
+  //
+  void addSubMesh(uint32_t meshId, std::shared_ptr<::ttnn::MeshDevice> subMesh);
+
+  ::ttnn::MeshDevice &getSubMesh(uint32_t meshId);
+
+  size_t subMeshSize(uint32_t meshId) const;
+
+  ::ttnn::Device &getDeviceFromSubMesh(uint32_t meshId, int physicalDeviceId);
+
+  ::ttnn::Device &getDeviceIndexFromSubMesh(uint32_t meshId, int deviceIndex);
+
+  DeviceVariant getTargetDevice(uint32_t meshId);
+
+  //
+  // Tensor Pool Operations
+  //
   ProgramTensorPool &getTensorPool() { return tensorPool; }
-
-  void addMeshView(uint32_t globalId,
-                   std::unique_ptr<::ttnn::MeshDeviceView> view) {
-    assert(not meshViews.contains(globalId) &&
-           "Mesh view with globalId already set");
-    meshViews.try_emplace(globalId, std::move(view));
-  }
-
-  ::ttnn::Device &getDeviceFromView(uint32_t globalId, int deviceId) {
-    assert(meshViews.contains(globalId) && "Mesh view not initialized");
-    ::tt::tt_metal::distributed::Coordinate deviceCoord =
-        meshViews.at(globalId)->find_device(deviceId);
-    return *(
-        meshViews.at(globalId)->get_device(deviceCoord.row, deviceCoord.col));
-  }
+  const ProgramTensorPool &getTensorPool() const { return tensorPool; }
 
 private:
   ProgramTensorPool tensorPool;
 
   // Contains all devices borrowed from the user that are available to the
   // program
-  ::ttnn::MeshDevice *meshDevice = nullptr;
+  ::ttnn::MeshDevice *parentMesh = nullptr;
 
-  // Contains various views of meshDevice that is used by the program
-  // Will be populated by get_device ops
-  std::unordered_map<uint32_t, std::unique_ptr<::ttnn::MeshDeviceView>>
-      meshViews;
+  // Contains subMeshes of the parentMesh that are used by the program
+  // Will be populated by GetDevice ops
+  std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
 };
 } // namespace tt::runtime::ttnn
 

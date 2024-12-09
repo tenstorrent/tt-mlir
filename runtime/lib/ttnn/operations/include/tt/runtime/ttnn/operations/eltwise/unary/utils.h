@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTNN_RUNTIME_ELTWISE_UNARY_UTILS_H
-#define TTNN_RUNTIME_ELTWISE_UNARY_UTILS_H
+#ifndef TT_RUNTIME_TTNN_OPERATIONS_ELTWISE_UNARY_UTILS_H
+#define TT_RUNTIME_TTNN_OPERATIONS_ELTWISE_UNARY_UTILS_H
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
@@ -11,7 +11,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::unary {
-void getEltwiseUnaryOPInputTensor(const ::tt::target::ttnn::EltwiseOp *op,
+void getEltwiseUnaryOpInputTensor(const ::tt::target::ttnn::EltwiseOp *op,
                                   ProgramTensorPool &tensorPool,
                                   ::ttnn::Tensor **in);
 

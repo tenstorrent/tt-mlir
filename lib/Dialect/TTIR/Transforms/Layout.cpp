@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/Utils/OperandConstraints.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -14,90 +15,6 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRLAYOUT
 #define GEN_PASS_DEF_TTIRSPLITCOMPOUNDLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
-
-//===----------------------------------------------------------------------===//
-// Helper methods
-//===----------------------------------------------------------------------===//
-
-inline OperandConstraint
-memorySpaceAsOperandConstraint(MemorySpace memorySpace) {
-  switch (memorySpace) {
-  case MemorySpace::System:
-  case MemorySpace::SystemMMIO:
-    return OperandConstraint::System;
-  case MemorySpace::DeviceDRAM:
-    return OperandConstraint::DRAM;
-  case MemorySpace::DeviceL1:
-    return OperandConstraint::L1;
-  }
-}
-
-inline OperandConstraint
-memoryLayoutAsOperandConstraint(TensorMemoryLayout memoryLayout) {
-  switch (memoryLayout) {
-  case TensorMemoryLayout::None:
-    return OperandConstraint::None;
-  case TensorMemoryLayout::Interleaved:
-    return OperandConstraint::Interleaved;
-  case TensorMemoryLayout::SingleBank:
-    return OperandConstraint::SingleBank;
-  case TensorMemoryLayout::HeightSharded:
-    return OperandConstraint::HeightSharded;
-  case TensorMemoryLayout::WidthSharded:
-    return OperandConstraint::WidthSharded;
-  case TensorMemoryLayout::BlockSharded:
-    return OperandConstraint::BlockSharded;
-  }
-}
-
-inline MemorySpace getLegalMemorySpace(OperandConstraint operandConstraint,
-                                       MemorySpace defaultMemorySpace) {
-  if (bitEnumContainsAny(operandConstraint,
-                         memorySpaceAsOperandConstraint(defaultMemorySpace))) {
-    return defaultMemorySpace;
-  }
-  if (bitEnumContainsAny(operandConstraint, OperandConstraint::DRAM)) {
-    return MemorySpace::DeviceDRAM;
-  }
-  if (bitEnumContainsAny(operandConstraint, OperandConstraint::L1)) {
-    return MemorySpace::DeviceL1;
-  }
-  return MemorySpace::System;
-}
-
-inline TensorMemoryLayout
-getLegalTensorMemoryLayout(OperandConstraint operandConstraint,
-                           MemorySpace targetMemorySpace,
-                           TensorMemoryLayout defaultDeviceMemLayout) {
-  if (defaultDeviceMemLayout == TensorMemoryLayout::None) {
-    return TensorMemoryLayout::None;
-  }
-
-  if (isSystemMemorySpace(targetMemorySpace)) {
-    return TensorMemoryLayout::None;
-  }
-
-  assert(isDeviceMemorySpace(targetMemorySpace));
-  if (bitEnumContainsAny(operandConstraint, memoryLayoutAsOperandConstraint(
-                                                defaultDeviceMemLayout))) {
-    return defaultDeviceMemLayout;
-  }
-
-  std::map<OperandConstraint, TensorMemoryLayout> validLayoutsMap = {
-      {OperandConstraint::Interleaved, TensorMemoryLayout::Interleaved},
-      {OperandConstraint::SingleBank, TensorMemoryLayout::SingleBank},
-      {OperandConstraint::HeightSharded, TensorMemoryLayout::HeightSharded},
-      {OperandConstraint::WidthSharded, TensorMemoryLayout::WidthSharded},
-      {OperandConstraint::BlockSharded, TensorMemoryLayout::BlockSharded}};
-
-  for (const auto &[constraintLayout, memLayout] : validLayoutsMap) {
-    if (bitEnumContainsAny(operandConstraint, constraintLayout)) {
-      return memLayout;
-    }
-  }
-
-  return TensorMemoryLayout::None;
-}
 
 inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
   if (isa<NameLoc>(loc)) {
@@ -121,20 +38,21 @@ public:
   TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
                                 GridAttr deviceGrid) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, initMemorySpace,
-                   deviceGrid](RankedTensorType type) -> Type {
-      auto layout = type.getEncoding();
-      if (layout) {
-        return type;
-      }
-      std::int64_t deviceGridRank = deviceGrid.getShape().size();
-      // Default to single core grid
-      auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
-      // Default to initMemorySpace, the optimizer might decide otherwise
-      auto newLayout = LayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
-      return RankedTensorType::get(type.getShape(), type.getElementType(),
-                                   newLayout);
-    });
+    addConversion(
+        [ctx, initMemorySpace, deviceGrid](RankedTensorType type) -> Type {
+          auto layout = type.getEncoding();
+          if (layout) {
+            return type;
+          }
+          std::int64_t deviceGridRank = deviceGrid.getShape().size();
+          // Default to single core grid
+          auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
+          // Default to initMemorySpace, the optimizer might decide otherwise
+          auto newLayout =
+              MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
+          return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                       newLayout);
+        });
   }
 };
 
@@ -212,7 +130,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
                  TensorMemoryLayout desiredMemLayout, bool tiled) {
 
   auto ty = mlir::cast<RankedTensorType>(input.getType());
-  auto currLayout = mlir::cast<LayoutAttr>(ty.getEncoding());
+  auto currLayout = mlir::cast<MetalLayoutAttr>(ty.getEncoding());
   auto currMemorySpace = currLayout.getMemorySpace();
   auto currElementType = currLayout.getElementType();
   auto currMemLayout = currLayout.getMemLayout();
@@ -225,9 +143,9 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
     return std::nullopt;
   }
 
-  auto desiredLayout =
-      rewriter.getAttr<LayoutAttr>(ty, desiredMemorySpace, currLayout.getGrid(),
-                                   desiredElementType, desiredMemLayout);
+  auto desiredLayout = rewriter.getAttr<MetalLayoutAttr>(
+      ty, desiredMemorySpace, currLayout.getGrid(), desiredElementType,
+      desiredMemLayout);
 
   tensor::EmptyOp existingEmpty = input.getDefiningOp<tensor::EmptyOp>();
   if (existingEmpty) {
@@ -426,7 +344,7 @@ public:
   using OpRewritePattern<ToLayoutOp>::OpRewritePattern;
 
   Value createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                         LayoutAttr desiredLayout) const {
+                         MetalLayoutAttr desiredLayout) const {
     auto ty = mlir::cast<RankedTensorType>(input.getType());
     auto output = rewriter.create<tensor::EmptyOp>(
         loc, ty.getShape(), ty.getElementType(), desiredLayout);
@@ -436,7 +354,7 @@ public:
   }
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
-               LayoutAttr bounceLayout) const {
+               MetalLayoutAttr bounceLayout) const {
     auto bounced =
         createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceLayout);
     return rewriter.replaceOpWithNewOp<ttir::ToLayoutOp>(
@@ -458,8 +376,8 @@ public:
 
     auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getOutput().getType());
-    auto inputLayout = mlir::cast<LayoutAttr>(inputType.getEncoding());
-    auto outputLayout = mlir::cast<LayoutAttr>(outputType.getEncoding());
+    auto inputLayout = mlir::cast<MetalLayoutAttr>(inputType.getEncoding());
+    auto outputLayout = mlir::cast<MetalLayoutAttr>(outputType.getEncoding());
 
     bool inputL1 = inputLayout.getMemorySpace() == MemorySpace::DeviceL1;
     bool outputL1 = outputLayout.getMemorySpace() == MemorySpace::DeviceL1;

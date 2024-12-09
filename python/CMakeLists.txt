@@ -26,7 +26,7 @@ declare_mlir_dialect_python_bindings(
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTBinding.td
   GEN_ENUM_BINDINGS ON
-  GEN_ENUM_TD_FILE dialects/TTEnumBinding.td
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTEnumBinding.td
   SOURCES dialects/tt.py
   DIALECT_NAME tt
 )
@@ -52,7 +52,7 @@ declare_mlir_dialect_python_bindings(
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   TD_FILE dialects/TTNNBinding.td
   GEN_ENUM_BINDINGS ON
-  GEN_ENUM_TD_FILE dialects/TTNNEnumBinding.td
+  GEN_ENUM_BINDINGS_TD_FILE dialects/TTNNEnumBinding.td
   SOURCES dialects/ttnn.py
   DIALECT_NAME ttnn
 )
@@ -61,6 +61,12 @@ declare_mlir_python_sources(TTMLIRPythonSources.Overrides
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources
   SOURCES overrides.py
+)
+
+declare_mlir_python_sources(TTMLIRPythonSources.OptimizerOverrides
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES optimizer_overrides.py
 )
 
 declare_mlir_python_sources(TTMLIRPythonSources.Passes
@@ -87,6 +93,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTKernelModule.cpp
     TTNNModule.cpp
     Overrides.cpp
+    OptimizerOverrides.cpp
     Passes.cpp
   EMBED_CAPI_LINK_LIBS
     MLIRCAPITransforms
@@ -102,6 +109,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
 
 set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Core
+  MLIRPythonSources.Dialects.affine
   MLIRPythonSources.Dialects.arith
   MLIRPythonSources.Dialects.func
   MLIRPythonSources.Dialects.tensor

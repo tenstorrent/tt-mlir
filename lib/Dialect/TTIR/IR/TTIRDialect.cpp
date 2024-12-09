@@ -11,6 +11,8 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.cpp.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
 
@@ -64,6 +66,7 @@ void TTIRDialect::initialize() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
       >();
   addInterfaces<TTIRInlinerInterface>();
+  // NOLINTNEXTLINE
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"

@@ -15,67 +15,48 @@ struct Env {
 #else
   constexpr static Env
 #endif
-  get(bool ignoreTileShape = true, bool emptyOpForceRowMajor = true,
-      bool fullOpForceRowMajor = true, bool maxpool2dPreshard = true,
-      bool setMatmul1DProgramConfig = true, bool swapBinaryOperands = true)
+  get(bool maxpool2dPreshard = true, bool swapBinaryOperands = true,
+      bool readUpdateIndexFromDeviceForKVCache = true)
 #if defined(TT_RUNTIME_WORKAROUNDS) && TT_RUNTIME_WORKAROUNDS == 1
       ;
 #else
   {
-    return Env(true, true, true, true, true, true);
+    return Env(true, true, true);
   }
 #endif
-  // TODO(bug #272), determine correct layout by tile shape in the future
-  // currently tile shape is not set correctly, so as a workaround, hardcode
-  // layout
-  bool ignoreTileShape;
-
-  // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
-  // using ROW_MAJOR until we fix it
-  bool emptyOpForceRowMajor;
-
-  // TODO(bug #582): ttnn::full doesn't work properly with tile layout,
-  // using ROW_MAJOR until we fix it
-  bool fullOpForceRowMajor;
-
   // TODO(bug #855): Ideally we should have an op that preshards for maxpool2d
   // instead of adding a method in runtime
   bool maxpool2dPreshard;
-
-  // TODO(bug #891): ttnn::matmul doesn't chose correct program config.
-  bool setMatmul1DProgramConfig;
 
   // TODO(bug #1124): We're currently swapping the operands for binary ops
   // in runtime if the lhs operand is smaller (and requires broadcast onto the
   // rhs operand). We should add this check in the compiler.
   bool swapBinaryOperands;
 
+  // TODO(bug #1510) ttnn::update_cache takes a single update index as a uint32
+  // as a function argument. The tt-torch frontend and likely others model this
+  // as a tensor with integer elements. For now, to get this op to work we need
+  // to be able to pluck this update index from a runtime tensor.
+  bool readUpdateIndexFromDeviceForKVCache;
+
 private:
-  constexpr Env(bool ignoreTileShape, bool emptyOpForceRowMajor,
-                bool fullOpForceRowMajor, bool maxpool2dPreshard,
-                bool setMatmul1DProgramConfig, bool swapBinaryOperands)
-      : ignoreTileShape(ignoreTileShape),
-        emptyOpForceRowMajor(emptyOpForceRowMajor),
-        fullOpForceRowMajor(fullOpForceRowMajor),
-        maxpool2dPreshard(maxpool2dPreshard),
-        setMatmul1DProgramConfig(setMatmul1DProgramConfig),
-        swapBinaryOperands(swapBinaryOperands) {}
+  constexpr Env(bool maxpool2dPreshard, bool swapBinaryOperands,
+                bool readUpdateIndexFromDeviceForKVCache)
+      : maxpool2dPreshard(maxpool2dPreshard),
+        swapBinaryOperands(swapBinaryOperands),
+        readUpdateIndexFromDeviceForKVCache(
+            readUpdateIndexFromDeviceForKVCache) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Env &env) {
   os << "workaround::Env{\n";
   os << "\t"
-     << "ignoreTileShape: " << env.ignoreTileShape << ",\n";
-  os << "\t"
-     << "emptyOpForceRowMajor: " << env.emptyOpForceRowMajor << ",\n";
-  os << "\t"
-     << "fullOpForceRowMajor: " << env.fullOpForceRowMajor << ",\n";
-  os << "\t"
      << "maxpool2dPreshard: " << env.maxpool2dPreshard << ",\n";
   os << "\t"
-     << "setMatmul1DProgramConfig: " << env.setMatmul1DProgramConfig << "\n";
+     << "swapBinaryOperands: " << env.swapBinaryOperands << ",\n";
   os << "\t"
-     << "swapBinaryOperands: " << env.swapBinaryOperands << "\n";
+     << "readUpdateIndexFromDeviceForKVCache: "
+     << env.readUpdateIndexFromDeviceForKVCache << "\n";
   os << "}";
   return os;
 }

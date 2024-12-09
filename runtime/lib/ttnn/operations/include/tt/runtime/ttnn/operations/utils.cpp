@@ -7,20 +7,10 @@
 
 namespace tt::runtime::ttnn::operations::utils {
 
-// TODO (bug #701)
-// Currently the memory layout/location in flatbuffer is incorrect
-// These methods are workarounds such that we query the info directly from the
-// TTNN tensor Ideally, we should be able to get all of this info directly from
-// the flatbuffer
-bool isOnHost(const ::ttnn::Tensor &tensor) {
-  // Currently only supports borrowed or owned host storage
-  return tensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED or
-         tensor.storage_type() == ::tt::tt_metal::StorageType::OWNED;
-}
-
-bool isOnDevice(const ::ttnn::Tensor &tensor) {
-  // Currently only supports single device storage
-  return tensor.storage_type() == ::tt::tt_metal::StorageType::DEVICE;
+bool isTilized(const ::tt::target::TensorRef *tensorRef) {
+  const ::tt::target::Dim2d *tileShape =
+      tensorRef->desc()->layout()->memory_desc()->tile_shape();
+  return tileShape->x() == 32 and tileShape->y() == 32;
 }
 
 ::tt::target::MemorySpace
@@ -39,79 +29,6 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
-::ttnn::Layout
-inferLayoutFromTileShape(const ::tt::target::TensorRef *tensorRef) {
-  const ::tt::target::Dim2d *tileShape =
-      tensorRef->desc()->layout()->memory_desc()->tile_shape();
-  LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(tileShape));
-  if (tileShape->x() == 1 and tileShape->y() == 1) {
-    return ::ttnn::Layout::ROW_MAJOR;
-  }
-  return ::ttnn::Layout::TILE;
-}
-
-CoreRangeSet
-toCoreRangeSet(const ::flatbuffers::Vector<const ::tt::target::Dim2dRange *>
-                   *coreRangeSet) {
-  std::set<CoreRange> coreRanges;
-  for (::tt::target::Dim2dRange const *coreRange : *coreRangeSet) {
-    CoreCoord start(coreRange->loc().x(), coreRange->loc().y());
-    // End is inclusive
-    CoreCoord end(coreRange->loc().x() + coreRange->size().x() - 1,
-                  coreRange->loc().y() + coreRange->size().y() - 1);
-
-    coreRanges.emplace(start, end);
-  }
-  return CoreRangeSet(coreRanges);
-}
-
-// This method will soon be deprecated, prefer to use the method below
-//
-::tt::tt_metal::MemoryConfig
-createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
-  const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
-  const ::tt::target::TensorMemoryLayout targetMemoryLayout =
-      layout->memory_desc()->memory_layout();
-  const ::tt::target::MemorySpace targetMemorySpace =
-      layout->memory_desc()->memory_space();
-  const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
-      *targetCoreRangeSet = layout->core_range_set();
-  const ::flatbuffers::Vector<int32_t> *targetShardShape =
-      layout->memory_desc()->shape();
-  const ::tt::target::Dim2d *tileShape = layout->memory_desc()->tile_shape();
-
-  LOG_ASSERT(targetCoreRangeSet->size() == 1,
-             "Currently only single core range/grid is supported");
-
-  LOG_ASSERT(targetShardShape->size() == 2,
-             "Only 2D shard shape is supported in TTNN backend");
-
-  LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(tileShape),
-             "Invalid tile shape");
-
-  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
-  std::array<uint32_t, 2> ttnnShardShape;
-  std::copy(targetShardShape->begin(), targetShardShape->end(),
-            ttnnShardShape.begin());
-
-  ttnnShardShape[0] *= tileShape->y();
-  ttnnShardShape[1] *= tileShape->x();
-
-  ::tt::tt_metal::ShardSpec shardSpec(
-      ttnnCoreRangeSet, ttnnShardShape,
-      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
-
-  ::tt::tt_metal::TensorMemoryLayout ttnnMemLayout =
-      ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(targetMemoryLayout);
-
-  ::tt::tt_metal::BufferType ttnnBufferType =
-      ::tt::runtime::ttnn::utils::toTTNNBufferType(targetMemorySpace);
-
-  return {ttnnMemLayout, ttnnBufferType, shardSpec};
-}
-
-// Prefer to use this method over the one above
-//
 ::tt::tt_metal::MemoryConfig
 createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
                    const ::tt::target::TensorRef *tensorRef) {
@@ -126,7 +43,8 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>
       *targetCoreRangeSet = layout->core_range_set();
-  CoreRangeSet ttnnCoreRangeSet = toCoreRangeSet(targetCoreRangeSet);
+  CoreRangeSet ttnnCoreRangeSet =
+      ::tt::runtime::ttnn::utils::toCoreRangeSet(targetCoreRangeSet);
   const ::flatbuffers::Vector<int64_t> *shardShape =
       memcfg->shard_spec()->shard_shape();
   const ::tt::target::Dim2d *tileShape = layout->memory_desc()->tile_shape();
@@ -151,9 +69,37 @@ createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
       ttnnCoreRangeSet, ttnnShardShape,
       ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
 
-  ::ttnn::MemoryConfig memoryConfig = {tensorMemoryLayout, bufferType,
-                                       shardSpec};
+  ::ttnn::MemoryConfig memoryConfig = {
+      tensorMemoryLayout, bufferType,
+      tensorMemoryLayout == tt_metal::TensorMemoryLayout::INTERLEAVED
+          ? std::nullopt
+          : std::make_optional(shardSpec)};
   return memoryConfig;
 }
 
+::tt::tt_metal::DistributedTensorConfig distributedTensorConfigFromFlatbuffer(
+    const ::tt::target::DistributionStrategy *strategy) {
+  switch (strategy->strategy_type()) {
+  case ::tt::target::DistributedTensorConfig::ReplicateTensor: {
+    return ::tt::tt_metal::ReplicateTensor(
+        strategy->strategy_as_ReplicateTensor()->replication_factor());
+  }
+  case ::tt::target::DistributedTensorConfig::ShardTensor: {
+    return ::tt::tt_metal::ShardTensor(
+        strategy->strategy_as_ShardTensor()->shard_dim());
+  }
+  case ::tt::target::DistributedTensorConfig::ShardTensor2D: {
+    uint32_t y = strategy->strategy_as_ShardTensor2D()->shard_mesh()->y();
+    uint32_t x = strategy->strategy_as_ShardTensor2D()->shard_mesh()->x();
+    ::tt::tt_metal::ShardMesh mesh(y, x);
+    return ::tt::tt_metal::ShardTensor2D(mesh);
+  }
+  case ::tt::target::DistributedTensorConfig::AllGatherTensor: {
+    return ::tt::tt_metal::AllGatherTensor();
+  }
+  case ::tt::target::DistributedTensorConfig::NONE: {
+    LOG_FATAL("Unsupported distributed tensor config");
+  }
+  }
+}
 } // namespace tt::runtime::ttnn::operations::utils

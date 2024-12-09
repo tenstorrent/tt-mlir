@@ -10,29 +10,12 @@
 #include <cstdint>
 #include <vector>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wctad-maybe-unsupported"
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#pragma clang diagnostic ignored "-Wunused-variable"
-#pragma clang diagnostic ignored "-Wignored-qualifiers"
-#pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
-#pragma clang diagnostic ignored "-Wvla-extension"
-#pragma clang diagnostic ignored "-Wsign-compare"
-#pragma clang diagnostic ignored "-Wcast-qual"
-#pragma clang diagnostic ignored "-Wdeprecated-this-capture"
-#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
-#pragma clang diagnostic ignored "-Wsuggest-override"
-#pragma clang diagnostic ignored "-Wgnu-anonymous-struct"
-#pragma clang diagnostic ignored "-Wnested-anon-types"
-#pragma clang diagnostic ignored "-Wreorder-ctor"
-#pragma clang diagnostic ignored "-Wmismatched-tags"
-#pragma clang diagnostic ignored "-Wunused-function"
-#pragma clang diagnostic ignored "-Wunused-local-typedef"
 #define FMT_HEADER_ONLY
 #include "distributed/mesh_device.hpp"
+#include "eth_l1_address_map.h"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#pragma clang diagnostic pop
+#include "noc/noc_parameters.h"
 
 namespace tt::runtime::system_desc {
 static ::tt::target::Dim2d toFlatbuffer(const CoreCoord &coreCoord) {
@@ -51,11 +34,11 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
     break;
   }
 
-  throw std::runtime_error("Unsupported arch");
+  LOG_FATAL("Unsupported arch");
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -226,7 +209,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
-    chipDescs.push_back(::tt::target::CreateChipDesc(
+    chipDescs.emplace_back(::tt::target::CreateChipDesc(
         fbb, toFlatbuffer(device->arch()), &deviceGrid,
         device->l1_size_per_core(), device->num_dram_channels(),
         device->dram_size_per_channel(), L1_ALIGNMENT, PCIE_ALIGNMENT,
@@ -247,10 +230,16 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   // Extract chip connected channels
   std::vector<::tt::target::ChipChannel> allConnections =
       getAllDeviceConnections(devices);
+  // Store CPUDesc
+  std::vector<::flatbuffers::Offset<tt::target::CPUDesc>> cpuDescs;
+  cpuDescs.emplace_back(::tt::target::CreateCPUDesc(
+      fbb, ::tt::target::CPURole::Host,
+      fbb.CreateString(std::string(TARGET_TRIPLE))));
+
   // Create SystemDesc
   auto systemDesc = ::tt::target::CreateSystemDescDirect(
-      fbb, &chipDescs, &chipDescIndices, &chipCapabilities, &chipCoords,
-      &allConnections);
+      fbb, &cpuDescs, &chipDescs, &chipDescIndices, &chipCapabilities,
+      &chipCoords, &allConnections);
   ::ttmlir::Version ttmlirVersion = ::ttmlir::getVersion();
   ::tt::target::Version version(ttmlirVersion.major, ttmlirVersion.minor,
                                 ttmlirVersion.patch);
@@ -258,8 +247,8 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       fbb, &version, ::ttmlir::getGitHash(), "unknown", systemDesc);
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(fbb, root);
   ::flatbuffers::Verifier verifier(fbb.GetBufferPointer(), fbb.GetSize());
-  if (not ::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
-    throw std::runtime_error("Failed to verify system desc root buffer");
+  if (!::tt::target::VerifySizePrefixedSystemDescRootBuffer(verifier)) {
+    LOG_FATAL("Failed to verify system desc root buffer");
   }
   uint8_t *buf = fbb.GetBufferPointer();
   auto size = fbb.GetSize();

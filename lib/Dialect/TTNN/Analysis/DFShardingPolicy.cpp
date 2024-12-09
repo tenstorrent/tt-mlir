@@ -8,8 +8,7 @@
 
 namespace mlir::tt::ttnn {
 
-void DFShardingPolicy::run(
-    const std::unordered_set<Edge> &overrideReshardEdges) {
+void DFShardingPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
     DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
@@ -88,24 +87,23 @@ void DFShardingPolicy::run(
             // currentOp output tensor shard spec, nextOp exec and nextOp output
             // tensor.
             //
-            tt::LayoutAttr currentOpLayout =
+            TTNNLayoutAttr currentOpLayout =
                 legalLayouts.lookup(currentOp).front();
             assert(currentOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> currentOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(currentOp->getResult(0).getType())
                     .getShape();
-            uint64_t currentOpL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-                currentOpOutputTensorShape, currentOpLayout,
-                currentOpLayout.getMemorySpace());
+            uint64_t currentOpL1OutputUsage =
+                currentOpLayout.getTensorSizeInBytes(currentOpOutputTensorShape,
+                                                     deviceAttr);
 
-            tt::LayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
+            TTNNLayoutAttr nextOpLayout = legalLayouts.lookup(nextOp).front();
             assert(nextOpLayout.hasShardedL1TensorMemoryLayout());
             llvm::ArrayRef<int64_t> nextOpOutputTensorShape =
                 mlir::cast<RankedTensorType>(nextOp->getResult(0).getType())
                     .getShape();
-            uint64_t nextOpL1OutputUsage = deviceAttr.getLayoutSizeBytes(
-                nextOpOutputTensorShape, nextOpLayout,
-                nextOpLayout.getMemorySpace());
+            uint64_t nextOpL1OutputUsage = nextOpLayout.getTensorSizeInBytes(
+                nextOpOutputTensorShape, deviceAttr);
 
             // Figure out this const based on exec data, but will be replaced
             // with API.
@@ -116,37 +114,40 @@ void DFShardingPolicy::run(
 
             if (l1UsageValid) {
               // TODO(nobradovic)
-              // It seems that bunch of TTNN ops have constraints which prevent
+              // It seems that some TTNN ops have constraints which prevent
               // them from being sharded if both inputs are interleaved,
               // so proposal for now is starting a shard chain
-              // with reshard op(at later phase only when necessary based on op
-              // type) For this reason we also need to validate that currentOp
-              // can fit into L1 with its first input sharded.
+              // with reshard op. For this reason we also need to validate that
+              // currentOp can fit into L1 with its first input sharded.
               //
               bool firstInputL1UsageValid = true;
-              if (l1ChainConfigs->back().isEmpty()) {
+              if (l1ChainConfigs->back().isEmpty() &&
+                  (!ShardSolver::supportsInterleavedInputShardedOutput(
+                       currentOp) ||
+                   overrideReshardEdges.count(
+                       Edge(currentOp->getOperand(0).getDefiningOp(), currentOp,
+                            0)) > 0)) {
                 RankedTensorType firstOpInputTensorType =
                     mlir::cast<RankedTensorType>(currentOp->getOperand(0)
                                                      .getDefiningOp()
                                                      ->getResult(0)
                                                      .getType());
-                tt::LayoutAttr firstOpInputLayout = mlir::cast<tt::LayoutAttr>(
+                TTNNLayoutAttr firstOpInputLayout = mlir::cast<TTNNLayoutAttr>(
                     firstOpInputTensorType.getEncoding());
 
-                tt::LayoutAttr firstOpInputShardedLayout =
+                TTNNLayoutAttr firstOpInputShardedLayout =
                     firstOpInputLayout
-                        .withMemorySpace(currentOp->getContext(),
-                                         currentOpLayout.getMemorySpace())
+                        .withBufferType(currentOp->getContext(),
+                                        currentOpLayout.getBufferType())
                         .withMemoryLayout(currentOp->getContext(),
                                           currentOpLayout.getMemLayout())
                         .withGrid(currentOp->getContext(),
                                   firstOpInputTensorType,
                                   currentOpLayout.getGrid());
 
-                uint64_t firstInputL1Usage = deviceAttr.getLayoutSizeBytes(
-                    firstOpInputTensorType.getShape(),
-                    firstOpInputShardedLayout,
-                    firstOpInputShardedLayout.getMemorySpace());
+                uint64_t firstInputL1Usage =
+                    firstOpInputShardedLayout.getTensorSizeInBytes(
+                        firstOpInputTensorType.getShape(), deviceAttr);
 
                 firstInputL1UsageValid =
                     (firstInputL1Usage + currentOpL1OutputUsage) <
@@ -193,18 +194,41 @@ void DFShardingPolicy::run(
     ShardSolver shardSolver = l1ChainConfig.resolveWithSolver(
         legalLayouts, usableL1CacheSize, overrideReshardEdges);
 
-    // TODO(nobradovic)
-    // For now dummy fetch first legal(largest grid) for shard spec.
-    //
-    for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
-      Operation *op = shardSpec.op;
-      auto validLayouts = shardSolver.at(op);
-      shardSolver.set(op, *validLayouts.begin());
-    }
+    pickOpShardLayouts(shardSolver, l1ChainConfig);
 
     ShardSolverSolution resolvedShardSolution = shardSolver.finish();
     l1ChainConfig.complete(resolvedShardSolution.selectedOpLayout,
                            resolvedShardSolution.memReconfigEdges);
+  }
+}
+
+void DFShardingPolicy::pickOpShardLayouts(ShardSolver &shardSolver,
+                                          const L1ChainConfig &l1ChainConfig) {
+  llvm::DenseMap<Operation *, SmallVector<float, 64>> accMaxCoreUsage =
+      shardSolver.produceMaxCoreUsage();
+  for (const auto &shardSpec : l1ChainConfig.getOpL1MemSpecs()) {
+    Operation *op = shardSpec.op;
+    ShardSolver::RemainingLayoutAttrs validLayouts = shardSolver.at(op);
+    const TTNNLayoutAttr *selectedLayout = validLayouts.begin().get();
+    float maxCoreUsage = 0;
+    for (auto layoutIterator = validLayouts.begin();
+         layoutIterator != validLayouts.end(); ++layoutIterator) {
+      if (accMaxCoreUsage[op][layoutIterator.index()] > maxCoreUsage) {
+        maxCoreUsage = accMaxCoreUsage[op][layoutIterator.index()];
+        selectedLayout = layoutIterator.get();
+      } else if (accMaxCoreUsage[op][layoutIterator.index()] == maxCoreUsage) {
+        assert(layoutIterator->getMemLayout() &&
+               "TensorMemoryLayout is not set");
+        // If we have a tie, prefer layout that is not BlockSharded.
+        //
+        if (layoutIterator->getMemLayout().getValue() !=
+            ttnn::TensorMemoryLayout::BlockSharded) {
+          selectedLayout = layoutIterator.get();
+        }
+      }
+    }
+
+    shardSolver.set(op, *selectedLayout);
   }
 }
 

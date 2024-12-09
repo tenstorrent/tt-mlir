@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from typing import Callable, Dict, Tuple
+import inspect
+from typing import Callable, Dict, List, Optional
 
 import torch
 from ttmlir.dialects import func
@@ -28,81 +29,27 @@ def _dump_module(module: Module) -> None:
     print(module)
 
 
-def _run_ttmlir_translate_ttmetal(
-    input_file_name: str, output_file_name: str = "ttmetal_fb.ttm"
-):
-    """
-    Util function running `ttmlir-translate` tool on a file containing dumped TTMetal
-    module. It produces flatbuffer file `output_file_name`.
-    """
-    import subprocess
-
-    res = subprocess.run(
-        " ".join(
-            [
-                f"ttmlir-translate",
-                "--ttmetal-to-flatbuffer",
-                input_file_name,
-                "-o",
-                output_file_name,
-            ]
-        ),
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    assert (
-        res.returncode == 0
-    ), f"Running ttmlir-translate failed with: {res.stdout.decode('utf-8')}"
-    return res
-
-
-def _run_ttmlir_translate_ttnn(
-    input_file_name: str, output_file_name: str = "ttnn_fb.ttnn"
-):
-    """
-    Util function running `ttmlir-translate` tool on a file containing dumped TTNN
-    module. It produces flatbuffer file `output_file_name`.
-    """
-    import subprocess
-
-    res = subprocess.run(
-        " ".join(
-            [
-                f"ttmlir-translate",
-                "--ttnn-to-flatbuffer",
-                input_file_name,
-                "-o",
-                output_file_name,
-            ]
-        ),
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    assert (
-        res.returncode == 0
-    ), f"Running ttmlir-translate failed with: {res.stdout.decode('utf-8')}"
-    return res
-
-
-# ----- Decorators for doing passes and compiling to flatbuffer -----
+#  ----- General Purpose Helpers - Could Be Used In Other Files -----
 
 
 def compile_as_mlir_module(
-    *inputs_shapes: Tuple[Shape],
+    test_fn: Callable,
+    inputs_shapes: List[Shape],
     module_dump: bool = False,
 ):
     """
-    Decorator to define a MLIR module specified as a python function.
+    Define a MLIR module specified as a python function.
 
-    It will wrap decorated test function in a MLIR FuncOp and then wrap that in a MLIR
+    It will wrap `test_fn` in a MLIR FuncOp and then wrap that in a MLIR
     module, and finally tie arguments of that FuncOp to test function inputs. It will
     also pass a `TTIRBuilder` object as the last argument of test function.
 
     Arguments
     ---------
-    inputs_shapes: Tuple[Shape]
+    test_fn : Callable
+        Python function to be converted to MLIR
+
+    inputs_shapes: List[Shape]
         Shapes of the respective ranked tensor inputs of the test function.
 
     module_dump: bool
@@ -114,18 +61,16 @@ def compile_as_mlir_module(
 
     Returns
     -------
-    MLIR module containing MLIR op graph defined by decorated test function.
+    MLIR module containing MLIR op graph defined by `test_fn`
 
     Example
     -------
 
     ```python
-        @compile_as_mlir_module((32, 32), (32, 32))
         def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
             return builder.add(in0, in1)
 
-
-        test_add() # NOTE Called without arguments.
+        compile_as_mlir_module(test_add, ((32, 32), (32, 32)))
     ```
 
     which returns
@@ -148,52 +93,51 @@ def compile_as_mlir_module(
     https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
     """
 
-    def decorator(test_fn: Callable):
-        # test_fn should be called with no args.
-        def wrapper():
-            ctx = Context()
-            loc = Location.unknown(ctx)
-            # Instantiate builder which is passed as the last argument to
-            # `test_fn` so the user can use it to build ops.
-            builder = TTIRBuilder(ctx, loc)
+    ctx = Context()
 
-            with ctx, loc:
-                test_fn_input_types = [
-                    builder.ranked_tensor_type(input_shape)
-                    for input_shape in inputs_shapes
-                ]
+    # Grab the location of the test function in python for later debugging
+    try:
+        fname = inspect.getfile(test_fn)
+        line_no = inspect.getsourcelines(test_fn)[1]
+        loc = Location.file(fname, line_no, 0, ctx)
+    except (OSError, TypeError):
+        loc = Location.unknown(ctx)
 
-                # Wrap everything in a mlir module.
-                module = Module.create()
+    # Instantiate builder which is passed as the last argument to
+    # `test_fn` so the user can use it to build ops.
+    builder = TTIRBuilder(ctx, loc)
 
-                with InsertionPoint(module.body):
-                    # Wrap everything in a mlir function.
-                    @func.func(*test_fn_input_types, name=test_fn.__name__)
-                    def decorated_func(*inputs):
-                        # Randomly generate golden tensors for function inputs.
-                        for i in inputs:
-                            builder.generate_and_store_random_golden(i)
+    with ctx, loc:
+        test_fn_input_types = [
+            builder.ranked_tensor_type(input_shape) for input_shape in inputs_shapes
+        ]
 
-                        return test_fn(*inputs, builder=builder)
+        # Wrap everything in a mlir module.
+        module = Module.create()
 
-                print(
-                    f"`{test_fn.__name__}` sucessfully transformed into a MLIR module."
-                )
+        with InsertionPoint(module.body):
+            # Wrap everything in a mlir function.
+            @func.func(*test_fn_input_types, name=test_fn.__name__)
+            def decorated_func(*inputs):
+                # Randomly generate golden tensors for function inputs.
+                for index, i in enumerate(inputs):
+                    builder.generate_input_golden(i, index)
 
-                if module_dump:
-                    _dump_module(module)
+                return test_fn(*inputs, builder=builder)
 
-                return module
+        print(f"`{test_fn.__name__}` sucessfully transformed into a MLIR module.")
 
-        return wrapper
+        if module_dump:
+            _dump_module(module)
 
-    return decorator
+        return module, builder
 
 
 def ttir_to_ttnn(
+    module,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
-    system_desc_path: str = "",
+    system_desc_path: Optional[str] = None,
 ):
     """
     Converts TTIR module to TTNN module and optionally dumps to file.
@@ -207,232 +151,184 @@ def ttir_to_ttnn(
 
     output_file_name: str
         Name of the output file.
+
+    Returns
+    -------
+    MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
     """
 
-    def decorator(fn: Callable):
-        def wrapper(*args, **kwargs):
-            # First, call the decorated function to get the MLIR module.
-            module = fn(*args, **kwargs)
+    # Default to the `SYSTEM_DESC_PATH` envvar
+    if system_desc_path is None:
+        system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
-            assert isinstance(module, Module), (
-                f"Make sure this decorator is used on top of "
-                f"`compile_as_mlir_module` decorator."
-            )
+    # Now, pass it through the TTIR to TTNN pipeline. Module gets
+    # modified in place.
+    ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={system_desc_path}")
 
-            # Now, pass it through the TTIR to TTNN pipeline. Module gets
-            # modified in place.
-            ttir_to_ttnn_backend_pipeline(
-                module, f"system-desc-path={system_desc_path}"
-            )
+    print("`ttir_to_ttnn_backend_pipeline` passed successfully.")
 
-            print("`ttir_to_ttnn_backend_pipeline` passed successfully.")
+    # Optionally dump to file.
+    if dump_to_file:
+        with open(output_file_name, "w") as f:
+            f.write(str(module))
 
-            # Optionally dump to file.
-            if dump_to_file:
-                with open(output_file_name, "w") as f:
-                    f.write(str(module))
-
-            return output_file_name
-
-        return wrapper
-
-    return decorator
+    return module
 
 
 def ttir_to_ttmetal(
+    module,
     dump_to_file: bool = True,
     output_file_name: str = "test.mlir",
-    return_module: bool = False,
-    system_desc_path: str = "",
+    system_desc_path: Optional[str] = None,
 ):
     """
-    Converts TTIR module to TTMetal module and optionally dumps to file.
+    Converts TTIR module `module` to TTMetal module and optionally dumps to file.
 
     Wrapper around `ttir_to_ttmetal_backend_pipeline` pybound pass.
 
     Arguments
     ---------
+    module: ???
+        TTIR module to convert to TTMetal module
+
     dump_to_file: bool
         Flag which indicates that generated TTMetal module will be dumped to file.
 
     output_file_name: str
         Name of the output file.
 
-    return_module: bool
-        Flag through which one chooses to return the generated module or name of the
-        file in which module was dumped (i.e. `output_file_name`). Exists only to
-        accommodate both `ttmetal_to_flatbuffer` and `translate_ttmetal_to_flatbuffer`.
+    Returns
+    -------
+    MLIR module containing MLIR op graph defined by `module` and instance of TTIRBuilder.
     """
 
-    def decorator(fn: Callable):
-        def wrapper(*args, **kwargs):
-            # First, call the decorated function to get the MLIR module.
-            module = fn(*args, **kwargs)
+    # Default to the `SYSTEM_DESC_PATH` envvar
+    if system_desc_path is None:
+        system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
-            assert isinstance(module, Module), (
-                f"Make sure this decorator is used on top of "
-                f"`compile_as_mlir_module` decorator."
-            )
+    # Now, pass it through the TTIR to TTMetal pipeline. Module gets
+    # modified in place.
+    ttir_to_ttmetal_backend_pipeline(module, f"system-desc-path={system_desc_path}")
 
-            # Now, pass it through the TTIR to TTMetal pipeline. Module gets
-            # modified in place.
-            ttir_to_ttmetal_backend_pipeline(
-                module, f"system-desc-path={system_desc_path}"
-            )
+    print("`ttir_to_ttmetal_backend_pipeline` passed successfully.")
 
-            print("`ttir_to_ttmetal_backend_pipeline` passed successfully.")
+    # Optionally dump to file.
+    if dump_to_file:
+        with open(output_file_name, "w") as f:
+            f.write(str(module))
 
-            # Optionally dump to file.
-            if dump_to_file:
-                with open(output_file_name, "w") as f:
-                    f.write(str(module))
+    return module
 
-            return module if return_module else output_file_name
 
-        return wrapper
+def ttnn_to_flatbuffer(
+    module,
+    builder,
+    output_file_name: str = "ttnn_fb.ttnn",
+):
+    """
+    Converts TTNN module to flatbuffer and saves to file. Wrapper around
+    `ttnn_to_flatbuffer_file` pybound pass.
+    """
 
-    return decorator
+    # Convert to flatbuffer file.
+    ttnn_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
+
+    print("`ttnn_to_flatbuffer_file` passed successfully.")
 
 
 def ttmetal_to_flatbuffer(
-    output_file_name: str = "ttmetal_fb.ttmg", golden_info: Dict[Operand, Golden] = None
+    module,
+    builder,
+    output_file_name: str = "ttmetal_fb.ttm",
 ):
     """
-    NOTE NOT WORKING, DO NOT USE.
+    Converts TTMetal module to flatbuffer and saves to file. Wrapper around
+    `ttmetal_to_flatbuffer_file` pybound pass.
+    """
 
-    Converts TTMetal module to flatbuffer and saves to file, meant to be used as a
-    decorator on top of `ttir_to_ttmetal` decorator. Take note that `ttir_to_ttmetal`
-    has to return module instead of file name if decorated with this decorator.
+    # Convert to flatbuffer file.
+    ttmetal_to_flatbuffer_file(module, output_file_name, builder.get_golden_map())
 
-    Wrapper around `ttmetal_to_flatbuffer_file` pybound pass.
+    print("`ttmetal_to_flatbuffer_file` passed successfully.")
 
-    TODO Optional golden info is passed to be embedded in flatbuffer as well.
 
-    TODO Decorating a test function with this, i.e. calling
-    `ttmetal_to_flatbuffer_file` will result in
+# ----- Decorators for doing passes and compiling to flatbuffer -----
 
-    'LLVM ERROR: Building op `emitc.constant` but it isn't known in this MLIRContext:
-    the dialect may not be loaded or this operation hasn't been added by the dialect.'
 
-    To circumvent this, `ttmlir-translate` is run on file that
-    `ttir_to_ttmetal_backend_pipeline` produces to generate TTMetal flatbuffer file,
-    which this decorator was supposed to generate. Use `translate_ttmetal_to_flatbuffer`
-    to achieve this, and make `ttir_to_ttmetal` return file name instead of module.
+def compile_to_flatbuffer(
+    inputs_shapes: List[Shape],
+    test_name: Optional[str] = None,
+    targets: List[str] = ["ttmetal", "ttnn"],
+    module_dump: bool = False,
+):
+    """
+    Decorator to run an e2e Python -> Flatbuffer test using the decorated
+    function, using the TTNN and/or TTMetal backends.
+
+    This decorator is mainly a wrapper around the following functions, with
+    each next function called on the output of the last:
+
+    1. `compile_as_mlir_module`
+    2. `ttir_to_tt{nn,metal}`
+    3. `tt{nn,metal}_to_flatbuffer`
+
+    The choice of TTNN, TTMetal, or both is controlled by membership of those
+    strings in the `targets` parameter.
+
+    Arguments
+    ---------
+
+    inputs_shapes: List[Shape]
+        Shapes of the respective ranked tensor inputs of the test function.
+
+    test_name: Optional[str]
+        The string to be used as the base name for dumped files throughout the
+        process. If `None` is provided, then the `__name__` of the decorated
+        function will be used.
+
+    targets: List[str]
+        A list that can only contain the following strings: 'ttnn' or
+        'ttmetal'. Inclusion in this list will signal this decorator to execute
+        their respective backend paths. Either, neither, or both are valid inputs.
+
+    module_dump: bool
+        Set to True to print out generated MLIR module.
+
+    Example
+    -------
+
+    ```python
+        @compile_and_convert(((32, 32), (32, 32)), test_name="test_add")
+        def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            return builder.add(in0, in1)
+
+        test_add() # NOTE: called without arguments
+    ```
     """
 
     def decorator(test_fn: Callable):
-        def wrapper(*args, **kwargs):
-            # Get the TTMetal module by calling the wrapped function.
-            module = test_fn(*args, **kwargs)
 
-            assert isinstance(module, Module), (
-                f"Make sure `ttir_to_ttmetal` which was decorated with this function "
-                f"returns module, not file name."
-            )
+        # Snoop the name of `test_fn` if no override to the test name is provided
+        if test_name is None:
+            test_base = test_fn.__name__
+        else:
+            test_base = test_name
 
-            # Convert to flatbuffer file.
-            ttmetal_to_flatbuffer_file(module, output_file_name)
+        def wrapper():
 
-            print("`ttmetal_to_flatbuffer_file` passed successfully.")
+            # NOTE: since `ttir_to_tt{nn,metal} modifies the module in place,
+            # `compile_as_mlir_module` needs to be run twice in the case that
+            # both targets are chosen
 
-        return wrapper
+            if "ttmetal" in targets:
+                module, builder = compile_as_mlir_module(test_fn, inputs_shapes)
+                module = ttir_to_ttmetal(module, builder, test_base + ".mlir")
+                ttmetal_to_flatbuffer(module, builder, test_base + ".ttm")
 
-    return decorator
-
-
-def translate_ttmetal_to_flatbuffer(output_file_name: str = "ttmetal_fb.ttm"):
-    """
-    NOTE Substitutes `ttmetal_to_flatbuffer` decorator.
-
-    By running `ttmlir-translate` on input file, it produces TTMetal flatbuffer file
-    `output_file_name`, meant to be used as a decorator on top of `ttir_to_ttmetal`
-    decorator. Take note that `ttir_to_ttmetal` has to return file name instead of
-    module if decorated with this decorator.
-
-    Wrapper around `ttmlir-translate` call.
-
-    Example
-    -------
-
-    ```python
-    @translate_ttmetal_to_flatbuffer(output_file_name="ttmetal_fb_test_add.ttm")
-    @ttir_to_ttmetal(dump_to_file=True, output_file_name="test_add.mlir", return_module=False)
-    @compile_as_mlir_module((32, 32), (32, 32))
-    def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        # CHECK: %0 = tensor.empty() : tensor<32x32xf32>
-        # CHECK: %1 = "ttir.add"(%arg0, %arg1, %0)
-        # CHECK: return %1 : tensor<32x32xf32>
-
-        return builder.add(in0, in1)
-        ```
-    """
-
-    def decorator(fn: Callable):
-        def wrapper(*args, **kwargs):
-            input_file_name = fn(*args, **kwargs)
-
-            assert isinstance(input_file_name, str) and os.path.isfile(
-                input_file_name
-            ), (
-                f"Make sure `ttir_to_ttmetal` which was decorated with this function "
-                f"returns file name, not module."
-            )
-
-            res = _run_ttmlir_translate_ttmetal(input_file_name, output_file_name)
-
-            print(
-                f"Flatbuffer file for TTMetalBinary {output_file_name} successfully generated."
-            )
-
-            return res.returncode
-
-        return wrapper
-
-    return decorator
-
-
-def translate_ttnn_to_flatbuffer(output_file_name: str = "ttnn_fb.ttnn"):
-    """
-
-    By running `ttmlir-translate` on input file, it produces TTNN flatbuffer file
-    `output_file_name`, meant to be used as a decorator on top of `ttir_to_ttnn`
-    decorator.
-
-    Wrapper around `ttmlir-translate` call.
-
-    Example
-    -------
-
-    ```python
-    @translate_ttnn_to_flatbuffer(output_file_name="ttnn_fb_test_add.ttm")
-    @ttir_to_ttnn(dump_to_file=True, output_file_name="test_add.mlir")
-    @compile_as_mlir_module((32, 32), (32, 32))
-    def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        # CHECK: %0 = tensor.empty() : tensor<32x32xf32>
-        # CHECK: %1 = "ttir.add"(%arg0, %arg1, %0)
-        # CHECK: return %1 : tensor<32x32xf32>
-
-        return builder.add(in0, in1)
-        ```
-    """
-
-    def decorator(fn: Callable):
-        def wrapper(*args, **kwargs):
-            input_file_name = fn(*args, **kwargs)
-            assert isinstance(input_file_name, str) and os.path.isfile(
-                input_file_name
-            ), (
-                f"Make sure `ttir_to_ttnn` which was decorated with this function "
-                f"returns file name, not module."
-            )
-
-            res = _run_ttmlir_translate_ttnn(input_file_name, output_file_name)
-
-            print(
-                f"Flatbuffer file for TTNNBinary {output_file_name} successfully generated."
-            )
-
-            return res.returncode
+            if "ttnn" in targets:
+                module, builder = compile_as_mlir_module(test_fn, inputs_shapes)
+                module = ttir_to_ttnn(module, builder, test_base + ".mlir")
+                ttnn_to_flatbuffer(module, builder, test_base + ".ttnn")
 
         return wrapper
 

@@ -5,28 +5,43 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include <llvm/Support/CommandLine.h>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
+#include "mlir/IR/BuiltinTypes.h"
+
 namespace mlir::tt::ttnn::utils {
 
-// Map TT::MemorySpace to TTNN::BufferType
+// Map tt::MemorySpace to ttnn::BufferType
 //
 mlir::tt::ttnn::BufferType
 toTTNNBufferType(const mlir::tt::MemorySpace memorySpace);
 
-// Map TT::TensorMemoryLayout to TTNN::TensorMemoryLayout
+// Map tt::TensorMemoryLayout to ttnn::TensorMemoryLayout
 //
 ttnn::TensorMemoryLayout
 toTTNNTensorMemoryLayout(const tt::TensorMemoryLayout ttTensorMemoryLayout);
 
-DataType getDataTypeFromMemRef(mlir::MemRefType memref);
+// Map ttnn::BufferType to tt::MemorySpace
+//
+mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
+    const ::mlir::tt::ttnn::TensorMemoryLayout ttnnTensorMemoryLayout);
 
-Layout getLayoutFromMemRef(mlir::MemRefType memref);
+// Map ttnn::BufferType to tt::MemorySpace
+//
+mlir::tt::MemorySpace
+toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);
+
+// Helper method to create a RankedTensorType with the given encoding
+RankedTensorType
+createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
+                                   ttnn::TTNNLayoutAttr encoding);
 
 } // namespace mlir::tt::ttnn::utils
 

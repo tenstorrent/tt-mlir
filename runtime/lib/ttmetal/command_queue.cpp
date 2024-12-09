@@ -137,7 +137,7 @@ void CQExecutor::execute(::tt::target::metal::Command const *command) {
     break;
   }
   default:
-    throw std::runtime_error("Unsupported command type");
+    LOG_FATAL("Unsupported command type");
     break;
   }
 }
@@ -303,7 +303,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     computeConfig.math_approx_mode =
         kernelSource->config_as_TensixConfig()->math_approx_mode();
 
-    auto unpackToDestModeVec =
+    auto const *unpackToDestModeVec =
         kernelSource->config_as_TensixConfig()->unpack_to_dest_mode();
     computeConfig.unpack_to_dest_mode.reserve(unpackToDestModeVec->size());
 
@@ -328,7 +328,7 @@ createKernelConfig(::tt::target::metal::KernelSource const *kernelSource) {
     break;
   }
   }
-  throw std::runtime_error("Unsupported kernel source type");
+  LOG_FATAL("Unsupported kernel source type");
 }
 
 static ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
@@ -346,7 +346,7 @@ static ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
   case ::tt::target::DataType::UInt8:
     return ::tt::DataFormat::UInt8;
   default:
-    throw std::runtime_error("Unsupported data type");
+    LOG_FATAL("Unsupported data type");
   }
 }
 
@@ -358,7 +358,7 @@ static CoreType toCoreType(::tt::target::metal::CoreType coreType) {
   case ::tt::target::metal::CoreType::ETH:
     return CoreType::ETH;
   }
-  throw std::runtime_error("Unsupported core type");
+  LOG_FATAL("Unsupported core type");
 }
 
 static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
@@ -370,9 +370,13 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
       cbRef->desc()->memory_desc()->size() * cbRef->desc()->num_buffers();
   ::tt::DataFormat dataFormat =
       toDataFormat(cbRef->desc()->memory_desc()->data_type());
-  LOG_ASSERT(cbRef->tensor_ref());
-  LOG_ASSERT(cbRef->tensor_ref()->address() == cbRef->address(),
-             "Address mismatch between tensor ref and cb ref");
+
+  if (!cbRef->tensor_ref()) {
+    return CircularBufferConfig(totalSize,
+                                {{cbRef->desc()->port(), dataFormat}})
+        .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  }
+
   return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
                               *buffers.at(cbRef->tensor_ref()->global_id()))
       .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
@@ -423,7 +427,7 @@ static void processRuntimeArgs(
       break;
     }
     case ::tt::target::metal::RuntimeArg::NONE:
-      throw std::runtime_error("Unsupported runtime arg type");
+      LOG_FATAL("Unsupported runtime arg type");
     }
   }
 
@@ -463,7 +467,19 @@ void CQExecutor::execute(
       }
       ::tt::tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, buffers);
-      ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      CBHandle cbHandle =
+          ::tt::tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+
+      if (!cbRef->tensor_ref()) {
+        // Internally allocated CBs are not associated with any tensor ref. We
+        // need to set the address of the CB manually.
+        std::shared_ptr<CircularBuffer> cbPtr =
+            tt_metal::detail::GetCircularBuffer(program, cbHandle);
+        assert(!cbPtr->globally_allocated() &&
+               "CB should not be globally allocated");
+        cbPtr->set_locally_allocated_address(cbRef->address());
+      }
+
       createdCBs.insert(cbRef->desc()->port());
     }
 
@@ -500,7 +516,7 @@ void CQExecutor::execute(
     break;
   }
   default:
-    throw std::runtime_error("Unsupported HostBuffer type");
+    LOG_FATAL("Unsupported HostBuffer type");
   }
 }
 
@@ -508,7 +524,7 @@ void CQExecutor::execute(
     ::tt::target::metal::EnqueueReadBufferCommand const *command) {
   ZoneScopedN("EnqueueReadBufferCommand");
   // Maybe we will need this in the future, like paging to system mem?
-  throw std::runtime_error("Unsupported EnqueueReadBufferCommand");
+  LOG_FATAL("Unsupported EnqueueReadBufferCommand");
 }
 
 void CQExecutor::execute(

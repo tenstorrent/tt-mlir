@@ -17,6 +17,12 @@ func.func @sum_last_2_dims(%arg0: tensor<1x32x512x64xbf16>) -> tensor<1x32xbf16>
   return %1 : tensor<1x32xbf16>
 }
 
+func.func @sum_first_dim(%arg0: tensor<64x10xf32>) -> tensor<1x10xf32> {
+  %0 = tensor.empty() : tensor<1x10xf32>
+  %1 = "ttir.sum"(%arg0, %0) <{dim_arg = [-2 : i32], keep_dim = true, operand_constraints = [#any_device, #any_device]}> : (tensor<64x10xf32>, tensor<1x10xf32>) -> tensor<1x10xf32>
+  return %1: tensor<1x10xf32>
+}
+
 func.func @mean(%arg0: tensor<1x1x512x64xbf16>) -> tensor<1x1x512xbf16> {
   %0 = tensor.empty() : tensor<1x1x512xbf16>
   // CHECK: %[[C:.*]] = "ttnn.mean"[[C:.*]]

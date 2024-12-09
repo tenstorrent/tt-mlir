@@ -59,6 +59,13 @@ class Query:
             choices=[True, False],
             help="suppress system desc from being printed",
         )
+        Query.register_arg(
+            name="--result-file",
+            type=str,
+            default="query_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Query.registered_args.items():
@@ -153,7 +160,7 @@ class Query:
         else:
             self.logging.error(f"FAIL: getting system_desc failed")
 
-        self.results.save_results("query_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing query API")
 

@@ -70,13 +70,6 @@ def TTIRLayout: Pass<"ttir-layout", "::mlir::ModuleOp"> {
   ];
 }
 
-def TTIRSlidingWindow2dFixShapes: Pass<"ttir-sliding-window-2d-fix-shapes", "::mlir::ModuleOp"> {
-  let summary = "Insert reshapes on the input and output of 2-dimensional sliding window ops that collapse N,H,W on the input: i.e (N, H, W, C) --> (1, 1, N*H*W, C), and unflatten the output: i.e (1, 1, N*H*W, C) --> (N, H, W, C)";
-  let description = [{
-    Insert reshapes on the input and output of 2-dimensional sliding window ops that collapse N,H,W on the input: i.e (N, H, W, C) --> (1, 1, N*H*W, C), and unflatten the output: i.e (1, 1, N*H*W, C) --> (N, H, W, C)
-  }];
-}
-
 def TTIRSplitCompoundLayout: Pass<"ttir-split-compound-layout", "::mlir::ModuleOp"> {
   let summary = "Split compound layouts.";
   let description = [{
@@ -117,6 +110,19 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   list<Option> options = [
         Option<"path", "path", "std::string", "", "System desc path">,
     ];
+}
+
+def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
+  let summary = "Broadcast operation is folded to all the consumers.";
+  let description = [{
+    This pass walks through the graph and folds all broadcast instructions since broadcast is supported implicitly by backend ops.
+    Example:
+      %1 = "ttir.broadcast"(%arg0) (tensor<1xf32>) -> tensor<512xf32>
+      %2 = "ttir.maximum"(%1, %arg1) (tensor<512xf32>, tensor<512xf32>) -> tensor<512xf32>
+
+      This above broadcast is folded as:
+      %1 = "ttir.maximum"(%arg0, %arg1) (tensor<1xf32>, tensor<512xf32>) -> tensor<512xf32>
+  }];
 }
 
 #endif

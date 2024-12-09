@@ -8,18 +8,14 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
 namespace mlir::tt::ttnn {
-
-// Optimizer
-#define GEN_PASS_DECL
-#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
-
-#define GEN_PASS_REGISTRATION
-#include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
 
 // TTNN Passes
 #define GEN_PASS_DECL

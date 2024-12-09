@@ -33,7 +33,6 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   ::ttnn::Layout layout = toTTNNLayout(op->layout());
   std::optional<::ttnn::DataType> dtype = std::nullopt;
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
-  ::ttnn::Device *device = nullptr;
 
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
@@ -44,18 +43,21 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
         std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
   }
 
+  ::ttnn::Tensor out;
   if (op->device()) {
-    device = &context.getDeviceFromView(op->device()->global_id(), 0);
-  }
-
-  ::ttnn::Tensor out =
-      ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig, device);
-
-  if (tensorPool.isUserOutput(op->out()->global_id())) {
-    tensorPool.copyTensorToUserOutput(out, op->out()->global_id());
+    DeviceVariant targetDevice =
+        context.getTargetDevice(op->device()->global_id());
+    out = std::visit(
+        [&](auto &&targetDevice) -> ::ttnn::Tensor {
+          return ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
+                                   &(targetDevice.get()));
+        },
+        targetDevice);
   } else {
-    tensorPool.insert_or_assign(op->out()->global_id(), out);
+    out = ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig,
+                            static_cast<::ttnn::Device *>(nullptr));
   }
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout

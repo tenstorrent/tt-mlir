@@ -38,11 +38,46 @@ mlir::tt::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     return ttnn::TensorMemoryLayout::BlockSharded;
   case ::mlir::tt::TensorMemoryLayout::SingleBank:
     return ttnn::TensorMemoryLayout::SingleBank;
-  case ::mlir::tt::TensorMemoryLayout::None:
-    return ttnn::TensorMemoryLayout::None;
+  default:
+    llvm_unreachable("Unknown TensorMemoryLayout");
+  }
+}
+
+mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
+    const ::mlir::tt::ttnn::TensorMemoryLayout ttnnTensorMemoryLayout) {
+
+  switch (ttnnTensorMemoryLayout) {
+  case ttnn::TensorMemoryLayout::HeightSharded:
+    return ::mlir::tt::TensorMemoryLayout::HeightSharded;
+  case ttnn::TensorMemoryLayout::Interleaved:
+    return ::mlir::tt::TensorMemoryLayout::Interleaved;
+  case ttnn::TensorMemoryLayout::WidthSharded:
+    return ::mlir::tt::TensorMemoryLayout::WidthSharded;
+  case ttnn::TensorMemoryLayout::BlockSharded:
+    return ::mlir::tt::TensorMemoryLayout::BlockSharded;
+  case ttnn::TensorMemoryLayout::SingleBank:
+    return ::mlir::tt::TensorMemoryLayout::SingleBank;
   }
 
   llvm_unreachable("Unknown TensorMemoryLayout");
+}
+
+mlir::tt::MemorySpace
+toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
+  switch (bufferType) {
+  case ttnn::BufferType::SystemMemory:
+    return MemorySpace::System;
+  case ttnn::BufferType::DRAM:
+    return MemorySpace::DeviceDRAM;
+  case ttnn::BufferType::L1:
+    return MemorySpace::DeviceL1;
+  case ttnn::BufferType::L1Small:
+    assert(false && "BufferType::L1Small not supported");
+  case ttnn::BufferType::Trace:
+    assert(false && "BufferType::Trace not supported");
+  }
+
+  llvm_unreachable("Unknown MemorySpace");
 }
 
 DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
@@ -95,6 +130,14 @@ Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   case DataType::UInt8:
     return IntegerType::get(context, 8);
   }
+}
+
+// Helper method to create a RankedTensorType with the given encoding
+RankedTensorType
+createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
+                                   ttnn::TTNNLayoutAttr encoding) {
+  return RankedTensorType::get(tensorType.getShape(),
+                               tensorType.getElementType(), encoding);
 }
 
 } // namespace mlir::tt::ttnn::utils

@@ -17,6 +17,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h.inc"
+#include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
 

@@ -18,6 +18,11 @@ src_dir = os.environ.get(
     "SOURCE_ROOT",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."),
 )
+# Use 'src_dir/build' as default location if TTMLIR_BINARY_DIR env variable is not available.
+ttmlir_build_dir = os.environ.get(
+    "TTMLIR_BINARY_DIR",
+    os.path.join(src_dir, "build"),
+)
 toolchain = os.environ.get("TTMLIR_TOOLCHAIN_DIR", "/opt/ttmlir-toolchain")
 metaldir = f"{src_dir}/third_party/tt-metal/src/tt-metal-build"
 ttmetalhome = os.environ.get("TT_METAL_HOME", "")
@@ -26,6 +31,7 @@ os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
 enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
 enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
 enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
+enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
 enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
 debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
 configure_workarounds_runtime = os.environ.get("TT_RUNTIME_WORKAROUNDS", "OFF") == "ON"
@@ -37,12 +43,12 @@ ext_modules = [
         include_dirs=[
             f"{toolchain}/include",
             f"{src_dir}/runtime/include",
-            f"{src_dir}/build/include",
-            f"{src_dir}/build/include/ttmlir/Target/Common",
+            f"{ttmlir_build_dir}/include",
+            f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
         ],
         libraries=["TTBinary", "flatbuffers"],
         library_dirs=[
-            f"{src_dir}/build/runtime/lib",
+            f"{ttmlir_build_dir}/runtime/lib",
             f"{toolchain}/lib",
         ],
         define_macros=[("VERSION_INFO", __version__)],
@@ -59,14 +65,22 @@ install_requires += ["pybind11"]
 linklibs = ["TTBinary"]
 if enable_ttnn:
     runlibs += ["_ttnn.so"]
-    linklibs += ["TTRuntimeTTNN", "TTRuntimeTTNNOps", ":_ttnn.so"]
+    linklibs += [
+        "TTRuntimeTTNN",
+        "TTRuntimeTTNNOps",
+        "TTRuntimeTTNNHelpers",
+        ":_ttnn.so",
+    ]
+
+if enable_ttnn and enable_runtime_tests:
+    linklibs += ["TTRuntimeTTNNTestHelpers"]
 
 if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
     linklibs += ["TTRuntimeTTMetal", "tt_metal"]
 
 if enable_ttnn or enable_ttmetal:
-    runlibs += ["libdevice.so", "libnng.so.1", "libuv.so.1", "libfmt.so.11"]
+    runlibs += ["libdevice.so"]
     linklibs += ["TTRuntimeSysDesc", "TTRuntimeDebug", "TTRuntimeWorkarounds"]
 
 if enable_perf:
@@ -80,13 +94,13 @@ if enable_runtime:
     for dylib in runlibs:
         shutil.copy(
             f"{metaldir}/lib/{dylib}",
-            f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
+            f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
         )
         command = [
             "patchelf",
             "--set-rpath",
             "$ORIGIN",
-            f"{src_dir}/build/runtime/tools/python/ttrt/runtime/{dylib}",
+            f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/{dylib}",
         ]
 
         try:
@@ -103,7 +117,7 @@ if enable_runtime:
     for dylib in perflibs:
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
+            f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
         )
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
@@ -169,7 +183,7 @@ if enable_runtime:
     # copy metal dir folder
     shutil.copytree(
         f"{ttmetalhome}/tt_metal",
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal",
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tt_metal",
         dirs_exist_ok=True,
         ignore=tt_metal_ignore_folders,
     )
@@ -177,14 +191,14 @@ if enable_runtime:
     # copy runtime dir folder
     shutil.copytree(
         f"{ttmetalhome}/runtime",
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime",
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/runtime",
         dirs_exist_ok=True,
     )
 
     # copy kernels
     shutil.copytree(
         f"{ttmetalhome}/ttnn",
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/ttnn",
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/ttnn",
         dirs_exist_ok=True,
     )
 
@@ -198,16 +212,16 @@ if enable_runtime:
         return paths
 
     extra_files_tt_metal = package_files(
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tt_metal/"
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tt_metal/"
     )
     extra_files_runtime = package_files(
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/runtime/"
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/runtime/"
     )
     extra_files_ttnn = package_files(
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/ttnn/"
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/ttnn/"
     )
     extra_files_tests = package_files(
-        f"{src_dir}/build/runtime/tools/python/ttrt/runtime/tests/"
+        f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime/tests/"
     )
 
     metallibs += extra_files_tt_metal
@@ -222,18 +236,19 @@ if enable_runtime:
             include_dirs=[
                 f"{toolchain}/include",
                 f"{src_dir}/runtime/include",
-                f"{src_dir}/build/include",
-                f"{src_dir}/build/include/ttmlir/Target/Common",
+                f"{ttmlir_build_dir}/include",
+                f"{ttmlir_build_dir}/include/ttmlir/Target/Common",
             ],
             libraries=["TTRuntime"] + linklibs + ["flatbuffers"],
             library_dirs=[
-                f"{src_dir}/build/runtime/lib",
-                f"{src_dir}/build/runtime/lib/common",
-                f"{src_dir}/build/runtime/lib/ttnn",
-                f"{src_dir}/build/runtime/lib/ttnn/operations",
-                f"{src_dir}/build/runtime/lib/ttmetal",
+                f"{ttmlir_build_dir}/runtime/lib",
+                f"{ttmlir_build_dir}/runtime/lib/common",
+                f"{ttmlir_build_dir}/runtime/lib/ttnn",
+                f"{ttmlir_build_dir}/runtime/lib/ttnn/operations",
+                f"{ttmlir_build_dir}/runtime/lib/ttmetal",
+                f"{ttmlir_build_dir}/runtime/test",
                 f"{toolchain}/lib",
-                f"{src_dir}/build/runtime/tools/python/ttrt/runtime",
+                f"{ttmlir_build_dir}/runtime/tools/python/ttrt/runtime",
                 f"{metaldir}/lib",
             ],
             define_macros=[
@@ -243,6 +258,7 @@ if enable_runtime:
                     "TT_RUNTIME_WORKAROUNDS",
                     "1" if configure_workarounds_runtime else "0",
                 ),
+                ("TTMLIR_ENABLE_RUNTIME_TESTS", "1" if enable_runtime_tests else "0"),
             ],
         )
     )

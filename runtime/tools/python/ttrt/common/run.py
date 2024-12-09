@@ -18,6 +18,7 @@ import atexit
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
+from ttrt.common.golden import golden
 
 
 class Run:
@@ -124,27 +125,6 @@ class Run:
             help="enable async mode device execution for TTNN runtime",
         )
         Run.register_arg(
-            name="--disable-ignore-tile-shape",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable ignore tile shape workaround",
-        )
-        Run.register_arg(
-            name="--disable-empty-op-row-major",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable empty op force row major workaround",
-        )
-        Run.register_arg(
-            name="--disable-full-op-row-major",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable full op force row major workaround",
-        )
-        Run.register_arg(
             name="--disable-maxpool2d-preshard",
             type=bool,
             default=False,
@@ -152,18 +132,32 @@ class Run:
             help="disable maxpool2d preshard workaround",
         )
         Run.register_arg(
-            name="--disable-matmul-1d-program-config",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable matmul 1d program config workaround",
-        )
-        Run.register_arg(
             name="--disable-swap-binary-operands",
             type=bool,
             default=False,
             choices=[True, False],
             help="disable swap binary operands workaround",
+        )
+        Run.register_arg(
+            name="--disable-read-update-index-for-kv-cache",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable read update index for kv cache workaround",
+        )
+        Run.register_arg(
+            name="--result-file",
+            type=str,
+            default="run_results.json",
+            choices=None,
+            help="test file to save results to",
+        )
+        Run.register_arg(
+            name="--golden",
+            type=bool,
+            default=True,
+            choices=[True, False],
+            help="run golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="binary",
@@ -354,22 +348,23 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
+            if self["--golden"]:
+                callback_env = ttrt.runtime.DebugHooks.get(golden)
+
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
             self.logging.debug(f"setting tt runtime debug env={debug_env}")
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
-                not self["--disable-ignore-tile-shape"],
-                not self["--disable-empty-op-row-major"],
-                not self["--disable-full-op-row-major"],
                 not self["--disable-maxpool2d-preshard"],
-                not self["--disable-matmul-1d-program-config"],
                 not self["--disable-swap-binary-operands"],
+                not self["--disable-read-update-index-for-kv-cache"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_runtime(binaries[0].fbb)
+            current_runtime = ttrt.runtime.get_current_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
@@ -390,8 +385,21 @@ class Run:
                             )
 
                             program = bin.get_program(program_index)
+                            golden_inputs = []
+
+                            for i in range(len(program.program["inputs"])):
+                                golden_tensor = bin.fbb.get_debug_info_golden(
+                                    f"input_{i}"
+                                )
+
+                                if len(golden_tensor) != 0:
+                                    golden_inputs.append(
+                                        torch.tensor(golden_tensor, dtype=torch.float32)
+                                    )
+
                             program.populate_inputs(
-                                Run.TorchInitializer.get_initilizer(self["--init"])
+                                Run.TorchInitializer.get_initilizer(self["--init"]),
+                                golden_inputs,
                             )
                             program.populate_outputs(
                                 Run.TorchInitializer.get_initilizer("zeros")
@@ -436,20 +444,43 @@ class Run:
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
+                                if (
+                                    current_runtime
+                                    == ttrt.runtime.DeviceRuntime.TTMetal
+                                ):
+                                    event = ttrt.runtime.submit(
+                                        device,
+                                        bin.fbb,
+                                        program_index,
+                                        total_inputs[loop],
+                                        total_outputs[loop],
+                                    )
 
-                                event = ttrt.runtime.submit(
-                                    device,
-                                    bin.fbb,
-                                    program_index,
-                                    total_inputs[loop],
-                                    total_outputs[loop],
-                                )
+                                elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
+                                    runtime_outputs = ttrt.runtime.submit(
+                                        device,
+                                        bin.fbb,
+                                        program_index,
+                                        total_inputs[loop],
+                                    )
+                                    ttrt.runtime.wait(runtime_outputs)
+                                    for i, runtime_output_tensor in enumerate(
+                                        runtime_outputs
+                                    ):
+                                        ttrt.runtime.memcpy(
+                                            total_outputs[loop][i],
+                                            runtime_output_tensor,
+                                        )
+                                        ttrt.runtime.deallocate_tensor(
+                                            runtime_output_tensor, force=True
+                                        )
 
                                 self.logging.debug(
                                     f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
                                 )
 
-                            ttrt.runtime.wait(event)
+                            if event is not None:
+                                ttrt.runtime.wait(event)
 
                             if self["--identity"]:
                                 self.logging.debug(
@@ -556,7 +587,7 @@ class Run:
             else:
                 self.logging.error(f"ERROR: test case={bin.file_path}")
 
-        self.results.save_results("run_results.json")
+        self.results.save_results(self["--result-file"])
 
         self.logging.debug(f"------finished postprocessing run API")
 
@@ -616,7 +647,7 @@ class Run:
         return run_parser
 
     class TorchInitializer:
-        init_fns = sorted(["randn", "arange", "zeros"])
+        init_fns = sorted(["randn", "arange", "zeros", "ones"])
 
         @staticmethod
         def get_initilizer(name):
@@ -633,6 +664,10 @@ class Run:
         @staticmethod
         def randn(shape, dtype):
             import torch
+
+            if dtype in (torch.uint8, torch.uint16, torch.uint32):
+                high = torch.iinfo(dtype).max + 1
+                return torch.randint(0, high, shape, dtype=dtype)
 
             return torch.randn(shape, dtype=dtype)
 
@@ -653,3 +688,9 @@ class Run:
             import torch
 
             return torch.zeros(shape, dtype=dtype)
+
+        @staticmethod
+        def ones(shape, dtype):
+            import torch
+
+            return torch.ones(shape, dtype=dtype)

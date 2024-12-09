@@ -9,6 +9,6 @@ func.func public @test_maxpool2d(%arg0: tensor<1x128x128x32xbf16>) -> tensor<1x6
     stablehlo.return %3 : tensor<bf16>
   }) : (tensor<1x128x128x32xbf16>, tensor<bf16>) -> tensor<1x64x64x32xbf16>
   // CHECK: %[[C:.*]] = tensor.empty[[C:.*]]
-  // CHECK: %[[C:.*]] = "ttir.max_pool2d"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttir.pooling"[[C:.*]]
   return %2 : tensor<1x64x64x32xbf16>
 }

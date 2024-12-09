@@ -6,8 +6,8 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_LEGALGRIDANALYSIS_H
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TT/Utils/OverrideParams.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TTNNAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir::tt::ttnn {
@@ -43,7 +43,7 @@ struct LegalGridAnalysisInput {
 };
 
 class LegalGridAnalysis
-    : public TTNNAnalysis<LegalGridAnalysisInput, std::vector<tt::LayoutAttr>> {
+    : public TTNNAnalysis<LegalGridAnalysisInput, std::vector<TTNNLayoutAttr>> {
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;

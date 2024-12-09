@@ -23,7 +23,7 @@ struct OpL1MemSpec {
 
   // Layout of the output tensor of the op.
   //
-  tt::LayoutAttr layout;
+  TTNNLayoutAttr layout;
 };
 
 // Enum to track the state of the L1 chain.
@@ -47,18 +47,18 @@ public:
   L1ChainConfig() : opL1MemSpecs(), state() {}
 
   ShardSolver resolveWithSolver(
-      const llvm::DenseMap<Operation *, std::vector<tt::LayoutAttr>>
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
       unsigned usableL1CacheSize,
       const std::unordered_set<Edge> &overrideReshardEdges);
   void resolve();
   void build();
   void
-  complete(const llvm::DenseMap<Operation *, tt::LayoutAttr> &selectedOpLayout,
+  complete(const llvm::DenseMap<Operation *, TTNNLayoutAttr> &selectedOpLayout,
            std::unordered_set<Edge> &memReconfigEdges);
 
   bool isEmpty() { return opL1MemSpecs.empty(); }
-  void addOpL1MemSpec(OpL1MemSpec &&spec) {
+  void addOpL1MemSpec(OpL1MemSpec spec) {
     assert(state == L1ChainState::InBuild);
     l1ChainedOps.insert(spec.op);
     opL1MemSpecs.push_back(std::move(spec));

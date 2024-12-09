@@ -5,7 +5,7 @@
 # User Guide
 
 - [Building](./build.md)
-  - [Internal Build Notes / IRD](./internal-build.md)
+  - [Docker Notes](./docker-notes.md)
 - [Tools](./tools.md)
   - [ttmlir-opt](./ttmlir-opt.md)
   - [ttmlir-translate](./ttmlir-translate.md)
@@ -23,6 +23,7 @@
 - [Project Structure](./project-structure.md)
 - [Dialects Overview](./dialects-overview.md)
 - [Adding an op](./adding-an-op.md)
+- [Decomposing an op in TTIR](./decomposing-an-op-in-ttir.md)
 - [Doxygen](./doxygen.md)
 - [Specifications](./specs/specs.md)
   - [Runtime Stitching](./specs/runtime-stitching.md)
