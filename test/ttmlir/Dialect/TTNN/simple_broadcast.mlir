@@ -8,5 +8,4 @@ module @jit_broadcast attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replic
     %2 = tensor.empty() : tensor<512x512xf32>
     %3 = "ttir.maximum"(%1, %arg1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<512x512xf32>, tensor<512x512xf32>, tensor<512x512xf32>) -> tensor<512x512xf32>
     return %3 : tensor<512x512xf32>
-  }
 }

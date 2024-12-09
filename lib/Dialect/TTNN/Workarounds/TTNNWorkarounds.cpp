@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "Broadcast.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -467,29 +468,6 @@ public:
           op, op.getType(), reduceScatterOp.getResult(), deviceValue,
           scatter_dim);
     }
-    return success();
-  }
-};
-
-// Fold the BroadcastOp if Operand 0 of the instruction requires broadcast. 
-// Otherwise add a dummy instruction to apply the broadcast for other operands.
-// TODO(uazizTT): Canonicalize the instructions such that broadcast operand is moved to operand 0. 
-
-class TTNNBroadcastWorkaround : public OpRewritePattern<ttnn::BroadcastOp> {
-public:
-  using OpRewritePattern<ttnn::BroadcastOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttnn::BroadcastOp op,
-                                PatternRewriter &rewriter) const override {
-
-    auto ConsumerOp = op->getUsers().begin();
-    for (auto eachOp : ConsumerOp->getOperands()) {
-      if (eachOp.getDefiningOp() == op) {
-        //::mlir::tt::DataType dType = op.getResult().getType().getElementType().isInteger();
-        rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(op, op.getType(), op.getOperand(0), DataType::UInt32);
-      }
-    }
-
     return success();
   }
 };
