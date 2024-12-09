@@ -26,11 +26,8 @@ public:
     auto empty = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultTy.getShape(), resultTy.getElementType(),
         resultTy.getEncoding());
-    auto operandConstraints = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1,
-        rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::AnyDevice)));
-    rewriter.replaceOpWithNewOp<ttir::FillOp>(
-        op, resultTy, empty, op.getValue(), operandConstraints);
+    rewriter.replaceOpWithNewOp<ttir::FillOp>(op, resultTy, empty,
+                                              op.getValue());
     return success();
   }
 };
