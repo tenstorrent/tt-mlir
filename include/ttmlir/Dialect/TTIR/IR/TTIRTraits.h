@@ -87,6 +87,33 @@ private:
   }
 };
 
+template <typename ConcreteType>
+class TTIRBinaryIdempotence
+    : public mlir::TypeTrait::TraitBase<ConcreteType, TTIRBinaryIdempotence> {
+public:
+  static mlir::LogicalResult foldTrait(mlir::Operation *op,
+                                       ArrayRef<Attribute> operands,
+                                       SmallVectorImpl<OpFoldResult> &results) {
+    if (isFoldableOperation(op)) {
+      results.push_back(op->getOperand(0));
+      return mlir::success();
+    }
+    return mlir::failure();
+  }
+
+private:
+  // Op is foldable iff:
+  // 1. Both inputs are the same.
+  // 2. Inputs and result types are the same.
+  static bool isFoldableOperation(mlir::Operation *op) {
+    if (op->getOperand(0) != op->getOperand(1)) {
+      return false;
+    }
+
+    return op->getResult(0).getType() == op->getOperand(0).getType();
+  }
+};
+
 } // namespace OpTrait
 } // namespace ttir
 } // namespace tt
