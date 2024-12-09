@@ -17,16 +17,16 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <mlir/IR/Operation.h>
 #include <cstdint>
-#include <llvm/ADT/SmallVector.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -390,14 +390,13 @@ public:
     mlir::MemRefType memref = layoutAttr.getMemref();
 
     // Get data type, tensor layout, buffer type and memory config.
-    DataTypeAttr dTypeAttr = DataTypeAttr::get(
-        rewriter.getContext(), layoutAttr.getDataType());
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
 
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(),
-        ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+        op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
         ttnn::ShardSpecAttr::get(
             op.getContext(),
             ttnn::ShapeAttr::get(rewriter.getContext(), memref.getShape())),
