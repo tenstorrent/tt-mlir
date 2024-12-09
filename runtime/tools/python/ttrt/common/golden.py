@@ -103,7 +103,7 @@ def get_atol_rtol_pcc(golden, calculated):
     )
 
 
-def golden(binary, programContext, opContext):
+def golden(runtimeConfig, binary, programContext, opContext):
     import torch
     import ttrt.runtime
     import ttrt.binary
@@ -148,11 +148,61 @@ def golden(binary, programContext, opContext):
             op_output_tensor, dtype=torch.float32
         ).flatten()
 
+        torch.save(golden_tensor_torch, f"{runtimeConfig.artifact_dir}/{loc}_golden.pt")
+        torch.save(output_tensor_torch, f"{runtimeConfig.artifact_dir}/{loc}_device.pt")
+
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch, output_tensor_torch
         )
 
         print(f"PCC={cal_pcc}")
         print(output_str)
+
+        results = {}
+        results["expected_pcc"] = runtimeConfig.pcc
+        results["actual_pcc"] = cal_pcc
+        results["atol"] = runtimeConfig.atol
+        results["rtol"] = runtimeConfig.rtol
+        results["allclose"] = torch.allclose(
+            golden_tensor_torch,
+            output_tensor_torch,
+            atol=runtimeConfig.atol,
+            rtol=runtimeConfig.rtol,
+        )
+        results["max"] = torch.max(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["mean_absolute_error"] = torch.mean(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["root_mean_square_error"] = torch.sqrt(
+            torch.mean((golden_tensor_torch - output_tensor_torch) ** 2)
+        ).item()
+        results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+            golden_tensor_torch.unsqueeze(0), output_tensor_torch.unsqueeze(0)
+        ).item()
+
+        # Create golden result json file if doesn't exist
+        golden_results_file_path = f"{runtimeConfig.artifact_dir}/golden_results.json"
+        if not os.path.exists(golden_results_file_path):
+            with open(golden_results_file_path, "w") as f:
+                json.dump({}, f)
+
+        with open(golden_results_file_path, "r") as f:
+            try:
+                data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError(
+                        f"Invalid JSON format: Expected a dict but got {type(data).__name__}"
+                    )
+            except json.JSONDecodeError:
+                data = {}
+
+        data[loc] = results
+        with open(golden_results_file_path, "w") as f:
+            json.dump(data, f, indent=4)
+
+        print(f"Saved golden results to={golden_results_file_path}")
+
     finally:
         print("-----------finished executing golden comparision-----------")

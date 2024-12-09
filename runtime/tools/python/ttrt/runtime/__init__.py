@@ -11,6 +11,7 @@ try:
         DeviceRuntime,
         DebugEnv,
         DebugHooks,
+        RuntimeConfig,
         get_current_runtime,
         set_current_runtime,
         set_compatible_runtime,

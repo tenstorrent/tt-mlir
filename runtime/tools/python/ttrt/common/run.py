@@ -104,6 +104,13 @@ class Run:
             help="atol for golden test",
         )
         Run.register_arg(
+            name="--pcc",
+            type=float,
+            default=0.99,
+            choices=None,
+            help="pcc for golden test",
+        )
+        Run.register_arg(
             name="--seed",
             type=int,
             default=0,
@@ -373,6 +380,9 @@ class Run:
                     try:
                         self.logging.info(f"evaluating binary={bin.file_path}")
 
+                        if self["--save-artifacts"]:
+                            self.artifacts.create_binary_artifacts_folder(bin)
+
                         program_indices = []
                         if self["--program-index"] == "all":
                             program_indices.extend(range(bin.get_num_programs()))
@@ -440,6 +450,12 @@ class Run:
                                 total_outputs.append(outputs)
 
                             event = None
+                            runtime_env = ttrt.runtime.RuntimeConfig.get(
+                                self["--atol"],
+                                self["--rtol"],
+                                self["--pcc"],
+                                f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}",
+                            )
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -519,6 +535,26 @@ class Run:
                                 self.logging.debug(f"{tensor}\n")
 
                             device.deallocate_buffers()
+
+                            # if golden comparison is enabled, check golden results json file to see if test passed
+                            if self["--golden"]:
+                                golden_results_file_path = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
+                                if os.path.exists(golden_results_file_path):
+                                    with open(golden_results_file_path, "r") as f:
+                                        golden_results = json.load(f)
+
+                                        for loc, golden_data in golden_results.items():
+                                            if (
+                                                golden_data["actual_pcc"]
+                                                < golden_data["expected_pcc"]
+                                            ):
+                                                raise Exception(
+                                                    f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
+                                                )
+                                else:
+                                    raise Exception(
+                                        f"Failed: golden results file does not exist={golden_results_file_path} for program={program_index}"
+                                    )
                     except Exception as e:
                         test_result = {
                             "file_path": bin.file_path,
