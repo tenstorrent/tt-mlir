@@ -34,6 +34,17 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
     This pass applies necessary TTNN workarounds to the IR in order to create
     a valid and functional IR that can be executed on the hardware.
   }];
+
+  let options = [
+      Option<"layouotWorkaroundsEnabled",
+             "ttnn-enable-layout-workaround-pass",
+             "bool", /*default=*/"false",
+             "TTNN Layout Workarounds Pass">,
+      Option<"decompositionWorkaroundsEnabled",
+             "ttnn-enable-decomposition-workaround-pass",
+             "bool", /*default=*/"true",
+             "TTNN Decompsition Workarounds Pass">,
+  ];
 }
 
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {

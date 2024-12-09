@@ -775,6 +775,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AllGatherOp>>(typeConverter,
                                                               ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::ReduceScatterOp>>(typeConverter,
+                                                                  ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::MeshShardOp>>(typeConverter,
+                                                              ctx);
 
   // Module op
   //

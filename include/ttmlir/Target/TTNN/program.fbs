@@ -268,8 +268,27 @@ table DeallocateOp {
 table AllGatherOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
   dim: uint32;
   num_links: uint32;
+}
+
+table ReduceScatterOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  scatter_split_dim: uint32;
+  math_op: uint32;
+  num_links: uint32;
+}
+
+table MeshShardOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  shard_direction: uint32;
+  shard_type: uint32;
+  shard_shape: [int64];
 }
 
 union OpType {
@@ -295,6 +314,8 @@ union OpType {
   MaxPool2dOp,
   DeallocateOp,
   AllGatherOp,
+  ReduceScatterOp,
+  MeshShardOp,
   ArangeOp,
   UpdateCacheOp,
   FillCacheOp,

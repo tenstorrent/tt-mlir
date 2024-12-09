@@ -903,6 +903,13 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
+    let summary = "Scatter op.";
+    let description = [{
+      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
+      }];
+}
+
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let summary = "All gather op.";
     let description = [{
@@ -910,19 +917,13 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
                          SI32Attr:$dim,
                          DefaultValuedAttr<SI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
-    let summary = "Scatter op.";
-    let description = [{
-      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
-      }];
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
@@ -932,9 +933,46 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
                          SI32Attr:$scatter_split_dim,
-                         TTNN_ReduceType:$math_op,
+                         TT_ReduceTypeAttr:$math_op,
                          DefaultValuedAttr<SI32Attr, "1">:$num_links);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
+    let summary = "All reduce op.";
+    let description = [{
+        Tensor All Reduce operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         SI32Attr:$scatter_dim,
+                         SI32Attr:$scatter_num,
+                         TT_ReduceTypeAttr:$math_op,
+                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
+    let summary = "Mesh shard op.";
+    let description = [{
+        Tensor Mesh Shard operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         TT_MeshShardDirectionAttr:$shard_direction,
+                         TT_MeshShardTypeAttr:$shard_type,
+                         TT_GridAttr:$shard_shape);
+
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;

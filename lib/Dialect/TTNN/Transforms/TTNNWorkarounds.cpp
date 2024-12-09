@@ -20,6 +20,7 @@
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/STLExtras.h"
@@ -374,16 +375,124 @@ public:
   }
 };
 
+//
+// Two workarounds are implemented here to avoid issues in ttnn
+//
+// 1. all_reduce ops are broken down into reduce_scatter and all_gather ops
+// because current support of all_reduce in TTNN is not stable.
+// 2. reduce_scatter op in TTNN currently does not support two dimensional
+// tensor correctly. As a temporary workaround, we insert reshape ops front
+// and back to make the tensor as four dimensional tensor.
+class TTNNAllReduceWorkarounds : public OpRewritePattern<ttnn::AllReduceOp> {
+public:
+  using OpRewritePattern<ttnn::AllReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::AllReduceOp op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getInput().getType());
+    llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
+    size_t scatter_dim = op.getScatterDim();
+    int32_t scatter_num = op.getScatterNum();
+    Value deviceValue = op.getDevice();
+    Location loc = op.getLoc();
+
+    // TODO(wooseoklee): Once it supports two dimensional tensor
+    // (https://github.com/tenstorrent/tt-metal/issues/15010), we can remove
+    // this workaround solution.
+    if (inputTypeShape.size() < 4) {
+      std::vector<int64_t> reshapedInputShape(4, 1);
+      for (size_t i = 0; i < inputTypeShape.size(); ++i) {
+        reshapedInputShape[i + inputTypeShape.size()] = inputTypeShape[i];
+      }
+
+      ArrayAttr reshapedInputShapeAttr =
+          rewriter.getI32ArrayAttr(std::vector<int32_t>(
+              reshapedInputShape.begin(), reshapedInputShape.end()));
+
+      auto reshapedInputType =
+          RankedTensorType::Builder(inputType).setShape(reshapedInputShape);
+
+      ttnn::ReshapeOp preReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+          loc, Type(reshapedInputType), op.getInput(), reshapedInputShapeAttr);
+
+      scatter_dim = scatter_dim + (4 - inputTypeShape.size());
+
+      reshapedInputShape[scatter_dim] =
+          static_cast<int32_t>(reshapedInputShape[scatter_dim] / scatter_num);
+
+      auto scatteredInputType =
+          RankedTensorType::Builder(inputType).setShape(reshapedInputShape);
+
+      ttnn::ReduceScatterOp reduceScatterOp =
+          rewriter.create<ttnn::ReduceScatterOp>(
+              loc, Type(scatteredInputType), preReshapeOp.getResult(),
+              deviceValue, scatter_dim, op.getMathOp());
+
+      RankedTensorType outputType = mlir::cast<RankedTensorType>(op.getType());
+      SmallVector<int64_t> outputTypeShape(outputType.getShape());
+
+      std::vector<int64_t> reshapedOutputShape(4, 1);
+      for (size_t i = 0; i < outputTypeShape.size(); ++i) {
+        reshapedOutputShape[i + outputTypeShape.size()] = outputTypeShape[i];
+      }
+
+      auto reshapedOutputType =
+          RankedTensorType::Builder(outputType).setShape(reshapedOutputShape);
+
+      ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+          loc, Type(reshapedOutputType), reduceScatterOp.getResult(),
+          deviceValue, scatter_dim);
+
+      ArrayAttr reshapedOutputShapeAttr = rewriter.getI32ArrayAttr(
+          std::vector<int32_t>(outputTypeShape.begin(), outputTypeShape.end()));
+
+      rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(op, Type(outputType),
+                                                   allGatherOp.getResult(),
+                                                   reshapedOutputShapeAttr);
+    } else {
+      // TODO(wooseoklee): Once ttnn supports all_reduce op
+      // (https://github.com/tenstorrent/tt-metal/issues/13835), we can convert
+      // directly to ttnn.all_reduce.
+      inputTypeShape[scatter_dim] = inputTypeShape[scatter_dim] / scatter_num;
+      auto scatteredInputType =
+          RankedTensorType::Builder(inputType).setShape(inputTypeShape);
+
+      ttnn::ReduceScatterOp reduceScatterOp =
+          rewriter.create<ttnn::ReduceScatterOp>(loc, Type(scatteredInputType),
+                                                 op.getInput(), deviceValue,
+                                                 scatter_dim, op.getMathOp());
+
+      rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
+          op, op.getType(), reduceScatterOp.getResult(), deviceValue,
+          scatter_dim);
+    }
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
   using impl::TTNNWorkaroundsBase<TTNNWorkarounds>::TTNNWorkaroundsBase;
 
   void runOnOperation() final {
-    {
+    if (decompositionWorkaroundsEnabled) {
       // Placeholder for workaround decomposition patterns.
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+
+      FrozenRewritePatternSet patternSet(std::move(patterns));
+      GreedyRewriteConfig config = GreedyRewriteConfig();
+      config.useTopDownTraversal = true;
+      config.maxIterations = GreedyRewriteConfig::kNoLimit;
+      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
+                                              config))) {
+        signalPassFailure();
+        return;
+      }
     }
-    {
+    if (layouotWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 
