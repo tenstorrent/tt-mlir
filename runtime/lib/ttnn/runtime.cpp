@@ -161,7 +161,7 @@ Tensor createTensor(Device device, Layout layout,
         createOwnedTensor(nullptr, shape, stride, itemsize,
                           utils::fromTTNNDataType(layoutDesc.dataType));
     Tensor out = utils::createRuntimeTensorFromTTNN(tensor);
-    return toLayout(out, device, layout);
+    return ::tt::runtime::ttnn::toLayout(out, device, layout);
   }
   DeviceVariant targetDevice =
       getTargetDevice(device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN));
