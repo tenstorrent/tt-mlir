@@ -1,6 +1,9 @@
 *.cmake @nsmithtt @sdjordjevicTT
 *.fbs @tapspatel @nsmithtt
 *.txt @nsmithtt @sdjordjevicTT
+*.md @nsmithtt
+/docs/ @nsmithtt
+/env/ @nsmithtt
 /.github/ @vmilosevic @tapspatel
 /include/ttmlir/Conversion/TTIRToTTNN/ @sdjordjevicTT @svuckovicTT @mtopalovicTT @rpavlovicTT @jserbedzijaTT @jnie-TT
 /include/ttmlir/Conversion/TTNNToEmitC/ @svuckovicTT @rpavlovicTT @sdjordjevicTT @mtopalovicTT @jserbedzijaTT
@@ -26,3 +29,4 @@
 /test/ttmlir/Silicon/TTNN/optimizer/ @nobradovictt @odjuricicTT
 /test/unittests/Optimizer @nobradovictt @odjuricicTT
 /tools/explorer/ @odjuricicTT @nobradovictt @vprajapati-tt
+/tools/ @svuckovicTT @mtopalovicTT
