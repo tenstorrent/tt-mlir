@@ -71,6 +71,10 @@ ExternalProject_Add(
   BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH}
 )
 
+ExternalProject_Add_StepTargets(tt-metal download configure)
+set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
 set_target_properties(tt-metal PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 list(APPEND library_names TTNN_LIBRARY TTMETAL_LIBRARY DEVICE_LIBRARY)
