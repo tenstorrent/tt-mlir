@@ -132,6 +132,27 @@ inline bool isRankedTensor(mlir::Value v) {
   return mlir::isa<mlir::RankedTensorType>(v.getType());
 }
 
+// Parses an attribute into a two-element vector, commonly used for attributes
+// representing spatial configurations like padding, strides, or dilation
+// where a single integer can apply to all dimensions or a specific 2D
+// configuration can be provided
+inline llvm::SmallVector<int32_t, 2>
+parseAttrToTwoElementVector(mlir::Attribute baseAttr) {
+  llvm::SmallVector<int32_t, 2> result;
+
+  if (const auto attr =
+          mlir::dyn_cast_if_present<mlir::IntegerAttr>(baseAttr)) {
+    result.assign(2, attr.getInt());
+  }
+
+  if (const auto attr = mlir::dyn_cast<mlir::DenseI32ArrayAttr>(baseAttr);
+      attr && attr.size() == 2) {
+    result.append({attr[0], attr[1]});
+  }
+
+  return result;
+}
+
 } // namespace ttmlir::utils
 
 #endif

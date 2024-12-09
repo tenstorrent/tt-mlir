@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/Utils/OperandConstraints.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -324,6 +325,9 @@ public:
         if (operand.getOperandNumber() == 1) {
           modified = changeLayoutToHost(op, operand, rewriter);
         }
+        continue;
+      }
+      else if (mlir::isa<ttir::ConvTranspose2dOp>(op.getOperation()) && !isResult) { 
         continue;
       }
 
