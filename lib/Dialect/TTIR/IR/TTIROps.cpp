@@ -92,16 +92,6 @@
 // GetDimensionSizeOp
 //===----------------------------------------------------------------------===//
 
-// GetDimensionSizeOp folder
-::mlir::OpFoldResult
-mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
-  RankedTensorType inputTensorType = getOperand().getType();
-  uint32_t dimensionIndex = getDimension();
-  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
-
-  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
-}
-
 // GetDimensionSizeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
   RankedTensorType inputTensorType = getOperand().getType();
@@ -114,6 +104,16 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   };
 
   return success();
+}
+
+// GetDimensionSizeOp folder
+::mlir::OpFoldResult
+mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
+  RankedTensorType inputTensorType = getOperand().getType();
+  uint32_t dimensionIndex = getDimension();
+  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+
+  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
 }
 
 //===----------------------------------------------------------------------===//
