@@ -103,7 +103,7 @@ void ProgramExecutor::runCallback(
     std::shared_ptr<void> opContextPtr =
         ::tt::runtime::utils::unsafe_borrow_shared(
             const_cast<::tt::target::ttnn::Operation *>(opContext));
-    (*callback)(executableHandle,
+    (*callback)(debug::RuntimeConfig::get(), executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
   }

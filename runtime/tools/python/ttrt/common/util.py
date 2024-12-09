@@ -409,16 +409,22 @@ class Artifacts:
     def clean_binary_artifacts(self, binary):
         self.file_manager.remove_directory(self.get_binary_folder_path(binary))
 
+    def create_binary_artifacts_folder(self, binary):
+        binary_folder = self.get_binary_folder_path(binary)
+        self.file_manager.create_directory(binary_folder)
+        self.file_manager.create_directory(f"{binary_folder}/run")
+        self.file_manager.create_directory(f"{binary_folder}/perf")
+
+        for program in binary.programs:
+            program_folder = f"{binary_folder}/run/program_{program.index}"
+            self.file_manager.create_directory(program_folder)
+
     def save_binary(self, binary, query=None):
         binary_folder = self.get_binary_folder_path(binary)
 
         self.logging.info(
             f"saving binary={binary.file_path} to binary_folder={binary_folder}"
         )
-        self.file_manager.create_directory(binary_folder)
-        self.file_manager.create_directory(f"{binary_folder}/run")
-        self.file_manager.create_directory(f"{binary_folder}/perf")
-
         self.file_manager.copy_file(f"{binary_folder}", binary.file_path)
 
         for program in binary.programs:
@@ -427,20 +433,19 @@ class Artifacts:
             self.logging.info(
                 f"saving program={program.index} for binary={binary.file_path} to program_folder={program_folder}"
             )
-            self.file_manager.create_directory(program_folder)
 
             for i in range(len(program.input_tensors)):
                 self.save_torch_tensor(
                     program_folder,
                     program.input_tensors[i],
-                    f"program_{program.index}_input_{i}.pt",
+                    f"input_{i}.pt",
                 )
 
             for i in range(len(program.output_tensors)):
                 self.save_torch_tensor(
                     program_folder,
                     program.output_tensors[i],
-                    f"program_{program.index}_output_{i}.pt",
+                    f"output_{i}.pt",
                 )
 
         if query != None:

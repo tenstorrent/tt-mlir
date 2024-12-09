@@ -15,7 +15,8 @@ Env const &Env::get(bool loadKernelsFromDisk, bool enableAsyncTTNN) {
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 Hooks const &Hooks::get(
-    std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+    std::optional<
+        std::function<void(RuntimeConfig, Binary, CallbackContext, OpContext)>>
         operatorCallback) {
   static Hooks config(operatorCallback);
   return config;
@@ -23,6 +24,12 @@ Hooks const &Hooks::get(
 #else
 Hooks get() { return Hooks(); }
 #endif
+
+RuntimeConfig const &RuntimeConfig::get(double atol, double rtol, double pcc,
+                                        std::string artifact_dir) {
+  static RuntimeConfig config(atol, rtol, pcc, artifact_dir);
+  return config;
+}
 
 } // namespace tt::runtime::debug
 

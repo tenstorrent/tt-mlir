@@ -187,10 +187,12 @@ PYBIND11_MODULE(_C, m) {
                   [](py::function func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
                     tt::runtime::debug::Hooks::get(
-                        [func](tt::runtime::Binary binary,
+                        [func](tt::runtime::debug::RuntimeConfig runtimeConfig,
+                               tt::runtime::Binary binary,
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
-                          func(binary, programContext, opContext);
+                          func(runtimeConfig, binary, programContext,
+                               opContext);
                         });
 #else
             tt::runtime::debug::Hooks::get();
@@ -209,6 +211,20 @@ PYBIND11_MODULE(_C, m) {
         os << env;
         return os.str();
       });
+
+  py::class_<tt::runtime::debug::RuntimeConfig>(m, "RuntimeConfig")
+      .def_readonly("atol", &tt::runtime::debug::RuntimeConfig::atol)
+      .def_readonly("rtol", &tt::runtime::debug::RuntimeConfig::rtol)
+      .def_readonly("pcc", &tt::runtime::debug::RuntimeConfig::pcc)
+      .def_readonly("artifact_dir",
+                    &tt::runtime::debug::RuntimeConfig::artifact_dir)
+      .def_static("get", &tt::runtime::debug::RuntimeConfig::get)
+      .def("__str__",
+           [](const tt::runtime::debug::RuntimeConfig &runtimeConfig) {
+             std::stringstream os;
+             os << runtimeConfig;
+             return os.str();
+           });
 
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
   auto testing = m.def_submodule("testing");
