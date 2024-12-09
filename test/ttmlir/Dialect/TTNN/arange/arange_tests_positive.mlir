@@ -1,4 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// UNSUPPORTED: true
+// https://github.com/tenstorrent/tt-mlir/issues/1448
 #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
   func.func @forward(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32> {

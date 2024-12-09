@@ -26,24 +26,10 @@ struct FullTensorConfig {
         fillValue(op->fill_value()), numShards(op->num_shards()),
         strategy(op->strategy()) {
 
-    layout = utils::inferLayoutFromTileShape(op->out());
-
-    // TODO(bug #272), determine correct layout by tile shape in the future
-    // currently tile shape is not set correctly, so as a workaround, hardcode
-    // layout
-    if (workaround::Env::get().ignoreTileShape) {
-      layout = ::ttnn::Layout::TILE;
-    }
-
-    // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
-    // using ROW_MAJOR until we fix it
-    if (workaround::Env::get().fullOpForceRowMajor) {
-      layout = ::ttnn::Layout::ROW_MAJOR;
-    }
+    layout = ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
 
     if (!utils::inSystemMemory(op->out())) {
-      memoryConfig =
-          ::tt::runtime::ttnn::operations::utils::createMemoryConfig(op->out());
+      memoryConfig = ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
     }
     validate();
   }
@@ -72,8 +58,8 @@ createFullOnMultiDevice(ProgramContext &context, FullTensorConfig &config,
   ::tt::tt_metal::DistributedTensorConfig strategy =
       config.distributedTensorConfig();
   std::vector<::ttnn::Tensor> tensorShards;
-  tensorShards.resize(config.numShards);
-  std::generate_n(tensorShards.begin(), config.numShards,
+  tensorShards.reserve(config.numShards);
+  std::generate_n(std::back_inserter(tensorShards), config.numShards,
                   [&config]() -> ::ttnn::Tensor {
                     return ::ttnn::full(config.shape, config.fillValue,
                                         config.dtype, config.layout);
@@ -116,6 +102,6 @@ void run(const ::tt::target::ttnn::FullOp *op, ProgramContext &context) {
   } else {
     LOG_FATAL("Unsupported num shards");
   }
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

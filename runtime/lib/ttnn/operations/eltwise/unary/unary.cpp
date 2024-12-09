@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
 #include "tt/runtime/ttnn/operations/utils.h"
+#include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/copy.hpp"
 
@@ -22,7 +23,7 @@ static void runEltwiseUnaryOp(
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
@@ -39,7 +40,7 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out =
       ttnnOp(*in, false /* parameter */, outputMemoryConfig, std::nullopt);
@@ -56,7 +57,7 @@ static void runEltwiseUnaryWithFloatParameterOp(
 
   float parameter = op->params_as_EltwiseOpWithFloatParams()->parameter();
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      utils::createMemoryConfig(op->out());
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ttnnOp(*in, parameter, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
@@ -124,6 +125,14 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Sign: {
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::sign);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Tan: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::tan);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::Tanh: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::tanh);
     break;
   }
   case ::tt::target::ttnn::EltwiseOpType::Exp: {

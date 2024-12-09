@@ -63,6 +63,12 @@ declare_mlir_python_sources(TTMLIRPythonSources.Overrides
   SOURCES overrides.py
 )
 
+declare_mlir_python_sources(TTMLIRPythonSources.OptimizerOverrides
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES optimizer_overrides.py
+)
+
 declare_mlir_python_sources(TTMLIRPythonSources.Passes
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources
@@ -87,6 +93,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     TTKernelModule.cpp
     TTNNModule.cpp
     Overrides.cpp
+    OptimizerOverrides.cpp
     Passes.cpp
   EMBED_CAPI_LINK_LIBS
     MLIRCAPITransforms

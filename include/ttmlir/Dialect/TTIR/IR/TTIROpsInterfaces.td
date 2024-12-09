@@ -64,11 +64,13 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
   ];
 }
 
-def TTIR_ElementwiseOpInterface : OpInterface<"ElementwiseOp"> {
+def TTIR_Broadcastable : OpInterface<"Broadcastable"> {
   let cppNamespace = "::mlir::tt::ttir";
 
+  let dependentTraits = [AttrSizedOperandSegments];
+
   let verify = [{
-    return detail::verifyElementwiseOp($_op);
+    return detail::verifyBroadcastable($_op);
   }];
 }
 
@@ -105,6 +107,20 @@ def TTIR_GenericRegionOpInterface : OpInterface<"GenericRegionOp"> {
       /*methodBody=*/"",
       /*defaultImplementation=*/""
     >,
+    StaticInterfaceMethod<
+      /*desc=*/[{
+        Return if the given operands have the same rank.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"sameRank",
+      /*args=*/(ins "::mlir::OperandRange":$operands),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return llvm::all_equal(llvm::map_range(operands, [](Value operand) {
+          return mlir::cast<RankedTensorType>(operand.getType()).getRank();
+        }));
+      }]
+    >
   ];
 }
 

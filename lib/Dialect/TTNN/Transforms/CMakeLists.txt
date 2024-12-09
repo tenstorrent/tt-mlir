@@ -1,8 +1,9 @@
 add_mlir_dialect_library(MLIRTTNNTransforms
-        TTNNLayout.cpp
-        Passes.cpp
         Optimizer.cpp
+        Passes.cpp
+        TTNNLayout.cpp
         TTNNToCpp.cpp
+        TTNNWorkarounds.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

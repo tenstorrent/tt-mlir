@@ -50,9 +50,9 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTSystemDescAttrGet(
     size_t chipCoordsSize, MlirAttribute *chipChannels,
     size_t chipChannelsSize);
 
-MLIR_CAPI_EXPORTED MlirAttribute
-ttmlirTTLayoutAttrGet(MlirContext ctx, MlirAffineMap linear, unsigned oobVal,
-                      MlirAttribute grid, MlirType memref, unsigned memLayout);
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTMetalLayoutAttrGet(
+    MlirContext ctx, MlirAffineMap linear, unsigned oobVal, MlirAttribute grid,
+    MlirType memref, unsigned memLayout);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 ttmlirTTMemorySpaceAttrGet(MlirContext ctx, uint32_t memorySpace);

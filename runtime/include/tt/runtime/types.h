@@ -122,10 +122,20 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
-
+  Event event;
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime)
-      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data) {}
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(nullptr, runtime) {}
+
+  Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
+         std::shared_ptr<void> eventHandle, DeviceRuntime runtime)
+      : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
+        event(eventHandle, runtime) {}
+};
+
+struct Layout : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
 };
 
 struct CallbackContext : public detail::RuntimeCheckedObjectImpl {

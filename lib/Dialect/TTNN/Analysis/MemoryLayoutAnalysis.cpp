@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn {
 
@@ -35,14 +36,15 @@ filterShardedOnly(const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
 }
 
 llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-filterL1InterleavedOnly(
+filterDRAMAndL1Interleaved(
     const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
         &legalLayouts) {
   llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> l1InterleavedLayouts;
   for (const auto &opLayouts : legalLayouts) {
     std::vector<TTNNLayoutAttr> opL1InterleavedLayouts;
     for (const auto &layout : opLayouts.second) {
-      if (layout.hasInterleavedL1TensorMemoryLayout()) {
+      if (layout.hasDRAMBufferType() ||
+          layout.hasInterleavedL1TensorMemoryLayout()) {
         opL1InterleavedLayouts.push_back(layout);
       }
     }
@@ -68,7 +70,8 @@ void MemoryLayoutAnalysis::analysisImplementation() {
   }
   case MemoryLayoutAnalysisPolicyType::L1Interleaved: {
     L1InterleavedPolicy l1InterleavedPolicy(
-        op, l1ChainConfigs, filterL1InterleavedOnly(analysisInput.legalLayouts),
+        op, l1ChainConfigs,
+        filterDRAMAndL1Interleaved(analysisInput.legalLayouts),
         analysisResult.schedule, analysisInput.usableL1CacheSize);
     l1InterleavedPolicy.run();
     break;

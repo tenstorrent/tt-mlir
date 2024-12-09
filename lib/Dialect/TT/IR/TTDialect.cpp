@@ -13,13 +13,13 @@
 using namespace mlir;
 using namespace mlir::tt;
 
-// This is needed to hoist tt.layout attributes as named attributes declared at
-// the module level.
+// This is needed to hoist tt.metal_layout attributes as named attributes
+// declared at the module level.
 struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
   using OpAsmDialectInterface::OpAsmDialectInterface;
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
-    if (llvm::isa<LayoutAttr>(attr)) {
+    if (llvm::isa<MetalLayoutAttr>(attr)) {
       os << "layout";
       return AliasResult::OverridableAlias;
     }

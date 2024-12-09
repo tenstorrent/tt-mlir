@@ -338,11 +338,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Shape attribute must be non-empty");
   }
 
-  // Check that the shape attribute has at most 5 elements
-  if (shape_size > 5) {
-    return emitOpError("Shape attribute must have at most 5 elements");
-  }
-
   // Cardinality of the input and output tensors must be the same
   if (inputType.getNumElements() != outputType.getNumElements()) {
     return emitOpError(
@@ -387,6 +382,15 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   return success();
+}
+
+// ReshapeOp folder
+::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
+
+  if (getType() == getOperand(0).getType()) {
+    return getOperand(0);
+  }
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -908,9 +912,9 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 mlir::tt::ttir::ToLayoutOp::CompoundComponents
 mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   auto inputLayout =
-      mlir::cast<tt::LayoutAttr>(getInput().getType().getEncoding());
+      mlir::cast<tt::MetalLayoutAttr>(getInput().getType().getEncoding());
   auto outputLayout =
-      mlir::cast<tt::LayoutAttr>(getOutput().getType().getEncoding());
+      mlir::cast<tt::MetalLayoutAttr>(getOutput().getType().getEncoding());
   bool isLayoutChange = inputLayout.getLinear() != outputLayout.getLinear();
   bool isGridChange = inputLayout.getGrid() != outputLayout.getGrid();
   bool isShardChange =
@@ -1216,7 +1220,7 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 
 // AllocOp verification
 ::mlir::LogicalResult mlir::tt::ttir::AllocOp::verify() {
-  auto layout = mlir::dyn_cast_or_null<mlir::tt::LayoutAttr>(
+  auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
     return emitOpError("Result type missing layout attribute");
@@ -1284,6 +1288,223 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 
   if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
     return emitOpError("Invalid dimension for all gather op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceOp
+//===----------------------------------------------------------------------===//
+
+// AllReduceOp verification
+::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
+  ::mlir::RankedTensorType inputType =
+      mlir::cast<RankedTensorType>(getInputs().front().getType());
+  int32_t dim = getDim();
+
+  if (dim >= inputType.getRank()) {
+    return emitOpError("Invalid dimension for all_reduce op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MeshShardOp
+//===----------------------------------------------------------------------===//
+
+// MeshShardOp verification
+::mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
+  auto shardType = getShardType();
+
+  // currently we are only supporting replicate or devices from StableHLO
+  if (shardType != mlir::tt::MeshShardType::Replicate &&
+      shardType != mlir::tt::MeshShardType::Devices) {
+    return emitOpError("Invalid shard_type for mesh_shard op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ScatterOp
+//===----------------------------------------------------------------------===//
+
+bool matchSimpleBlock(mlir::Region &region) {
+  if (!region.hasOneBlock()) {
+    return false;
+  }
+  mlir::Block &block = region.front();
+  if (block.getNumArguments() != 2) {
+    return false;
+  }
+  auto argType1 =
+      mlir::cast<mlir::RankedTensorType>(block.getArgument(0).getType());
+  auto argType2 =
+      mlir::cast<mlir::RankedTensorType>(block.getArgument(1).getType());
+  if (!argType1 || !argType2) {
+    return false;
+  }
+  if (block.getOperations().size() != 1) {
+    return false;
+  }
+  mlir::tt::ttir::YieldOp returnOp =
+      mlir::cast<mlir::tt::ttir::YieldOp>(&block.front());
+  if (!returnOp) {
+    return false;
+  }
+  if (returnOp.getNumOperands() != 1 ||
+      returnOp.getOperand(0) != block.getArgument(1)) {
+    return false;
+  }
+  return true;
+}
+
+::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
+
+  ArrayRef<int64_t> inputShape =
+      mlir::cast<RankedTensorType>(getInput().getType()).getShape();
+
+  if (getUpdateWindowDims().size() + getInsertedWindowDims().size() !=
+      inputShape.size()) {
+    return emitOpError("Batching currently not supported");
+  }
+
+  for (uint64_t insertedWindowDims : getInsertedWindowDims()) {
+    if (inputShape[insertedWindowDims] != 1) {
+      return emitOpError("Dimension size to slice into must be 1");
+    }
+  }
+
+  // We currently do not support custom functions in the scatter function,
+  // which is a possbility in StableHLO dialect. See issue:
+  // https://github.com/tenstorrent/tt-mlir/issues/1278
+  if (!matchSimpleBlock(getUpdateComputation())) {
+    return emitOpError(
+        "Currently not supporting custom scatter function in TTNN "
+        "dialect and TT-metal.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// UpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::UpdateCacheOp::verify() {
+  if (getBatchOffset() != 0) {
+    return emitOpError(
+        "Only single-batch is supported. Batch offset must be 0");
+  }
+
+  const ::mlir::RankedTensorType cacheType = getCache().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+
+  const DataType cacheDataType =
+      elementTypeToDataType(cacheType.getElementType());
+  const DataType inputDataType =
+      elementTypeToDataType(inputType.getElementType());
+
+  if (cacheDataType != inputDataType) {
+    return emitOpError(
+        "Cache and input tensors must have the same dtype. "
+        "Got cache dtype = " +
+        DataTypeEnumToString(cacheDataType) +
+        ", input dtype = " + DataTypeEnumToString(inputDataType));
+  }
+
+  if (cacheType.getRank() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (inputType.getShape()[2] != 1) {
+    return emitOpError("Input tensor requires that dim 2 have size 1, got "
+                       "input dim 2 size = " +
+                       std::to_string(inputType.getShape()[2]));
+  }
+
+  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
+      cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[3] != inputType.getShape()[3]) {
+    return emitOpError("Cache tensor shape must match input tensor shape on "
+                       "all dimensions except dim 2. Got cache shape (" +
+                       std::to_string(cacheType.getShape()[0]) + ", " +
+                       std::to_string(cacheType.getShape()[1]) + ", " +
+                       std::to_string(cacheType.getShape()[2]) + ", " +
+                       std::to_string(cacheType.getShape()[3]) +
+                       "), input shape ()" +
+                       std::to_string(inputType.getShape()[0]) + "x" +
+                       std::to_string(inputType.getShape()[1]) + "x" +
+                       std::to_string(inputType.getShape()[2]) + "x" +
+                       std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FillCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::FillCacheOp::verify() {
+  if (getBatchOffset() != 0) {
+    return emitOpError(
+        "Only single-batch is supported. Batch offset must be 0");
+  }
+
+  const ::mlir::RankedTensorType cacheType = getCache().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+
+  const DataType cacheDataType =
+      elementTypeToDataType(cacheType.getElementType());
+  const DataType inputDataType =
+      elementTypeToDataType(inputType.getElementType());
+
+  if (cacheDataType != inputDataType) {
+    return emitOpError(
+        "Cache and input tensors must have the same dtype. "
+        "Got cache dtype = " +
+        DataTypeEnumToString(cacheDataType) +
+        ", input dtype = " + DataTypeEnumToString(inputDataType));
+  }
+
+  if (cacheType.getRank() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (inputType.getShape()[2] > cacheType.getShape()[2]) {
+    return emitOpError(
+        "Input tensor requires that dim 2 have a size which is less than or "
+        "equal to the size of dim 2 of the cache tensor. Got cache dim 2 size "
+        "= " +
+        std::to_string(cacheType.getShape()[2]) +
+        ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
+  }
+
+  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
+      cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[3] != inputType.getShape()[3]) {
+    return emitOpError("Cache tensor shape must match input tensor shape on "
+                       "all dimensions except dim 2. Got cache shape (" +
+                       std::to_string(cacheType.getShape()[0]) + ", " +
+                       std::to_string(cacheType.getShape()[1]) + ", " +
+                       std::to_string(cacheType.getShape()[2]) + ", " +
+                       std::to_string(cacheType.getShape()[3]) +
+                       "), input shape (" +
+                       std::to_string(inputType.getShape()[0]) + ", " +
+                       std::to_string(inputType.getShape()[1]) + ", " +
+                       std::to_string(inputType.getShape()[2]) + ", " +
+                       std::to_string(inputType.getShape()[3]) + ")");
   }
 
   return success();
@@ -1368,6 +1589,13 @@ void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
                                                         block);
+}
+
+// MaximumOp generic region builder
+void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                                   ::mlir::Block *block) {
+  buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
+                                                     block);
 }
 
 //===----------------------------------------------------------------------===//

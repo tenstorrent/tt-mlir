@@ -12,7 +12,12 @@ from ttmlir import ir
 
 def get_loc_str(loc):
     try:
-        res = str(loc).split('"')[1]
+        # Constant loc( at the start of the location and ) at the end. Can just strip these characters
+        loc = str(loc)
+        if loc.startswith("loc(") and loc.endswith(")"):
+            res = str(loc)[4:-1]
+        else:
+            res = loc  # This is a fallback to just visualize / see what the loc is if not processable.
     except:
         res = "unknown"
     return res
@@ -348,7 +353,7 @@ def parse_dimension(attr):
 
 @AttrHandler.register_handler("tt.layout")
 def parse_tt_layout(attr):
-    layout = tt.ir.LayoutAttr.maybe_downcast(attr)
+    layout = tt.ir.MetalLayoutAttr.maybe_downcast(attr)
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
     result.append(
@@ -471,6 +476,21 @@ FILTERED_OPS = [
 ]
 
 
+def get_locs(module):
+    name_dict = defaultdict(int)
+
+    for op in module.body.operations:
+        for region in op.regions:
+            for block in region.blocks:
+                for op in block.operations:
+                    op = OpHandler(op)
+                    _id = op.get_id(name_dict)
+                    # This will now populate name_dict with all of the locations that are relevant
+
+    # The keys will be all the unique locations, and the values will be the number of times that location appears
+    return name_dict
+
+
 def build_graph(module):
     name_dict = defaultdict(int)
     output_connections = defaultdict(int)
@@ -479,7 +499,11 @@ def build_graph(module):
     op_to_graph_node = {}
 
     module_op = OpHandler(module.operation)
-    graph.nodes.append(module_op.make_graph_node(name_dict))
+    module_attrs = module_op.get_attributes()
+    module_attrs = dict((attr.key, attr.value) for attr in module_attrs)
+    # Add module attributes to the graph as "namespace attributes"
+    group_node_attrs = {}
+    group_node_attrs[module_op.get_namespace()] = module_attrs
 
     for op in module.body.operations:
         append_later = []
@@ -498,7 +522,11 @@ def build_graph(module):
                     op_to_graph_node[op] = graph_node
 
                     for operand in op.operands:
-                        if isinstance(operand, ir.Value):
+                        if isinstance(operand, ir.Value) and not isinstance(
+                            operand.owner, ir.Operation
+                        ):
+                            # If the owner is not an op, then it is a constant provided from the toplevel FuncOp.
+
                             # This is a constant and we need to create a node for it.
                             operand_node = operation.make_constant_node(
                                 name_dict, operand.get_name()
@@ -567,5 +595,5 @@ def build_graph(module):
                             )
                         )
                         output_connections[source_node.id] += 1
-
+    graph.groupNodeAttributes = group_node_attrs
     return graph
