@@ -3,7 +3,7 @@ include(ExternalProject)
 set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.py)
 set(TTMLIR_BUILD_BIN_DIR ${TTMLIR_BINARY_DIR}/bin)
 
-set(MODEL_EXPLORER_VERSION "95d79ec933643c3b145537ce6fd5d9f0e735683d")
+set(MODEL_EXPLORER_VERSION "d0b53c3b7049fd41ea1caff193706272c399fac9")
 ExternalProject_Add(
   model-explorer
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer
@@ -20,7 +20,7 @@ add_custom_target(explorer
   COMMAND pip install $<$<CONFIG:Debug>:-e> ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
   COMMAND pip install ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package
 
-  DEPENDS TTMLIRPythonModules model-explorer ttrt
+  DEPENDS TTMLIRPythonModules model-explorer ttrt ttmlir-opt ttmlir-translate
 )
 
 add_custom_command(TARGET explorer POST_BUILD

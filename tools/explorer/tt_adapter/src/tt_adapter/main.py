@@ -43,11 +43,19 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
+        perf_trace = None
+        if optimized_model_path := self.model_runner.get_optimized_model_path():
+            print(f"Using optimized model: {optimized_model_path}")
+            model_path = optimized_model_path
+
+            # Get performance results.
+            perf_trace = self.model_runner.get_perf_trace()
+
         module = utils.parse_mlir_file(model_path)
 
         # Convert TTIR to Model Explorer Graphs and Display/Return
-        graph = mlir.build_graph(module)
-        return {"graphs": [graph]}
+        graph, perf_data = mlir.build_graph(module, perf_trace)
+        return {"graphs": [graph], "perf_data": perf_data}
 
     def execute(
         self, model_path: str, settings: Dict
@@ -70,9 +78,24 @@ class TTAdapter(model_explorer.Adapter):
             memory_layout_analysis_enabled = False
             memory_layout_analysis_policy = None
 
-        perf_data = self.model_runner.run(
+        self.model_runner.run(
             model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
         )
 
-        # TODO(odjuricic, #933) Parse TTNN IR and return the post optimized graph.
-        return utils.to_adapter_format({"perf_data": perf_data})
+        return {"graphs": []}
+
+    def status_check(self, model_path: str, settings: Dict) -> bool:
+        done = not self.model_runner.is_busy()
+        logs = self.model_runner.get_logs()
+        progress = self.model_runner.get_progress()
+        error = self.model_runner.get_error()
+
+        return utils.to_adapter_format(
+            {
+                "isDone": done,
+                "progress": progress,
+                "total": 100,
+                "error": error,
+                "stdout": logs,
+            }
+        )
