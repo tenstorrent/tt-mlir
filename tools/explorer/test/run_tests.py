@@ -53,8 +53,13 @@ def execute_command(model_path, settings):
 @pytest.fixture(scope="function", autouse=True)
 def start_server(request):
     server_thread = multiprocessing.Process(
-        target=model_explorer.visualize,
-        kwargs={"extensions": ["tt_adapter"], "host": HOST, "port": PORT},
+        target=model_explorer.visualize_from_config,
+        kwargs={
+            "extensions": ["tt_adapter"],
+            "host": HOST,
+            "port": PORT,
+            "no_open_in_browser": True,
+        },
     )
     server_thread.start()
 
