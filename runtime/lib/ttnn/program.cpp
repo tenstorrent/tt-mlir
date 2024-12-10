@@ -32,6 +32,22 @@
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 
+#include <cstring>
+#include <dlfcn.h>
+#include <iostream>
+#include <string>
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+// Linux memfd_create syscall number, if not available in <sys/mman.h>
+#ifndef MFD_CLOEXEC
+#define MFD_CLOEXEC 0x0001U
+#endif
+#ifndef SYS_memfd_create
+#define SYS_memfd_create 319
+#endif
+
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
