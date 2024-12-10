@@ -4,6 +4,8 @@
 
 #include "cpu.h"
 
+#include <dlfcn.h>
+
 namespace tt::runtime::ttnn::operations::cpu {
 // using
 
