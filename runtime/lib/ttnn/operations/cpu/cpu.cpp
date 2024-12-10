@@ -19,14 +19,15 @@ std::vector<wrapped_tensor> pack_tensors(
   std::vector<wrapped_tensor> packed_tensors;
   packed_tensors.reserve(ins->size() + 1);
   for (size_t i = 0; i < packed_tensors.size(); ++i) {
-    const size_t rank = ins[i].desc->shape->size();
+    const size_t rank = ins->Get(i)->desc->shape->size();
     const auto *sizes_and_strides = new int64_t[2 * rank];
-    const auto &tens = context.getTensorPool().at(ins[i].global_id());
+    const auto &tens = context.getTensorPool().at(ins->Get(i)->global_id());
     for (size_t j = 0; j < rank; ++j) {
-      sizes_and_strides[j] = ins[i].desc->shape[j];
+      sizes_and_strides[j] = ins->Get(i)->desc()->shape()->Get(j);
     }
     for (size_t j = 0; j < rank; ++j) {
-      sizes_and_strides[rank + j] = ins[i].desc->layout->stride[rank + j];
+      sizes_and_strides[rank + j] =
+          ins->Get(i)->desc()->layout()->stride()->Get(j);
     }
     packed_tensors.emplace_back(.start = tens.data,
                                 .aligned_start = align_to_64(tens.data),
@@ -34,18 +35,18 @@ std::vector<wrapped_tensor> pack_tensors(
                                 .sizes_and_strides = sizes_and_strides);
   }
   const size_t rank = out->desc->shape->size();
-  const auto &out_tens = context.getTensorPool().at(ins[i].global_id);
+  const auto &out_tens = context.getTensorPool().at(ins->Get(i)->global_id);
   const auto *out_sizes_and_strides = new int64_t[2 * rank];
   for (size_t j = 0; j < rank; ++j) {
-    out_sizes_and_strides[j] = out->desc->shape[j];
+    out_sizes_and_strides[j] = out->desc()->shape()->Get(j);
   }
   for (size_t j = 0; j < rank; ++j) {
-    out_sizes_and_strides[rank + j] = out->desc->layout->stride[rank + j];
+    out_sizes_and_strides[rank + j] = out->desc()->layout()->stride()->Get(j);
   }
   packed_tensors.emplace_back(.start = out_tens.data,
                               .aligned_start = align_to_64(out_tens.data),
                               .rank = rank,
-                              .sizes_and_stridse = out_sizes_and_strides);
+                              .sizes_and_strides = out_sizes_and_strides);
   return packed_tensors;
 }
 
