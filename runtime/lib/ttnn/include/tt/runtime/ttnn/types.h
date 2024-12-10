@@ -12,6 +12,7 @@ namespace tt::runtime::ttnn {
 using TensorMap = std::unordered_map<uint32_t, ::ttnn::Tensor *>;
 using DeviceVariant = std::variant<std::reference_wrapper<::ttnn::Device>,
                                    std::reference_wrapper<::ttnn::MeshDevice>>;
+using DylibHandleMap = std::unordered_map<uint32_t, void *>;
 
 class ProgramTensorPool {
 public:
@@ -102,10 +103,11 @@ public:
   ProgramContext(const TensorMap &liveTensors,
                  const std::unordered_set<uint32_t> &programInputs,
                  const std::unordered_set<uint32_t> &programOutputs,
-                 ::ttnn::MeshDevice *parentMesh)
+                 const DylibHandleMap &programDylibs,
+                 const std::unordered ::ttnn::MeshDevice *parentMesh)
       : tensorPool(
             ProgramTensorPool(liveTensors, programInputs, programOutputs)),
-        parentMesh(parentMesh) {
+        dylibHandles(programDylibs), parentMesh(parentMesh) {
     assert(parentMesh && "Parent mesh cannot be null");
   }
   ProgramContext(const ProgramContext &) = delete;
@@ -162,6 +164,11 @@ public:
     return std::ref(subMesh);
   }
 
+  void *tryGetDylibHandle(const uint32_t dylibId) {
+    const auto it = dylibHandles.find(dylibId);
+    return (it == dylibHandles.end()) ? nullptr : it->second;
+  }
+
   //
   // Tensor Pool Operations
   //
@@ -178,6 +185,8 @@ private:
   // Contains subMeshes of the parentMesh that are used by the program
   // Will be populated by GetDevice ops
   std::unordered_map<uint32_t, std::shared_ptr<::ttnn::MeshDevice>> subMeshes;
+
+  const DylibHandleMap &dylibHandles;
 };
 } // namespace tt::runtime::ttnn
 

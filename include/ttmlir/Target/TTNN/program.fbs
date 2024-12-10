@@ -272,6 +272,14 @@ table AllGatherOp {
   num_links: uint32;
 }
 
+// TODO: flesh this out
+table CpuOp {
+  ins: [tt.target.TensorRef];
+  out: tt.target.TensorRef;
+  func_name: string;
+  dylib_id: uint32;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -298,6 +306,7 @@ union OpType {
   ArangeOp,
   UpdateCacheOp,
   FillCacheOp,
+  CpuOp,
 }
 
 table Operation {
@@ -306,10 +315,17 @@ table Operation {
   loc_info: string;
 }
 
+// TODO: should probably move this somewhere else
+table DynamicLib {
+  dylib_id: uint32;
+  raw_file: [uint8];
+}
+
 table Program {
   name: string;
   inputs: [TensorRef];
   outputs: [TensorRef];
   operations: [Operation];
+  dylibs: [DynamicLib];
   debug_info: DebugInfo;
 }

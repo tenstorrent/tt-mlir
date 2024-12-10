@@ -44,15 +44,72 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
+static void writeTmpDylib(const std::string &outputName, const uint8_t *dataPtr,
+                          const size_t) {
+  std::ofstream tempFile(outputName, std::ios::binary);
+  tempFile.write(reinterpret_cast<const char *>(dataPtr), size);
+  tempFile.close();
+}
+
+void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
+  // Create an in-memory file descriptor
+  int memfd = memfd_create("dylib", MFD_CLOEXEC);
+  if (memfd == -1) {
+    perror("memfd_create");
+    return nullptr;
+  }
+
+  // Write the library content to the file descriptor
+  if (write(memfd, data, size) != static_cast<ssize_t>(size)) {
+    perror("write");
+    close(memfd);
+    return nullptr;
+  }
+
+  // Use dlopen with the file descriptor
+  void *handle = dlopen("/proc/self/fd/" + std::to_string(memfd), RTLD_LAZY);
+  close(memfd); // Can close after dlopen
+  if (!handle) {
+    std::cerr << "dlopen failed: " << dlerror() << std::endl;
+    return nullptr;
+  }
+
+  return handle;
+}
+
+static DylibHandleMap
+openDylibHandles(const ::tt::target::ttnn::Program *program) {
+  DylibHandleMap dlHandleMap;
+  for (const auto *dylib : program->dylibs()) {
+    // TODO: consider some randomized hashing or something here
+    // std::string name("/tmp/" + program->name() + ".so") writeTmpDylib(
+    //     name, dylib->raw_file()->data(), dylib->raw_file()->size());
+    void *handle = loadLibraryFromMemory(dylib->raw_file()->data(),
+                                         dylib->raw_file()->size());
+    if (!handle) {
+      throw std::runtime_error("failed to open input dynamic library handle!");
+    }
+    dlHandleMap.emplace(dylib->dylib_id(), handle);
+  }
+  return dlHandleMap;
+}
+
+static void closeDylibHandles(DylibHandleMap handles) {
+  for (const auto [_, handle] : handles) {
+    dlclose(handle);
+  }
+}
+
 class ProgramExecutor {
 public:
   ProgramExecutor(Binary &executableHandle, const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
                   const std::unordered_set<uint32_t> &programOutputs,
+                  const DylibHandleMap &programDylibHandles,
                   ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
-                               meshDevice)) {}
+                               programDylibHandles, meshDevice)) {}
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
@@ -186,6 +243,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    return operations::cpu::run(op->type_as_AllGatherOp(), context);
+  }
   default: {
     LOG_FATAL("Unsupported operation type");
   }
@@ -243,9 +303,12 @@ void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
     LOG_ASSERT(inserted, "Duplicate output tensor");
     programOutputs.emplace(output->global_id());
   }
+
+  auto dylibMap = openDylibHandles(program);
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, &meshDevice);
+                           programOutputs, dylibMap, &meshDevice);
   executor.execute(program);
+  closeDylibHandles(dylibMap);
 }
 
 } // namespace tt::runtime::ttnn
