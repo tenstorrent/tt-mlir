@@ -28,6 +28,7 @@
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/LogicalResult.h"
+#include "types_generated.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -39,8 +40,13 @@
 namespace mlir::tt {
 
 ::tt::target::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
-  switch (memLayout) {
+toFlatbuffer(FlatbufferObjectCache &,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  if (!memLayoutAttr) {
+    return ::tt::target::TensorMemoryLayout::None;
+  }
+
+  switch (memLayoutAttr.getValue()) {
   case ttnn::TensorMemoryLayout::SingleBank:
     return ::tt::target::TensorMemoryLayout::SingleBank;
   case ttnn::TensorMemoryLayout::Interleaved:
@@ -51,8 +57,6 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
     return ::tt::target::TensorMemoryLayout::WidthSharded;
   case ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::TensorMemoryLayout::BlockSharded;
-  case ttnn::TensorMemoryLayout::None:
-    return ::tt::target::TensorMemoryLayout::None;
   }
 }
 
@@ -72,7 +76,7 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
 
 flatbuffers::Offset<::tt::target::MemoryDesc>
 memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-                       ttnn::TensorMemoryLayout memLayout) {
+                       ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   DataType dtype = DataType::Float32;
@@ -99,7 +103,7 @@ memrefAttrToFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       toFlatbuffer(
           cache,
           mlir::cast<ttnn::BufferTypeAttr>(memref.getMemorySpace()).getValue()),
-      toFlatbuffer(cache, memLayout), size);
+      toFlatbuffer(cache, memLayoutAttr), size);
 }
 
 flatbuffers::Offset<::tt::target::LayoutDesc> ttnnLayoutAttrToFlatbuffer(
@@ -162,10 +166,10 @@ createDeviceRef(FlatbufferObjectCache &cache, Value device) {
 template <typename OpT>
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 createOperation(FlatbufferObjectCache &cache, ::flatbuffers::Offset<OpT> op,
-                std::string const &debugString) {
+                std::string const &debugString, std::string const &locInfo) {
   return CreateOperationDirect(
       *cache.fbb, ::tt::target::ttnn::OpTypeTraits<OpT>::enum_value, op.Union(),
-      debugString.c_str());
+      debugString.c_str(), locInfo.c_str());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GetDeviceOp>
@@ -333,6 +337,46 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
                         kHostAllocatedSize));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ArangeOp>
+createOp(FlatbufferObjectCache &cache, ArangeOp op) {
+
+  std::optional<::tt::target::DataType> dtype =
+      op.getDtype().has_value()
+          ? std::make_optional(toFlatbuffer(cache, op.getDtype().value()))
+          : std::nullopt;
+  auto device =
+      op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
+
+  auto memoryConfigDesc = op.getMemoryConfig().has_value()
+                              ? cache.getOrCreate(op.getMemoryConfig().value(),
+                                                  memoryConfigToFlatbuffer)
+                              : 0;
+
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateArangeOp(
+      *cache.fbb, static_cast<float>(op.getStart()),
+      static_cast<float>(op.getEnd()), static_cast<float>(op.getStep()),
+      dtype /* optional */, device /* optional */,
+      memoryConfigDesc /* optional */, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
+createOp(FlatbufferObjectCache &cache, LinearOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
+  auto in1 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
+  auto bias = op.getODSOperands(2).empty()
+                  ? flatbuffers::Offset<::tt::target::TensorRef>()
+                  : cache.at<::tt::target::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, in0, in1, bias, output);
+}
+
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(FlatbufferObjectCache &cache, MatmulOp op) {
@@ -393,6 +437,30 @@ createEltwiseOpParams(FlatbufferObjectCache &cache, EltwiseOp op) {
     return ::tt::target::ttnn::CreateEltwiseOpWithFloatParams(*cache.fbb,
                                                               parameter);
   }
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>
+createOp(FlatbufferObjectCache &cache, UpdateCacheOp op) {
+  auto cacheOperand =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getCache()));
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto updateIndex = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getUpdateIndex()));
+
+  return ::tt::target::ttnn::CreateUpdateCacheOp(
+      *cache.fbb, cacheOperand, input, updateIndex, op.getBatchOffset());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
+createOp(FlatbufferObjectCache &cache, FillCacheOp op) {
+  auto cacheOperand =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getCache()));
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+
+  return ::tt::target::ttnn::CreateFillCacheOp(*cache.fbb, cacheOperand, input,
+                                               op.getBatchOffset());
 }
 
 template <typename EltwiseOp>
@@ -485,6 +553,8 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::Div;
   } else if constexpr (std::is_same_v<EltwiseOp, SigmoidOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Sigmoid;
+  } else if constexpr (std::is_same_v<EltwiseOp, ScatterOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Scatter;
   } else if constexpr (std::is_same_v<EltwiseOp, Log1pOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Log1p;
   } else if constexpr (std::is_same_v<EltwiseOp, ExpOp>) {
@@ -513,6 +583,10 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
                               ::tt::target::ttnn::EltwiseOpWithFloatParams>(
             cache, op)
             .Union();
+  } else if constexpr (std::is_same_v<EltwiseOp, TanOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Tan;
+  } else if constexpr (std::is_same_v<EltwiseOp, TanhOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::Tanh;
   } else {
     llvm_unreachable("unhandled EltwiseOp");
   }
@@ -554,7 +628,6 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
                                                dim_arg, op.getKeepDim());
 }
 
-template <typename TransposeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
 createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   auto in =
@@ -567,7 +640,6 @@ createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   return ::tt::target::ttnn::CreateTransposeOp(*cache.fbb, in, out, dim0, dim1);
 }
 
-template <typename ConcatOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatOp>
 createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
@@ -582,7 +654,6 @@ createConcatOp(FlatbufferObjectCache &cache, ConcatOp op) {
   return ::tt::target::ttnn::CreateConcatOpDirect(*cache.fbb, &ins, out, dim);
 }
 
-template <typename EmbeddingOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EmbeddingOp>
 createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   auto in0 =
@@ -594,7 +665,6 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
   return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
 }
 
-template <typename ReshapeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =
@@ -607,7 +677,6 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
 }
 
-template <typename SliceOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
 createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
   auto in =
@@ -625,7 +694,6 @@ createSliceOp(FlatbufferObjectCache &cache, SliceOp op) {
                                            step);
 }
 
-template <typename MaxPool2dOp>
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dOp>
 createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
   auto in =
@@ -643,7 +711,6 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
       op.getPaddingWidth());
 }
 
-template <typename SoftmaxOp>
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto in =
@@ -655,7 +722,6 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension);
 }
 
-template <typename DeallocateOp>
 ::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>
 createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   auto in =
@@ -666,208 +732,279 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
-                  std::string const &debugString) {
+                  std::string const &debugString, std::string const &locInfo) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
-    return createOperation(cache, createOp(cache, getDeviceOp), debugString);
+    return createOperation(cache, createOp(cache, getDeviceOp), debugString,
+                           locInfo);
   }
   if (auto toMemoryConfigOp = dyn_cast<ToMemoryConfigOp>(op);
       toMemoryConfigOp) {
     return createOperation(cache, createOp(cache, toMemoryConfigOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
-    return createOperation(cache, createOp(cache, toLayoutOp), debugString);
+    return createOperation(cache, createOp(cache, toLayoutOp), debugString,
+                           locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
-    return createOperation(cache, createOp(cache, typecastOp), debugString);
+    return createOperation(cache, createOp(cache, typecastOp), debugString,
+                           locInfo);
   }
   if (auto toDeviceOp = dyn_cast<ToDeviceOp>(op); toDeviceOp) {
-    return createOperation(cache, createOp(cache, toDeviceOp), debugString);
+    return createOperation(cache, createOp(cache, toDeviceOp), debugString,
+                           locInfo);
   }
   if (auto fromDeviceOp = dyn_cast<FromDeviceOp>(op); fromDeviceOp) {
-    return createOperation(cache, createOp(cache, fromDeviceOp), debugString);
+    return createOperation(cache, createOp(cache, fromDeviceOp), debugString,
+                           locInfo);
   }
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
-    return createOperation(cache, createOp(cache, emptyOp), debugString);
+    return createOperation(cache, createOp(cache, emptyOp), debugString,
+                           locInfo);
   }
   if (auto fullOp = dyn_cast<FullOp>(op); fullOp) {
-    return createOperation(cache, createOp(cache, fullOp), debugString);
+    return createOperation(cache, createOp(cache, fullOp), debugString,
+                           locInfo);
   }
   if (auto absOp = dyn_cast<AbsOp>(op); absOp) {
-    return createOperation(cache, createEltwiseOp(cache, absOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, absOp), debugString,
+                           locInfo);
   }
   if (auto addOp = dyn_cast<AddOp>(op); addOp) {
-    return createOperation(cache, createEltwiseOp(cache, addOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, addOp), debugString,
+                           locInfo);
   }
   if (auto floorOp = dyn_cast<FloorOp>(op); floorOp) {
-    return createOperation(cache, createEltwiseOp(cache, floorOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, floorOp), debugString,
+                           locInfo);
   }
   if (auto isFiniteOp = dyn_cast<IsFiniteOp>(op); isFiniteOp) {
     return createOperation(cache, createEltwiseOp(cache, isFiniteOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
-    return createOperation(cache, createEltwiseOp(cache, andOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, andOp), debugString,
+                           locInfo);
   }
   if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
-    return createOperation(cache, createEltwiseOp(cache, cbrtOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, cbrtOp), debugString,
+                           locInfo);
   }
   if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
-    return createOperation(cache, createEltwiseOp(cache, notOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, notOp), debugString,
+                           locInfo);
   }
   if (auto orOp = dyn_cast<LogicalOrOp>(op); orOp) {
-    return createOperation(cache, createEltwiseOp(cache, orOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, orOp), debugString,
+                           locInfo);
   }
   if (auto xorOp = dyn_cast<LogicalXorOp>(op); xorOp) {
-    return createOperation(cache, createEltwiseOp(cache, xorOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, xorOp), debugString,
+                           locInfo);
   }
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
     return createOperation(cache, createEltwiseOp(cache, multiplyOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto negOp = dyn_cast<NegOp>(op); negOp) {
-    return createOperation(cache, createEltwiseOp(cache, negOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, negOp), debugString,
+                           locInfo);
   }
   if (auto subtractOp = dyn_cast<SubtractOp>(op); subtractOp) {
     return createOperation(cache, createEltwiseOp(cache, subtractOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto eqOp = dyn_cast<EqualOp>(op); eqOp) {
-    return createOperation(cache, createEltwiseOp(cache, eqOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, eqOp), debugString,
+                           locInfo);
   }
   if (auto neOp = dyn_cast<NotEqualOp>(op); neOp) {
-    return createOperation(cache, createEltwiseOp(cache, neOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, neOp), debugString,
+                           locInfo);
   }
   if (auto geOp = dyn_cast<GreaterEqualOp>(op); geOp) {
-    return createOperation(cache, createEltwiseOp(cache, geOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, geOp), debugString,
+                           locInfo);
   }
   if (auto gtOp = dyn_cast<GreaterThanOp>(op); gtOp) {
-    return createOperation(cache, createEltwiseOp(cache, gtOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, gtOp), debugString,
+                           locInfo);
   }
   if (auto leOp = dyn_cast<LessEqualOp>(op); leOp) {
-    return createOperation(cache, createEltwiseOp(cache, leOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, leOp), debugString,
+                           locInfo);
   }
   if (auto ltOp = dyn_cast<LessThanOp>(op); ltOp) {
-    return createOperation(cache, createEltwiseOp(cache, ltOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, ltOp), debugString,
+                           locInfo);
   }
   if (auto maximumOp = dyn_cast<MaximumOp>(op); maximumOp) {
     return createOperation(cache, createEltwiseOp(cache, maximumOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto minimumOp = dyn_cast<MinimumOp>(op); minimumOp) {
     return createOperation(cache, createEltwiseOp(cache, minimumOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto reluOp = dyn_cast<ReluOp>(op); reluOp) {
-    return createOperation(cache, createEltwiseOp(cache, reluOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, reluOp), debugString,
+                           locInfo);
   }
   if (auto sqrtOp = dyn_cast<SqrtOp>(op); sqrtOp) {
-    return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, sqrtOp), debugString,
+                           locInfo);
   }
   if (auto rsqrtOp = dyn_cast<RsqrtOp>(op); rsqrtOp) {
-    return createOperation(cache, createEltwiseOp(cache, rsqrtOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, rsqrtOp), debugString,
+                           locInfo);
   }
   if (auto signOp = dyn_cast<SignOp>(op); signOp) {
-    return createOperation(cache, createEltwiseOp(cache, signOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, signOp), debugString,
+                           locInfo);
   }
   if (auto expOp = dyn_cast<ExpOp>(op); expOp) {
-    return createOperation(cache, createEltwiseOp(cache, expOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, expOp), debugString,
+                           locInfo);
   }
   if (auto logOp = dyn_cast<LogOp>(op); logOp) {
-    return createOperation(cache, createEltwiseOp(cache, logOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, logOp), debugString,
+                           locInfo);
   }
   if (auto expm1Op = dyn_cast<Expm1Op>(op); expm1Op) {
-    return createOperation(cache, createEltwiseOp(cache, expm1Op), debugString);
+    return createOperation(cache, createEltwiseOp(cache, expm1Op), debugString,
+                           locInfo);
   }
   if (auto sigmoidOp = dyn_cast<SigmoidOp>(op); sigmoidOp) {
     return createOperation(cache, createEltwiseOp(cache, sigmoidOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto log1pOp = dyn_cast<Log1pOp>(op); log1pOp) {
-    return createOperation(cache, createEltwiseOp(cache, log1pOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, log1pOp), debugString,
+                           locInfo);
+  }
+  if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
+    return createOperation(cache, createEltwiseOp(cache, scatterOp),
+                           debugString, locInfo);
   }
   if (auto reciprocalOp = dyn_cast<ReciprocalOp>(op); reciprocalOp) {
     return createOperation(cache, createEltwiseOp(cache, reciprocalOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto divOp = dyn_cast<DivOp>(op); divOp) {
-    return createOperation(cache, createEltwiseOp(cache, divOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, divOp), debugString,
+                           locInfo);
   }
   if (auto remainderOp = dyn_cast<RemainderOp>(op); remainderOp) {
     return createOperation(cache, createEltwiseOp(cache, remainderOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto leakyReluOp = dyn_cast<LeakyReluOp>(op); leakyReluOp) {
     return createOperation(cache, createEltwiseOp(cache, leakyReluOp),
-                           debugString);
+                           debugString, locInfo);
+  }
+  if (auto linearOp = dyn_cast<LinearOp>(op); linearOp) {
+    return createOperation(cache, createOp(cache, linearOp), debugString,
+                           locInfo);
   }
   if (auto matmulOp = dyn_cast<MatmulOp>(op); matmulOp) {
-    return createOperation(cache, createOp(cache, matmulOp), debugString);
+    return createOperation(cache, createOp(cache, matmulOp), debugString,
+                           locInfo);
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
-    return createOperation(cache, createReductionOp(cache, sumOp), debugString);
+    return createOperation(cache, createReductionOp(cache, sumOp), debugString,
+                           locInfo);
   }
   if (auto meanOp = dyn_cast<MeanOp>(op); meanOp) {
-    return createOperation(cache, createReductionOp(cache, meanOp),
-                           debugString);
+    return createOperation(cache, createReductionOp(cache, meanOp), debugString,
+                           locInfo);
   }
   if (auto maxOp = dyn_cast<MaxOp>(op); maxOp) {
-    return createOperation(cache, createReductionOp(cache, maxOp), debugString);
+    return createOperation(cache, createReductionOp(cache, maxOp), debugString,
+                           locInfo);
   }
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
     return createOperation(cache, createEmbeddingOp(cache, embeddingOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto transposeOp = dyn_cast<TransposeOp>(op); transposeOp) {
     return createOperation(cache, createTransposeOp(cache, transposeOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto clampOp = dyn_cast<ClampOp>(op); clampOp) {
     return createOperation(cache, createNonDPSEltwiseOp(cache, clampOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
-    return createOperation(cache, createOp(cache, conv2dOp), debugString);
+    return createOperation(cache, createOp(cache, conv2dOp), debugString,
+                           locInfo);
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
-    return createOperation(cache, createOp(cache, allGatherOp), debugString);
+    return createOperation(cache, createOp(cache, allGatherOp), debugString,
+                           locInfo);
   }
   if (auto concatOp = dyn_cast<ConcatOp>(op); concatOp) {
-    return createOperation(cache, createConcatOp(cache, concatOp), debugString);
+    return createOperation(cache, createConcatOp(cache, concatOp), debugString,
+                           locInfo);
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
-    return createOperation(cache, createSliceOp(cache, sliceOp), debugString);
+    return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
+                           locInfo);
   }
   if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
     return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {
     return createOperation(cache, createDeallocateOp(cache, deallocateOp),
-                           debugString);
+                           debugString, locInfo);
   }
   if (auto ceilOp = dyn_cast<CeilOp>(op); ceilOp) {
-    return createOperation(cache, createEltwiseOp(cache, ceilOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, ceilOp), debugString,
+                           locInfo);
   }
   if (auto cosOp = dyn_cast<CosOp>(op); cosOp) {
-    return createOperation(cache, createEltwiseOp(cache, cosOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, cosOp), debugString,
+                           locInfo);
   }
   if (auto sinOp = dyn_cast<SinOp>(op); sinOp) {
-    return createOperation(cache, createEltwiseOp(cache, sinOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, sinOp), debugString,
+                           locInfo);
   }
   if (auto whereOp = dyn_cast<WhereOp>(op); whereOp) {
-    return createOperation(cache, createEltwiseOp(cache, whereOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, whereOp), debugString,
+                           locInfo);
   }
   if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
-    return createOperation(cache, createEltwiseOp(cache, geluOp), debugString);
+    return createOperation(cache, createEltwiseOp(cache, geluOp), debugString,
+                           locInfo);
+  }
+  if (auto arangeOp = dyn_cast<ArangeOp>(op); arangeOp) {
+    return createOperation(cache, createOp(cache, arangeOp), debugString,
+                           locInfo);
+  }
+  if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
+    return createOperation(cache, createEltwiseOp(cache, tanOp), debugString,
+                           locInfo);
+  }
+  if (auto tanhOp = dyn_cast<TanhOp>(op); tanhOp) {
+    return createOperation(cache, createEltwiseOp(cache, tanhOp), debugString,
+                           locInfo);
+  }
+  if (auto updateCacheOp = dyn_cast<UpdateCacheOp>(op); updateCacheOp) {
+    return createOperation(cache, createOp(cache, updateCacheOp), debugString,
+                           locInfo);
+  }
+  if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
+    return createOperation(cache, createOp(cache, fillCacheOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

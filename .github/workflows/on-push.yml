@@ -12,9 +12,6 @@ jobs:
   spdx:
     uses: ./.github/workflows/spdx.yml
     secrets: inherit
-  macos-build:
-    uses: ./.github/workflows/macos-build.yml
-    secrets: inherit
   build-and-test:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit

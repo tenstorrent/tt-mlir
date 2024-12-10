@@ -24,7 +24,7 @@ static ::tt::target::metal::TTMetalBinary const *getBinary(Flatbuffer binary) {
       ::tt::target::metal::SizePrefixedTTMetalBinaryBufferHasIdentifier(
           binary.handle.get());
   if (not isTTMetal) {
-    throw std::runtime_error("Unsupported binary format");
+    LOG_FATAL("Unsupported binary format");
   }
   return ::tt::target::metal::GetSizePrefixedTTMetalBinary(binary.handle.get());
 }
@@ -56,7 +56,7 @@ tt::target::DataType getTensorDataType(Tensor tensor) {
   }
   if (std::holds_alternative<std::shared_ptr<::tt::tt_metal::Buffer>>(
           metalTensor)) {
-    throw std::runtime_error("Datatype mapping from buffer not supported yet.");
+    LOG_FATAL("Datatype mapping from buffer not supported yet.");
   }
   LOG_ASSERT(false, "Unsupported tensor type");
   return ::tt::target::DataType::Float32;
@@ -96,6 +96,21 @@ void deallocateBuffers(Device deviceHandle) {
   }
 }
 
+void wait(Event event) {
+  Events events = event.as<Events>(DeviceRuntime::TTMetal);
+  for (auto e : events) {
+    ::tt::tt_metal::EventSynchronize(e);
+  }
+}
+
+void wait(Tensor tensor) { ::tt::runtime::ttmetal::wait(tensor.event); }
+
+void wait(std::vector<Tensor> const &tensors) {
+  for (Tensor tensor : tensors) {
+    ::tt::runtime::ttmetal::wait(tensor);
+  }
+}
+
 static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
                  std::shared_ptr<::tt::tt_metal::Event>>
 prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
@@ -117,7 +132,7 @@ prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
           metalTensor)) {
     std::shared_ptr<::tt::tt_metal::Buffer> buffer =
         std::get<std::shared_ptr<::tt::tt_metal::Buffer>>(metalTensor);
-    throw std::runtime_error("Input from buffer not supported yet");
+    LOG_FATAL("Input from buffer not supported yet");
   }
   LOG_ASSERT(false, "Unsupported tensor type");
   return std::make_pair(nullptr, nullptr);
@@ -249,16 +264,15 @@ Event submit(Device deviceHandle, Binary executableHandle,
   return Event(static_pointer_cast<void>(events), DeviceRuntime::TTMetal);
 }
 
-void wait(Event event) {
-  Events events = event.as<Events>(DeviceRuntime::TTMetal);
-  for (auto e : events) {
-    ::tt::tt_metal::EventSynchronize(e);
-  }
-}
-
 std::string getOpDebugString(OpContext opContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op debug string for metal runtime not implemented");
+  return "";
+}
+
+std::string getOpLocInfo(OpContext opContextHandle) {
+  // Not implemented
+  LOG_WARNING("obtaining op location info for metal runtime not implemented");
   return "";
 }
 

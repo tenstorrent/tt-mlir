@@ -176,6 +176,10 @@ public:
         return;
       }
 
+      if (llvm::isa<ttnn::EmptyOp>(op)) {
+        return;
+      }
+
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
       LegalLayoutAnalysis legalLayoutAnalysis =
@@ -276,13 +280,14 @@ public:
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
             BufferType bufferType = layoutAttr.getBufferType();
-            TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
+            TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+                layoutAttr.getMemLayout();
 
             op->getOperands().back().setType(newTensorType);
             EmptyOp emptyOp =
                 mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
 
-            emptyOp.setDtype(layoutAttr.getDataTypeFromMemRef());
+            emptyOp.setDtype(layoutAttr.getDataType());
             if (layoutAttr.isTiled()) {
               emptyOp.setLayout(ttnn::Layout::Tile);
             } else {
@@ -290,13 +295,12 @@ public:
             }
             emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
                 op->getContext(),
-                TensorMemoryLayoutAttr::get(op->getContext(),
-                                            tensorMemoryLayout),
                 BufferTypeAttr::get(op->getContext(), bufferType),
                 ShardSpecAttr::get(
                     op->getContext(),
                     ShapeAttr::get(op->getContext(),
-                                   layoutAttr.getMemref().getShape()))));
+                                   layoutAttr.getMemref().getShape())),
+                tensorMemoryLayoutAttr));
           }
           // TODO(mtopalovic): Temp workaround for generic ToLayoutOp. Allign
           // MemoryConfigAttr with layout attribute of its output tensor. This
@@ -305,19 +309,19 @@ public:
           //
           else if (isa<ttnn::ToLayoutOp>(op)) {
             BufferType bufferType = layoutAttr.getBufferType();
-            TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
+            TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+                layoutAttr.getMemLayout();
             // Update the device op with the new tensor type.
             //
             ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
             toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
                 op->getContext(),
-                ttnn::TensorMemoryLayoutAttr::get(op->getContext(),
-                                                  tensorMemoryLayout),
                 ttnn::BufferTypeAttr::get(op->getContext(), bufferType),
                 ttnn::ShardSpecAttr::get(
                     op->getContext(),
                     ttnn::ShapeAttr::get(op->getContext(),
-                                         layoutAttr.getMemref().getShape()))));
+                                         layoutAttr.getMemref().getShape())),
+                tensorMemoryLayoutAttr));
           }
         }
       });
@@ -453,18 +457,18 @@ private:
                         consumerOpOutputLayout.getGrid()));
 
       BufferType outputBufferType = consumerOpOutputLayout.getBufferType();
-      TensorMemoryLayout outputTensorMemoryLayout =
+      TensorMemoryLayoutAttr outputTensorMemoryLayoutAttr =
           consumerOpOutputLayout.getMemLayout();
-      MemRefType outputMemref = consumerOpOutputLayout.getMemref();
 
+      llvm::SmallVector<int64_t> shardShape =
+          consumerOpOutputLayout.getShardShape();
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
           consumerOp->getContext(),
-          TensorMemoryLayoutAttr::get(consumerOp->getContext(),
-                                      outputTensorMemoryLayout),
           BufferTypeAttr::get(consumerOp->getContext(), outputBufferType),
-          ShardSpecAttr::get(consumerOp->getContext(),
-                             ShapeAttr::get(consumerOp->getContext(),
-                                            outputMemref.getShape())));
+          ShardSpecAttr::get(
+              consumerOp->getContext(),
+              ShapeAttr::get(consumerOp->getContext(), shardShape)),
+          outputTensorMemoryLayoutAttr);
 
       // If producerOp is a toLayoutOp, adjust its output layout(update
       // inplace) to reflect consumerOp's output layout. If producerOp is not a
@@ -478,10 +482,9 @@ private:
       } else {
         OpBuilder builder(consumerOp);
 
-        DataTypeAttr outputDataType =
-            DataTypeAttr::get(consumerOp->getContext(),
-                              utils::getDataTypeFromMemRef(outputMemref));
-        Layout outputLayoutEnum = utils::getLayoutFromMemRef(outputMemref);
+        DataTypeAttr outputDataType = DataTypeAttr::get(
+            consumerOp->getContext(), consumerOpOutputLayout.getDataType());
+        Layout outputLayoutEnum = consumerOpOutputLayout.getLayout();
         LayoutAttr outputLayout =
             LayoutAttr::get(consumerOp->getContext(), outputLayoutEnum);
         Operation *memoryReconfigOp = builder.create<ToLayoutOp>(

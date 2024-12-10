@@ -14,6 +14,7 @@ set(TT_RUNTIME_OPTIONS
   TT_RUNTIME_DEBUG
   TT_RUNTIME_ENABLE_PERF_TRACE
   TT_RUNTIME_WORKAROUNDS
+  TTMLIR_ENABLE_RUNTIME_TESTS
 )
 
 foreach(OPTION ${TT_RUNTIME_OPTIONS})
@@ -24,6 +25,4 @@ endforeach()
 
 add_subdirectory(lib)
 add_subdirectory(tools)
-if (TTMLIR_ENABLE_RUNTIME_TESTS)
-    add_subdirectory(test)
-endif()
+add_subdirectory(test)

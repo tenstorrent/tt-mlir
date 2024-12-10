@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -86,8 +87,6 @@ emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
   case ttnn::TensorMemoryLayout::WidthSharded:
     return builder.getType<emitc::OpaqueAttr>(
         "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
-  case ttnn::TensorMemoryLayout::None:
-    llvm_unreachable("Unsupported ttnn::TensorMemoryLayout");
   }
 }
 
@@ -618,6 +617,58 @@ public:
   }
 };
 
+// arith::ConstantOp conversion pattern
+//
+class ArithConstantOpConversionPattern
+    : public OpConversionPattern<arith::ConstantOp> {
+
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp constOp, arith::ConstantOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Type newTy = this->getTypeConverter()->convertType(constOp.getType());
+    if (!newTy) {
+      return rewriter.notifyMatchFailure(constOp, "type conversion failed");
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::ConstantOp>(constOp, newTy,
+                                                   adaptor.getValue());
+    return success();
+  }
+};
+
+// Module Op conversion pattern
+//
+// This conversion pattern removes attributes from the ModuleOp. Previously,
+// ttmlir-translate would complain when translating to C++ if there were any
+// attributes from "unregistered" dialects.
+//
+class ModuleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp> {
+
+public:
+  ModuleOpConversionPattern(const TypeConverter &typeConverter,
+                            MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<mlir::ModuleOp>(typeConverter,
+                                                           context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::ModuleOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    rewriter.modifyOpInPlace(srcOp, [&]() {
+      for (const NamedAttribute &attr : srcOp->getAttrs()) {
+        srcOp->removeAttr(attr.getName());
+      }
+    });
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -639,8 +690,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Tensor ops
   //
   patterns
-      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>>(
-          typeConverter, ctx);
+      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>,
+           DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
 
   // Eltwise unary ops
   //
@@ -665,6 +716,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::SinOp>,
                DefaultOpConversionPattern<ttnn::CosOp>,
                DefaultOpConversionPattern<ttnn::Expm1Op>,
+               DefaultOpConversionPattern<ttnn::TanOp>,
+               DefaultOpConversionPattern<ttnn::TanhOp>,
                DefaultOpConversionPattern<ttnn::LogOp>>(typeConverter, ctx);
 
   // Eltwise binary ops
@@ -684,6 +737,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::MaximumOp>,
                DefaultOpConversionPattern<ttnn::MinimumOp>,
                DefaultOpConversionPattern<ttnn::DivOp>,
+               DefaultOpConversionPattern<ttnn::ScatterOp>,
                DefaultOpConversionPattern<ttnn::RemainderOp>>(typeConverter,
                                                               ctx);
 
@@ -696,7 +750,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Matmul ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::LinearOp>,
+               DefaultOpConversionPattern<ttnn::MatmulOp>>(typeConverter, ctx);
 
   // Reduction ops
   //
@@ -720,6 +775,21 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<DefaultOpConversionPattern<ttnn::AllGatherOp>>(typeConverter,
                                                               ctx);
+
+  // Module op
+  //
+  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // KV Cache ops
+  //
+  patterns.add<DefaultOpConversionPattern<ttnn::UpdateCacheOp>>(typeConverter,
+                                                                ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::FillCacheOp>>(typeConverter,
+                                                              ctx);
+
+  // Arith ops
+  //
+  patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

@@ -14,45 +14,58 @@
 
 using namespace mlir::tt::ttnn;
 
-// Check if tensor is on host
-inline bool isSystemBufferType(BufferType bufferType) {
-  return bufferType == BufferType::SystemMemory;
-}
-
-// Check if the tensor is on device
-inline bool isDeviceBufferType(BufferType bufferType) {
-  return bufferType == BufferType::DRAM || bufferType == BufferType::L1;
-}
-
-// Check if tensor is in L1 memory
-inline bool isL1BufferType(BufferType bufferType) {
-  return bufferType == BufferType::L1;
-}
-
 // Check if the tensor is tiled
 bool TTNNLayoutAttr::isTiled() const {
   return ::mlir::isa<::mlir::tt::TileType>(getElementType());
 }
 
+// Get layout of the tensor (RowMajor/Tile)
+Layout TTNNLayoutAttr::getLayout() const {
+  return isTiled() ? Layout::Tile : Layout::RowMajor;
+}
+
+// Get optinoal memory layout
+std::optional<TensorMemoryLayout> TTNNLayoutAttr::getMemLayoutOpt() const {
+  return getMemLayout() ? std::make_optional(getMemLayout().getValue())
+                        : std::nullopt;
+}
+
+// Check if the tensor memory buffer type is L1
+bool TTNNLayoutAttr::hasL1BufferType() const {
+  return isL1BufferType(getBufferType());
+}
+
+// Check if the tensor memory buffer type is DRAM
+bool TTNNLayoutAttr::hasDRAMBufferType() const {
+  return isDRAMBufferType(getBufferType());
+}
+
 // Check if the tensor memory layout is sharded
 bool TTNNLayoutAttr::hasShardedTensorMemoryLayout() const {
-  return (getMemLayout() == TensorMemoryLayout::HeightSharded ||
-          getMemLayout() == TensorMemoryLayout::WidthSharded ||
-          getMemLayout() == TensorMemoryLayout::BlockSharded);
+  return isDeviceBufferType() &&
+         (getMemLayout().getValue() == TensorMemoryLayout::HeightSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::WidthSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::BlockSharded);
 }
 
 // Check if the tensor memory layout is sharded in L1 memory
 bool TTNNLayoutAttr::hasShardedL1TensorMemoryLayout() const {
-  return isL1BufferType(getBufferType()) &&
-         (getMemLayout() == TensorMemoryLayout::HeightSharded ||
-          getMemLayout() == TensorMemoryLayout::WidthSharded ||
-          getMemLayout() == TensorMemoryLayout::BlockSharded);
+  return hasL1BufferType() &&
+         (getMemLayout().getValue() == TensorMemoryLayout::HeightSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::WidthSharded ||
+          getMemLayout().getValue() == TensorMemoryLayout::BlockSharded);
 }
 
 // Check if the tensor memory layout is interleaved and in L1 memory
 bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
-  return isL1BufferType(getBufferType()) &&
-         (getMemLayout() == TensorMemoryLayout::Interleaved);
+  return hasL1BufferType() &&
+         (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
+}
+
+// Check if the tensor memory layout is interleaved and in DRAM memory
+bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
+  return hasDRAMBufferType() &&
+         (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
 }
 
 // Get stride given tensor logical shape
@@ -129,19 +142,19 @@ mlir::Type TTNNLayoutAttr::getScalarElementType() const {
   return elementType;
 }
 
-// Extract data type from the memref. Example:
-// memref<2x2xf32> -> f32
-// memref<2x2x!tt.tile<32x32xf32>> -> f32
-mlir::tt::DataType TTNNLayoutAttr::getDataTypeFromMemRef() const {
+// Get scalar element type.
+// Example: memref<2x2xf32> -> f32
+// Example: memref<2x2x!tt.tile<32x32xf32>> -> f32
+//
+// return The scalar element type.
+mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
   Type elementType = getElementType();
-  DataType dtype = DataType::Float32;
-  if (llvm::isa<TileType>(elementType)) {
+  if (isTiled()) {
     TileType tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-  } else {
-    dtype = elementTypeToDataType(elementType);
+    return tileType.getDataType();
   }
-  return dtype;
+
+  return elementTypeToDataType(elementType);
 }
 
 // Gets the size of shard in bytes
@@ -149,10 +162,10 @@ mlir::tt::DataType TTNNLayoutAttr::getDataTypeFromMemRef() const {
 // This function returns the size of the shard in bytes.
 // Size is calculated by multiplying shard shape with element size.
 //
-// /return The size of the shard in bytes.
+// return The size of the shard in bytes.
 uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType)) {
+  if (isTiled()) {
     TileType tileType = mlir::cast<TileType>(elementType);
     return tileType.getSizeBytes();
   }
@@ -161,21 +174,31 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 
 // Get shard shape
 //
-// This function returns the shape of the shard. If element type is TileType
-// and convertTileToScalar is true, then the shape is converted to scalar shape.
-// Example: (convertToScalar = true) memref<2x2x!tt.tile<32x32xf32>> -> {64, 64}
-// Example: (convertToScalar = false) memref<2x2x!tt.tile<32x32xf32>> -> {2, 2}
-// Example: memref<128x128xf32> -> {128, 128}
+// Return the shape of the shard.
+// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 2, 2 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!tt.tile<32x32xf32>> -> { 2, 3 }
 //
-// /param convertTileToScalar If true, convert tile shape to scalar shape.
-// /return The shape of the shard.
-llvm::SmallVector<int64_t>
-TTNNLayoutAttr::getShardShape(bool convertTileToScalar) const {
+// return The shape of the shard.
+llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
+  return SmallVector<int64_t>(getMemref().getShape());
+}
+
+// Get scalar shard shape
+//
+// If the element type is TileType, this function returns the scalar shape of
+// the shard.
+// Example: memref<2x2x!tt.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!tt.tile<32x32xf32>> -> { 64, 96 }
+//
+// return The scalar shape of the shard.
+llvm::SmallVector<int64_t> TTNNLayoutAttr::getScalarShardShape() const {
   SmallVector<int64_t> shardShape(getMemref().getShape());
-  Type elementType = getElementType();
-  if (mlir::isa<TileType>(elementType) && convertTileToScalar) {
-    return mlir::cast<TileType>(elementType).getScalarShape(shardShape);
+  if (isTiled()) {
+    return mlir::cast<TileType>(getElementType()).getScalarShape(shardShape);
   }
+
   return shardShape;
 }
 
@@ -188,8 +211,8 @@ TTNNLayoutAttr::getShardShape(bool convertTileToScalar) const {
 // d2) and tile shape (32, 32) The result is (90, 10) which is then divided by
 // tile shape (32, 32) -> (3, 1)
 //
-// /param tensorShape The shape of the tensor
-// /return The size of the tensor in tiles.
+// param tensorShape The shape of the tensor
+// return The size of the tensor in tiles.
 llvm::SmallVector<int64_t>
 TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
   assert(isTiled() && "Expected a tiled layout");
@@ -224,10 +247,9 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
 // Element size for TileType is tile width * tile height * sizeof(element).
 // For scalar types, element size is sizeof(element).
 //
-// /return The size of the shard in bytes.
+// return The size of the shard in bytes.
 uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
-  MemRefType ty = getMemref();
-  ArrayRef<int64_t> shape = ty.getShape();
+  SmallVector<int64_t> shape = getShardShape();
   uint64_t size = getElementSizeBytes();
   return std::accumulate(shape.begin(), shape.end(), size,
                          std::multiplies<uint64_t>());
@@ -238,7 +260,7 @@ uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
 // This function returns a new identity affine map
 // with the same number of dimensions as the linear map.
 //
-// /return The new identity affine map.
+// return The new identity affine map.
 mlir::AffineMap TTNNLayoutAttr::getIdentityTileLinearMap() const {
   assert(isTiled() && "Expected a tiled layout");
 
@@ -251,12 +273,11 @@ mlir::AffineMap TTNNLayoutAttr::getIdentityTileLinearMap() const {
 // This function takes a physical memory map and replaces the symbols with the
 // shard shape
 //
-// /param physicalMemoryMap The physical memory map (d0, d1)[s0, s1]
-// /return New memory map with symbols replaced with shard shape.
+// param physicalMemoryMap The physical memory map (d0, d1)[s0, s1]
+// return New memory map with symbols replaced with shard shape.
 mlir::AffineMap TTNNLayoutAttr::replaceMemoryMapSymbolsWithShardShape(
     AffineMap physicalMemoryMap) const {
-  mlir::SmallVector<int64_t> shardShape =
-      getShardShape(false /*convertTileToScalar*/);
+  mlir::SmallVector<int64_t> shardShape = getShardShape();
   assert(physicalMemoryMap.getNumSymbols() == shardShape.size() &&
          "Physical memory map must have same number of symbols as logical "
          "shard rank");
@@ -299,11 +320,11 @@ int64_t TTNNLayoutAttr::getTensorSizeInBytes(ArrayRef<int64_t> tensorShape,
 // This function creates a new TTNNLayoutAttr with the given parameters.
 // The element type, buffer type and memory layout are preserved.
 //
-// /param context The MLIR context.
-// /param tensorShape The shape of the tensor (i.e 6x10x10)
-// /param grid The grid where the tensor will be placed (i.e 2x3)
-// /param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// /return The constructed TTNNLayoutAttr
+// param context The MLIR context.
+// param tensorShape The shape of the tensor (i.e 6x10x10)
+// param grid The grid where the tensor will be placed (i.e 2x3)
+// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
+// return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -317,10 +338,10 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
 // The shape of the tensor, buffer type, element type and memory layout are
 // preserved.
 //
-// /param context The MLIR context.
-// /param grid The grid where the tensor will be placed.
-// /param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// /return The constructed TTNNLayoutAttr
+// param context The MLIR context.
+// param grid The grid where the tensor will be placed.
+// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
+// return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::withGrid(
     ::mlir::MLIRContext *context, RankedTensorType ty, GridAttr grid,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
@@ -334,14 +355,14 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
 // This function creates a deep copy of the current TTNNLayoutAttr and
 // replaces the element type with the given one.
 //
-// /param context The MLIR context.
-// /param elementType The new element type.
-// /return The new TTNNLayoutAttr with the given element type.
+// param context The MLIR context.
+// param elementType The new element type.
+// return The new TTNNLayoutAttr with the given element type.
 TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
                                                Type elementType) {
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(context, getShardShape(),
+      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               elementType, getBufferType()),
       getMemLayout());
 }
@@ -351,14 +372,14 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
 // This function creates a deep copy of the current TTNNLayoutAttr and
 // replaces the memory space with the given one.
 //
-// /param context The MLIR context.
-// /param memorySpace The new memory space.
-// /return The new TTNNLayoutAttr with the given memory space.
+// param context The MLIR context.
+// param memorySpace The new memory space.
+// return The new TTNNLayoutAttr with the given memory space.
 TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
                                               BufferType memorySpace) {
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(context, getShardShape(),
+      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               getElementType(), memorySpace),
       getMemLayout());
 }
@@ -368,16 +389,33 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
 // This function creates a deep copy of the current TTNNLayoutAttr and
 // replaces the memory layout with the given one.
 //
-// /param context The MLIR context.
-// /param memLayout The new memory layout.
-// /return The new TTNNLayoutAttr with the given memory layout.
-TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
-                                                TensorMemoryLayout memLayout) {
+// param context The MLIR context.
+// param memLayoutAttr The new memory layout.
+// return The new TTNNLayoutAttr with the given memory layout.
+TTNNLayoutAttr
+TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                 TensorMemoryLayoutAttr memLayoutAttr) {
   return TTNNLayoutAttr::get(
       context, getLinear(), getGrid(),
       buildMemRef<BufferType, BufferTypeAttr>(
-          context, getShardShape(), getElementType(), getBufferType()),
-      memLayout);
+          context, getScalarShardShape(), getElementType(), getBufferType()),
+      memLayoutAttr);
+}
+
+// Construct a new TTNNLayoutAttr
+//
+// This function creates a deep copy of the current TTNNLayoutAttr and
+// replaces the memory layout with the given one.
+//
+// param context The MLIR context.
+// param memLayout The new memory layout.
+// return The new TTNNLayoutAttr with the given memory layout.
+TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                                TensorMemoryLayout memLayout) {
+
+  TensorMemoryLayoutAttr memLayoutAttr =
+      TensorMemoryLayoutAttr::get(context, memLayout);
+  return withMemoryLayout(context, memLayoutAttr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -385,9 +423,9 @@ TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(::mlir::MLIRContext *context,
 // This function creates a deep copy of the current TTNNLayoutAttr and
 // replaces shard shape with the given one.
 //
-// /param context The MLIR context.
-// /param shardShape The new shard shape.
-// /return The new TTNNLayoutAttr with the given shard shape.
+// param context The MLIR context.
+// param shardShape The new shard shape.
+// return The new TTNNLayoutAttr with the given shard shape.
 TTNNLayoutAttr
 TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
                                llvm::SmallVector<int64_t> shardShape) {
@@ -402,18 +440,18 @@ TTNNLayoutAttr::withShardShape(::mlir::MLIRContext *context,
 //
 // This function constructs a new TTNNLayoutAttr with the given parameters.
 //
-// /param context The MLIR context.
-// /param tensorShape The shape of the tensor (i.e 6x10x10)
-// /param elementType The type of the element i.e TileType/FloatType/IntegerType
-// /param bufferType The type of the buffer
-// /param grid The grid where the tensor will be placed (i.e 2x3)
-// /param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// /param memLayout The memory layout of the tensor
-// /return The constructed TTNNLayoutAttr
+// param context The MLIR context.
+// param tensorShape The shape of the tensor (i.e 6x10x10)
+// param elementType The type of the element i.e TileType/FloatType/IntegerType
+// param bufferType The type of the buffer
+// param grid The grid where the tensor will be placed (i.e 2x3)
+// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
+// param memLayout The memory layout of the tensor
+// return The constructed TTNNLayoutAttr
 TTNNLayoutAttr TTNNLayoutAttr::get(
     ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
     Type elementType, BufferType bufferType, GridAttr grid,
-    TensorMemoryLayout memLayout,
+    TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
   // Construct a new affine map which will be used to map from logical
   // space to physical space
@@ -426,5 +464,35 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   // Build memref type with the given parameters
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
-  return get(context, linear, grid, memRefType, memLayout);
+  return get(context, linear, grid, memRefType, memLayoutAttr);
+}
+
+// Construct a new MemoryConfig
+//
+// This function creates a deep copy of the current MemoryConfigAttr and
+// replaces the buffer type with the given one.
+//
+// param context The MLIR context.
+// param buffer type The new buffer type.
+// return The new MemoryConfigAttr with the given buffer type.
+MemoryConfigAttr MemoryConfigAttr::withBufferType(::mlir::MLIRContext *context,
+                                                  BufferType bufferType) {
+  return MemoryConfigAttr::get(context,
+                               BufferTypeAttr::get(context, bufferType),
+                               getShardSpec(), getTensorMemoryLayout());
+}
+
+// Construct a new MemoryConfig
+//
+// This function creates a deep copy of the current MemoryConfig and
+// replaces the memory layout with the given one.
+//
+// param context The MLIR context.
+// param memLayout The new memory layout.
+// return The new MemoryConfig with the given memory layout.
+MemoryConfigAttr
+MemoryConfigAttr::withMemoryLayout(::mlir::MLIRContext *context,
+                                   TensorMemoryLayout memLayout) {
+  return MemoryConfigAttr::get(context, getBufferType(), getShardSpec(),
+                               TensorMemoryLayoutAttr::get(context, memLayout));
 }

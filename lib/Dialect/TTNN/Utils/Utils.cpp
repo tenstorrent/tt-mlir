@@ -38,11 +38,9 @@ mlir::tt::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     return ttnn::TensorMemoryLayout::BlockSharded;
   case ::mlir::tt::TensorMemoryLayout::SingleBank:
     return ttnn::TensorMemoryLayout::SingleBank;
-  case ::mlir::tt::TensorMemoryLayout::None:
-    return ttnn::TensorMemoryLayout::None;
+  default:
+    llvm_unreachable("Unknown TensorMemoryLayout");
   }
-
-  llvm_unreachable("Unknown TensorMemoryLayout");
 }
 
 mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
@@ -59,9 +57,9 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
     return ::mlir::tt::TensorMemoryLayout::BlockSharded;
   case ttnn::TensorMemoryLayout::SingleBank:
     return ::mlir::tt::TensorMemoryLayout::SingleBank;
-  case ttnn::TensorMemoryLayout::None:
-    return ::mlir::tt::TensorMemoryLayout::None;
   }
+
+  llvm_unreachable("Unknown TensorMemoryLayout");
 }
 
 mlir::tt::MemorySpace
@@ -80,18 +78,6 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   }
 
   llvm_unreachable("Unknown MemorySpace");
-}
-
-DataType getDataTypeFromMemRef(mlir::MemRefType memref) {
-  Type elementType = memref.getElementType();
-  DataType dtype = DataType::Float32;
-  if (llvm::isa<TileType>(elementType)) {
-    auto tileType = mlir::cast<TileType>(elementType);
-    dtype = tileType.getDataType();
-  } else {
-    dtype = elementTypeToDataType(elementType);
-  }
-  return dtype;
 }
 
 Layout getLayoutFromMemRef(mlir::MemRefType memref) {
@@ -132,6 +118,14 @@ Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   case DataType::UInt8:
     return IntegerType::get(context, 8);
   }
+}
+
+// Helper method to create a RankedTensorType with the given encoding
+RankedTensorType
+createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
+                                   ttnn::TTNNLayoutAttr encoding) {
+  return RankedTensorType::get(tensorType.getShape(),
+                               tensorType.getElementType(), encoding);
 }
 
 } // namespace mlir::tt::ttnn::utils

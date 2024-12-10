@@ -5,8 +5,8 @@
 #l1_ = #tt.memory_space<l1>
 #dram = #tt.memory_space<dram>
 
-#layout = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x16xf32, #l1_>>
-#layout1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<2x8xf32, #l1_>>
+#layout = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<4x16xf32, #l1_>>
+#layout1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<2x8xf32, #l1_>>
 func.func @simple(%arg0: tensor<4x16xf32, #layout>) -> tensor<4x16xf32, #layout1> {
   %0 = tensor.empty() : tensor<4x16xf32, #layout1>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
@@ -14,8 +14,8 @@ func.func @simple(%arg0: tensor<4x16xf32, #layout>) -> tensor<4x16xf32, #layout1
   return %1 : tensor<4x16xf32, #layout1>
 }
 
-#untilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
-#tilized = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32 x 32, f32>, #l1_>>
+#untilized = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<64x128xf32, #l1_>>
+#tilized = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<2x4x!tt.tile<32 x 32, f32>, #l1_>>
 func.func @tilize(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #untilized> {
   %0 = tensor.empty() : tensor<64x128xf32, #tilized>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
@@ -26,11 +26,11 @@ func.func @tilize(%arg0: tensor<64x128xf32, #untilized>) -> tensor<64x128xf32, #
   return %3 : tensor<64x128xf32, #untilized>
 }
 
-#untilized_dram = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #dram>>
-#untilized_l1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #l1_>>
-#untilized2x2_dram = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #dram>>
-#untilized2x2_l1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #l1_>>
-#untilized1x4_l1 = #tt.layout<(d0, d1) -> (d0, d1), undef, <1x4>, memref<16x16xf32, #l1_>>
+#untilized_dram = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #dram>>
+#untilized_l1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x1>, memref<16x64xf32, #l1_>>
+#untilized2x2_dram = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #dram>>
+#untilized2x2_l1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <2x2>, memref<8x32xf32, #l1_>>
+#untilized1x4_l1 = #tt.metal_layout<(d0, d1) -> (d0, d1), undef, <1x4>, memref<16x16xf32, #l1_>>
 func.func @dram_to_l1(%arg0: tensor<16x64xf32, #untilized_dram>) -> tensor<16x64xf32, #untilized_l1> {
   %0 = tensor.empty() : tensor<16x64xf32, #untilized_l1>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]

@@ -63,6 +63,14 @@ void createTTNNPipelineLoweringPasses(
   pm.addPass(mlir::createRemoveDeadValuesPass());
 }
 
+// Create a pass to workaround issues in the TTNN dialect.
+void createTTNNPipelineWorkaroundPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  if (options.workaroundPassEnabled) {
+    pm.addPass(createTTNNWorkarounds());
+  }
+}
+
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(createTTNNDecomposeLayouts());
@@ -108,10 +116,24 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
+void createTTNNPipelineTTIRBroadcastFoldPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::ttir::createTTIRBroadcastFold());
+}
+
+void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
+                                                       std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, *optionsStruct);
+}
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
+  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
+  createTTNNPipelineWorkaroundPass(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);
   createTTNNPipelineLayoutDecompositionPass(pm, options);
   createTTNNPipelineDeallocPass(pm, options);

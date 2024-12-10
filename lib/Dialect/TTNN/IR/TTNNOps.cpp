@@ -42,7 +42,7 @@ namespace mlir::tt::ttnn {
   const RankedTensorType outputTensorType =
       mlir::cast<RankedTensorType>(outputs.front().getType());
 
-  if (inputTensorType != outputTensorType) {
+  if (inputTensorType.getShape() != outputTensorType.getShape()) {
     return emitOpError("input and output must have same shape.");
   }
 
@@ -141,6 +141,32 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// ArangeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ArangeOp::verify() {
+
+  if (getStep() == 0) {
+    return emitOpError("Step cannot be zero.");
+  }
+
+  int64_t numValues = (getEnd() - getStart()) / getStep();
+
+  if (numValues <= 0) {
+    return emitOpError("Invalid range: start=")
+           << getStart() << ", end=" << getEnd() << ", step=" << getStep();
+  }
+
+  std::vector<int64_t> expectedShape = {1, 1, 1, numValues};
+  if (getType().getShape().vec() != expectedShape) {
+    return emitOpError() << "Output tensor shape must be " << expectedShape
+                         << ", but got " << getType().getShape();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // EmptyOp
 //===----------------------------------------------------------------------===//
 
@@ -164,25 +190,12 @@ namespace mlir::tt::ttnn {
 
   // DataType and Layout
   //
-  mlir::MemRefType memref = layoutAttr.getMemref();
-  Type elementType = memref.getElementType();
   if (getLayout().has_value()) {
-    ttnn::Layout ttnnLayoutEnum;
-    if (llvm::isa<TileType>(elementType)) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    } else {
-      ttnnLayoutEnum = ttnn::Layout::RowMajor;
-    }
+    ttnn::Layout ttnnLayoutEnum = layoutAttr.getLayout();
     assert(ttnnLayoutEnum == getLayoutAttr().getValue());
   }
   if (getDtype().has_value()) {
-    tt::DataType dtype;
-    if (llvm::isa<TileType>(elementType)) {
-      auto tileType = mlir::cast<TileType>(elementType);
-      dtype = tileType.getDataType();
-    } else {
-      dtype = elementTypeToDataType(elementType);
-    }
+    tt::DataType dtype = layoutAttr.getDataType();
     assert(dtype == getDtype());
   }
 
@@ -192,10 +205,11 @@ namespace mlir::tt::ttnn {
   //
   if (getMemoryConfig().has_value()) {
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
-    ttnn::TensorMemoryLayout tensorMemoryLayout = layoutAttr.getMemLayout();
+    ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+        layoutAttr.getMemLayout();
     assert(bufferType == getMemoryConfig()->getBufferType().getValue());
-    assert(tensorMemoryLayout ==
-           getMemoryConfig()->getTensorMemoryLayout().getValue());
+    assert(tensorMemoryLayoutAttr ==
+           getMemoryConfig()->getTensorMemoryLayout());
   }
   //
   // ==============================
@@ -287,11 +301,6 @@ namespace mlir::tt::ttnn {
   // Check that the shape attribute is non-empty
   if (shape_size == 0) {
     return emitOpError("Shape attribute must be non-empty");
-  }
-
-  // Check that the shape attribute has at most 5 elements
-  if (shape_size > 5) {
-    return emitOpError("Shape attribute must have at most 5 elements");
   }
 
   // Cardinality of the input and output tensors must be the same
@@ -534,9 +543,10 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 // Utility methods
-static bool isValidDeviceLayout(TensorMemoryLayout layout) {
-  return layout == TensorMemoryLayout::Interleaved ||
-         isShardedMemoryLayout(layout);
+static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
+  return memLayoutAttr &&
+         (memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved ||
+          isShardedMemoryLayout(memLayoutAttr.getValue()));
 }
 
 // ToMemoryConfigOp verification
@@ -554,11 +564,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
     return emitOpError("Output tensor type missing layout attribute");
   }
   BufferType outputBufferType = outputLayout.getBufferType();
-  TensorMemoryLayout outputMemoryLayout = outputLayout.getMemLayout();
-  if (isSystemBufferType(outputBufferType) &&
-      outputMemoryLayout != TensorMemoryLayout::None) {
-    return emitOpError("System memory space only supports undef memory layout");
-  }
+  TensorMemoryLayoutAttr outputMemoryLayout = outputLayout.getMemLayout();
 
   if (isDeviceBufferType(outputBufferType) &&
       !isValidDeviceLayout(outputMemoryLayout)) {
@@ -567,7 +573,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   }
 
   if (outputBufferType == BufferType::DRAM &&
-      outputMemoryLayout != TensorMemoryLayout::Interleaved) {
+      outputMemoryLayout.getValue() != TensorMemoryLayout::Interleaved) {
     return emitOpError(
         "Device DRAM memory space only supports interleaved memory layout");
   }
@@ -581,7 +587,7 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
     }
-    if (outputMemoryLayout == TensorMemoryLayout::BlockSharded) {
+    if (outputMemoryLayout.getValue() == TensorMemoryLayout::BlockSharded) {
       // TTNN tiles are (32, 32), shard shape must evenly divide the tile shape
       if (shardShape[0] % TILE_HEIGHT != 0 or shardShape[1] % TILE_WIDTH != 0) {
         return emitOpError(
@@ -589,6 +595,158 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
       }
     }
   }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LinearOp
+//===----------------------------------------------------------------------===//
+
+// LinearOp verification
+::mlir::LogicalResult mlir::tt::ttnn::LinearOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  std::optional<::mlir::RankedTensorType> biasType =
+      getBias() ? std::make_optional(getBias().getType()) : std::nullopt;
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+
+  // Verify that the input A is at least 1D tensor.
+  if (inputAType.getRank() < 1) {
+    return emitOpError("Input A must be at least a 1D tensor");
+  }
+
+  // Verify that the input B is at least 1D tensor.
+  if (inputBType.getRank() < 1) {
+    return emitOpError("Input B must be at least a 1D tensor");
+  }
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
+  // purpose of the matrix multiplication. After the matrix multiplication, the
+  // prepended dimension is removed.
+  if (inputAType.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
+  }
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
+  // the purpose of the matrix-vector product and removed afterwards.
+  if (inputBType.getRank() == 1) {
+    inputBShape.push_back(1);
+  }
+
+  // Verify that the input A and input B has matching inner dimensions.
+  if (inputAShape[inputAShape.size() - 1] !=
+      inputBShape[inputBShape.size() - 2]) {
+    return emitOpError(
+        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
+        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
+        ") must have matching inner dimensions");
+  }
+
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  // Verify that the batch dimensions are broadcast compatible and construct the
+  // expected output shape.
+  if (inputAShape.size() > 2 || inputBShape.size() > 2) {
+    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
+
+    if (inputAShape.size() > 2) {
+      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
+                             inputAShape.end() - 2);
+    }
+
+    if (inputBShape.size() > 2) {
+      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
+                             inputBShape.end() - 2);
+    }
+
+    // Verify that the batch dimensions of input A and B are broadcast
+    // compatible.
+    llvm::SmallVector<int64_t, 4> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
+                                            broadcastedShape)) {
+
+      return emitOpError("Batch dimensions of input A(" +
+                         ttmlir::utils::join(inputABatchDims, ",") +
+                         ") and B(" +
+                         ttmlir::utils::join(inputBBatchDims, ",") +
+                         ") are not broadcast compatible");
+    }
+
+    // Insert the broadcasted batch dimensions in the expected output shape.
+    expectedOutputShape.insert(expectedOutputShape.begin(),
+                               broadcastedShape.begin(),
+                               broadcastedShape.end());
+  }
+
+  // Insert the input A and B inner dimensions in expected output shape.
+  // Consider the case where input A and B are vectors. In that case,
+  // the dimension 1 is ommited from the output shape.
+  if (inputAType.getRank() > 1) {
+    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
+  }
+
+  if (inputBType.getRank() > 1) {
+    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
+  }
+
+  if (biasType) {
+    // Verify that the input bias is at least 1D tensor.
+    if (biasType.value().getRank() < 1) {
+      return emitOpError("Bias must be at least a 1D tensor");
+    }
+
+    llvm::SmallVector<int64_t> biasShape(biasType.value().getShape());
+
+    // Verify that the dimensions of the matmul of A and B are broadcast
+    // compatible with input bias.
+    llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
+    if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
+                                            expectedOutputShape)) {
+      return emitOpError("Bias shape(" + ttmlir::utils::join(biasShape, ",") +
+                         ") is not broadcast compatible with the matmul output "
+                         "shape(" +
+                         ttmlir::utils::join(matmulShape, ",") + ")");
+    }
+  }
+
+  // Check the case of a vector-vector product. At this moment we don't support
+  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
+  if (expectedOutputShape.size() == 0) {
+    if (outputType.getRank() < 1) {
+      return emitOpError("Scalar output is not supported, output must be at "
+                         "least a 1D tensor");
+    }
+
+    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
+      return emitOpError("Scalar output must be a 1D tensor of size 1");
+    }
+
+    return success();
+  }
+
+  // Verify that the output shape dimension count is correct.
+  if (outputShape.size() != expectedOutputShape.size()) {
+    return emitOpError("Output shape rank(" +
+                       std::to_string(outputShape.size()) +
+                       ") must match the expected output shape rank(" +
+                       std::to_string(expectedOutputShape.size()) + ")");
+  }
+
+  // Verify each dim of the output shape.
+  for (size_t i = 0; i < outputShape.size(); i++) {
+    if (outputShape[i] != expectedOutputShape[i]) {
+      return emitOpError(
+          "Output shape dimension[" + std::to_string(i) + "](" +
+          std::to_string(outputShape[i]) +
+          ") doesn't match the expected output shape dimension[" +
+          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
+          ")");
+    }
+  }
+
   return success();
 }
 
@@ -785,6 +943,10 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+
 ::mlir::LogicalResult AllGatherOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   int32_t dim = getDim();
@@ -796,8 +958,133 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
 ::mlir::LogicalResult ReduceScatterOp::verify() {
   // TODO(gfengTT)
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// UpdateCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult UpdateCacheOp::verify() {
+  if (getBatchOffset() != 0) {
+    return emitOpError(
+        "Only single-batch is supported. Batch offset must be 0");
+  }
+
+  const ::mlir::RankedTensorType cacheType = getCache().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+
+  const DataType cacheDataType =
+      elementTypeToDataType(cacheType.getElementType());
+  const DataType inputDataType =
+      elementTypeToDataType(inputType.getElementType());
+
+  if (cacheDataType != inputDataType) {
+    return emitOpError(
+        "Cache and input tensors must have the same dtype. "
+        "Got cache dtype = " +
+        DataTypeEnumToString(cacheDataType) +
+        ", input dtype = " + DataTypeEnumToString(inputDataType));
+  }
+
+  if (cacheType.getRank() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (inputType.getShape()[2] != 1) {
+    return emitOpError("Input tensor requires that dim 2 have size 1, got "
+                       "input dim 2 size = " +
+                       std::to_string(inputType.getShape()[2]));
+  }
+
+  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
+      cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[3] != inputType.getShape()[3]) {
+    return emitOpError("Cache tensor shape must match input tensor shape on "
+                       "all dimensions except dim 2. Got cache shape (" +
+                       std::to_string(cacheType.getShape()[0]) + ", " +
+                       std::to_string(cacheType.getShape()[1]) + ", " +
+                       std::to_string(cacheType.getShape()[2]) + ", " +
+                       std::to_string(cacheType.getShape()[3]) +
+                       "), input shape ()" +
+                       std::to_string(inputType.getShape()[0]) + "x" +
+                       std::to_string(inputType.getShape()[1]) + "x" +
+                       std::to_string(inputType.getShape()[2]) + "x" +
+                       std::to_string(inputType.getShape()[3]) + ")");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FillCacheOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult FillCacheOp::verify() {
+  if (getBatchOffset() != 0) {
+    return emitOpError(
+        "Only single-batch is supported. Batch offset must be 0");
+  }
+
+  const ::mlir::RankedTensorType cacheType = getCache().getType();
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+
+  const DataType cacheDataType =
+      elementTypeToDataType(cacheType.getElementType());
+  const DataType inputDataType =
+      elementTypeToDataType(inputType.getElementType());
+
+  if (cacheDataType != inputDataType) {
+    return emitOpError(
+        "Cache and input tensors must have the same dtype. "
+        "Got cache dtype = " +
+        DataTypeEnumToString(cacheDataType) +
+        ", input dtype = " + DataTypeEnumToString(inputDataType));
+  }
+
+  if (cacheType.getRank() != 4) {
+    return emitOpError("Cache tensor must be a 4D tensor");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+
+  if (inputType.getShape()[2] > cacheType.getShape()[2]) {
+    return emitOpError(
+        "Input tensor requires that dim 2 have a size which is less than or "
+        "equal to the size of dim 2 of the cache tensor. Got cache dim 2 size "
+        "= " +
+        std::to_string(cacheType.getShape()[2]) +
+        ", input dim 2 size = " + std::to_string(inputType.getShape()[2]));
+  }
+
+  if (cacheType.getShape()[0] != inputType.getShape()[0] ||
+      cacheType.getShape()[1] != inputType.getShape()[1] ||
+      cacheType.getShape()[3] != inputType.getShape()[3]) {
+    return emitOpError("Cache tensor shape must match input tensor shape on "
+                       "all dimensions except dim 2. Got cache shape (" +
+                       std::to_string(cacheType.getShape()[0]) + ", " +
+                       std::to_string(cacheType.getShape()[1]) + ", " +
+                       std::to_string(cacheType.getShape()[2]) + ", " +
+                       std::to_string(cacheType.getShape()[3]) +
+                       "), input shape (" +
+                       std::to_string(inputType.getShape()[0]) + ", " +
+                       std::to_string(inputType.getShape()[1]) + ", " +
+                       std::to_string(inputType.getShape()[2]) + ", " +
+                       std::to_string(inputType.getShape()[3]) + ")");
+  }
+
   return success();
 }
 

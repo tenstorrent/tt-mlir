@@ -4,6 +4,7 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/creation/arange.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/data_movement/concat.h"
@@ -17,6 +18,8 @@
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
+#include "operations/kv_cache/fill_cache.h"
+#include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
@@ -29,56 +32,60 @@
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/types.h"
+#include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+
+#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+#include "tracy/Tracy.hpp"
+#endif
 
 namespace tt::runtime::ttnn {
 using LogType = ::tt::runtime::logger::LogType;
 
+void tracyLogOpLocation(const ::tt::target::ttnn::Operation *op) {
+#ifdef TT_RUNTIME_ENABLE_PERF_TRACE
+  TracyMessage(op->loc_info()->c_str(), op->loc_info()->size());
+#endif
+}
+
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
-  if (not isTTNN) {
-    throw std::runtime_error("Unsupported binary format");
-  }
+  LOG_ASSERT(isTTNN, "Unsupported binary format");
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
 class ProgramExecutor {
 public:
-  ProgramExecutor(Binary &executableHandle, const TensorMap &liveTensors,
-                  const std::unordered_set<uint32_t> &programInputs,
-                  const std::unordered_set<uint32_t> &programOutputs,
-                  ::ttnn::MeshDevice *meshDevice)
+  ProgramExecutor(
+      const Binary &executableHandle,
+      const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
+      const std::vector<uint32_t> &programInputs,
+      const std::vector<uint32_t> &programOutputs,
+      ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
                                meshDevice)) {}
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
-                   ProgramContext *programContext) {
-    if (auto callback = debug::Hooks::get().getOperatorCallback(); callback) {
-      std::shared_ptr<void> programContextPtr =
-          ::tt::runtime::utils::unsafe_borrow_shared(programContext);
-      std::shared_ptr<void> opContextPtr =
-          ::tt::runtime::utils::unsafe_borrow_shared(
-              const_cast<::tt::target::ttnn::Operation *>(opContext));
-      (*callback)(executableHandle,
-                  CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                  OpContext(opContextPtr, DeviceRuntime::TTNN));
-    }
-  }
+                   ProgramContext *programContext);
 
   void execute(const ::tt::target::ttnn::Program *program) {
     for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
       LOG_DEBUG(LogType::LogRuntimeTTNN,
                 "Executing operation: ", op->debug_info()->c_str());
+      tracyLogOpLocation(op);
       runOperation(op);
       runCallback(executableHandle, op, &context);
     }
   }
 
   ProgramContext &getContext() { return context; }
+  std::vector<Tensor> gatherOutputTensors() {
+    return context.getTensorPool().gatherOutputTensors();
+  }
 
 private:
   Binary executableHandle;
@@ -86,6 +93,21 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
   void runEltwiseOperation(const ::tt::target::ttnn::EltwiseOp *op);
 };
+
+void ProgramExecutor::runCallback(
+    Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
+    ProgramContext *programContext) {
+  if (auto callback = debug::Hooks::get().getOperatorCallback(); callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(programContext);
+    std::shared_ptr<void> opContextPtr =
+        ::tt::runtime::utils::unsafe_borrow_shared(
+            const_cast<::tt::target::ttnn::Operation *>(opContext));
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                OpContext(opContextPtr, DeviceRuntime::TTNN));
+  }
+}
 
 void ProgramExecutor::runEltwiseOperation(
     const ::tt::target::ttnn::EltwiseOp *op) {
@@ -148,6 +170,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::EltwiseOp: {
     return runEltwiseOperation(op->type_as_EltwiseOp());
   }
+  case ::tt::target::ttnn::OpType::LinearOp: {
+    return operations::matmul::run(op->type_as_LinearOp(), context);
+  }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
@@ -186,6 +211,15 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
+  case ::tt::target::ttnn::OpType::ArangeOp: {
+    return operations::creation::run(op->type_as_ArangeOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::UpdateCacheOp: {
+    return operations::kv_cache::run(op->type_as_UpdateCacheOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::FillCacheOp: {
+    return operations::kv_cache::run(op->type_as_FillCacheOp(), context);
+  }
   default: {
     LOG_FATAL("Unsupported operation type");
   }
@@ -193,6 +227,26 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
 }
 
 // Nop is single input, output tensor where input is returned as output.
+static bool isNopProgram(const ::tt::target::ttnn::Program *program) {
+  return program->inputs()->size() == 1 && program->outputs()->size() == 1 &&
+         program->inputs()->Get(0)->global_id() ==
+             program->outputs()->Get(0)->global_id();
+}
+
+static ::ttnn::Tensor
+handleNopProgram(::tt::target::ttnn::Program const *program,
+                 std::vector<::ttnn::Tensor *> const &inputs) {
+  const ::ttnn::Tensor &input = *inputs[0];
+  ::ttnn::Tensor output =
+      ::ttnn::zeros(input.get_shape(), input.get_dtype(), input.get_layout());
+  const void *src = ::tt::tt_metal::get_raw_host_data_ptr(input);
+  void *dst = ::tt::tt_metal::get_raw_host_data_ptr(output);
+  std::memcpy(dst, src, input.volume() * input.element_size());
+  return output;
+}
+
+namespace legacy {
+
 static bool handleNopProgram(::tt::target::ttnn::Program const *program,
                              std::vector<::ttnn::Tensor *> const &inputs,
                              std::vector<::ttnn::Tensor *> const &outputs) {
@@ -221,8 +275,8 @@ void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
   if (handleNopProgram(program, inputs, outputs)) {
     return;
   }
-  TensorMap liveTensors;
-  std::unordered_set<uint32_t> programInputs;
+  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+  std::vector<uint32_t> programInputs;
   int inputIndex = 0;
   LOG_ASSERT(program->inputs()->size() == inputs.size(),
              "Program input size mismatch: ", program->inputs()->size(),
@@ -231,21 +285,69 @@ void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
     LOG_ASSERT(inserted, "Duplicate input tensor");
-    programInputs.emplace(input->global_id());
+    programInputs.push_back(input->global_id());
   }
 
   int outputIndex = 0;
-  std::unordered_set<uint32_t> programOutputs;
+  std::vector<uint32_t> programOutputs;
   LOG_ASSERT(program->outputs()->size() == outputs.size());
   for (::tt::target::TensorRef const *output : *program->outputs()) {
     auto [iter, inserted] =
         liveTensors.try_emplace(output->global_id(), outputs[outputIndex++]);
     LOG_ASSERT(inserted, "Duplicate output tensor");
-    programOutputs.emplace(output->global_id());
+    programOutputs.push_back(output->global_id());
   }
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,
                            programOutputs, &meshDevice);
   executor.execute(program);
+  outputIndex = 0;
+  for (uint32_t outputId : programOutputs) {
+    const ::ttnn::Tensor &src =
+        executor.getContext().getTensorPool().at(outputId);
+    const ::ttnn::Tensor &dst = *(outputs[outputIndex++]);
+    size_t srcSize = src.volume() * src.element_size();
+    size_t dstSize = dst.volume() * dst.element_size();
+    LOG_ASSERT(srcSize == dstSize, "Output tensor size mismatch");
+    const void *srcPtr = ::tt::tt_metal::get_raw_host_data_ptr(src);
+    void *dstPtr = ::tt::tt_metal::get_raw_host_data_ptr(dst);
+    std::memcpy(dstPtr, srcPtr, dstSize);
+  }
+}
+} // namespace legacy
+
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::ttnn::Tensor *> const &inputs) {
+  ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
+  ::tt::target::ttnn::Program const *program =
+      fbb.programs()->Get(programIndex);
+  if (isNopProgram(program)) {
+    Tensor out =
+        utils::createRuntimeTensorFromTTNN(handleNopProgram(program, inputs));
+    return {out};
+  }
+  std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
+  std::vector<uint32_t> programInputs;
+  int inputIndex = 0;
+  LOG_ASSERT(program->inputs()->size() == inputs.size(),
+             "Program input size mismatch: ", program->inputs()->size(),
+             " != ", inputs.size());
+  for (::tt::target::TensorRef const *input : *program->inputs()) {
+    auto [iter, inserted] =
+        liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
+    LOG_ASSERT(inserted, "Duplicate input tensor");
+    programInputs.push_back(input->global_id());
+  }
+  std::vector<uint32_t> programOutputs;
+  for (::tt::target::TensorRef const *output : *program->outputs()) {
+    programOutputs.push_back(output->global_id());
+  }
+  ProgramExecutor executor(executableHandle, liveTensors, programInputs,
+                           programOutputs, &meshDevice);
+  executor.execute(program);
+  std::vector<Tensor> outputTensors = executor.gatherOutputTensors();
+  return outputTensors;
 }
 
 } // namespace tt::runtime::ttnn

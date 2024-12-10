@@ -94,13 +94,15 @@ public:
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace,
           mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
-          tensorMemoryLayout)};
+          mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
+                                                      tensorMemoryLayout))};
     } else {
       legalLayouts[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(), builder.getF32Type(),
           memorySpace,
           mlir::tt::GridAttr::get(&context, {gridWidth, gridHeight}),
-          tensorMemoryLayout));
+          mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
+                                                      tensorMemoryLayout)));
     }
   }
 

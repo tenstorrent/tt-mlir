@@ -24,11 +24,6 @@ struct EmptyTensorConfig {
         dtype(::tt::runtime::ttnn::operations::utils::getDataType(op->out())),
         numShards(op->num_shards()), strategy(op->strategy()) {
     layout = ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
-    // TODO(bug #582): ttnn::empty doesn't work properly with tile layout,
-    // using ROW_MAJOR until we fix it
-    if (workaround::Env::get().emptyOpForceRowMajor) {
-      layout = ::ttnn::Layout::ROW_MAJOR;
-    }
     if (op->device()) {
       LOG_ASSERT(op->memcfg(),
                  "Memory config must be provided when device is provided");
@@ -62,11 +57,12 @@ createEmptyOnMultiDevice(ProgramContext &context, EmptyTensorConfig &config,
   ::tt::tt_metal::DistributedTensorConfig strategy =
       config.distributedTensorConfig();
   std::vector<::ttnn::Tensor> tensorShards;
-  tensorShards.resize(config.numShards);
-  std::generate_n(
-      tensorShards.begin(), config.numShards, [&config]() -> ::ttnn::Tensor {
-        return ::ttnn::zeros(config.shape, config.dtype, config.layout);
-      });
+  tensorShards.reserve(config.numShards);
+  std::generate_n(std::back_inserter(tensorShards), config.numShards,
+                  [&config]() -> ::ttnn::Tensor {
+                    return ::ttnn::zeros(config.shape, config.dtype,
+                                         config.layout);
+                  });
   ::ttnn::Tensor out = ::ttnn::distributed::api::create_multi_device_tensor(
       tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST, strategy);
   if (deviceRef) {
@@ -101,6 +97,6 @@ void run(const ::tt::target::ttnn::EmptyOp *op, ProgramContext &context) {
   } else {
     LOG_FATAL("Unsupported num shards");
   }
-  utils::updateTensorPool(tensorPool, out, op->out()->global_id());
+  tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::creation

@@ -6,183 +6,205 @@
 
 namespace mlir::tt::ttnn {
 
-namespace {
-std::optional<SmallVector<int64_t, 2>>
-parseGrid(StringRef param, char gridSeparator, llvm::cl::Option &opt) {
-  SmallVector<StringRef, 2> gridParts;
-  param.split(gridParts, gridSeparator);
-  if (gridParts.size() == 2) {
-    int64_t gridX, gridY;
-    if (gridParts[0].getAsInteger(10, gridX) ||
-        gridParts[1].getAsInteger(10, gridY)) {
-      opt.error("Invalid grid size: " + param);
-      return std::nullopt;
-    }
-    return SmallVector<int64_t, 2>{gridX, gridY};
-  }
-  return std::nullopt;
-}
-} // namespace
-
-bool OutputLayoutOverrideParser::parse(
-    llvm::cl::Option &opt, StringRef argName, StringRef arg,
-    llvm::StringMap<OutputLayoutOverrideParams> &value) {
-  SmallVector<StringRef> opOverrideList;
-  constexpr size_t kvPairSize = 2;
-  constexpr size_t iOpName = 0;
-  constexpr size_t iLayoutOverrideParams = 1;
-  constexpr char opSeparator = ',';
-  constexpr char opNameSeparator = '=';
-  constexpr char paramSeparator = ':';
-  constexpr char gridSeparator = 'x';
-
-  arg.split(opOverrideList, opSeparator);
-  for (const StringRef override : opOverrideList) {
-    SmallVector<StringRef, kvPairSize> opOverrideParts;
-    override.split(opOverrideParts, opNameSeparator);
-    if (opOverrideParts.size() != kvPairSize) {
-      opt.error("Invalid format for override grid sizes: " + override);
-      return true;
-    }
-
-    SmallVector<StringRef> layoutParamParts;
-    opOverrideParts[iLayoutOverrideParams].split(layoutParamParts,
-                                                 paramSeparator);
-
-    OutputLayoutOverrideParams params;
-
-    for (const StringRef &param : layoutParamParts) {
-      if (auto grid = parseGrid(param, gridSeparator, opt)) {
-        if (params.grid.has_value()) {
-          opt.error("Multiple grid parameters provided: " + param);
-          return true;
-        }
-        params.grid = grid;
-      } else if (auto bufferType = symbolizeBufferType(param)) {
-        if (params.bufferType.has_value()) {
-          opt.error("Multiple buffer type parameters provided: " + param);
-          return true;
-        }
-        params.bufferType = bufferType;
-      } else if (auto tensorMemoryLayout = symbolizeTensorMemoryLayout(param)) {
-        if (params.tensorMemoryLayout.has_value()) {
-          opt.error("Multiple tensor memory layout parameters provided: " +
-                    param);
-          return true;
-        }
-        params.tensorMemoryLayout = tensorMemoryLayout;
-      } else if (auto memoryLayout = mlir::tt::ttnn::symbolizeLayout(param)) {
-        if (params.memoryLayout.has_value()) {
-          opt.error("Multiple memory layout parameters provided: " + param);
-          return true;
-        }
-        params.memoryLayout = memoryLayout;
-      } else if (auto dataType = mlir::tt::DataTypeStringToEnum(param)) {
-        if (params.dataType.has_value()) {
-          opt.error("Multiple data type parameters provided: " + param);
-          return true;
-        }
-        params.dataType = dataType;
-      } else {
-        opt.error("Invalid layout parameter: " + param);
-        return true;
-      }
-    }
-
-    value[opOverrideParts[iOpName]] = params;
-  }
-  return false;
+void OptimizerOverridesHandler::setEnableOptimizer(bool value) {
+  enableOptimizer = value;
 }
 
-void OutputLayoutOverrideParser::print(
-    llvm::raw_ostream &os,
-    const llvm::StringMap<OutputLayoutOverrideParams> &value) {
-  os << "override-output-layout=";
-  size_t count = 0;
-  for (const auto &entry : value) {
-    os << entry.getKey() << "=";
-    const OutputLayoutOverrideParams &params = entry.getValue();
-    // Print grid values
-    for (size_t i = 0; i < params.grid.value().size(); ++i) {
-      os << params.grid.value()[i];
-      if (i < params.grid.value().size() - 1) {
-        os << "x";
-      }
-    }
-    // Print memory space and memory layout
-    os << ":" << mlir::tt::ttnn::stringifyBufferType(params.bufferType.value());
-    os << ":"
-       << mlir::tt::ttnn::stringifyTensorMemoryLayout(
-              params.tensorMemoryLayout.value());
-    os << ":" << mlir::tt::ttnn::stringifyLayout(params.memoryLayout.value());
-    os << ":" << mlir::tt::DataTypeEnumToString(params.dataType.value());
-    if (++count < value.size()) {
-      os << ",";
-    }
-  }
-  os << "\n";
+void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
+  enableMemoryReconfig = value;
+}
+void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis(bool value) {
+  enableMemoryLayoutAnalysis = value;
+}
+void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
+    bool value) {
+  enableMemoryLayoutAnalysisPolicy = value;
+}
+void OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy(
+    MemoryLayoutAnalysisPolicyType value) {
+  memoryLayoutAnalysisPolicy = value;
 }
 
-bool InputLayoutOverrideParser::parse(
-    llvm::cl::Option &opt, StringRef argName, StringRef arg,
+void OptimizerOverridesHandler::setInputLayoutOverrides(
     llvm::StringMap<InputLayoutOverrideParams> &value) {
-  SmallVector<StringRef> opOverrideList;
-  constexpr size_t kvPairSize = 2;
-  constexpr size_t iOpName = 0;
-  constexpr size_t iOperands = 1;
-  constexpr char opSeparator = ',';
-  constexpr char opNameSeparator = '=';
-  constexpr char opParamSeparator = ':';
-
-  arg.split(opOverrideList, opSeparator);
-  for (const StringRef override : opOverrideList) {
-    SmallVector<StringRef, kvPairSize> opOverrideParts;
-    override.split(opOverrideParts, opNameSeparator);
-    if (opOverrideParts.size() != kvPairSize) {
-      opt.error("Invalid format for input layouts override: " + override);
-      return true;
-    }
-
-    SmallVector<int64_t> operandIndexes;
-    SmallVector<StringRef> operandIndexParts;
-
-    // Parse operand indexes.
-    opOverrideParts[iOperands].split(operandIndexParts, opParamSeparator);
-    for (const StringRef operandIndexPart : operandIndexParts) {
-      int64_t operandIndexValue;
-      if (operandIndexPart.getAsInteger(10 /*Radix*/, operandIndexValue)) {
-        opt.error("Invalid operand index: " + operandIndexPart);
-        return true;
-      }
-      operandIndexes.push_back(operandIndexValue);
-    }
-
-    // Set parsed op overrides.
-    value[opOverrideParts[iOpName]] =
-        InputLayoutOverrideParams{std::move(operandIndexes)};
-  }
-  return false;
+  inputLayoutOverrides = value;
+}
+void OptimizerOverridesHandler::setOutputLayoutOverrides(
+    llvm::StringMap<OutputLayoutOverrideParams> &value) {
+  outputLayoutOverrides = value;
 }
 
-void InputLayoutOverrideParser::print(
-    llvm::raw_ostream &os,
-    const llvm::StringMap<InputLayoutOverrideParams> &value) {
-  os << "insert-memreconfig=";
-  size_t count = 0;
-  for (const auto &entry : value) {
-    os << entry.getKey() << "=";
-    const InputLayoutOverrideParams &params = entry.getValue();
-    for (int64_t operandIdx : params.operandIdxes) {
-      os << operandIdx
-         << (operandIdx < static_cast<int64_t>(params.operandIdxes.size()) - 1
-                 ? ':'
-                 : char());
-    }
-    if (++count < value.size()) {
-      os << ",";
-    }
+void OptimizerOverridesHandler::setSystemDescPath(std::string value) {
+  systemDescPath = value;
+}
+void OptimizerOverridesHandler::setMaxLegalLayouts(int64_t value) {
+  maxLegalLayouts = value;
+}
+void OptimizerOverridesHandler::setMeshShape(std::vector<int64_t> value) {
+  meshShape = value;
+}
+
+bool OptimizerOverridesHandler::getEnableOptimizer() const {
+  return enableOptimizer;
+}
+
+bool OptimizerOverridesHandler::getMemoryReconfig() const {
+  return enableMemoryReconfig;
+}
+bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis() const {
+  return enableMemoryLayoutAnalysis;
+}
+bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysisPolicy() const {
+  return enableMemoryLayoutAnalysisPolicy;
+}
+MemoryLayoutAnalysisPolicyType
+OptimizerOverridesHandler::getMemoryLayoutAnalysisPolicy() const {
+  return memoryLayoutAnalysisPolicy;
+}
+
+std::string OptimizerOverridesHandler::getSystemDescPath() const {
+  return systemDescPath;
+}
+int64_t OptimizerOverridesHandler::getMaxLegalLayouts() const {
+  return maxLegalLayouts;
+}
+std::vector<int64_t> OptimizerOverridesHandler::getMeshShape() const {
+  return meshShape;
+}
+
+llvm::StringMap<InputLayoutOverrideParams>
+OptimizerOverridesHandler::getInputLayoutOverrides() const {
+  return inputLayoutOverrides;
+}
+llvm::StringMap<OutputLayoutOverrideParams>
+OptimizerOverridesHandler::getOutputLayoutOverrides() const {
+  return outputLayoutOverrides;
+}
+
+std::unordered_map<std::string, InputLayoutOverrideParams>
+OptimizerOverridesHandler::getInputLayoutOverridesPybindWrapper() const {
+  std::unordered_map<std::string, InputLayoutOverrideParams>
+      inputLayoutOverridesWrapper;
+  for (auto &entry : inputLayoutOverrides) {
+    inputLayoutOverridesWrapper[entry.getKey().str()] = entry.getValue();
   }
-  os << "\n";
+  return inputLayoutOverridesWrapper;
+}
+
+std::unordered_map<std::string, OutputLayoutOverrideParams>
+OptimizerOverridesHandler::getOutputLayoutOverridesPybindWrapper() const {
+  std::unordered_map<std::string, OutputLayoutOverrideParams>
+      outputLayoutOverridesWrapper;
+  for (auto &entry : outputLayoutOverrides) {
+    outputLayoutOverridesWrapper[entry.getKey().str()] = entry.getValue();
+  }
+  return outputLayoutOverridesWrapper;
+}
+
+std::string OptimizerOverridesHandler::toString() const {
+
+  std::string options = "";
+
+  if (enableOptimizer) {
+    options += OptionNames::optimizerPassEnabled.str() + "=true ";
+  }
+
+  if (enableMemoryReconfig) {
+    options += OptionNames::memReconfigEnabled.str() + "=true ";
+  }
+
+  if (enableMemoryLayoutAnalysis) {
+    options += OptionNames::memoryLayoutAnalysisEnabled.str() + "=true ";
+  }
+
+  if (enableMemoryLayoutAnalysisPolicy) {
+    options += OptionNames::memoryLayoutAnalysisPolicy.str() + "=" +
+               MemoryLayoutAnalysisPolicyTypeParser::toString(
+                   memoryLayoutAnalysisPolicy) +
+               " ";
+  }
+
+  // Create input layout overrides.
+  //  Example:
+  //    insert-memreconfig=input0=0:1,input1=0,input2=0:1:2
+  if (inputLayoutOverrides.size() > 0) {
+    options += OptionNames::overrideInputLayout.str() + "=" +
+               InputLayoutOverrideParser::toString(inputLayoutOverrides) + " ";
+  }
+
+  // Create output layout overrides.
+  //  Example:
+  //    override-output-layout=op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16
+  //  Example:
+  //    override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32"
+  if (outputLayoutOverrides.size() > 0) {
+    options += OptionNames::overrideOutputLayout.str() + "=" +
+               OutputLayoutOverrideParser::toString(outputLayoutOverrides) +
+               " ";
+  }
+
+  if (systemDescPath.size() > 0) {
+    options += OptionNames::systemDescPath.str() + "=" + systemDescPath + " ";
+  }
+
+  if (maxLegalLayouts > 0) {
+    options += OptionNames::maxLegalLayouts.str() + "=" +
+               std::to_string(maxLegalLayouts) + " ";
+  }
+
+  if (meshShape.size() > 0) {
+    options += OptionNames::meshShape.str() + "=";
+    for (int64_t meshShapeValue : meshShape) {
+      options += std::to_string(meshShapeValue) + ",";
+    }
+    // Remove the last comma.
+    options.pop_back();
+  }
+
+  if (options[options.size() - 1] == ' ') {
+    options.pop_back();
+  }
+
+  return options;
+}
+
+void OptimizerOverridesHandler::addInputLayoutOverride(
+    StringRef opName, InputLayoutOverrideParams params) {
+  inputLayoutOverrides[opName] = params;
+}
+void OptimizerOverridesHandler::addInputLayoutOverride(
+    StringRef opName, SmallVector<int64_t> &operandIdxes) {
+  inputLayoutOverrides[opName] =
+      InputLayoutOverrideParams{std::move(operandIdxes)};
+}
+void OptimizerOverridesHandler::addOutputLayoutOverride(
+    StringRef opName, OutputLayoutOverrideParams params) {
+  outputLayoutOverrides[opName] = params;
+}
+void OptimizerOverridesHandler::addOutputLayoutOverride(
+    StringRef opName, SmallVector<int64_t> &grid, BufferType bufferType,
+    TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout,
+    tt::DataType dataType) {
+  outputLayoutOverrides[opName] = OutputLayoutOverrideParams{
+      std::move(grid), bufferType, tensorMemoryLayout, memoryLayout, dataType};
+}
+
+void OptimizerOverridesHandler::addInputLayoutOverridePybindWrapper(
+    std::string opName, std::vector<int64_t> &operandIdxes) {
+  StringRef opNameStringRef(opName);
+  SmallVector<int64_t> operandIdxesSmallVector(operandIdxes.begin(),
+                                               operandIdxes.end());
+  addInputLayoutOverride(opNameStringRef, operandIdxesSmallVector);
+}
+
+void OptimizerOverridesHandler::addOutputLayoutOverridePybindWrapper(
+    std::string opName, std::vector<int64_t> &grid, BufferType bufferType,
+    TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout,
+    tt::DataType dataType) {
+  StringRef opNameStringRef(opName);
+  SmallVector<int64_t> gridSmallVector(grid.begin(), grid.end());
+  addOutputLayoutOverride(opNameStringRef, gridSmallVector, bufferType,
+                          tensorMemoryLayout, memoryLayout, dataType);
 }
 
 } // namespace mlir::tt::ttnn

@@ -180,6 +180,15 @@ def TTKernel_MulOp : TTKernel_Op<"mul"> {
     let arguments = (ins I32:$dst_index);
 }
 
+def TTKernel_MaxOp : TTKernel_Op<"max"> {
+    let summary = "Max operation";
+    let description = [{
+      Max operation
+    }];
+
+    let arguments = (ins I32:$dst_index);
+}
+
 def TTKernel_MatmulOp : TTKernel_Op<"matmul"> {
     let summary = "Matmul operation";
     let description = [{
@@ -331,6 +340,31 @@ def TTKernel_ReduceTileOp : TTKernel_Op<"reduce_tile"> {
                          I32:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
                          TTKernel_ReduceDimAttr:$reduce_dim);
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel SFPU operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_MaxTilesInitOp : TTKernel_Op<"max_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before max_tile.
+    }];
+
+    let arguments = (ins);
+}
+
+def TTKernel_MaxTilesOp : TTKernel_Op<"max_tile"> {
+    let summary = "Max operation";
+    let description = [{
+      Performs element-wise computation of maximum operation
+      DST[dst0_index] <- max(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins I32:$dst0_index, I32:$dst1_index);
 }
 
 //===----------------------------------------------------------------------===//
@@ -501,6 +535,68 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier"> {
     let description = [{
       NocAsyncWriteBarrier
     }];
+}
+
+//===----------------------------------------------------------------------===//
+// TTKernel Multicast NoC operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetNocMulticastAddrOp : TTKernel_Op<"get_noc_multicast_addr"> {
+  let summary = "GetNocMulticastAddr";
+  let description = [{
+    GetNocMulticastAddr
+  }];
+
+  let arguments = (ins I32:$noc_x_start, I32:$noc_y_start, I32:$noc_x_end, I32:$noc_y_end, I32:$addr, Optional<I8>:$noc);
+  let results = (outs TTKernel_NocAddr:$mcastNocAddr);
+}
+
+def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_multicast_one_packet"> {
+  let summary = "NocAsyncWriteMulticastOnePacket";
+  let description = [{
+    NocAsyncWriteMulticastOnePacket
+    this issues only a single packet with size <= NOC_MAX_BURST_SIZE (ie maximum packet size)
+  }];
+
+  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+}
+
+def TTKernel_NocAsyncWriteMulticastOp : TTKernel_Op<"noc_async_write_multicast"> {
+  let summary = "NocAsyncWriteMulticast";
+  let description = [{
+    Initiates an asynchronous write from a source address in L1 memory on the
+    Tensix core executing this function call to a rectangular destination grid.
+    The destinations are specified using a uint64_t encoding referencing an
+    on-chip grid of nodes located at NOC coordinate range
+    (x_start,y_start,x_end,y_end) and a local address created using
+    *get_noc_multicast_addr* function. Also, *see noc_async_write_barrier*.
+
+    The destination nodes can only be a set of Tensix cores + L1 memory address.
+    The destination nodes must form a rectangular grid. The destination L1
+    memory address must be the same on all destination nodes.
+
+    With this API, the multicast sender cannot be part of the multicast
+    destinations. If the multicast sender has to be in the multicast
+    destinations (i.e. must perform a local L1 write), the other API variant
+    *noc_async_write_multicast_loopback_src* can be used.
+
+    Note: The number of destinations needs to be non-zero. Besides that,
+    there is no restriction on the number of destinations, i.e. the
+    multicast destinations can span the full chip. However, as mentioned
+    previously, the multicast source cannot be part of the destinations. So, the
+    maximum number of destinations is 119.
+  }];
+
+  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
+}
+
+def TTKernel_NocAsyncWriteMulticastLoopbackSrcOp : TTKernel_Op<"noc_async_write_multicast_loopback_src"> {
+  let summary = "NocAsyncWriteMulticastLoopbackSrc";
+  let description = [{
+    NocAsyncWriteMulticastLoopbackSrc
+  }];
+
+  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, OptionalAttr<BoolAttr>:$multicast_path_reserve, Optional<I8>:$noc);
 }
 
 //===----------------------------------------------------------------------===//

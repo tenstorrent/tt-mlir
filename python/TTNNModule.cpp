@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/CAPI/AffineMap.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 namespace mlir::ttmlir::python {
@@ -84,23 +85,26 @@ void populateTTNNModule(py::module &m) {
                      tt::ttnn::BufferTypeAttr bufferTypeAttr,
                      tt::ttnn::ShardSpecAttr shardSpecAttr) {
                     return wrap(tt::ttnn::MemoryConfigAttr::get(
-                        unwrap(ctx), tensorMemoryLayoutAttr, bufferTypeAttr,
-                        shardSpecAttr));
+                        unwrap(ctx), bufferTypeAttr, shardSpecAttr,
+                        tensorMemoryLayoutAttr));
                   })
       .def_static(
           "get_by_value",
           [](MlirContext ctx, uint32_t tensorMemoryLayout, uint32_t bufferType,
              std::vector<int64_t> shardShape) {
-            return wrap(tt::ttnn::MemoryConfigAttr::get(
-                unwrap(ctx),
+            tt::ttnn::TensorMemoryLayoutAttr layoutAttr =
                 tt::ttnn::TensorMemoryLayoutAttr::get(
                     unwrap(ctx), static_cast<tt::ttnn::TensorMemoryLayout>(
-                                     tensorMemoryLayout)),
+                                     tensorMemoryLayout));
+
+            return wrap(tt::ttnn::MemoryConfigAttr::get(
+                unwrap(ctx),
                 tt::ttnn::BufferTypeAttr::get(
                     unwrap(ctx), static_cast<tt::ttnn::BufferType>(bufferType)),
                 tt::ttnn::ShardSpecAttr::get(
                     unwrap(ctx),
-                    tt::ttnn::ShapeAttr::get(unwrap(ctx), shardShape))));
+                    tt::ttnn::ShapeAttr::get(unwrap(ctx), shardShape)),
+                layoutAttr));
           })
       .def_property_readonly("tensor_memory_layout",
                              &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
@@ -127,5 +131,37 @@ void populateTTNNModule(py::module &m) {
                   })
       .def_property_readonly("y", &tt::ttnn::MeshShapeAttr::getY)
       .def_property_readonly("x", &tt::ttnn::MeshShapeAttr::getX);
+
+  tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
+             MlirType memref,
+             std::optional<unsigned> memLayout = std::nullopt) {
+            tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
+            if (memLayout.has_value()) {
+              memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
+                  unwrap(ctx),
+                  static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
+            }
+            return wrap(tt::ttnn::TTNNLayoutAttr::get(
+                unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
+                mlir::cast<tt::GridAttr>(unwrap(grid)),
+                mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr));
+          })
+      .def_property_readonly(
+          "linear",
+          [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
+      .def_property_readonly("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
+      .def_property_readonly(
+          "memref",
+          [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
+      .def_property_readonly(
+          "memory_layout_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
+            if (!self.getMemLayout()) {
+              assert(false && "Memory layout is not set");
+            }
+            return static_cast<uint32_t>(self.getMemLayout().getValue());
+          });
 }
 } // namespace mlir::ttmlir::python

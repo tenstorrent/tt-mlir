@@ -4,6 +4,8 @@ add_mlir_dialect_library(MLIRTTNNDialect
         TTNNOps.cpp
         TTNNOpModelInterface.cpp
         TTNNOpsTypes.cpp
+        TTNNWorkaroundInterface.cpp
+        TTNNWorkarounds.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -11,10 +13,13 @@ add_mlir_dialect_library(MLIRTTNNDialect
         DEPENDS
         MLIRTTNNOpsIncGen
         MLIRTTOpsIncGen
+        MLIRTTNNWorkaroundInterfaceIncGen
+        TTNNOpModelLib
 
         LINK_LIBS PUBLIC
         TTMLIRTTNNUtils
         MLIRSCFToEmitC
         MLIRLinalgDialect
         MLIRMLProgramDialect
+        TTNNOpModelLib
         )

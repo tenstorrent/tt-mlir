@@ -15,6 +15,6 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         MLIRTTNNPassesIncGen
         MLIRTTOpsIncGen
 
-        LINK_LIBS
+        LINK_LIBS PUBLIC
         MLIRScheduler
         )

@@ -124,37 +124,40 @@ bool LegalLayoutAnalysis::applyOverrides() {
     elementType = TileType::get(op->getContext(), elementType);
   }
 
-  analysisResult.push_back(
-      TTNNLayoutAttr::get(op->getContext(), tensorShape, elementType,
-                          layoutOverride.bufferType.value(), grid,
-                          layoutOverride.tensorMemoryLayout.value()));
+  analysisResult.push_back(TTNNLayoutAttr::get(
+      op->getContext(), tensorShape, elementType,
+      layoutOverride.bufferType.value(), grid,
+      TensorMemoryLayoutAttr::get(op->getContext(),
+                                  layoutOverride.tensorMemoryLayout.value())));
 
   return true;
 }
 
 bool incompatibleWithOverride(
     const TTNNLayoutAttr &layout,
-    const std::optional<OutputLayoutOverrideParams> &override) {
-  if (not override.has_value()) {
+    const std::optional<OutputLayoutOverrideParams> &layoutOverride) {
+  if (not layoutOverride.has_value()) {
     return false;
   }
 
-  if (override->grid.has_value()) {
-    if (layout.getGrid().getShape()[0] != override->grid.value()[0] or
-        layout.getGrid().getShape()[1] != override->grid.value()[1]) {
+  if (layoutOverride->grid.has_value()) {
+    if (layout.getGrid().getShape()[0] != layoutOverride->grid.value()[0] ||
+        layout.getGrid().getShape()[1] != layoutOverride->grid.value()[1]) {
       return true;
     }
   }
-  if (override->bufferType.has_value() and
-      layout.getBufferType() != override->bufferType.value()) {
+  if (layoutOverride->bufferType.has_value() &&
+      layout.getBufferType() != layoutOverride->bufferType.value()) {
     return true;
   }
-  if (override->tensorMemoryLayout.has_value() and
-      layout.getMemLayout() != override->tensorMemoryLayout.value()) {
+  if (layoutOverride->tensorMemoryLayout.has_value() &&
+      layout.getMemLayout().getValue() !=
+          layoutOverride->tensorMemoryLayout.value()) {
     return true;
   }
-  if (override->memoryLayout.has_value() and
-      layout.isTiled() != (override->memoryLayout.value() == Layout::Tile)) {
+  if (layoutOverride->memoryLayout.has_value() &&
+      layout.isTiled() !=
+          (layoutOverride->memoryLayout.value() == Layout::Tile)) {
     return true;
   }
   return false;
@@ -163,6 +166,14 @@ bool incompatibleWithOverride(
 void LegalLayoutAnalysis::analysisImplementation() {
   // Skip operations that don't have output tensors.
   if (op->getNumResults() == 0) {
+    return;
+  }
+
+  if (!isa<RankedTensorType>(op->getResult(0).getType())) {
+    return;
+  }
+
+  if (llvm::isa<ttnn::EmptyOp>(op)) {
     return;
   }
 
@@ -199,7 +210,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   std::vector<TTNNLayoutAttr> shardedResults;
 
   bool rowMajorAllowed = analysisInput.rowMajorEnabled;
-  if (override.has_value() and override->memoryLayout.has_value() and
+  if (override.has_value() && override->memoryLayout.has_value() &&
       override->memoryLayout.value() == Layout::RowMajor) {
     // Force allow row major if override is set.
     rowMajorAllowed = true;
@@ -207,18 +218,22 @@ void LegalLayoutAnalysis::analysisImplementation() {
 
   // Generate both TILE and ROW_MAJOR layouts.
   for (Type elementType : {scalarElementType, tileElementType}) {
-    if (not rowMajorAllowed and elementType == scalarElementType) {
+    if (not rowMajorAllowed && elementType == scalarElementType) {
       continue;
     }
     // DRAM
     analysisResult.push_back(TTNNLayoutAttr::get(
         op->getContext(), tensorShape, elementType, BufferType::DRAM,
-        analysisInput.maxGrid, TensorMemoryLayout::Interleaved));
+        analysisInput.maxGrid,
+        TensorMemoryLayoutAttr::get(op->getContext(),
+                                    TensorMemoryLayout::Interleaved)));
 
     // L1 Interleaved (same as above).
     analysisResult.push_back(TTNNLayoutAttr::get(
         op->getContext(), tensorShape, elementType, BufferType::L1,
-        analysisInput.maxGrid, TensorMemoryLayout::Interleaved));
+        analysisInput.maxGrid,
+        TensorMemoryLayoutAttr::get(op->getContext(),
+                                    TensorMemoryLayout::Interleaved)));
 
     // L1 Sharded
     TTNNLayoutAttr shardedBase =
@@ -268,7 +283,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
   shardedResults.erase(
       std::remove_if(shardedResults.begin(), shardedResults.end(),
                      [this](TTNNLayoutAttr layout) {
-                       return !tensorShapeCompatibleWithShard(op, layout) or
+                       return !tensorShapeCompatibleWithShard(op, layout) ||
                               !mockIsOutputTensorLegalForOp(op, layout);
                      }),
       shardedResults.end());

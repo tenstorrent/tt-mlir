@@ -14,7 +14,7 @@ Third party ML models (PyTorch, Jax, ONNX, ...) can be compiled to a set of TTNN
 
 ```bash
 # Compile a model to C++ code
-./build/bin/ttmlir-opt --ttir-load-system-desc --ttir-implicit-device --ttir-layout --convert-ttir-to-ttnn --ttnn-decompose-layouts --ttnn-deallocate --convert-ttnn-to-emitc test/ttmlir/Silicon/TTNN/emitc/simple_add.mlir | ./build/bin/ttmlir-translate --mlir-to-cpp -allow-unregistered-dialect
+./build/bin/ttmlir-opt --ttir-to-emitc-pipeline test/ttmlir/Silicon/TTNN/emitc/simple_add.mlir | ./build/bin/ttmlir-translate --mlir-to-cpp
 
 # Copy paste the generated function into `ttnn-standalone.cpp`.
 

@@ -26,8 +26,6 @@ namespace tt::mlir::ttnn::utils {
     return ::tt::target::TensorMemoryLayout::WidthSharded;
   case ::mlir::tt::ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::TensorMemoryLayout::BlockSharded;
-  case ::mlir::tt::ttnn::TensorMemoryLayout::None:
-    return ::tt::target::TensorMemoryLayout::None;
   }
 
   llvm_unreachable("Unsupported TensorMemoryLayout");

@@ -5,9 +5,13 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include <llvm/Support/CommandLine.h>
+
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+
+#include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttnn::utils {
 
@@ -31,12 +35,17 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-DataType getDataTypeFromMemRef(mlir::MemRefType memref);
-
+// Get Layout from MemRefType
+//
 Layout getLayoutFromMemRef(mlir::MemRefType memref);
 
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);
+
+// Helper method to create a RankedTensorType with the given encoding
+RankedTensorType
+createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
+                                   ttnn::TTNNLayoutAttr encoding);
 
 } // namespace mlir::tt::ttnn::utils
 

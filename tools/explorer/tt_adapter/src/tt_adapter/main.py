@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from typing import Dict
 import model_explorer
-from . import ttir, runner, utils
+from . import runner, utils, mlir
 import dataclasses
 import enum
 
@@ -46,7 +46,7 @@ class TTAdapter(model_explorer.Adapter):
         module = utils.parse_mlir_file(model_path)
 
         # Convert TTIR to Model Explorer Graphs and Display/Return
-        graph = ttir.ttir_to_graph(module)
+        graph = mlir.build_graph(module)
         return {"graphs": [graph]}
 
     def execute(
@@ -70,9 +70,9 @@ class TTAdapter(model_explorer.Adapter):
             memory_layout_analysis_enabled = False
             memory_layout_analysis_policy = None
 
-        ttnn_ir = self.model_runner.run(
+        perf_data = self.model_runner.run(
             model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
         )
 
         # TODO(odjuricic, #933) Parse TTNN IR and return the post optimized graph.
-        return {"graphs": []}
+        return utils.to_adapter_format({"perf_data": perf_data})
