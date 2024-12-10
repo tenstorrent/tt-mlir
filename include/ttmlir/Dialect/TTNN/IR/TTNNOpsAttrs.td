@@ -158,6 +158,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     Layout getLayout() const;
     std::optional<TensorMemoryLayout> getMemLayoutOpt() const;
     Type getElementType() const;
+    Type getScalarElementType() const;
     uint64_t getShardSizeInBytes() const;
     BufferType getBufferType() const;
     DataType getDataType() const;
