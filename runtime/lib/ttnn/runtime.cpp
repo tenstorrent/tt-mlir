@@ -180,8 +180,7 @@ size_t getNumAvailableDevices() {
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
-  ::tt::tt_metal::distributed::MeshShape grid =
-      std::make_pair(1, deviceIds.size());
+  ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       grid, kL1SmallSize, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
       ::tt::tt_metal::DispatchCoreType::WORKER);
