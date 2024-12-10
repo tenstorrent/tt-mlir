@@ -96,9 +96,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   uint32_t dimensionIndex = getDimension();
   int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
 
-  mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(getType());
-
-  return mlir::DenseElementsAttr::get<int32_t>(valueType, dimSize);
+  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
 }
 
 // GetDimensionSizeOp verification
@@ -111,7 +109,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
       static_cast<int64_t>(inputTensorType.getShape().size())) {
     return failure();
   };
-  
+
   return success();
 }
 
