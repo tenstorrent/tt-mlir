@@ -29,11 +29,12 @@ std::vector<wrapped_tensor> pack_tensors(
       sizes_and_strides[rank + j] =
           ins->Get(i)->desc()->layout()->stride()->Get(j);
     }
-    packed_tensors.emplace_back(tens.data, align_to_64(tens.data), rank,
+    const void *raw_data_ptr = get_raw_host_data_ptr(tens.data);
+    packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
                                 sizes_and_strides);
   }
   const size_t rank = out->desc()->shape()->size();
-  const auto &out_tens = context.getTensorPool().at(ins->Get(i)->global_id);
+  const auto &out_tens = context.getTensorPool().at(out->global_id());
   auto *out_sizes_and_strides = new int64_t[2 * rank];
   for (size_t j = 0; j < rank; ++j) {
     out_sizes_and_strides[j] = out->desc()->shape()->Get(j);
@@ -41,29 +42,31 @@ std::vector<wrapped_tensor> pack_tensors(
   for (size_t j = 0; j < rank; ++j) {
     out_sizes_and_strides[rank + j] = out->desc()->layout()->stride()->Get(j);
   }
-  packed_tensors.emplace_back(out_tens.data, align_to_64(out_tens.data), rank,
+  const void *raw_data_ptr = get_raw_host_data_ptr(out_tens.data);
+  packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
                               out_sizes_and_strides);
   return packed_tensors;
 }
 
 void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
-  const auto *dylib_handle = context.tryGetDylibHandle(op.dylib_id());
+  const auto *dylib_handle = context.tryGetDylibHandle(op->dylib_id());
   if (!dylib_handle) {
     throw std::runtime_error("could not find dylib corresponding to id: " +
-                             op->dylib_id())
+                             std::to_string(op->dylib_id()));
   }
 
-  WrappedFunc fn = (WrappedFunc)dlsym(dylib_handle, op->name());
+  WrappedFunc fn = (WrappedFunc)dlsym(dylib_handle, op->func_name());
   if (!fn) {
-    throw std::runtime_error("could not find requested op: \"" + op->name() +
-                             "\" in dylib with id: " + op->dylib_id());
+    throw std::runtime_error(
+        "could not find requested op: \"" + op->func_name() +
+        "\" in dylib with id: " + std::to_string(op->dylib_id()));
   }
 
   // validate that the tensors are actually on CPU already
 
   const auto *fbInputs = op->ins();
 
-  auto dylibInputs = pack_tensors(fbInputs, context);
+  auto dylibInputs = pack_tensors(fbInputs, op->out(), context);
 
   auto result =
       static_cast<wrapped_tensor>(fn(dylibInputs.data(), dylibInputs.size()));
