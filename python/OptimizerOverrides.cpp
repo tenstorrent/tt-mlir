@@ -71,8 +71,10 @@ void populateOptimizerOverridesModule(py::module &m) {
   py::enum_<mlir::tt::MemoryLayoutAnalysisPolicyType>(
       m, "MemoryLayoutAnalysisPolicyType")
       .value("DFSharding", mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding)
-      .value("L1Interleaved",
-             mlir::tt::MemoryLayoutAnalysisPolicyType::L1Interleaved);
+      .value("GreedyL1Interleaved",
+             mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved)
+      .value("BFInterleaved",
+             mlir::tt::MemoryLayoutAnalysisPolicyType::BFInterleaved);
 
   py::enum_<mlir::tt::ttnn::BufferType>(m, "BufferType")
       .value("DRAM", mlir::tt::ttnn::BufferType::DRAM)

@@ -10,7 +10,7 @@ import enum
 
 class OptimizationPolicy(enum.Enum):
     DFSharding = "DF Sharding"
-    L1Interleaved = "L1 Interleaved"
+    GreedyL1Interleaved = "Greedy L1 Interleaved"
     OptimizerDisabled = "Optimizer Disabled"
 
 

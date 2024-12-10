@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDPOLICY_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDPOLICY_H
+#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_GREEDYL1INTERLEAVEDPOLICY_H
+#define TTMLIR_DIALECT_TTNN_ANALYSIS_GREEDYL1INTERLEAVEDPOLICY_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
@@ -12,7 +12,7 @@
 
 namespace mlir::tt::ttnn {
 
-class L1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
+class GreedyL1InterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
   struct OpMemSpec {
     TTNNLayoutAttr layout;
@@ -46,7 +46,7 @@ public:
   };
 
 public:
-  L1InterleavedPolicy(
+  GreedyL1InterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
       const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
           &legalLayouts,
@@ -124,4 +124,4 @@ private:
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_L1INTERLEAVEDPOLICY_H
+#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_GREEDYL1INTERLEAVEDPOLICY_H

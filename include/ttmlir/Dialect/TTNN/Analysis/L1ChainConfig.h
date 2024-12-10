@@ -5,9 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_L1CHAINCONFIG_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_L1CHAINCONFIG_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
-#include <unordered_set>
 
 namespace mlir::tt::ttnn {
 
@@ -19,7 +17,7 @@ struct OpL1MemSpec {
   // Tensor split factor for the output tensor of the op(working with a partial
   // tensor).
   //
-  uint tensorSplitFactor;
+  uint tensorSplitFactor = 1;
 
   // Layout of the output tensor of the op.
   //
@@ -56,6 +54,7 @@ public:
   void
   complete(const llvm::DenseMap<Operation *, TTNNLayoutAttr> &selectedOpLayout,
            std::unordered_set<Edge> &memReconfigEdges);
+  void complete();
 
   bool isEmpty() { return opL1MemSpecs.empty(); }
   void addOpL1MemSpec(OpL1MemSpec spec) {
@@ -70,6 +69,9 @@ public:
   const std::unordered_set<Edge> &getMemReconfigEdges() const {
     return memReconfigEdges;
   }
+
+  uint64_t size() const { return opL1MemSpecs.size(); }
+  void merge(L1ChainConfig &other);
 };
 
 } // namespace mlir::tt::ttnn
