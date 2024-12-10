@@ -22,6 +22,7 @@
 
 - [Project Structure](./project-structure.md)
 - [Dialects Overview](./dialects-overview.md)
+- [Coding Guidelines](./coding-guidelines.md)
 - [Adding an op](./adding-an-op.md)
 - [Decomposing an op in TTIR](./decomposing-an-op-in-ttir.md)
 - [Doxygen](./doxygen.md)
