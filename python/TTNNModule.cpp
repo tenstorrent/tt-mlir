@@ -156,12 +156,14 @@ void populateTTNNModule(py::module &m) {
       .def_property_readonly(
           "memref",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
-      .def_property_readonly(
-          "memory_layout_as_int", [](tt::ttnn::TTNNLayoutAttr self) {
-            if (!self.getMemLayout()) {
-              assert(false && "Memory layout is not set");
-            }
-            return static_cast<uint32_t>(self.getMemLayout().getValue());
-          });
+      .def_property_readonly("memory_layout_as_int",
+                             [](tt::ttnn::TTNNLayoutAttr self)
+                                 -> std::variant<uint32_t, py::object> {
+                               if (!self.getMemLayout()) {
+                                 return py::none();
+                               }
+                               return static_cast<uint32_t>(
+                                   self.getMemLayout().getValue());
+                             });
 }
 } // namespace mlir::ttmlir::python

@@ -65,14 +65,17 @@ void populateTTModule(py::module &m) {
                 .withElementType(unwrap(ctx), unwrap(elementType));
           })
       .def("getLayout",
-           [](MlirType &type) {
-             assert(isa<RankedTensorType>(
-                 unwrap(type))); // Make sure that this is operating on a
-                                 // RankedTensorType object
+           [](MlirType &type) -> std::variant<tt::MetalLayoutAttr, py::object> {
+             // Make sure that this is operating on a RankedTensorType object
+             if (not isa<RankedTensorType>(unwrap(type))) {
+               return py::none();
+             }
              RankedTensorType tensor =
                  mlir::cast<RankedTensorType>(unwrap(type));
-             assert(tensor.getEncoding()); // Make sure that this Tensor has an
-                                           // encoding value
+             // Make sure that this Tensor has an encoding value
+             if (not tensor.getEncoding()) {
+               return py::none();
+             }
              tt::MetalLayoutAttr layout =
                  mlir::cast<tt::MetalLayoutAttr>(tensor.getEncoding());
              return layout;
