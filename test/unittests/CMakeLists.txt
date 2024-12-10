@@ -7,3 +7,4 @@ endfunction()
 
 add_subdirectory(TestScheduler)
 add_subdirectory(Optimizer)
+add_subdirectory(OpModel)

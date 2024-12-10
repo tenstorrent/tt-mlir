@@ -19,7 +19,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"size_t",
             /*methodName=*/"getOpPerfCycles",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$input_layouts, "const TTNNLayoutAttr&":$output_layout),
+            /*args=*/(ins "const std::vector<mlir::RankedTensorType>&":$input_rtts, "const mlir::RankedTensorType&":$output_rtt),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return std::numeric_limits<size_t>::max();"
         >,
@@ -32,7 +32,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"std::tuple<size_t, size_t, size_t>",
             /*methodName=*/"getOpL1Usage",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$input_layouts, "const TTNNLayoutAttr&":$output_layout),
+            /*args=*/(ins "const std::vector<mlir::RankedTensorType>&":$input_rtts, "const mlir::RankedTensorType&":$output_rtt),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return std::make_tuple(0,0,0);"
         >,
@@ -42,7 +42,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"bool",
             /*methodName=*/"isOpLegal",
-            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$input_layouts, "const TTNNLayoutAttr&":$output_layout),
+            /*args=*/(ins "const std::vector<mlir::RankedTensorType>&":$input_rtts, "const mlir::RankedTensorType&":$output_rtt),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return true;"
         >,
