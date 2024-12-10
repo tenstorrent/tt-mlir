@@ -32,8 +32,8 @@ std::vector<wrapped_tensor> pack_tensors(
           ins->Get(i)->desc()->layout()->stride()->Get(j);
     }
     float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(tens));
-    packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
-                                sizes_and_strides);
+    packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), 0,
+                                rank, sizes_and_strides);
   }
   const size_t rank = out->desc()->shape()->size();
   const auto &out_tens = context.getTensorPool().at(out->global_id());
@@ -45,13 +45,13 @@ std::vector<wrapped_tensor> pack_tensors(
     out_sizes_and_strides[rank + j] = out->desc()->layout()->stride()->Get(j);
   }
   float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(out_tens));
-  packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
+  packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), 0, rank,
                               out_sizes_and_strides);
   return packed_tensors;
 }
 
 void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
-  const auto *dylib_handle = context.tryGetDylibHandle(op->dylib_id());
+  auto *dylib_handle = context.tryGetDylibHandle(op->dylib_id());
   if (!dylib_handle) {
     throw std::runtime_error("could not find dylib corresponding to id: " +
                              std::to_string(op->dylib_id()));
