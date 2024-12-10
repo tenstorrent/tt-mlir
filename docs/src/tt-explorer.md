@@ -5,12 +5,11 @@ Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentati
 ## Quick Start
 TT-Explorer is made to be as painless as possible, as such the installation on top of the pre-existing [`tt-mlir`](https://github.com/tenstorrent/tt-mlir) project is as minimal as possible.
 
-1. Build `tt-mlir`
+1. Build `tt-mlir`, add the `-DTT_EXPLORER_EDITABLE=ON` flag to the cmake build to install the `tt-explorer` package in editable mode.
 2. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
-3. Install [`tt-adapter`](https://github.com/vprajapati-tt/tt-adapter) using `pip install -e .` in tt-adapter root directory.
-4. Install `tt-explorer` using `pip install -e .` in tt-explorer root directory
-5. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
-6. Ensure server has started in `tt-explorer` shell instance (check for message below)
+3. Install the explorer tool by building the `explorer` target using `cmake --build build -- explorer`
+4. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
+5. Ensure server has started in `tt-explorer` shell instance (check for message below)
 ```sh
 Starting Model Explorer server at:
 http://localhost:8080
