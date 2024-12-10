@@ -57,7 +57,8 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
                              std::to_string(op->dylib_id()));
   }
 
-  WrappedFunc fn = (WrappedFunc)dlsym(dylib_handle, op->func_name()->str());
+  WrappedFunc fn =
+      (WrappedFunc)dlsym(dylib_handle, op->func_name()->str().c_str());
   if (!fn) {
     throw std::runtime_error(
         "could not find requested op: \"" + op->func_name()->str() +
