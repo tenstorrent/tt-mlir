@@ -11,7 +11,6 @@ import shutil
 
 import torch
 
-from ttrt.runtime._C import DataType
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -20,7 +19,9 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
-def ttrt_datatype_to_torch_dtype(dtype: DataType) -> torch.dtype:
+def ttrt_datatype_to_torch_dtype(dtype) -> torch.dtype:
+    from ttrt.runtime._C import DataType
+
     """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`.
 
     Currently, only `float32`, `uint32`, `uint16`, & `uint8` are supported for
