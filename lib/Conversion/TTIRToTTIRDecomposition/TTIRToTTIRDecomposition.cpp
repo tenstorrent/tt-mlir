@@ -267,7 +267,7 @@ protected:
   }
 };
 
-// A decompostion pattern that matches to a ttir.convolution op that does 1D
+// A decomposition pattern that matches to a ttir.convolution op that does 1D
 // convolution. Since that is not supported in ttnn, we reshape the inputs and
 // the output to match a 2D ttir.convolution op. The expectation is that the new
 // ttir.convolution op will be picked up by the ConvolutionToConv2dPattern and
@@ -1099,14 +1099,14 @@ public:
 
     int64_t arangeLength = (end - start) / step;
 
-    ArrayRef<int64_t> ttnnShape = {1, 1, 1, arangeLength};
+    const llvm::SmallVector<int64_t, 4> requiredShape{1, 1, 1, arangeLength};
+    ArrayRef<int64_t> ttnnShape(requiredShape);
     if (ttnnShape == outputType.getShape()) {
       return success();
     }
 
     RankedTensorType arangeOutputType = RankedTensorType::get(
-        SmallVector<int64_t>({1, 1, 1, arangeLength}),
-        outputType.getElementType(), outputType.getEncoding());
+        requiredShape, outputType.getElementType(), outputType.getEncoding());
 
     Value output =
         rewriter
