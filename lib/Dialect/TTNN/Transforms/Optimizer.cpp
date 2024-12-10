@@ -460,7 +460,7 @@ private:
       TensorMemoryLayoutAttr outputTensorMemoryLayoutAttr =
           consumerOpOutputLayout.getMemLayout();
 
-      llvm::SmallVector<int64_t> shardShape =
+      llvm::ArrayRef<int64_t> shardShape =
           consumerOpOutputLayout.getShardShape();
       MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
           consumerOp->getContext(),

@@ -77,7 +77,7 @@ public:
     // Create MemoryConfigAttr
     //
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    llvm::SmallVector<int64_t> shardShape = layoutAttr.getShardShape();
+    llvm::ArrayRef<int64_t> shardShape = layoutAttr.getShardShape();
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
         ttnn::ShardSpecAttr::get(
@@ -154,8 +154,7 @@ public:
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
-    llvm::SmallVector<int64_t> outputShardShape =
-        outputLayoutAttr.getShardShape();
+    llvm::ArrayRef<int64_t> outputShardShape = outputLayoutAttr.getShardShape();
 
     ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
         rewriter.getContext(),
@@ -193,8 +192,7 @@ private:
     auto oldOutputLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(oldOutput.getEncoding());
     DataType outputDtype = oldOutputLayoutAttr.getDataType();
-    SmallVector<std::int64_t> oldShardShape =
-        oldOutputLayoutAttr.getShardShape();
+    ArrayRef<std::int64_t> oldShardShape = oldOutputLayoutAttr.getShardShape();
     size_t shardShapeSize = oldShardShape.size();
     assert(shardShapeSize >= 2 && "expected at least 2D shape");
 
