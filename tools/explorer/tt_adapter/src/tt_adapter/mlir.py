@@ -398,12 +398,14 @@ def parse_ttnn_ttnn_layout(attr):
     layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(attr)
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
-    result.append(
-        graph_builder.KeyValue(
-            key="memory_layout",
-            value=str(ttnn.TensorMemoryLayout(layout.memory_layout_as_int)),
+    memory_layout = layout.memory_layout_as_int
+    if memory_layout is not None:
+        result.append(
+            graph_builder.KeyValue(
+                key="memory_layout",
+                value=str(ttnn.TensorMemoryLayout(memory_layout)),
+            )
         )
-    )
     result.append(
         graph_builder.KeyValue(
             key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))

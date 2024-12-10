@@ -309,7 +309,7 @@ void L1InterleavedPolicy::run() {
 }
 
 bool L1InterleavedPolicy::isAnalyzable(Operation *op) {
-  // Skip operations that are not analyzed by the LegalGridAnalysis.
+  // Skip operations that are not analyzed by the LegalLayoutAnalysis.
   //
   if (legalLayouts.count(op) > 0) {
     // Skip operations that are filterd out by the MemoryLayoutAnalysis.

@@ -5,7 +5,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LegalGridAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -79,6 +79,7 @@ public:
     memReconfigEnabled = std::move(options.memReconfigEnabled);
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
+    rowMajorEnabled = std::move(options.rowMajorEnabled);
   }
 
 protected:
@@ -111,9 +112,14 @@ protected:
           llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
   ::mlir::Pass::Option<int64_t> maxLegalLayouts{
       *this, "max-legal-layouts",
-      ::llvm::cl::desc(
-          "Override maximum number of legal layouts for grid analysis."),
+      ::llvm::cl::desc("Override maximum number of sharded layouts for legal "
+                       "layout analysis."),
       ::llvm::cl::init(64)};
+  ::mlir::Pass::Option<bool> rowMajorEnabled{
+      *this, "row-major-enabled",
+      ::llvm::cl::desc(
+          "Enable row major layout generation in legal layout analysis."),
+      ::llvm::cl::init(false)};
 
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
@@ -176,12 +182,12 @@ public:
 
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(op->getResult(0).getType());
-      LegalGridAnalysis legalGridAnalysis =
-          getChildAnalysis<LegalGridAnalysis>(op);
-      legalGridAnalysis.init(LegalGridAnalysisInput(chipDesc, max_grid,
-                                                    tensorType, maxLegalLayouts,
-                                                    &overrideOutputLayout));
-      legalLayouts[op] = legalGridAnalysis.getResult();
+      LegalLayoutAnalysis legalLayoutAnalysis =
+          getChildAnalysis<LegalLayoutAnalysis>(op);
+      legalLayoutAnalysis.init(LegalLayoutAnalysisInput(
+          chipDesc, max_grid, tensorType, maxLegalLayouts,
+          &overrideOutputLayout, rowMajorEnabled));
+      legalLayouts[op] = legalLayoutAnalysis.getResult();
     });
 
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;

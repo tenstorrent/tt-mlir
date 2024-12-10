@@ -131,13 +131,13 @@ void populateOptimizerOverridesModule(py::module &m) {
           "grid",
           [](const mlir::tt::ttnn::OutputLayoutOverrideParams &obj) {
             // Getter: Convert SmallVector to std::vector
-            return std::vector<int64_t>(obj.grid.begin(), obj.grid.end());
+            return std::vector<int64_t>(obj.grid->begin(), obj.grid->end());
           },
           [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
              const std::vector<int64_t> &input) {
             // Setter: Convert std::vector to SmallVector
-            obj.grid.clear();
-            obj.grid.append(input.begin(), input.end());
+            obj.grid->clear();
+            obj.grid->append(input.begin(), input.end());
           })
       .def_readwrite("buffer_type",
                      &mlir::tt::ttnn::OutputLayoutOverrideParams::bufferType)

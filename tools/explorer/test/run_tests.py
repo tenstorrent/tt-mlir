@@ -17,7 +17,7 @@ TEST_LOAD_MODEL_PATHS = [
     "tools/explorer/test/models/*.mlir",
 ]
 TEST_EXECUTE_MODEL_PATHS = [
-    "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
+    "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
 ]
 
 
@@ -97,14 +97,14 @@ def test_execute_model(model_path):
 
 def test_execute_mnist_l1_interleaved():
     execute_command(
-        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
+        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
         {"optimizationPolicy": "L1 Interleaved"},
     )
 
 
 def test_execute_mnist_optimizer_disabled():
     execute_command(
-        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding_tiled.mlir",
+        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
         {"optimizationPolicy": "Optimizer Disabled"},
     )
 

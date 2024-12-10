@@ -31,18 +31,77 @@ struct OptionNames {
 };
 
 struct OutputLayoutOverrideParams {
+  std::optional<SmallVector<int64_t, 2>> grid;
+  std::optional<BufferType> bufferType;
+  std::optional<TensorMemoryLayout>
+      tensorMemoryLayout;             // INTERLEAVED / SHARDED etc...
+  std::optional<Layout> memoryLayout; // ROW_MAJOR / TILE
+  std::optional<tt::DataType> dataType;
 
-  SmallVector<int64_t, 2> grid;
-  BufferType bufferType;
-  TensorMemoryLayout tensorMemoryLayout; // INTERLEAVED / SHARDED etc...
-  Layout memoryLayout;                   // ROW_MAJOR / TILE
-  mlir::tt::DataType dataType;
+  // Check if all layout parameters that are generated in LegalLayoutAnalysis
+  // are overridden. DataType is the only that is not.
+  bool fullLayoutOverride() const {
+    return grid.has_value() && bufferType.has_value() &&
+           tensorMemoryLayout.has_value() && memoryLayout.has_value();
+  }
 
   bool operator==(const OutputLayoutOverrideParams rhs) const {
-    return grid[0] == rhs.grid[0] && grid[1] == rhs.grid[1] &&
-           bufferType == rhs.bufferType &&
-           tensorMemoryLayout == rhs.tensorMemoryLayout &&
-           memoryLayout == rhs.memoryLayout && dataType == rhs.dataType;
+    if (grid.has_value() != rhs.grid.has_value()) {
+      return false;
+    }
+
+    if (grid.has_value() && rhs.grid.has_value()) {
+      if (grid.value().size() != rhs.grid.value().size()) {
+        return false;
+      }
+      for (std::size_t i = 0; i < grid.value().size(); i++) {
+        if (grid.value()[i] != rhs.grid.value()[i]) {
+          return false;
+        }
+      }
+    }
+
+    if (bufferType.has_value() != rhs.bufferType.has_value()) {
+      return false;
+    }
+
+    if (bufferType.has_value() && rhs.bufferType.has_value()) {
+      if (bufferType.value() != rhs.bufferType.value()) {
+        return false;
+      }
+    }
+
+    if (tensorMemoryLayout.has_value() != rhs.tensorMemoryLayout.has_value()) {
+      return false;
+    }
+
+    if (tensorMemoryLayout.has_value() && rhs.tensorMemoryLayout.has_value()) {
+      if (tensorMemoryLayout.value() != rhs.tensorMemoryLayout.value()) {
+        return false;
+      }
+    }
+
+    if (memoryLayout.has_value() != rhs.memoryLayout.has_value()) {
+      return false;
+    }
+
+    if (memoryLayout.has_value() && rhs.memoryLayout.has_value()) {
+      if (memoryLayout.value() != rhs.memoryLayout.value()) {
+        return false;
+      }
+    }
+
+    if (dataType.has_value() != rhs.dataType.has_value()) {
+      return false;
+    }
+
+    if (dataType.has_value() && rhs.dataType.has_value()) {
+      if (dataType.value() != rhs.dataType.value()) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   bool operator!=(const OutputLayoutOverrideParams &rhs) const {
