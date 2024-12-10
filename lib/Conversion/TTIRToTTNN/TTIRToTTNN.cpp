@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
@@ -27,6 +28,8 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+
+#include <iostream>
 
 namespace {
 
@@ -761,6 +764,76 @@ public:
   }
 };
 
+class ConvTranspose2dOpConversionPattern
+    : public OpConversionPattern<ttir::ConvTranspose2dOp> {
+public:
+  using OpConversionPattern<ttir::ConvTranspose2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConvTranspose2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+
+    llvm::ArrayRef<std::int64_t> output_shape = outputTy.getShape();
+
+    auto getLastDim = [](const RankedTensorType &ty, int offset = 1) {
+      return ty.getShape()[ty.getRank() - offset];
+    };
+
+    auto inChannels = rewriter.getI32IntegerAttr(getLastDim(inputTy));
+    auto outChannels = rewriter.getI32IntegerAttr(getLastDim(outputTy));
+    auto batchSize = rewriter.getI32IntegerAttr(getLastDim(inputTy, 4));
+    auto inputHeight = rewriter.getI32IntegerAttr(getLastDim(inputTy, 3));
+    auto inputWidth = rewriter.getI32IntegerAttr(getLastDim(inputTy, 2));
+
+    auto kernelSize = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(getLastDim(kernelTy, 2)),
+         static_cast<int32_t>(getLastDim(kernelTy, 1))});
+    auto stride = rewriter.getDenseI32ArrayAttr(
+        ttmlir::utils::parseAttrToTwoElementVector(adaptor.getStride()));
+    auto padding = rewriter.getDenseI32ArrayAttr(
+        ttmlir::utils::parseAttrToTwoElementVector(adaptor.getPaddingAttr()));
+    auto outputPadding = rewriter.getDenseI32ArrayAttr(
+        ttmlir::utils::parseAttrToTwoElementVector(
+            adaptor.getOutputPaddingAttr()));
+    auto dilation = rewriter.getDenseI32ArrayAttr(
+        ttmlir::utils::parseAttrToTwoElementVector(adaptor.getDilationAttr()));
+    auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    std::vector<int64_t> flattenedOutputShape = {
+        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
+        output_shape[3]};
+
+    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
+
+    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
+    // attribute determination
+    auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
+        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
+        outputTy.getElementType());
+
+    // Must set the type to the output type to maintain the layout attributes
+    convDPSOutput.getResult().setType(outputTy);
+
+    ttnn::ConvTranspose2dOp new_conv = rewriter.create<ttnn::ConvTranspose2dOp>(
+        op.getLoc(), outputTy, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), convDPSOutput, device, inChannels, outChannels,
+        batchSize, inputHeight, inputWidth, kernelSize, stride, padding,
+        outputPadding, dilation, groups);
+
+    Value output = generateReshape(new_conv, output_shape, rewriter);
+
+    rewriter.replaceOp(op, output);
+    return success();
+  }
+};
+
 class MaxPool2dOpConversionPattern
     : public OpConversionPattern<ttir::MaxPool2dOp> {
 public:
@@ -1029,6 +1102,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
+           ConvTranspose2dOpConversionPattern,
            MaxPool2dOpConversionPattern,
            SubtractOpConversionPattern,
            AllGatherOpConversionPattern,
