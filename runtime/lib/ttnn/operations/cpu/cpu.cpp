@@ -29,7 +29,8 @@ std::vector<wrapped_tensor> pack_tensors(
       sizes_and_strides[rank + j] =
           ins->Get(i)->desc()->layout()->stride()->Get(j);
     }
-    const void *raw_data_ptr = get_raw_host_data_ptr(tens.data);
+    const float *raw_data_ptr =
+        static_cast<float *>(get_raw_host_data_ptr(tens));
     packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
                                 sizes_and_strides);
   }
@@ -42,7 +43,8 @@ std::vector<wrapped_tensor> pack_tensors(
   for (size_t j = 0; j < rank; ++j) {
     out_sizes_and_strides[rank + j] = out->desc()->layout()->stride()->Get(j);
   }
-  const void *raw_data_ptr = get_raw_host_data_ptr(out_tens.data);
+  const float *raw_data_ptr =
+      static_cast<float *>(get_raw_host_data_ptr(out_tens));
   packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
                               out_sizes_and_strides);
   return packed_tensors;
@@ -55,10 +57,10 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
                              std::to_string(op->dylib_id()));
   }
 
-  WrappedFunc fn = (WrappedFunc)dlsym(dylib_handle, op->func_name());
+  WrappedFunc fn = (WrappedFunc)dlsym(dylib_handle, op->func_name()->str());
   if (!fn) {
     throw std::runtime_error(
-        "could not find requested op: \"" + op->func_name() +
+        "could not find requested op: \"" + op->func_name()->str() +
         "\" in dylib with id: " + std::to_string(op->dylib_id()));
   }
 
