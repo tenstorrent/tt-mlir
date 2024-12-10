@@ -71,8 +71,8 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
 
   auto dylibInputs = pack_tensors(fbInputs, op->out(), context);
 
-  auto result =
-      static_cast<wrapped_tensor>(fn(dylibInputs.data(), dylibInputs.size()));
+  // TODO: do we really not need to use return value?
+  fn(dylibInputs.data(), dylibInputs.size());
 
   // we don't need to unpack any data from output, it should be written direclty
   // to correct memory
