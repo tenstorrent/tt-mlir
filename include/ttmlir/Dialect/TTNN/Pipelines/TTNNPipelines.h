@@ -128,9 +128,14 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Option to enable/disable the workaround pass.
   //
-  Option<bool> workaroundPassEnabled{*this, "enable-workaround-pass",
-                                     llvm::cl::desc("Enable workaround pass."),
-                                     llvm::cl::init(false)};
+  Option<bool> layouotWorkaroundsEnabled{
+      *this, "enable-layout-workaround-pass",
+      llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(false)};
+
+  Option<bool> decompositionWorkaroundsEnabled{
+      *this, "enable-decomposition-workaround-pass",
+      llvm::cl::desc("Enable decomposition workaround pass."),
+      llvm::cl::init(true)};
 };
 
 // TTIR to EmitC pipeline options.
