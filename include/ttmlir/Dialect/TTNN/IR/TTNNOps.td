@@ -74,6 +74,8 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let arguments = (ins AnyRankedTensor:$input,
                          TT_DataTypeAttr:$dtype);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {

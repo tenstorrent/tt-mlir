@@ -606,6 +606,16 @@ static bool isValidDeviceLayout(TensorMemoryLayout layout) {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttnn::TypecastOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  TTNNLayoutAttr inputLayout =
+      mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
+  if (!inputLayout.isTiled()) {
+    return emitOpError("Input tensor must be tiled");
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
