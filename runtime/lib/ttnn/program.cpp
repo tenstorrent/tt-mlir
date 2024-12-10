@@ -262,7 +262,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
   }
   case ::tt::target::ttnn::OpType::CpuOp: {
-    return operations::cpu::run(op->type_as_AllGatherOp(), context);
+    return operations::cpu::run(op->type_as_CpuOp(), context);
   }
   default: {
     LOG_FATAL("Unsupported operation type");

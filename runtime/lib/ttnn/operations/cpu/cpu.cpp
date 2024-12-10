@@ -10,7 +10,7 @@ namespace tt::runtime::ttnn::operations::cpu {
 float *align_to_64(float *ptr) {
   uintptr_t ptr_val = (uintptr_t)ptr;
   uintptr_t aligned_ptr = (ptr_val + 63) & ~((uintptr_t)63);
-  return (void *)aligned_ptr;
+  return (float *)aligned_ptr;
 }
 
 std::vector<wrapped_tensor> pack_tensors(
@@ -19,14 +19,14 @@ std::vector<wrapped_tensor> pack_tensors(
   std::vector<wrapped_tensor> packed_tensors;
   packed_tensors.reserve(ins->size() + 1);
   for (size_t i = 0; i < packed_tensors.size(); ++i) {
-    const size_t rank = ins[i]->desc->shape->size();
+    const size_t rank = ins[i].desc->shape->size();
     const auto *sizes_and_strides = new int64_t[2 * rank];
-    const auto &tens = context.getTensorPool().at(ins[i].global_id);
+    const auto &tens = context.getTensorPool().at(ins[i].global_id());
     for (size_t j = 0; j < rank; ++j) {
-      sizes_and_strides[j] = ins[i]->desc->shape[j];
+      sizes_and_strides[j] = ins[i].desc->shape[j];
     }
     for (size_t j = 0; j < rank; ++j) {
-      sizes_and_strides[rank + j] = ins[i]->desc->layout->stride[rank + j];
+      sizes_and_strides[rank + j] = ins[i].desc->layout->stride[rank + j];
     }
     packed_tensors.emplace_back(.start = tens.data,
                                 .aligned_start = align_to_64(tens.data),
