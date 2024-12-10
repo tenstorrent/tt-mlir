@@ -901,34 +901,6 @@ public:
   }
 };
 
-// class GetDimensionSizeToConstantConversionPattern
-//     : public OpConversionPattern<ttir::GetDimensionSizeOp> {
-// public:
-//   using OpConversionPattern<ttir::GetDimensionSizeOp>::OpConversionPattern;
-
-//   LogicalResult
-//   matchAndRewrite(ttir::GetDimensionSizeOp op, OpAdaptor adaptor,
-//                   ConversionPatternRewriter &rewriter) const override {
-
-//     const RankedTensorType inputTensorType =
-//         mlir::cast<RankedTensorType>(op.getOperand().getType());
-
-//     int64_t dimensionIndex = op.getDimension();
-
-//     int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
-
-//     mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(op.getType());
-
-//     mlir::ElementsAttr valueAttr =
-//         mlir::DenseElementsAttr::get<int>(valueType, dimSize);
-
-//     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConstantOp>(op, valueType,
-//                                                             valueAttr);
-
-//     return success();
-//   }
-// };
-
 // SelectOp is converted to a series of SliceOp and potentially a ConcatOp if
 // the sliced dimension is sliced multiple times. For example, if the input
 // tensor is
@@ -1179,7 +1151,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);
-  // patterns.add<GetDimensionSizeToConstantConversionPattern>(typeConverter, ctx);
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
