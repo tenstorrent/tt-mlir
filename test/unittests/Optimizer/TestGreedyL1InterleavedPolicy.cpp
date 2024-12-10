@@ -16,14 +16,14 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
-#include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedPolicy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/GreedyL1InterleavedPolicy.h"
 
 using namespace mlir::tt::ttnn;
 
 constexpr int TensorDimX = 128;
 constexpr int TensorDimY = 128;
 
-class L1InterleavedPolicyBase : public ::testing::Test {
+class GreedyL1InterleavedPolicyBase : public ::testing::Test {
 public:
   mlir::MLIRContext context;
   mlir::OwningOpRef<mlir::ModuleOp> module;
@@ -31,9 +31,9 @@ public:
   mlir::func::FuncOp func;
   mlir::tt::DeviceAttr deviceAttr;
 
-  using OpMemSpec = L1InterleavedPolicy::OpMemSpec;
-  using OpConfig = L1InterleavedPolicy::OpConfig;
-  using L1Usage = L1InterleavedPolicy::L1Usage;
+  using OpMemSpec = GreedyL1InterleavedPolicy::OpMemSpec;
+  using OpConfig = GreedyL1InterleavedPolicy::OpConfig;
+  using L1Usage = GreedyL1InterleavedPolicy::L1Usage;
 
   void SetUp() override {
     context.loadDialect<TTNNDialect>();
@@ -121,7 +121,7 @@ public:
   void TearDown() override {}
 };
 
-TEST_F(L1InterleavedPolicyBase, VerifyGreedyPolicy) {
+TEST_F(GreedyL1InterleavedPolicyBase, VerifyGreedyPolicy) {
   std::vector<L1ChainConfig> l1ChainConfigs;
   llvm::DenseMap<mlir::Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
   llvm::DenseMap<mlir::func::FuncOp, llvm::SmallVector<mlir::Operation *>>
@@ -174,8 +174,8 @@ TEST_F(L1InterleavedPolicyBase, VerifyGreedyPolicy) {
                                  legalLayouts, opsL1Usage);
 
   // Run greedy config picker policy
-  L1InterleavedPolicy l1InterleavedPolicy(nullptr, l1ChainConfigs, legalLayouts,
-                                          schedule, usableL1CacheSize);
+  GreedyL1InterleavedPolicy l1InterleavedPolicy(
+      nullptr, l1ChainConfigs, legalLayouts, schedule, usableL1CacheSize);
   OpConfig greedyConfig = l1InterleavedPolicy.getGreedyConfig(opD, opsL1Usage);
 
   // Sanity checks
