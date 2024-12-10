@@ -251,7 +251,7 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 
 static std::optional<Value>
 createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint) {
+                 OperandConstraint operandConstraint, bool forceTiled = false) {
   // Find out which buffer type we want
   tt::MemorySpace ttDefaultMemSpace =
       utils::toTTMemorySpace(g_defaultMemorySpaceDevice);
@@ -270,6 +270,10 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   // Check if the tensor should be tiled
   bool tiled =
       !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
+
+  if (forceTiled) {
+    tiled = true;
+  }
 
   return createToLayoutOp(rewriter, loc, input, desiredBufferType,
                           ttnnMemoryLayout, tiled);
@@ -293,6 +297,7 @@ public:
 
     assert(op->template hasTrait<ttir::TTIROp::Trait>());
     bool modified = false;
+    bool isTypecast = mlir::isa<ttir::TypecastOp>(op.getOperation());
     for (OpOperand &operand : op->getOpOperands()) {
       // Check if the operand is a dps result
       bool isResult = op.isDpsInit(&operand);
@@ -319,8 +324,8 @@ public:
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       // Given the operand constraint, create the desired layout for the operand
-      std::optional<Value> desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint);
+      std::optional<Value> desiredLayout = createToLayoutOp(
+          rewriter, newLoc, operand.get(), operandConstraint, isTypecast);
 
       // If layout changed update the operand
       if (desiredLayout) {
