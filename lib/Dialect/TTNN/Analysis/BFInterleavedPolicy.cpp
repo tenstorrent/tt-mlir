@@ -11,30 +11,23 @@
 
 namespace mlir::tt::ttnn {
 
-void BFInterleavedPolicy::walkOnAnalyzableOperands(
-    Operation *op, function_ref<void(Operation *)> callback) {
-  for (auto operand : op->getOperands()) {
-    // Skip block arguments (%arg0, %arg1, ...)
-    //
-    if (::llvm::isa<mlir::BlockArgument>(operand)) {
-      continue;
-    }
+BFInterleavedPolicy::LookaheadResult BFInterleavedPolicy::lookahead(
+    Operation *op,
+    const llvm::DenseMap<Operation *, OpL1MemUsage> &currentL1UsagePerOp) {
+  TTNNLayoutAttr layout = getL1InterleavedLayout(op);
+  uint64_t opOutputL1Usage = utils::getOpOutputL1Usage(op, layout, deviceAttr);
 
-    Operation *operandOp = operand.getDefiningOp();
-
-    // Skip non-analyzable operands.
-    //
-    if (isAnalyzable(operandOp)) {
-      callback(operandOp);
-    }
-  }
+  LookaheadResult result;
+  result.destOp = op;
+  result.allocOfL1Mem = opOutputL1Usage;
+  return result;
 }
 
 void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
-    DeviceAttr deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
+    deviceAttr = getCurrentScopeDevice(func);
 
     // Initialize the policy.
     //
@@ -82,8 +75,8 @@ void BFInterleavedPolicy::run() {
         allocOfL1Mem = 0;
         opType = NextOpType::NoL1ChainConfigOp;
         if (hasL1BufferType(op)) {
-          TTNNLayoutAttr layout = getL1InterleavedLayout(op);
-          allocOfL1Mem = utils::getOpOutputL1Usage(op, layout, deviceAttr);
+          LookaheadResult result = lookahead(op, currentL1UsagePerOp);
+          allocOfL1Mem = result.allocOfL1Mem;
 
           // Determine the type of the op based on the operandsL1Usage. If
           // there is at least one op's operand whose tensor is in L1 memory,
@@ -201,6 +194,25 @@ bool BFInterleavedPolicy::isAnalyzable(Operation *op) {
     return legalLayouts[op].size() > 0;
   }
   return false;
+}
+
+void BFInterleavedPolicy::walkOnAnalyzableOperands(
+    Operation *op, function_ref<void(Operation *)> callback) {
+  for (auto operand : op->getOperands()) {
+    // Skip block arguments (%arg0, %arg1, ...)
+    //
+    if (::llvm::isa<mlir::BlockArgument>(operand)) {
+      continue;
+    }
+
+    Operation *operandOp = operand.getDefiningOp();
+
+    // Skip non-analyzable operands.
+    //
+    if (isAnalyzable(operandOp)) {
+      callback(operandOp);
+    }
+  }
 }
 
 bool BFInterleavedPolicy::hasDRAMBufferType(Operation *op) {

@@ -5,7 +5,9 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_BFINTERLEAVEDPOLICY_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_BFINTERLEAVEDPOLICY_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
+#include <cstdint>
 
 namespace mlir::tt::ttnn {
 
@@ -21,6 +23,12 @@ public:
   struct OpL1MemUsage {
     uint64_t l1MemUsagePerUser;
     uint64_t numOfUnscheduledUsers;
+  };
+
+  // TODO(fbajraktari): Add struct description.
+  struct LookaheadResult {
+    Operation *destOp;
+    uint64_t allocOfL1Mem;
   };
 
   // This enum is used to determine the type of action required before
@@ -63,6 +71,8 @@ public:
   void run() final;
 
 private:
+  DeviceAttr deviceAttr;
+
   // Check if the op is analyzable. Op is analyzable if it has at least one
   // legal layout.
   bool isAnalyzable(Operation *op);
@@ -73,6 +83,11 @@ private:
   //
   void walkOnAnalyzableOperands(Operation *op,
                                 function_ref<void(Operation *)> callback);
+
+  // TODO(fbajraktari): Add method description.
+  LookaheadResult lookahead(
+      Operation *op,
+      const llvm::DenseMap<Operation *, OpL1MemUsage> &currentL1UsagePerOp);
 
   // Fetch op's DRAM layout from legalLayouts.
   bool hasDRAMBufferType(Operation *op);
