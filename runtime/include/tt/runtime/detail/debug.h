@@ -63,14 +63,21 @@ struct Hooks {
 #endif
   }
 
+  void unregisterHooks() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    operatorCallback = std::nullopt;
+#endif
+  }
+
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   Hooks(std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
             operatorCallback)
       : operatorCallback(operatorCallback) {}
 
-  std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
+  mutable std::optional<std::function<void(Binary, CallbackContext, OpContext)>>
       operatorCallback;
+
 #else
   constexpr Hooks() = default;
 #endif
