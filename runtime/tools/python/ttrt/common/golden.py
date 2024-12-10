@@ -16,8 +16,25 @@ from pkg_resources import get_distribution
 import shutil
 import atexit
 import re
+from functools import partial
 
 from ttrt.common.util import *
+
+
+class GoldenRuntimeConfig:
+    def __init__(
+        self,
+        atol=1e-08,
+        rtol=1e-05,
+        pcc=0.99,
+        artifact_dir="",
+        save_golden_tensors=False,
+    ):
+        self.artifact_dir = artifact_dir
+        self.pcc = pcc
+        self.atol = atol
+        self.rtol = rtol
+        self.save_golden_tensors = save_golden_tensors
 
 
 def get_atol_rtol_pcc(golden, calculated):
@@ -103,7 +120,9 @@ def get_atol_rtol_pcc(golden, calculated):
     )
 
 
-def golden(binary, programContext, opContext):
+def golden_partial_function(
+    goldenRuntimeConfig, golden_results_data, binary, programContext, opContext
+):
     import torch
     import ttrt.runtime
     import ttrt.binary
@@ -139,11 +158,52 @@ def golden(binary, programContext, opContext):
             op_output_tensor, dtype=torch.float32
         ).flatten()
 
+        if goldenRuntimeConfig.save_golden_tensors:
+            torch.save(
+                golden_tensor_torch,
+                f"{goldenRuntimeConfig.artifact_dir}/{loc}_golden.pt",
+            )
+            torch.save(
+                output_tensor_torch,
+                f"{goldenRuntimeConfig.artifact_dir}/{loc}_device.pt",
+            )
+
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch, output_tensor_torch
         )
 
         print(f"PCC={cal_pcc}")
         print(output_str)
+
+        results = {}
+        results["expected_pcc"] = goldenRuntimeConfig.pcc
+        results["actual_pcc"] = cal_pcc
+        results["atol"] = goldenRuntimeConfig.atol
+        results["rtol"] = goldenRuntimeConfig.rtol
+        results["allclose"] = torch.allclose(
+            golden_tensor_torch,
+            output_tensor_torch,
+            atol=goldenRuntimeConfig.atol,
+            rtol=goldenRuntimeConfig.rtol,
+        )
+        results["max"] = torch.max(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["mean_absolute_error"] = torch.mean(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["root_mean_square_error"] = torch.sqrt(
+            torch.mean((golden_tensor_torch - output_tensor_torch) ** 2)
+        ).item()
+        results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+            golden_tensor_torch.unsqueeze(0), output_tensor_torch.unsqueeze(0)
+        ).item()
+
+        golden_results_data[loc] = results
+
     finally:
         print("-----------finished executing golden comparision-----------")
+
+
+def get_golden_fn(goldenRuntimeConfig, golden_results_data):
+    return partial(golden_partial_function, goldenRuntimeConfig, golden_results_data)
