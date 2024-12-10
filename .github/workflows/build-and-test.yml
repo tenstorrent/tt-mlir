@@ -317,6 +317,12 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
+    - name: Upload tests
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}-tests
+        path: ${{ steps.strings.outputs.build-output-dir }}/test
+
     - name: Run functional tests
       shell: bash
       if: matrix.build.enable_perf == 'OFF'
@@ -639,6 +645,11 @@ jobs:
       run: |
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
+
+    - name: Download Tests
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}-test
 
     - name: Run tt-explorer tests
       shell: bash
