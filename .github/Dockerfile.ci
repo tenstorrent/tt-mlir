@@ -1,7 +1,9 @@
 ARG FROM_TAG=latest
-
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci-build
 SHELL ["/bin/bash", "-c"]
+
+ARG CONFIG
+ENV BUILD_CONFIG=$CONFIG
 
 # Create a directory for the build and toolchain
 ENV PROJECT_NAME=tt-mlir
@@ -24,38 +26,29 @@ RUN git log -1
 
 RUN source env/activate && \
     cmake -B env/build env && \
-    cmake --build env/build
+    # if BUILD_CONFIG is debug, then build the toolchain with debug symbols
+    if [ "$BUILD_CONFIG" = "debug" ]; then \
+        cmake --build env/build --config debug; \
+    else \
+        cmake --build env/build; \
+    fi
 
-# Self-test
-
-# Build project to test the container
-RUN source env/activate && \
-    cmake -G Ninja \
-    -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DTTMLIR_ENABLE_RUNTIME=ON \
-    -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
-    -DTTMLIR_ENABLE_STABLEHLO=ON
-
-RUN source env/activate && \
-    cmake --build build --config Release
-
-RUN source env/activate && \
-    cmake --build build -- ttrt
-
-# Run the tests
-RUN source env/activate && \
-    cmake --build build -- check-ttmlir
+# Remove nvida from the toolchain
+RUN rm -rf $TTMLIR_TOOLCHAIN_DIR/venv/lib/python3.10/site-packages/*nvidia*
 
 # Final stage
+ARG FROM_TAG=latest
 FROM ghcr.io/tenstorrent/tt-mlir/tt-mlir-base-ubuntu-22-04:${FROM_TAG} AS ci
 
 # Copy the TTMLIR_TOOLCHAIN_DIR from the previous stage
 ENV TTMLIR_TOOLCHAIN_DIR=/opt/ttmlir-toolchain
 RUN echo "Copying from ci-build stage $TTMLIR_TOOLCHAIN_DIR"
+# Split copy to get multiple layers
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR/venv $TTMLIR_TOOLCHAIN_DIR/venv
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR/lib $TTMLIR_TOOLCHAIN_DIR/lib
+COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR/bin $TTMLIR_TOOLCHAIN_DIR/bin
 COPY --from=ci-build $TTMLIR_TOOLCHAIN_DIR $TTMLIR_TOOLCHAIN_DIR
 
-RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR
+# Show the size of the toolchain
+RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR | sort -h
+RUN du -h --max-depth=2 $TTMLIR_TOOLCHAIN_DIR/venv/lib/python3.10/site-packages/ | sort -h
