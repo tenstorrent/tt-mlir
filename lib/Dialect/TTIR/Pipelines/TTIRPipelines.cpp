@@ -84,7 +84,6 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
     manager.addPass(mlir::createSCCPPass());
     manager.addPass(mlir::createCSEPass());
     manager.addPass(mlir::createSymbolDCEPass());
-    q
   }
 }
 //===----------------------------------------------------------------------===//

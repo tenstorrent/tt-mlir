@@ -105,7 +105,7 @@ public:
   ProgramExecutor(Binary &executableHandle, const TensorMap &liveTensors,
                   const std::unordered_set<uint32_t> &programInputs,
                   const std::unordered_set<uint32_t> &programOutputs,
-                  const DylibHandleMap &programDylibHandles,
+                  const DylibHandleMap *programDylibHandles,
                   ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
         context(ProgramContext(liveTensors, programInputs, programOutputs,
@@ -306,7 +306,7 @@ void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
 
   auto dylibMap = openDylibHandles(program);
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                           programOutputs, dylibMap, &meshDevice);
+                           programOutputs, &dylibMap, &meshDevice);
   executor.execute(program);
   closeDylibHandles(dylibMap);
 }

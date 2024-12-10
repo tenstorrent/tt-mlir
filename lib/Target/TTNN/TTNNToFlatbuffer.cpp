@@ -920,7 +920,7 @@ ttnnToFlatbuffer(Operation *op,
                                                        emitTTNNOperation);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        debugInfo));
+        {} debugInfo));
   });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(
