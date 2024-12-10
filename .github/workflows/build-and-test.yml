@@ -158,6 +158,12 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
 
+    - name: Upload tests
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}-tests
+        path: ${{ steps.strings.outputs.build-output-dir }}/test
+
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
@@ -316,12 +322,6 @@ jobs:
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
-
-    - name: Upload tests
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.build.runs-on }}-tests
-        path: ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Run functional tests
       shell: bash
