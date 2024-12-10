@@ -20,6 +20,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundInterface.h"
 
+#include "mlir/IR/PatternMatch.h"
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
 

@@ -69,6 +69,7 @@ void createTTNNPipelineWorkaroundPass(
       options.layouotWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
+  pm.addPass(mlir::createCanonicalizerPass());
 }
 
 void createTTNNPipelineLayoutDecompositionPass(

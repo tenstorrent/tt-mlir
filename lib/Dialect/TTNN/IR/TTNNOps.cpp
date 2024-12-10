@@ -599,6 +599,66 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
 }
 
 //===----------------------------------------------------------------------===//
+// ToLayoutOp
+//===----------------------------------------------------------------------===//
+
+// ToLayoutOp canonicalization
+// ToLayoutOp can be canonicalized if the previous op is also a ToLayoutOp. The
+// previous op can be merged with the next ToLayoutOp op if the previous op has
+// only one use. df - data format, l - layout, ms - memory space, tml - tensor
+// memory layout
+//
+//                |
+//      -----------------------
+//      |     ToLayoutOp      |                     |
+//      | df1, l1, ms1, tml1  |          -----------------------
+//      -----------------------          |     ToLayoutOp      |
+//                |                 -->  | df2, l1, ms2, tml1  |
+//                |                      -----------------------
+//      -----------------------                     |
+//      |     ToLayoutOp      |
+//      |      df2, ms2       |
+//      -----------------------
+//                |
+//
+::mlir::LogicalResult
+mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
+                                         PatternRewriter &rewriter) {
+  // Get the input operand and verify that the previous op is toLayoutOp
+  ToLayoutOp previousToLayoutOp =
+      toLayoutOp.getOperand(0).getDefiningOp<ToLayoutOp>();
+
+  if (!previousToLayoutOp) {
+    return mlir::failure();
+  }
+
+  // Check if the parent op has only one use. We can only merge if the
+  // previous op has only single use.
+  if (!previousToLayoutOp->hasOneUse()) {
+    return mlir::failure();
+  }
+
+  // Replace the previous op with the merged ToLayoutOp
+  Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
+      previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
+      toLayoutOp.getLayoutAttr(),
+      toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
+                                : previousToLayoutOp.getDtypeAttr(),
+      toLayoutOp.getMemoryConfigAttr()
+          ? toLayoutOp.getMemoryConfigAttr()
+          : previousToLayoutOp.getMemoryConfigAttr(),
+      toLayoutOp.getDevice());
+
+  // Replace all uses of the previous op with the merged ToLayoutOp
+  rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+
+  // Erase the previous op
+  rewriter.eraseOp(toLayoutOp);
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
