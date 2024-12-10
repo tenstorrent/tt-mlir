@@ -61,7 +61,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 }
 
 static void writeTmpDylib(const std::string &outputName, const uint8_t *dataPtr,
-                          const size_t) {
+                          const size_t size) {
   std::ofstream tempFile(outputName, std::ios::binary);
   tempFile.write(reinterpret_cast<const char *>(dataPtr), size);
   tempFile.close();
@@ -96,7 +96,7 @@ void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
 static DylibHandleMap
 openDylibHandles(const ::tt::target::ttnn::Program *program) {
   DylibHandleMap dlHandleMap;
-  for (const auto *dylib : program->dylibs()) {
+  for (const auto *dylib : *(program->dylibs())) {
     // TODO: consider some randomized hashing or something here
     // std::string name("/tmp/" + program->name() + ".so") writeTmpDylib(
     //     name, dylib->raw_file()->data(), dylib->raw_file()->size());
