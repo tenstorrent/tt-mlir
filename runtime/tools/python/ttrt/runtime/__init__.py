@@ -30,6 +30,7 @@ try:
         memcpy,
         deallocate_tensor,
         WorkaroundEnv,
+        get_op_loc_info,
     )
 except ModuleNotFoundError:
     raise ImportError(
