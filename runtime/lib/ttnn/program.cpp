@@ -4,6 +4,7 @@
 #include "operations/ccl/all_gather.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/cpu/cpu.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
 #include "operations/data_movement/concat.h"
@@ -83,7 +84,8 @@ void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   }
 
   // Use dlopen with the file descriptor
-  void *handle = dlopen("/proc/self/fd/" + std::to_string(memfd), RTLD_LAZY);
+  void *handle =
+      dlopen(("/proc/self/fd/" + std::to_string(memfd)).c_str(), RTLD_LAZY);
   close(memfd); // Can close after dlopen
   if (!handle) {
     std::cerr << "dlopen failed: " << dlerror() << std::endl;
