@@ -50,9 +50,17 @@
 
 #define FMT_HEADER_ONLY
 
+#include "impl/buffers/buffer_constants.hpp"
 #include "tt_metal/common/core_coord.hpp"
 #include "tt_metal/impl/buffers/buffer.hpp"
+#include "tt_metal/impl/device/device.hpp"
+#include "ttnn/graph/graph_query_op_constraints.hpp"
+#include "ttnn/operations/eltwise/binary/binary.hpp"
+#include "ttnn/operations/eltwise/unary/unary.hpp"
+#include "ttnn/operations/matmul/matmul.hpp"
+#include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/tensor/tensor.hpp"
+#include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"
 
 #pragma clang diagnostic pop

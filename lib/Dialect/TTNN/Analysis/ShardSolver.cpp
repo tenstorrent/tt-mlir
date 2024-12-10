@@ -519,13 +519,6 @@ bool ShardSolver::checkShardCompatible(
   // TEMP : Dummy mock implementation, will be replaced.
   //
 
-  if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
-    if (false ==
-        backend.isOpLegal(std::vector{producerLayout}, consumerLayout)) {
-      return false;
-    }
-  }
-
   // May need to fetch other inputs for consumerOp(weights/join node).
   //
 
