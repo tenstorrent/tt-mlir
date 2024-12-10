@@ -61,13 +61,17 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
+/*
+TODO: remove this once we confirm in-place method actually works
 static void writeTmpDylib(const std::string &outputName, const uint8_t *dataPtr,
                           const size_t size) {
   std::ofstream tempFile(outputName, std::ios::binary);
   tempFile.write(reinterpret_cast<const char *>(dataPtr), size);
   tempFile.close();
 }
+*/
 
+// TODO: this + all its nasty macros should definitely be in a standalone file
 void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   // Create an in-memory file descriptor
   int memfd = memfd_create("dylib", MFD_CLOEXEC);
