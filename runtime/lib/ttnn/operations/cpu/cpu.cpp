@@ -7,7 +7,7 @@
 namespace tt::runtime::ttnn::operations::cpu {
 // using
 
-float *align_to_64(float *ptr) {
+float *align_to_64(float const *ptr) {
   uintptr_t ptr_val = (uintptr_t)ptr;
   uintptr_t aligned_ptr = (ptr_val + 63) & ~((uintptr_t)63);
   return (float *)aligned_ptr;
@@ -29,8 +29,7 @@ std::vector<wrapped_tensor> pack_tensors(
       sizes_and_strides[rank + j] =
           ins->Get(i)->desc()->layout()->stride()->Get(j);
     }
-    const float *raw_data_ptr =
-        static_cast<float *>(get_raw_host_data_ptr(tens));
+    float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(tens));
     packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
                                 sizes_and_strides);
   }
@@ -43,8 +42,7 @@ std::vector<wrapped_tensor> pack_tensors(
   for (size_t j = 0; j < rank; ++j) {
     out_sizes_and_strides[rank + j] = out->desc()->layout()->stride()->Get(j);
   }
-  const float *raw_data_ptr =
-      static_cast<float *>(get_raw_host_data_ptr(out_tens));
+  float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(out_tens));
   packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), rank,
                               out_sizes_and_strides);
   return packed_tensors;
