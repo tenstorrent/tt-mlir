@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "Broadcast.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
@@ -481,6 +482,7 @@ public:
       // Placeholder for workaround decomposition patterns.
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      patterns.add<TTNNBroadcastWorkaround>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
