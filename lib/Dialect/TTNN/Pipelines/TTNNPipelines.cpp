@@ -132,7 +132,6 @@ void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineWorkaroundPass(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);
