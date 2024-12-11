@@ -290,9 +290,6 @@ class TTIRBuilder:
         while len(stack) > 0 and stack[0].filename == cur_filename:
             stack = stack[1:]
 
-        id = self.get_next_global_id()
-        loc = Location.file(stack[0].filename, stack[0].lineno, id)
-
         assert (
             len(stack) > 0
         ), "Top of callstack to builder funcs must be outside this file"
@@ -300,12 +297,14 @@ class TTIRBuilder:
         with self._ctx, self._loc:
             output = self.empty(self.get_shape(inputs[0]))
 
+            id = self.get_next_global_id()
+
             op = op_ttir_function(
                 [self._get_type(output)],
                 inputs,
                 [output],
                 self._get_operand_constraint_attr(3),
-                loc=loc,
+                loc=Location.name(str(id)),
             )
 
             goldens = []
@@ -313,7 +312,7 @@ class TTIRBuilder:
                 goldens.append(self._get_golden_tensor(input))
 
             golden = Golden(op_golden_function(*goldens))
-            self.id_golden_map[str(loc)] = golden
+            self.id_golden_map[str(id)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 
