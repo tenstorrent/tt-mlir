@@ -31,33 +31,6 @@ public:
     uint64_t allocOfL1Mem;
   };
 
-  // This enum is used to determine the type of action required before
-  // scheduling the next op.
-  //
-  // MergeL1ChainConfigsOp: Requirement for op to be of this type is to have L1
-  //                        Interleaved output layout tensor. Action for this
-  //                        type of op is to merge all L1ChainConfigs of its
-  //                        operands and isert op's OpL1MemSpec in newly merged
-  //                        L1ChainConfig.
-  //
-  // NewL1ChainConfigOp:    Requirement for op to be of this type is to have L1
-  //                        Interleaved output layout tensor and non of its
-  //                        operands belong to any L1ChainConfig. Action for
-  //                        this type of op is to isert op's OpL1MemSpec in
-  //                        DisjointL1ChainConfigsUnion which will result in
-  //                        creating new L1ChainConfig.
-  //
-  // NoL1ChainConfigOp:     Requirement for op to be of this type is to either
-  //                        be non-analyzable or its output layout tensor to
-  //                        have DRAM buffer type. There are no action for this
-  //                        type of op.
-  //
-  enum class NextOpType {
-    MergeL1ChainConfigsOp,
-    NewL1ChainConfigOp,
-    NoL1ChainConfigOp
-  };
-
 public:
   BFInterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,

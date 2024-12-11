@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/BFInterleavedPolicy.h"
-#include "ttmlir/Dialect/TTNN/Analysis/DisjointL1ChainConfigsUnion.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -33,86 +32,70 @@ void BFInterleavedPolicy::run() {
     //
     llvm::DenseMap<Operation *, OpL1MemUsage> currentL1UsagePerOp;
     uint64_t currentL1Usage = 0;
-    DisjoinL1ChainConfigsUnion disjointL1ChainConfigsUnion;
+    l1ChainConfigs->push_back(L1ChainConfig());
 
     while (scheduler.hasUnscheduledOps()) {
       uint64_t minimalChangeInL1Usage;
       Operation *nextOpForScheduling;
-      NextOpType nextOpForSchedulingType;
+      BufferType nextOpForSchedulingBufferType;
 
       nextOpForScheduling = nullptr;
       minimalChangeInL1Usage = std::numeric_limits<uint64_t>::max();
       for (Operation *op : scheduler.getScheduleableOps()) {
-        bool hasL1Operands;
         uint64_t deallocOfL1Mem, allocOfL1Mem, changeInL1Usage;
-        NextOpType opType;
-
-        // In case there are no ops whose output tensor can be stored in L1
-        // memory buffer, we have to pick one op to schedule and place its
-        // output tensor in DRAM memory buffer.
-        //
-        if (nextOpForScheduling == nullptr) {
-          nextOpForScheduling = op;
-          nextOpForSchedulingType = NextOpType::NoL1ChainConfigOp;
-        }
+        BufferType opBufferType;
 
         // Calculate the L1 memory usage of the op's operands.
         //
-        hasL1Operands = false;
         deallocOfL1Mem = 0;
         walkOnAnalyzableOperands(op, [&](Operation *operandOp) {
           if (currentL1UsagePerOp.count(operandOp)) {
-            hasL1Operands = true;
             deallocOfL1Mem +=
                 (currentL1UsagePerOp[operandOp].numOfUnscheduledUsers == 1) *
                 currentL1UsagePerOp[operandOp].l1MemUsagePerUser;
           }
         });
 
-        // In case the op has no legal L1 memory layout, the op can only be of
-        // type NextOpType::NoL1ChainConfigOp.
+        // Default setup for all DRAM buffer type ops.
         //
         allocOfL1Mem = 0;
-        opType = NextOpType::NoL1ChainConfigOp;
+        opBufferType = BufferType::DRAM;
+
+        // Analyse the possibility of scheduling the op with L1 memory layout.
+        //
         if (hasL1BufferType(op)) {
           LookaheadResult result = lookahead(op, currentL1UsagePerOp);
-          allocOfL1Mem = result.allocOfL1Mem;
 
-          // Determine the type of the op based on the operandsL1Usage. If
-          // there is at least one op's operand whose tensor is in L1 memory,
-          // then the op can be assigned to the existing L1ChainConfig and in
-          // that case the op's type should be
-          // NextOpType::MergeL1ChainConfigsOp. Otherwise, new L1ChainConfig
-          // should be created and NextOpType::NewL1ChainConfigOp assigned as
-          // the op's type.
-          //
-          opType = (hasL1Operands ? NextOpType::MergeL1ChainConfigsOp
-                                  : NextOpType::NewL1ChainConfigOp);
+          if (currentL1Usage + result.allocOfL1Mem <=
+              getAvailableL1CacheSize()) {
+            allocOfL1Mem = result.allocOfL1Mem;
+            opBufferType = BufferType::L1;
+          }
         }
 
         // Check if the scheduling of the op is consumes the least amount of L1
         // memory among all the scheduleable ops.
         //
         changeInL1Usage = allocOfL1Mem - deallocOfL1Mem;
-        bool isOpExecutionLegal =
-            currentL1Usage + allocOfL1Mem <= getAvailableL1CacheSize();
-        bool isBestOptionSoFar = changeInL1Usage < minimalChangeInL1Usage;
-        if (isOpExecutionLegal && isBestOptionSoFar) {
+        if (changeInL1Usage < minimalChangeInL1Usage) {
           nextOpForScheduling = op;
-          nextOpForSchedulingType = opType;
+          nextOpForSchedulingBufferType = opBufferType;
           minimalChangeInL1Usage = changeInL1Usage;
         }
       }
 
-      // Update DisjointL1ChainConfigsUnion with the nextOpForScheduling.
+      // In case we picked the L1 layout for the nextOpForScheduling, we need
+      // to add the OpL1MemSpec to the L1ChainConfig and update the state of L1
+      // memory.
       //
-      if (nextOpForSchedulingType != NextOpType::NoL1ChainConfigOp) {
+      if (nextOpForSchedulingBufferType == BufferType::L1) {
 
         // Construct OpL1MemSpec for the nextOpForScheduling.
         //
         OpL1MemSpec opL1MemSpec;
         opL1MemSpec.op = nextOpForScheduling;
         opL1MemSpec.layout = getL1InterleavedLayout(nextOpForScheduling);
+        l1ChainConfigs->back().addOpL1MemSpec(opL1MemSpec);
 
         // Update the state of L1 memory by allocating the nextOpForScheduling's
         // output tensor in L1 memory.
@@ -126,25 +109,6 @@ void BFInterleavedPolicy::run() {
             numOfUsers;
         currentL1Usage +=
             currentL1UsagePerOp[nextOpForScheduling].l1MemUsagePerUser;
-
-        // Merge L1ChainConfigs of the operands of the nextOpForScheduling if
-        // there are op's operands that are in L1 memory.
-        //
-        Operation *opIter = nullptr;
-        walkOnAnalyzableOperands(
-            nextOpForScheduling, [&](Operation *operandOp) {
-              if (currentL1UsagePerOp.count(operandOp)) {
-                // Merge L1ChainConfigs of the op's operands.
-                //
-                opIter = disjointL1ChainConfigsUnion.mergeL1ChainConfigs(
-                    opIter, operandOp);
-              }
-            });
-
-        // Insert the nextOpForScheduling's OpL1MemSpec in the
-        // DisjointL1ChainConfigsUnion.
-        //
-        disjointL1ChainConfigsUnion.insertOpL1MemSpec(opL1MemSpec, opIter);
       }
 
       // Update the state of L1 memory.
@@ -165,7 +129,6 @@ void BFInterleavedPolicy::run() {
       // Schedule the nextOpForScheduling and update currentL1Usage.
       //
       scheduler.scheduleOp(nextOpForScheduling);
-      nextOpForScheduling = nullptr;
     }
 
     assert(currentL1Usage == 0);
@@ -175,8 +138,7 @@ void BFInterleavedPolicy::run() {
 
     // Build, Resolve and Complete all L1ChainConfigs.
     //
-    for (auto &[op, l1ChainConfig] :
-         disjointL1ChainConfigsUnion.getL1ChainConfigs()) {
+    for (L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
       l1ChainConfig.build();
       l1ChainConfig.resolve();
       l1ChainConfig.complete();
