@@ -180,8 +180,8 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 // Example: memref<2x3!tt.tile<32x32xf32>> -> { 2, 3 }
 //
 // return The shape of the shard.
-llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
-  return SmallVector<int64_t>(getMemref().getShape());
+llvm::ArrayRef<int64_t> TTNNLayoutAttr::getShardShape() const {
+  return getMemref().getShape();
 }
 
 // Get scalar shard shape
@@ -249,7 +249,7 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
 //
 // return The size of the shard in bytes.
 uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
-  SmallVector<int64_t> shape = getShardShape();
+  llvm::ArrayRef<int64_t> shape = getShardShape();
   uint64_t size = getElementSizeBytes();
   return std::accumulate(shape.begin(), shape.end(), size,
                          std::multiplies<uint64_t>());
@@ -277,7 +277,7 @@ mlir::AffineMap TTNNLayoutAttr::getIdentityTileLinearMap() const {
 // return New memory map with symbols replaced with shard shape.
 mlir::AffineMap TTNNLayoutAttr::replaceMemoryMapSymbolsWithShardShape(
     AffineMap physicalMemoryMap) const {
-  mlir::SmallVector<int64_t> shardShape = getShardShape();
+  llvm::ArrayRef<int64_t> shardShape = getShardShape();
   assert(physicalMemoryMap.getNumSymbols() == shardShape.size() &&
          "Physical memory map must have same number of symbols as logical "
          "shard rank");

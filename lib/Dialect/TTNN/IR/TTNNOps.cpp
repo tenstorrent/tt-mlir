@@ -582,7 +582,7 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
     if (not outputLayout.hasShardedL1TensorMemoryLayout()) {
       return emitOpError("Sharded tensors layout must reside in L1");
     }
-    ::llvm::SmallVector<int64_t> shardShape = outputLayout.getShardShape();
+    ::llvm::ArrayRef<int64_t> shardShape = outputLayout.getShardShape();
     // Currently TTNN backend only supports 2D shard shape
     if (shardShape.size() != 2) {
       return emitOpError("Shard shape must be 2D");
