@@ -200,6 +200,12 @@ jobs:
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
 
+    - name: Upload tests
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}-${{ matrix.build.name }}-tests
+        path: ${{ steps.strings.outputs.build-output-dir }}/test
+
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
@@ -682,9 +688,15 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- explorer
 
+    - name: Download Tests
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ matrix.build.runs-on }}-${{ matrix.build.name }}-test
+
     - name: Run tt-explorer tests
       shell: bash
       run: |
         source env/activate
+        export TT_EXPLORER_GENERATED_TEST_DIR=${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
         pytest tools/explorer/test/run_tests.py
         # collect results
