@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-
+#include "llvm/Support/FileSystem.h"
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -142,9 +144,87 @@ createTTNNOptimizer(TTNNOptimizerOptions options) {
   return impl::createTTNNOptimizer(std::move(options));
 }
 
+void saveModuleToFile(ModuleOp& module, const std::string &filename) {
+  std::error_code errorCode;
+  llvm::raw_fd_ostream outputFile(filename, errorCode, llvm::sys::fs::OF_None);
+
+  if (errorCode) {
+    llvm::errs() << "Could not open file: " << errorCode.message() << "\n";
+    return;
+  }
+
+  module.print(outputFile);
+}
+
 class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
   using impl::TTNNOptimizerBase<TTNNOptimizer>::TTNNOptimizerBase;
+  // API to be called per op and with specific input/output mem config and layout;
+  // for POC purposes, we go through all ops and build MLIR graph with the current config/layout
+  void measurePerf(Operation* getDeviceOp, Operation* opToMeasure, const int& order) {
+    ModuleOp moduleOp = getOperation();
+
+    // Initialization
+    MLIRContext context;
+    context.getOrLoadDialect<mlir::func::FuncDialect>();
+    context.getOrLoadDialect<mlir::tt::ttnn::TTNNDialect>();
+    context.getOrLoadDialect<mlir::tensor::TensorDialect>();
+
+    auto location = UnknownLoc::get(&context);
+    ModuleOp module = ModuleOp::create(location);
+
+    module->setAttrs(moduleOp->getAttrs());
+
+    OpBuilder builder(module.getBodyRegion());
+
+    FunctionType funcType = FunctionType::get(&context, {}, {});
+    auto func = func::FuncOp::create(location, "op_perf", funcType);
+    Block *entryBlock = func.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
+
+    // Add get device op
+    Operation *clonedDeviceOp = getDeviceOp->cloneWithoutRegions();
+    builder.insert(clonedDeviceOp);
+
+    // Clone the existing operation without regions and operands
+    Operation *clonedOp = opToMeasure->cloneWithoutRegions();
+
+    // Add inputs as ttnn.full ops
+    const bool destinationStyleOp = isa<mlir::DestinationStyleOpInterface>(opToMeasure);
+    const int numInputs = destinationStyleOp ? opToMeasure->getNumOperands() - 1 : opToMeasure->getNumOperands();
+    for (int inputID = 0; inputID < numInputs; inputID++) {
+      auto input = builder.create<ttnn::FullOp>(location, opToMeasure->getOperandTypes()[inputID], clonedDeviceOp->getResult(0), builder.getF32FloatAttr(1));
+      input->setOperands({clonedDeviceOp->getResult(0)});
+      clonedOp->setOperand(inputID, input->getResult(0));
+    }
+
+    // Add empty op for the output if needed
+    if (destinationStyleOp) {
+      Operation *empty_op = opToMeasure->getOperand(numInputs).getDefiningOp();
+      auto *output = empty_op->cloneWithoutRegions();
+      output->setOperands({clonedDeviceOp->getResult(0)});
+      builder.insert(output);
+      clonedOp->setOperand(numInputs, output->getResult(0));
+    }
+
+    // Add op we are measuring
+    builder.insert(clonedOp);
+
+    // Add return and wrap up the module
+    builder.create<func::ReturnOp>(location);
+    module.push_back(func);
+
+    // Save module to file
+    const auto fileName = opToMeasure->getName().getStringRef().str() + "-" + std::to_string(order) + ".mlir";
+    saveModuleToFile(module, fileName);
+
+    // TODO: Convert to flatbuffer; this doesn't work currently due to circular dependency with ttnntoflatbuffer
+    // auto binary = mlir::tt::ttnn::ttnnToFlatbuffer(module);
+  
+    // TODO: Call runtime to measure performance
+  }
+
+
   void runOnOperation() final {
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
@@ -337,6 +417,22 @@ public:
       FunctionType newFuncType = FunctionType::get(
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
+    });
+  
+    // Measure performance of each op
+
+    // We keep order to distinguish between two ops with the same name
+    int order = 0;
+    Operation *getDeviceOp = nullptr;
+    moduleOp->walk([&](Operation *op) {
+      // Save get device op to avoid retrieving it each time
+      if (isa<GetDeviceOp>(op)) {
+        getDeviceOp = op;
+      } else if (isa<OpModel>(op) && !isa<EmptyOp>(op) && !isa<ToLayoutOp>(op)) {
+        // TODO: Recognize to_layout ops actually doing device transformation, and include it
+        measurePerf(getDeviceOp, op, order);
+      }
+      order++;
     });
   }
 
