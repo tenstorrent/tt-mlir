@@ -3,18 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
@@ -406,10 +394,16 @@ class Run:
                                     f"input_{i}"
                                 )
 
-                                if len(golden_tensor) != 0:
-                                    golden_inputs.append(
-                                        torch.tensor(golden_tensor, dtype=torch.float32)
+                                if golden_tensor is not None:
+
+                                    dtype = ttrt_datatype_to_torch_dtype(
+                                        golden_tensor.dtype
                                     )
+
+                                    golden_tensor_torch = torch.frombuffer(
+                                        golden_tensor, dtype=dtype
+                                    )
+                                    golden_inputs.append(golden_tensor_torch)
 
                             program.populate_inputs(
                                 Run.TorchInitializer.get_initilizer(self["--init"]),

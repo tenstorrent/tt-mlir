@@ -2,19 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
 import re
 from functools import partial
 
@@ -148,26 +135,19 @@ def golden_partial_function(
             op_context, program_context
         )
 
-        if len(op_golden_tensor) == 0:
-            print("Golden tensor is empty - skipping golden comparison")
+        if op_golden_tensor is None:
+            print("Golden tensor is None - skipping golden comparison")
             return
 
         if len(op_output_tensor) == 0:
             print("Output tensor is empty - skipping golden comparison")
             return
 
-        if len(op_golden_tensor) != len(op_output_tensor):
-            print(
-                "Golden and output tensor sizes do not match - skipping golden comparison"
-            )
-            return
+        dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
 
-        golden_tensor_torch = torch.tensor(
-            op_golden_tensor, dtype=torch.float32
-        ).flatten()
-        output_tensor_torch = torch.tensor(
-            op_output_tensor, dtype=torch.float32
-        ).flatten()
+        golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
+
+        output_tensor_torch = torch.tensor(op_output_tensor, dtype=dtype).flatten()
 
         if golden_runtime_config.save_golden_tensors:
             torch.save(
@@ -178,6 +158,12 @@ def golden_partial_function(
                 output_tensor_torch,
                 f"{golden_runtime_config.artifact_dir}/{loc}_device.pt",
             )
+
+        if golden_tensor_torch.shape != output_tensor_torch.shape:
+            print(
+                "Golden and output tensor shapes do not match - skipping golden comparison"
+            )
+            return
 
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch, output_tensor_torch

@@ -230,4 +230,6 @@ PYBIND11_MODULE(_C, m) {
     ::tt::runtime::debug::Hooks::get().unregisterHooks();
   };
   m.add_object("_cleanup", py::capsule(cleanup_callback));
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }
