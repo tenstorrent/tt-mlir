@@ -80,7 +80,15 @@ Pattern FuseRelu {
 
         // Need to construct the relu op dynamically because of the operand constraints
         // Currently, you can only define op attributes statically in PDLL so a native
-        // C++ function is required to properly construct it.
+        // C++ function is required to properly construct it. We could use `reduce1_constraints`
+        // If the op we are replacing ttir.maximum with had the same operands in the same order,
+        // but in this case there are a different number of operands so doing that would be illegal.
+        //
+        // Defining an operation statically looks just like the declaration of `maximum`:
+        //    let relu = op<ttir.relu>(input, maximumDps) {operand_constraints = ...};
+        // Like mentioned before, because we must define `operand_constraints` for this op,
+        // and we can't do it statically or use `reduce1_constraints`, we must define it dynamically,
+        // which needs native c++ code.
         let relu = getReluOp(input, maximumDps, reduce1_constraints);
         replace maximum with relu;
     };
