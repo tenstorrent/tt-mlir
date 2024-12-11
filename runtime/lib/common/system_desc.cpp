@@ -102,7 +102,8 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
     }
   }
 
-  for (int dram_channel = 0; dram_channel < device->num_dram_channels(); ++dram_channel) {
+  for (int dram_channel = 0; dram_channel < device->num_dram_channels();
+       ++dram_channel) {
     CoreCoord logical = device->logical_core_from_dram_channel(dram_channel);
     dram_cores.emplace_back(::tt::target::Dim2d(logical.y, logical.x));
   }
