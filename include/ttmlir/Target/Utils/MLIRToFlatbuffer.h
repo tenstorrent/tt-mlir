@@ -5,15 +5,16 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include <numeric>
-#include <type_traits>
-
-#include "flatbuffers/flatbuffers.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
+
+#include "flatbuffers/flatbuffers.h"
+
+#include <numeric>
+#include <type_traits>
 
 namespace mlir::tt {
 
@@ -134,6 +135,35 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
   case DataType::UInt8:
     return ::tt::target::DataType::UInt8;
   }
+}
+
+inline ::flatbuffers::Optional<::tt::target::DataType>
+toFlatbufferOptional(FlatbufferObjectCache &cache,
+                     ::std::optional<::mlir::tt::DataType> dataType) {
+  return dataType.has_value() ? ::flatbuffers::Optional<::tt::target::DataType>(
+                                    toFlatbuffer(cache, dataType.value()))
+                              : ::flatbuffers::nullopt;
+}
+
+inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
+                                               ttnn::Layout layout) {
+  switch (layout) {
+  case ttnn::Layout::RowMajor:
+    return ::tt::target::TensorLayout::RowMajor;
+  case ttnn::Layout::Tile:
+    return ::tt::target::TensorLayout::Tile;
+  case ttnn::Layout::Invalid:
+    return ::tt::target::TensorLayout::Invalid;
+  }
+}
+
+inline ::flatbuffers::Optional<::tt::target::TensorLayout>
+toFlatbufferOptional(FlatbufferObjectCache &cache,
+                     ::std::optional<mlir::tt::ttnn::Layout> layout) {
+  return layout.has_value()
+             ? ::flatbuffers::Optional<::tt::target::TensorLayout>(
+                   toFlatbuffer(cache, layout.value()))
+             : ::flatbuffers::nullopt;
 }
 
 inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,

@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
+#include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -37,121 +38,9 @@ using namespace mlir::tt;
 
 namespace {
 
-// Create emitc::OpaqueAttr for std::nullopt
-//
-emitc::OpaqueAttr createStdNullopt(Builder &builder) {
-  return builder.getType<emitc::OpaqueAttr>("std::nullopt");
-}
-
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
       "static_cast<::ttnn::Device *>(nullptr)");
-}
-
-// Create emitc::OpaqueAttr for ttnn::Layout
-//
-emitc::OpaqueAttr convertLayoutAttr(Builder &builder, ttnn::LayoutAttr attr) {
-  switch (attr.getValue()) {
-  case ttnn::Layout::RowMajor:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::ROW_MAJOR");
-  case ttnn::Layout::Tile:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::TILE");
-  case ttnn::Layout::Invalid:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::Layout::INVALID");
-  }
-
-  llvm_unreachable("Unknown ttnn::Layout");
-}
-
-emitc::OpaqueAttr convertBoolAttr(Builder &builder, BoolAttr attr) {
-  return builder.getType<emitc::OpaqueAttr>(attr.getValue() ? "true" : "false");
-}
-
-// Create emitc::OpaqueAttr for ttnn::TensorMemoryLayout
-//
-emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
-                                            ttnn::TensorMemoryLayoutAttr attr) {
-  switch (attr.getValue()) {
-  case ttnn::TensorMemoryLayout::BlockSharded:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::BLOCK_SHARDED");
-  case ttnn::TensorMemoryLayout::HeightSharded:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::HEIGHT_SHARDED");
-  case ttnn::TensorMemoryLayout::Interleaved:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::INTERLEAVED");
-  case ttnn::TensorMemoryLayout::SingleBank:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::SINGLE_BANK");
-  case ttnn::TensorMemoryLayout::WidthSharded:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::TensorMemoryLayout::WIDTH_SHARDED");
-  }
-}
-
-// Create emitc::OpaqueAttr for ttnn::BufferType
-//
-emitc::OpaqueAttr convertBufferType(Builder &builder,
-                                    ttnn::BufferTypeAttr attr) {
-  switch (attr.getValue()) {
-  case ttnn::BufferType::DRAM:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::DRAM");
-  case ttnn::BufferType::L1:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::L1");
-  case ttnn::BufferType::L1Small:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::L1_SMALL");
-  case ttnn::BufferType::SystemMemory:
-    return builder.getType<emitc::OpaqueAttr>(
-        "ttnn::BufferType::SYSTEM_MEMORY");
-  case ttnn::BufferType::Trace:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::BufferType::TRACE");
-  }
-
-  llvm_unreachable("Unknown ttnn::BufferType");
-}
-
-// Create emitc::OpaqueAttr for ttnn::Shape
-//
-emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
-  llvm::ArrayRef shape = attr.getShape();
-  std::ostringstream oss;
-  std::copy(shape.begin(), shape.end(), std::ostream_iterator<int>(oss, ", "));
-  return builder.getType<emitc::OpaqueAttr>("{" + oss.str() + "}");
-}
-
-// Create emitc::OpaqueAttr for ttnn::DataType
-//
-emitc::OpaqueAttr convertDType(Builder &builder, tt::DataTypeAttr attr) {
-  switch (attr.getValue()) {
-  case tt::DataType::BFloat16:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT16");
-  case tt::DataType::Float32:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::FLOAT32");
-  case tt::DataType::UInt32:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT32");
-  case tt::DataType::BFP_BFloat8:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT8_B");
-  case tt::DataType::BFP_BFloat4:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::BFLOAT4_B");
-  case tt::DataType::UInt8:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT8");
-  case tt::DataType::UInt16:
-    return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::UINT16");
-  // TODO(svuckovic):
-  // Add support for INT32
-  //
-  // case tt::DataType::Int32:
-  //   return builder.getType<emitc::OpaqueAttr>("ttnn::DataType::INT32");
-  case tt::DataType::Float16:
-  case tt::DataType::BFP_Float2:
-  case tt::DataType::BFP_Float4:
-  case tt::DataType::BFP_Float8:
-  case tt::DataType::BFP_BFloat2:
-    llvm_unreachable("Unsupported ttnn::DataType");
-  }
-
-  llvm_unreachable("Unkonwn tt::DataType");
 }
 
 // Base class for TTNN to EmitC OpConversionPattern
@@ -248,8 +137,8 @@ public:
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-    attrs.push_back(createStdNullopt(rewriter));
-    attrs.push_back(createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
@@ -318,10 +207,10 @@ public:
       // Create ArrayAttr object holding MemoryConfig attributes
       //
       ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-          {convertTensorMemoryLayout(
+          {ttnn_to_emitc::utils::convertTensorMemoryLayout(
                rewriter, srcOp.getMemoryConfig()->getTensorMemoryLayout()),
-           convertBufferType(rewriter,
-                             srcOp.getMemoryConfig()->getBufferType())});
+           ttnn_to_emitc::utils::convertBufferType(
+               rewriter, srcOp.getMemoryConfig()->getBufferType())});
 
       // Create MemoryConfig object first, then pass it to the op
       //
@@ -332,7 +221,7 @@ public:
       operands.append(1, memCfgOp.getResult(0));
       attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 2));
     } else {
-      attrs.push_back(createStdNullopt(rewriter));
+      attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     }
 
     ArrayAttr finalAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
@@ -415,9 +304,10 @@ public:
     // Create ArrayAttr object holding MemoryConfig attributes
     //
     ArrayAttr arrayAttrs = rewriter.getArrayAttr(
-        {convertTensorMemoryLayout(
+        {ttnn_to_emitc::utils::convertTensorMemoryLayout(
              rewriter, srcOp.getMemoryConfig().getTensorMemoryLayout()),
-         convertBufferType(rewriter, srcOp.getMemoryConfig().getBufferType())});
+         ttnn_to_emitc::utils::convertBufferType(
+             rewriter, srcOp.getMemoryConfig().getBufferType())});
 
     // Create MemoryConfig object first, then pass it to the op
     //
@@ -434,7 +324,7 @@ public:
     llvm::SmallVector<Attribute, 3> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 1));
-    attrs.push_back(createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
 
     ArrayAttr finalAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
 
@@ -464,9 +354,10 @@ public:
 
     llvm::SmallVector<Attribute, 5> attrs;
     attrs.push_back(mlir::IntegerAttr::get(rewriter.getIndexType(), 0));
-    attrs.push_back(convertLayoutAttr(rewriter, srcOp.getLayoutAttr()));
-    attrs.push_back(createStdNullopt(rewriter));
-    attrs.push_back(createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::convertLayoutAttr(
+        rewriter, srcOp.getLayoutAttr()));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
+    attrs.push_back(ttnn_to_emitc::utils::createStdNullopt(rewriter));
     attrs.push_back(createNullDevicePointer(rewriter));
 
     ArrayAttr arrayAttrs = ArrayAttr::get(srcOp->getContext(), attrs);
@@ -500,37 +391,8 @@ public:
 
     // Create ttnn::Shape() call
     //
-    // ttnn:Shape has a couple constructors, but they are explicit and require
-    // specific datatypes on input. However, one of the constructors takes in a
-    // tt_metal::Shape - given that it's much easier to construct a
-    // tt_metal::Shape, we opted to do that here. The call looks like this:
-    // ttnn::Shape(tt::tt_metal::LegacyShape{dim0, dim1, dim2, ...});
-    //
-    // To make it easier on the eyes, these two calls are packed into one, using
-    // EmitC's ExpressionOp.
-    //
-    emitc::ExpressionOp shapeExpressionOp =
-        rewriter.create<emitc::ExpressionOp>(
-            srcOp->getLoc(),
-            emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Shape"),
-            false);
-    mlir::Block &bodyBlock = shapeExpressionOp.getBodyRegion().emplaceBlock();
-    auto currentPoint = rewriter.getInsertionPoint();
-    rewriter.setInsertionPointToStart(&bodyBlock);
-    emitc::CallOpaqueOp metalShapeOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp->getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(),
-                               "tt::tt_metal::LegacyShape"),
-        rewriter.getStringAttr("tt::tt_metal::LegacyShape"),
-        rewriter.getArrayAttr(convertShape(rewriter, shapeAttr)), nullptr,
-        ValueRange());
-    emitc::CallOpaqueOp ttnnShapeOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp->getLoc(),
-        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Shape"),
-        rewriter.getStringAttr("ttnn::Shape"), nullptr, nullptr,
-        metalShapeOp->getResults());
-    rewriter.create<emitc::YieldOp>(srcOp->getLoc(), ttnnShapeOp->getResult(0));
-    rewriter.setInsertionPoint(srcOp->getBlock(), currentPoint);
+    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
 
     llvm::SmallVector<Value, 3> operands{
         shapeExpressionOp->getResult(0),
@@ -542,20 +404,10 @@ public:
     if (adaptor.getDevice()) {
       operands.append(1, adaptor.getDevice());
 
-      // Create ArrayAttr object holding MemoryConfig attributes
-      //
-      ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
-          {convertTensorMemoryLayout(
-               rewriter, srcOp.getMemoryConfig()->getTensorMemoryLayout()),
-           convertBufferType(rewriter,
-                             srcOp.getMemoryConfig()->getBufferType())});
-
       // Create MemoryConfig object first, then pass it to the op
       //
-      emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
-          srcOp->getLoc(),
-          emitc::OpaqueType::get(rewriter.getContext(), "ttnn::MemoryConfig"),
-          "ttnn::MemoryConfig", memCfgArrayAttrs, nullptr, ValueRange());
+      emitc::CallOpaqueOp memCfgOp = ttnn_to_emitc::utils::createMemoryConfigOp(
+          rewriter, srcOp.getMemoryConfig().value(), srcOp.getLoc());
 
       // Concat operands and MemoryConfig object
       //
@@ -565,21 +417,105 @@ public:
       //
       arrayAttr = rewriter.getArrayAttr({
           rewriter.getIndexAttr(0), // ttnn::Shape
-          convertDType(rewriter, dataTypeAttr),
-          convertLayoutAttr(rewriter, layoutAttr),
+          ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+          ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
           rewriter.getIndexAttr(1), // ttnn::Device
           rewriter.getIndexAttr(2), // ttnn::MemoryConfig
       });
     } else {
       arrayAttr = rewriter.getArrayAttr({
           rewriter.getIndexAttr(0), // ttnn::Shape
-          convertDType(rewriter, dataTypeAttr),
-          convertLayoutAttr(rewriter, layoutAttr),
+          ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
+          ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
       });
     }
 
     // Finally, convert ttir::EmptyOp to ttnn::EmptyOp
     //
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        this->convertOpName(srcOp), arrayAttr, nullptr, operands);
+
+    return success();
+  }
+};
+
+// OnesOp conversion pattern
+//
+class OnesOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<ttnn::OnesOp> {
+
+public:
+  OnesOpConversionPattern(const TypeConverter &typeConverter,
+                          MLIRContext *context, PatternBenefit benefit = 1)
+      : TTNNToEmitCBaseOpConversionPattern<ttnn::OnesOp>(typeConverter, context,
+                                                         benefit) {}
+
+  LogicalResult
+  matchAndRewrite(ttnn::OnesOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // ttnn:OnesOp has 5 input params:
+    //
+    // let arguments = (ins TTNN_ShapeAttr:$shape,
+    //                      OptionalAttr<TT_DataTypeAttr>:$dtype,
+    //                      OptionalAttr<TTNN_LayoutAttr>:$layout,
+    //                      Optional<TT_Device>:$device,
+    //                      OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    //
+    // Some of them are Attrs, some are Values. ShapeAttr is required, while
+    // others are optional. Additionally, in the context of C++, some of the
+    // Attrs (like shape) need to be instantiated into objects before being
+    // passed to the op. Therefore:
+    //
+    // We first create a ttnn::Shape object (SSA) by calling createShapeOp() and
+    // add it to the operands vector, but also add an IndexAttr in ArrayAttr to
+    // reference it (this is an EmitC mechanism that allows for combining Attrs
+    // and Values when calling an OpaqueOp).
+    // All the other input params are optional, so we create them on-the-fly
+    // into the ArrayAttr, whether they are an actual Attr, or a Value pointed
+    // to by IndexAttr. If they are present, we create the object and pass it to
+    // the op. If not, we pass std::nullopt.
+
+    // Create ttnn::Shape() call
+    //
+    emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
+        rewriter, srcOp.getShapeAttr(), srcOp->getBlock(), srcOp.getLoc());
+
+    llvm::SmallVector<Value, 3> operands{
+        shapeExpressionOp->getResult(0),
+    };
+
+    // Create ArrayAttr object holding attributes and pointers to operands
+    //
+    // Params that are Values are added to the operands vector on-the-fly, and a
+    // corresponding IndexAttr is added to the ArrayAttr to reference them.
+    //
+    size_t operandIndex = 0;
+    ArrayAttr arrayAttr = rewriter.getArrayAttr({
+        rewriter.getIndexAttr(operandIndex++), // ttnn::Shape
+        srcOp.getDtype().has_value()
+            ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::DataType
+        srcOp.getLayout().has_value()
+            ? ttnn_to_emitc::utils::convertLayoutAttr(rewriter,
+                                                      srcOp.getLayoutAttr())
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Layout
+        adaptor.getDevice()
+            ? (operands.append(1, adaptor.getDevice()),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
+            : ttnn_to_emitc::utils::createStdNullopt(rewriter), // ttnn::Device
+        srcOp.getMemoryConfig().has_value()
+            ? (operands.append(
+                   1, ttnn_to_emitc::utils::createMemoryConfigOp(
+                          rewriter, srcOp.getMemoryConfigAttr(), srcOp.getLoc())
+                          ->getResult(0)),
+               mlir::cast<Attribute>(rewriter.getIndexAttr(operandIndex++)))
+            : ttnn_to_emitc::utils::createStdNullopt(
+                  rewriter), // ttnn::MemoryConfig
+    });
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
         this->convertOpName(srcOp), arrayAttr, nullptr, operands);
@@ -606,7 +542,7 @@ public:
 
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
         rewriter.getIndexAttr(0),
-        convertBoolAttr(rewriter, srcOp.getForceAttr()),
+        ttnn_to_emitc::utils::convertBoolAttr(rewriter, srcOp.getForceAttr()),
     });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
@@ -682,16 +618,23 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Memory ops
   //
-  patterns.add<ToLayoutOpConversionPattern, ToMemoryConfigOpConversionPattern,
-               TypecastOpConversionPattern, ToDeviceOpConversionPattern,
-               FromDeviceOpConversionPattern, DeallocateOpConversionPattern>(
-      typeConverter, ctx);
+  // clang-format off
+  patterns.add<ToLayoutOpConversionPattern,
+               ToMemoryConfigOpConversionPattern,
+               TypecastOpConversionPattern,
+               ToDeviceOpConversionPattern,
+               FromDeviceOpConversionPattern,
+               DeallocateOpConversionPattern>(typeConverter, ctx);
+  // clang-format on
 
   // Tensor ops
   //
-  patterns
-      .add<EmptyOpConversionPattern, DefaultOpConversionPattern<ttnn::FullOp>,
-           DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
+  // clang-format off
+  patterns.add<EmptyOpConversionPattern,
+               OnesOpConversionPattern,
+               DefaultOpConversionPattern<ttnn::FullOp>,
+               DefaultOpConversionPattern<ttnn::ArangeOp>>(typeConverter, ctx);
+  // clang-format on
 
   // Eltwise unary ops
   //

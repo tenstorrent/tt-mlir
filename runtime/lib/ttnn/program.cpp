@@ -7,6 +7,7 @@
 #include "operations/creation/arange.h"
 #include "operations/creation/empty.h"
 #include "operations/creation/full.h"
+#include "operations/creation/ones.h"
 #include "operations/data_movement/concat.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
@@ -163,6 +164,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::OnesOp: {
+    return operations::creation::run(op->type_as_OnesOp(), context);
   }
   case ::tt::target::ttnn::OpType::FullOp: {
     return operations::creation::run(op->type_as_FullOp(), context);

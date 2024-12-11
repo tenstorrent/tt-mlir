@@ -80,17 +80,6 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType) {
   llvm_unreachable("Unknown MemorySpace");
 }
 
-Layout getLayoutFromMemRef(mlir::MemRefType memref) {
-  ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-  Type elementType = memref.getElementType();
-  if (llvm::isa<TileType>(elementType)) {
-    ttnnLayoutEnum = ttnn::Layout::Tile;
-  } else {
-    ttnnLayoutEnum = ttnn::Layout::RowMajor;
-  }
-  return ttnnLayoutEnum;
-}
-
 Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   switch (dtype) {
   case DataType::Float32:
