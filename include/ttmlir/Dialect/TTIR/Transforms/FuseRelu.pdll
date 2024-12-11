@@ -1,0 +1,87 @@
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.td"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.td"
+#include "mlir/IR/BuiltinTypes.td"
+#include "mlir/IR/BuiltinAttributes.td"
+#include "mlir/Dialect/Tensor/IR/TensorOps.td"
+
+// NOTE: `Constraint` and `Rewrite` blocks do not necessarily need to be
+//       defined in native C++. They can be defined in PDLL as well. For
+//       this rewrite though, the functionality I require from these
+//       blocks is either not supported in PDLL (yet), or I didn't find
+//       out how to do it (yet).
+
+
+// This returns the defining operation of the first value in ins which
+// 1. Has a defining operation to begin with
+// 2. Is not a ttir.constant op or if it is, that constant is not zero
+Rewrite getNonZeroInput(ins: ValueRange) -> Value [{
+    for (mlir::Value in : ins) {
+        if (!in.getDefiningOp() || !mlir::isa<mlir::tt::ttir::ConstantOp>(in.getDefiningOp())) {
+            return in;
+        }
+        auto constantOp = mlir::cast<mlir::tt::ttir::ConstantOp>(in.getDefiningOp());
+        float val = *constantOp.getValue().value_begin<float>();
+        if (val != 0.0) {
+            return in;
+        }
+    }
+    return nullptr;
+}];
+
+Rewrite getReluOp(input: Value, dpsOperand: Value, operand_constraints_attr: Attr) -> Op [{
+    auto operand_constraints = mlir::cast<mlir::ArrayAttr>(operand_constraints_attr);
+    return rewriter.create<mlir::tt::ttir::ReluOp>(
+        input.getLoc(),
+        input.getType(),
+        input,
+        dpsOperand,
+        //                        We should figure out which index the non-zero input was in the original ttir.maximum to populate the constraint attrs properly.
+        rewriter.getArrayAttr(mlir::SmallVector<mlir::Attribute>({operand_constraints[0], operand_constraints[2]})));
+}];
+
+// This constraint will pass if and only if at least one of the Values
+// in `ins` is the result of an Operation, that Operation is a
+// ttir.constant op, and that constant contains only zeros.
+Constraint oneInputIsZeroConstant(ins: ValueRange) [{
+    for (mlir::Value in : ins) {
+        if (in.getDefiningOp() && mlir::isa<mlir::tt::ttir::ConstantOp>(in.getDefiningOp())) {
+            auto constantOp = mlir::cast<mlir::tt::ttir::ConstantOp>(in.getDefiningOp());
+            if (!constantOp.getValue().isSplat()) {
+                continue;
+            }
+            float val = *constantOp.getValue().value_begin<float>();
+            if (val == 0.0) {
+                return mlir::success();
+            }
+        }
+    }
+    return mlir::failure();
+}];
+
+Pattern FuseRelu {
+    // Defining the pattern: ttir.maximum(lhs, rhs, dpsOperand)
+    let maximumDps = op<tensor.empty> () -> (result_type: Builtin_RankedTensor);
+
+    // I need to provide exactly two operands to this op since ttir.maximum
+    // inherits its number of inputs from here: include/ttmlir/Dialect/TTIR/IR/TTIROps.td:187
+    // which describes one Variadic for inputs and one Variadic for outputs.
+    // This is rather frustrating so we might want to be specific with exactlu
+    // how many operands our ops truly take rather than inheriting through
+    // a broad superclass.
+    let maximum = op<ttir.maximum>(inputs: ValueRange, maximumDps) {operand_constraints = reduce1_constraints: TT_OperandConstraintArrayAttr};
+
+    // Calling a constraint signifies that we should not continue execution
+    // if the constraint is not met.
+    oneInputIsZeroConstant(inputs);
+
+    rewrite maximum with {
+        // We need to collect the input that is not the zero constant to pass to ttir.relu
+        let input = getNonZeroInput(inputs);
+
+        // Need to construct the relu op dynamically because of the operand constraints
+        // Currently, you can only define op attributes statically in PDLL so a native
+        // C++ function is required to properly construct it.
+        let relu = getReluOp(input, maximumDps, reduce1_constraints);
+        replace maximum with relu;
+    };
+}

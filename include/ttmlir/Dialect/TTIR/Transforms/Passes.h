@@ -5,11 +5,19 @@
 #ifndef TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 #define TTMLIR_DIALECT_TTIR_TRANSFORMS_PASSES_H
 
+#include "mlir/Dialect/PDL/IR/PDL.h"
+#include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Parser/Parser.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
+
+#pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
+#pragma clang diagnostic ignored "-Wunused-local-typedef"
+#include "ttmlir/Dialect/TTIR/Transforms/FuseRelu.h.inc"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DECL

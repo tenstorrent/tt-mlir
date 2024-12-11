@@ -6,6 +6,8 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRPASSES_TD
 
 include "mlir/Pass/PassBase.td"
+include "mlir/Dialect/PDL/IR/PDLDialect.td"
+include "mlir/Dialect/PDLInterp/IR/PDLInterpOps.td"
 
 def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   let summary = "Create an implicit device";
@@ -123,6 +125,16 @@ def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
       This above broadcast is folded as:
       %1 = "ttir.maximum"(%arg0, %arg1) (tensor<1xf32>, tensor<512xf32>) -> tensor<512xf32>
   }];
+}
+
+def TTIRFuseRelu: Pass<"ttir-fuse-relu", "::mlir::ModuleOp"> {
+  let summary = "Fuse Relu.";
+  let description = "Fuse relu";
+
+  let dependentDialects = [
+    "::mlir::pdl::PDLDialect",
+    "::mlir::pdl_interp::PDLInterpDialect",
+  ];
 }
 
 #endif
