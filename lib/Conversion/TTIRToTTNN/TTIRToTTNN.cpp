@@ -119,8 +119,8 @@ public:
 
     // Get data type, tensor layout, device and memory config
     //
-    DataTypeAttr dTypeAttr = DataTypeAttr::get(
-        rewriter.getContext(), layoutAttr.getDataType());
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
     ttnn::BufferType bufferType = layoutAttr.getBufferType();
     ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
                                       ? ttnn::Layout::Tile
