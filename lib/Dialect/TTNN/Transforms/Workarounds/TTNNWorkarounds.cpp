@@ -24,9 +24,9 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <optional>
 #include <tuple>
@@ -58,7 +58,8 @@ static void revertOutputLayout(wa::TTNNWorkaroundInterface &op,
       op.getOperation(), newOpResult, rewriter,
       workaroundResults.tensorLayoutResult.previousValue,
       workaroundResults.tensorBufferTypeResult.previousValue,
-      workaroundResults.tensorMemoryLayoutResult.previousValue);
+      workaroundResults.tensorMemoryLayoutResult.previousValue,
+      workaroundResults.tensorDataTypeResult.previousValue);
 
   // Replace the new output result with the casted output result.
   rewriter.replaceUsesWithIf(
@@ -94,7 +95,8 @@ static bool workaroundInputOperand(
       op.getOperation(), inputValue, rewriter,
       inputWorkaroundResults.tensorLayoutResult.targetValue,
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
-      inputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
+      inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
+      inputWorkaroundResults.tensorDataTypeResult.targetValue);
 
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
@@ -137,7 +139,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   Type elementType = utils::getElementType(
       rewriter.getContext(),
       outputWorkaroundResults.tensorLayoutResult.targetValue,
-      opResultLayoutAttr.getDataType());
+      outputWorkaroundResults.tensorDataTypeResult.targetValue);
 
   // Get the input operand type.
   RankedTensorType opResultType =
@@ -151,16 +153,24 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
                 *outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
           : nullptr;
 
-  // Create the new output result type with the updated tensor layout, buffer
-  // type and memory layout.
+  // Create the new output layout attribute with the updated tensor layout,
+  // buffer type, memory layout and data type.
+  TTNNLayoutAttr newOutputLayoutAttr =
+      opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
+          .withBufferType(
+              rewriter.getContext(),
+              outputWorkaroundResults.tensorBufferTypeResult.targetValue)
+          .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
+
+  // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType =
       ttnn::utils::createRankedTensorTypeWithEncoding(
-          opResultType,
-          opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
-              .withBufferType(
+          ttnn::utils::createRankedTensorTypeWithElementType(
+              opResultType,
+              ttnn::utils::createRowMajorTypeFromDtype(
                   rewriter.getContext(),
-                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-              .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr));
+                  outputWorkaroundResults.tensorDataTypeResult.targetValue)),
+          newOutputLayoutAttr);
 
   // Update the type of result with applied workarounds.
   rewriter.modifyOpInPlace(op, [&]() {
@@ -174,6 +184,13 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
           outputWorkaroundResults.tensorLayoutResult.targetValue);
       op->setAttr("layout", updatedLayoutAttr);
+    }
+
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
+        op->getAttrDictionary().get("dtype")) {
+      DataTypeAttr updatedDataTypeAttr = rewriter.getAttr<DataTypeAttr>(
+          outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      op->setAttr("dtype", updatedDataTypeAttr);
     }
 
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
