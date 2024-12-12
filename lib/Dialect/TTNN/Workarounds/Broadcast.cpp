@@ -13,7 +13,7 @@ namespace mlir::tt::ttnn {
 // Convert Broadcast Ops to an addOp with zero in order to apply implicit
 // broadcast for all operands.
 // TODO(uazizTT): Remove this workaround once implicit broadcast for all
-// operands is supported.
+// operands is supported.(issue #1591)
 LogicalResult
 TTNNBroadcastWorkaround::matchAndRewrite(ttnn::BroadcastOp op,
                                          PatternRewriter &rewriter) const {

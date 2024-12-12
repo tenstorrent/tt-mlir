@@ -353,11 +353,11 @@ public:
 
     // Fold the BroadcastOp only if it is Operand 0 of the instruction
     // TODO(uazizTT): Remove this restriction for operand number once implicit
-    // broadcast for all operands is supported.
+    // broadcast for all operands is supported.(issue #1591)
     bool AllUsesReplaced = false;
     auto replaceIfFn = [&](OpOperand &use) {
       if (isa<ttir::ReshapeOp>(use.getOwner())) {
-        // Issue# 1345
+        // (issue #1345)
         // Reshape op cannot broadcast and requires input and output tensors to
         // have same number of elements.
         return false;
