@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import ttmlir
-from dataclasses import make_dataclass
+from dataclasses import make_dataclass, is_dataclass, asdict
 
 
 def parse_mlir_file(model_path):
@@ -18,5 +18,17 @@ def to_dataclass(obj: dict, dc_name: str = "tempClass"):
     return make_dataclass(dc_name, ((k, type(v)) for k, v in obj.items()))(**obj)
 
 
-def to_adapter_format(obj: dict):
-    return {"graphs": [to_dataclass(obj)]}
+def add_to_dataclass(dataclass, new_attr_name: str, new_attr_value):
+    if not is_dataclass(dataclass):
+        return None
+    classname = dataclass.__class__.__name__
+    dataclass = asdict(dataclass)
+    dataclass[new_attr_name] = new_attr_value
+    return make_dataclass(classname, [(k, type(v)) for k, v in dataclass.items()])(
+        **dataclass
+    )
+
+
+def to_adapter_format(objs: list):
+    objs = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
+    return {"graphs": objs}
