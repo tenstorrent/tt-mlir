@@ -83,6 +83,13 @@ void closeDevice(Device device) {
   ::tt::tt_metal::distributed::MeshDevice &ttmetalMeshDevice =
       device.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
+
+#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+  for (::tt::tt_metal::Device *ttmetalDevice :
+       ttmetalMeshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
+  }
+#endif
   ttmetalMeshDevice.close_devices();
 }
 
