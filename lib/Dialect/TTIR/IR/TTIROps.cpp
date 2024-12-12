@@ -1653,23 +1653,16 @@ void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 static mlir::tt::ttir::KernelOp
 buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
               ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
-              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs,
-              ::mlir::ArrayAttr operandConstraints) {
+              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs) {
   return opBuilder.create<mlir::tt::ttir::KernelOp>(
-      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs,
-      operandConstraints);
+      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs);
 }
 
 // Reduce op kernel builder
 static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
                            mlir::Location loc, ::mlir::StringRef kernelKind) {
-  auto kernelOp =
-      buildKernelOp(opBuilder, loc, "reduce", kernelKind, block->getArgument(0),
-                    block->getArgument(1),
-                    opBuilder.getArrayAttr(llvm::SmallVector<mlir::Attribute>(
-                        block->getNumArguments(),
-                        opBuilder.getAttr<mlir::tt::OperandConstraintAttr>(
-                            mlir::tt::OperandConstraint::AnyDeviceTile))));
+  auto kernelOp = buildKernelOp(opBuilder, loc, "reduce", kernelKind,
+                                block->getArgument(0), block->getArgument(1));
   opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
 }
 
