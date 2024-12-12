@@ -3,7 +3,7 @@ include(ExternalProject)
 set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.py)
 set(TTMLIR_BUILD_BIN_DIR ${TTMLIR_BINARY_DIR}/bin)
 
-set(MODEL_EXPLORER_VERSION "60a39e65419119a9c9e045cf28066a51d5ecb264")
+set(MODEL_EXPLORER_VERSION "bead39f3122ef3fb7ae48b7e687309719f91ddf9")
 ExternalProject_Add(
   model-explorer
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer
