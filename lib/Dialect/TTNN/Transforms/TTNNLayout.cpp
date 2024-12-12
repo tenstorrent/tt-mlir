@@ -297,7 +297,6 @@ public:
 
     assert(op->template hasTrait<ttir::TTIROp::Trait>());
     bool modified = false;
-    bool isTypecast = mlir::isa<ttir::TypecastOp>(op.getOperation());
     for (OpOperand &operand : op->getOpOperands()) {
       // Check if the operand is a dps result
       bool isResult = op.isDpsInit(&operand);
@@ -325,7 +324,7 @@ public:
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), operandConstraint, isTypecast);
+          rewriter, newLoc, operand.get(), operandConstraint, true /* tiled */);
 
       // If layout changed update the operand
       if (desiredLayout) {

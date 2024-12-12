@@ -131,7 +131,7 @@ private:
     ttnn::Layout layoutEnum;
     DataType dataType;
     ttnn::TensorMemoryLayout tensorMemoryLayout;
-    llvm::ArrayRef<int64_t> shardShape;
+    llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
       return ttnn::MemoryConfigAttr::get(
@@ -223,7 +223,8 @@ private:
         outputMemoryConfig.getTensorMemoryLayout().getValue();
 
     input.shardShape = inputLayoutAttr.getShardShape();
-    output.shardShape = outputMemoryConfig.getShardShapeArray();
+    output.shardShape = llvm::SmallVector<int64_t>{
+        op.getMemoryConfig().value().getShardShapeArray()};
     return {input, output};
   }
 
