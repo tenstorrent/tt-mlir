@@ -2,28 +2,11 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 import importlib.machinery
-import importlib.util
 
+import ttrt.library_tweaks
 
-def get_ttrt_metal_home_path():
-    package_name = "ttrt"
-    spec = importlib.util.find_spec(package_name)
-    package_path = os.path.dirname(spec.origin)
-    tt_metal_home = f"{package_path}/runtime"
-    return tt_metal_home
-
-
-os.environ["TT_METAL_HOME"] = get_ttrt_metal_home_path()
-
-new_linker_path = f"{get_ttrt_metal_home_path()}/tests"
-current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
-if current_ld_library_path:
-    updated_ld_library_path = f"{new_linker_path}:{current_ld_library_path}"
-else:
-    updated_ld_library_path = new_linker_path
-os.environ["LD_LIBRARY_PATH"] = updated_ld_library_path
+ttrt.library_tweaks.set_tt_metal_home()
 
 import ttrt.binary
 from ttrt.common.api import API
