@@ -161,7 +161,7 @@ jobs:
     - name: Upload tests
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}-${{ matrix.build.name }}-tests
+        name: ${{ matrix.build.name }}-tests
         path: ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Upload Test Report
@@ -649,7 +649,7 @@ jobs:
     - name: Download Tests
       uses: actions/download-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}-${{ matrix.build.name }}-test
+        name: ${{ matrix.build.name }}-test
 
     - name: Run tt-explorer tests
       shell: bash
