@@ -6,7 +6,6 @@ add_mlir_unittest(OptimizerTests
 
 target_link_libraries(OptimizerTests
     PRIVATE
-    MLIR
     MLIRTTDialect
     MLIRTTNNAnalysis
     MLIRTTNNPipelines
