@@ -177,7 +177,7 @@ uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
 // Return the shape of the shard.
 // Example: memref<2x2x!tt.tile<32x32xf32>> -> { 2, 2 }
 // Example: memref<128x128xf32> -> { 128, 128 }
-// Example: memref<2x3!tt.tile<32x32xf32>> -> { 2, 3 }
+// Example: memref<2x3x!tt.tile<32x32xf32>> -> { 2, 3 }
 //
 // return The shape of the shard.
 llvm::SmallVector<int64_t> TTNNLayoutAttr::getShardShape() const {
