@@ -30,6 +30,90 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
+template <
+    typename ComputeIntTy = mlir::function_ref<typename mlir::ElementsAttr(
+        const mlir::APFloat &, const mlir::APFloat &)>,
+    typename ComputeFloatTy = mlir::function_ref<typename mlir::ElementsAttr(
+        const mlir::APFloat &, const mlir::APFloat &)>>
+mlir::Attribute
+constFoldBinary(mlir::Attribute lhs, mlir::Attribute rhs, mlir::Type resultType,
+                ComputeIntTy &&computeInt, ComputeFloatTy &&computeFloat) {
+  if (!lhs || !rhs) {
+    return {};
+  }
+
+  auto lhsElement = mlir::dyn_cast<::mlir::SplatElementsAttr>(lhs);
+  auto rhsElement = mlir::dyn_cast<::mlir::SplatElementsAttr>(rhs);
+  if (!lhsElement || !rhsElement) {
+    return {};
+  }
+  if (lhsElement.getElementType() != rhsElement.getElementType()) {
+    return {};
+  }
+
+  if (mlir::isa<::mlir::IntegerType>(lhsElement.getElementType())) {
+    auto lhsValue = lhsElement.getSplatValue<mlir::APInt>();
+    auto rhsValue = rhsElement.getSplatValue<mlir::APInt>();
+    auto result = computeInt(lhsValue, rhsValue);
+    return ::mlir::DenseElementsAttr::get(
+        mlir::cast<mlir::ShapedType>(resultType), result);
+  }
+  if (mlir::isa<::mlir::FloatType>(lhsElement.getElementType())) {
+    auto lhsValue = lhsElement.getSplatValue<mlir::APFloat>();
+    auto rhsValue = rhsElement.getSplatValue<mlir::APFloat>();
+    auto result = computeFloat(lhsValue, rhsValue);
+    return ::mlir::DenseElementsAttr::get(
+        mlir::cast<mlir::ShapedType>(resultType), result);
+  }
+  llvm_unreachable("Unsupported element type.");
+}
+
+//===----------------------------------------------------------------------===//
+// AddOp
+//===----------------------------------------------------------------------===//
+
+// AddOp folder
+::mlir::LogicalResult mlir::tt::ttir::AddOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  auto foldResult = constFoldBinary(
+      adaptor.getInputs()[0], adaptor.getInputs()[1], getType(0),
+      [](const mlir::APInt &lhs, const mlir::APInt &rhs) { return lhs + rhs; },
+      [](const mlir::APFloat &lhs, const mlir::APFloat &rhs) {
+        return lhs + rhs;
+      });
+
+  if (!foldResult) {
+    return failure();
+  }
+
+  results.push_back(foldResult);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MultiplyOp
+//===----------------------------------------------------------------------===//
+
+// MultiplyOp folder
+::mlir::LogicalResult mlir::tt::ttir::MultiplyOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  auto foldResult = constFoldBinary(
+      adaptor.getInputs()[0], adaptor.getInputs()[1], getType(0),
+      [](const mlir::APInt &lhs, const mlir::APInt &rhs) { return lhs * rhs; },
+      [](const mlir::APFloat &lhs, const mlir::APFloat &rhs) {
+        return lhs * rhs;
+      });
+
+  if (!foldResult) {
+    return failure();
+  }
+
+  results.push_back(foldResult);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // ClampOp
 //===----------------------------------------------------------------------===//
@@ -830,7 +914,7 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
 
         rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
             op, op.getType(), op.getInput(), op.getOutput(), op.getDim1(),
-            op.getDim0(), op.getOperandConstraints());
+            op.getDim0());
         return mlir::success();
       });
 
