@@ -267,24 +267,26 @@ class TTIRBuilder:
             len(stack) > 0
         ), "Top of callstack to builder funcs must be outside this file"
 
+        id = self.get_next_global_id()
+
+        # FIXME: this should be a `Location.file`, but for some reason it causes
+        # strange decomposition inheritance behaviour that breaks using this as
+        # a key into the golden map
+        loc = Location.name(
+            stack[0].filename + ":" + str(stack[0].lineno) + ":id(" + str(id) + ")"
+        )
+
         with self._ctx, self._loc:
             output = self.empty(self.get_shape(inputs[0]))
 
-            id = self.get_next_global_id()
-
-            op = op_ttir_function(
-                [self._get_type(output)],
-                inputs,
-                [output],
-                loc=Location.name(str(id)),
-            )
+            op = op_ttir_function([self._get_type(output)], inputs, [output], loc=loc)
 
             goldens = []
             for input in inputs:
                 goldens.append(self._get_golden_tensor(input))
 
             golden = Golden(op_golden_function(*goldens))
-            self.id_golden_map[str(id)] = golden
+            self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 
