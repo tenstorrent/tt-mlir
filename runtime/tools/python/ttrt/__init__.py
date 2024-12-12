@@ -2,8 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import importlib.machinery
-
 # NOTE: it is _VERY_ important that this import & setup call is _BEFORE_ any
 # other `ttrt` imports and _AFTER_ all system imports to ensure a well ordered
 # setup of the pybound `.so`. Otherwise, undefined behaviour ensues related to
