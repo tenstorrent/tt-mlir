@@ -126,47 +126,6 @@ def TT_OOBVal : I32EnumAttr<"OOBVal", "TT OOBVal",
   let cppNamespace = "::mlir::tt";
 }
 
-def TT_OperandConstraintSystem : I32BitEnumAttrCaseBit<"System", 0, "system">;
-def TT_OperandConstraintDRAM : I32BitEnumAttrCaseBit<"DRAM", 1, "dram">;
-def TT_OperandConstraintL1 : I32BitEnumAttrCaseBit<"L1", 2, "l1">;
-def TT_OperandConstraintScalar : I32BitEnumAttrCaseBit<"Scalar", 3, "scalar">;
-def TT_OperandConstraintTile : I32BitEnumAttrCaseBit<"Tile", 4, "tile">;
-def TT_OperandConstraintNone : I32BitEnumAttrCaseBit<"None", 5, "none">;
-def TT_OperandConstraintInterleaved : I32BitEnumAttrCaseBit<"Interleaved", 6, "interleaved">;
-def TT_OperandConstraintSingleBank : I32BitEnumAttrCaseBit<"SingleBank", 7, "single_bank">;
-def TT_OperandConstraintHeightSharded : I32BitEnumAttrCaseBit<"HeightSharded", 8, "height_sharded">;
-def TT_OperandConstraintWidthSharded : I32BitEnumAttrCaseBit<"WidthSharded", 9, "width_sharded">;
-def TT_OperandConstraintBlockSharded : I32BitEnumAttrCaseBit<"BlockSharded", 10, "block_sharded">;
-def TT_OperandConstraintSystemScalar : I32BitEnumAttrCaseGroup<"SystemScalar", [TT_OperandConstraintSystem, TT_OperandConstraintScalar], "system_scalar">;
-def TT_OperandConstraintAnyLayout : I32BitEnumAttrCaseGroup<"AnyLayout", [TT_OperandConstraintNone, TT_OperandConstraintInterleaved, TT_OperandConstraintSingleBank, TT_OperandConstraintHeightSharded, TT_OperandConstraintWidthSharded, TT_OperandConstraintBlockSharded], "any_layout">;
-def TT_OperandConstraintAny : I32BitEnumAttrCaseGroup<"Any", [TT_OperandConstraintSystem, TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any">;
-def TT_OperandConstraintAnyDevice : I32BitEnumAttrCaseGroup<"AnyDevice", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device">;
-def TT_OperandConstraintAnyDeviceTile : I32BitEnumAttrCaseGroup<"AnyDeviceTile", [TT_OperandConstraintDRAM, TT_OperandConstraintL1, TT_OperandConstraintTile, TT_OperandConstraintAnyLayout], "any_device_tile">;
-def TT_OperandConstraintL1BlockSharded : I32BitEnumAttrCaseGroup<"L1BlockSharded", [TT_OperandConstraintL1, TT_OperandConstraintScalar, TT_OperandConstraintTile, TT_OperandConstraintBlockSharded], "l1_block_sharded">;
-def TT_OperandConstraint : I32BitEnumAttr<"OperandConstraint", "TT Operand Constraints",
-                           [
-                            TT_OperandConstraintSystem,
-                            TT_OperandConstraintDRAM,
-                            TT_OperandConstraintL1,
-                            TT_OperandConstraintScalar,
-                            TT_OperandConstraintTile,
-                            TT_OperandConstraintNone,
-                            TT_OperandConstraintInterleaved,
-                            TT_OperandConstraintSingleBank,
-                            TT_OperandConstraintHeightSharded,
-                            TT_OperandConstraintWidthSharded,
-                            TT_OperandConstraintBlockSharded,
-                            TT_OperandConstraintSystemScalar,
-                            TT_OperandConstraintAnyLayout,
-                            TT_OperandConstraintAny,
-                            TT_OperandConstraintAnyDevice,
-                            TT_OperandConstraintAnyDeviceTile,
-                            TT_OperandConstraintL1BlockSharded,
-                           ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt";
-}
-
 def TT_ChipCapabilityPCIE : I32BitEnumAttrCaseBit<"PCIE", 0, "pcie">;
 def TT_ChipCapabilityHostMMIO : I32BitEnumAttrCaseBit<"HostMMIO", 1, "host_mmio">;
 

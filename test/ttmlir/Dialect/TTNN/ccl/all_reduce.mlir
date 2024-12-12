@@ -17,7 +17,6 @@ module attributes {} {
 // -----
 
 // Verify lowering of ttir all_reduce to ttnn ops
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|none|interleaved|single_bank|height_sharded|width_sharded|block_sharded|any_layout|any_device_tile>
 module attributes {} {
   func.func @all_reduce(%arg0: tensor<1x1x4096x16384xf32>) -> tensor<1x1x4096x16384xf32> {
     %0 = tensor.empty() : tensor<1x1x4096x16384xf32>

@@ -104,8 +104,7 @@ module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt
         defines the type of result
 
     -   Quotes are added around ttir.multiply since it's part of a
-        custom dialect, and more custom assembly instructions are
-        applied to specify operand_constraints.
+        custom dialect.
 
     -   Operations typically have operands (arguments) and results which
         are highlighted with %, these results and operands help to show

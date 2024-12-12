@@ -62,7 +62,6 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
-                         TT_OperandConstraintArrayAttr:$operand_constraints,
                          DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping); // index of input operand and index of cb go together
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region AnyRegion:$region);
@@ -126,11 +125,6 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-      ArrayAttr getOperandConstraints() {
-        return nullptr;
-        // TODO return below, but we need a way to properly create an ArrayAttr:
-        // return {OperandConstraint::Any, OperandConstraint::Any};
-      }
 
       struct CompoundComponents {
         bool isLayoutChange;
