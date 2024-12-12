@@ -1,6 +1,14 @@
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+"""
+Simple library tweaks module used to move `TT_METAL_HOME` to point to the
+mirrored TTMetal tree within the `ttrt` wheel. It is important that
+`set_tt_metal_home()` is the _FIRST_ bit of code run in this `ttrt` module.
+Thus, this file should only be included in `ttrt/__init__.py` and only run
+there. This is a temporary fix, and will need to be cleaned up once TTMetal
+drops `TT_METAL_HOME` functionality
+"""
 import importlib.util
 import os
 
