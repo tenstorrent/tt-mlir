@@ -102,12 +102,10 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
     }
   }
 
-  CoreCoord dram_grid_size = device->dram_grid_size();
-  for (uint32_t y = 0; y < dram_grid_size.y; y++) {
-    for (uint32_t x = 0; x < dram_grid_size.x; x++) {
-      CoreCoord physical = device->dram_core_from_logical_core(CoreCoord(x, y));
-      dram_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
-    }
+  for (int dram_channel = 0; dram_channel < device->num_dram_channels();
+       ++dram_channel) {
+    CoreCoord logical = device->logical_core_from_dram_channel(dram_channel);
+    dram_cores.emplace_back(::tt::target::Dim2d(logical.y, logical.x));
   }
 
   for (const CoreCoord &logical : device->get_active_ethernet_cores(true)) {
