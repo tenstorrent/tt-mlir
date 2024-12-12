@@ -157,12 +157,12 @@ mlir::tt::DataType TTNNLayoutAttr::getDataType() const {
   return elementTypeToDataType(elementType);
 }
 
-// Gets the size of shard in bytes
+// Get the size of the element in bytes
 //
-// This function returns the size of the shard in bytes.
-// Size is calculated by multiplying shard shape with element size.
+// This function returns the size of a single tensor element in bytes.
+// Distinction is made between scalar types and TileType.
 //
-// return The size of the shard in bytes.
+// return The size of the element in bytes.
 uint64_t TTNNLayoutAttr::getElementSizeBytes() const {
   mlir::Type elementType = getElementType();
   if (isTiled()) {
