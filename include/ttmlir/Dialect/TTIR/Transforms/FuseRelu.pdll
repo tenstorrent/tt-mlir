@@ -60,7 +60,7 @@ Constraint oneInputIsZeroConstant(ins: ValueRange) [{
 
 Pattern FuseRelu {
     // Defining the pattern: ttir.maximum(lhs, rhs, dpsOperand)
-    let maximumDps = op<tensor.empty> () -> (result_type: Builtin_RankedTensor);
+    let maximumDps = op<tensor.empty> ();
 
     // I need to provide exactly two operands to this op since ttir.maximum
     // inherits its number of inputs from here: include/ttmlir/Dialect/TTIR/IR/TTIROps.td:187
@@ -92,4 +92,180 @@ Pattern FuseRelu {
         let relu = getReluOp(input, maximumDps, reduce1_constraints);
         replace maximum with relu;
     };
+}
+
+
+Pattern FuseBilinearUpsample {
+    let arg0: Value;
+
+    let c0 = op<ttir.constant>() {value = attr<"dense<0>: tensor<1xi32>">};
+    let c1 = op<ttir.constant>() {value = attr<"dense<1>: tensor<1xi32>">};
+    let c2 = op<ttir.constant>() {value = attr<"dense<1>: tensor<4x1xi32>">};
+    let c3 = op<ttir.constant>() {value = attr<"dense<0>: tensor<1xi32>">};
+    let c4 = op<ttir.constant>() {value = attr<"dense<1>: tensor<4xi32>">};
+    let c5 = op<ttir.constant>() {value = attr<"dense<0x7F800000> : tensor<1xf32>">};
+    let c6 = op<ttir.constant>() {value = attr<"dense<0.333333343> : tensor<1xf32>">};
+    let c7 = op<ttir.constant>() {value = attr<"dense<0.000000e+00> : tensor<1xf32>">};
+    let c8 = op<ttir.constant>() {value = attr<"dense<1.000000e+00> : tensor<1xf32>">};
+    let c9 = op<ttir.arange>() {arange_dimenstion = attr<"0 : i64">, end = attr<"4 : si64">, start = attr<"0 : si64">, step = attr<"1 : si64">};
+
+    let dps10 = op<tensor.empty> ();
+    let bcast11 = op<ttir.broadcast>(c9, dps10);
+    let dps12 = op<tensor.empty> ();
+    let multiply13 = op<ttir.multiply> (bcast11, c4, dps12);
+    let dps14 = op<tensor.empty> ();
+    let bcast15 = op<ttir.broadcast>(multiply13, dps14);
+    let dps16 = op<tensor.empty> ();
+    let add17 = op<ttir.add> (bcast15, c3, dps16);
+    let dps18 = op<tensor.empty> ();
+    let typecast19 = op<ttir.typecast>(add17, dps18);
+    let dps20 = op<tensor.empty> ();
+    let typecast21 = op<ttir.typecast>(c6, dps20);
+    let dps22 = op<tensor.empty> ();
+    let reshape23 = op<ttir.reshape>(typecast21, dps22);
+    let dps24 = op<tensor.empty> ();
+    let bcast25 = op<ttir.broadcast>(typecast19, dps24);
+    let dps26 = op<tensor.empty> ();
+    let bcast27 = op<ttir.broadcast>(reshape23, dps26);
+    let dps28 = op<tensor.empty> ();
+    let multiply29 = op<ttir.multiply> (bcast25, bcast27, dps28);
+    let dps30 = op<tensor.empty> ();
+    let typecast31 = op<ttir.typecast>(c7, dps30);
+    let dps32 = op<tensor.empty> ();
+    let reshape33 = op<ttir.reshape>(typecast31, dps32);
+    let dps34 = op<tensor.empty> ();
+    let maximum35 = op<ttir.maximum>(reshape33, multiply29, dps34);
+    let dps36 = op<tensor.empty> ();
+    let minimum37 = op<ttir.minimum>(maximum35, c5, dps36);
+    let dps38 = op<tensor.empty> ();
+    let reshape39 = op<ttir.reshape>(minimum37, dps38);
+    let dps40 = op<tensor.empty> ();
+    let typecast41 = op<ttir.typecast>(reshape39, dps40);
+    let dps42 = op<tensor.empty> ();
+    let bcast43 = op<ttir.broadcast>(typecast41, dps42);
+    let dps44 = op<tensor.empty> ();
+    let add45 = op<ttir.add> (bcast43, c2, dps44);
+    let dps46 = op<tensor.empty> ();
+    let clamp47 = op<ttir.clamp>(add45, dps46);
+    let dps48 = op<tensor.empty> ();
+    let typecast49 = op<ttir.typecast>(minimum37, dps48);
+    let dps50 = op<tensor.empty> ();
+    let bcast51 = op<ttir.broadcast>(typecast49, dps50);
+    let dps52 = op<tensor.empty> ();
+    let add53 = op<ttir.add> (bcast51, c4, dps52);
+    let dps54 = op<tensor.empty> ();
+    let clamp55 = op<ttir.clamp>(add53, dps54);
+    let arange56 = op<ttir.arange>() {arange_dimenstion = attr<"0 : i64">, end = attr<"1 : si64">, start = attr<"0 : si64">, step = attr<"1 : si64">};
+    let dps57 = op<tensor.empty> ();
+    let bcast58 = op<ttir.broadcast>(arange56, dps57);
+    let dps59 = op<tensor.empty> ();
+    let multiply60 = op<ttir.multiply> (bcast58, c1, dps59);
+    let dps61 = op<tensor.empty> ();
+    let bcast62 = op<ttir.broadcast>(multiply60, dps61);
+    let dps63 = op<tensor.empty> ();
+    let add64 = op<ttir.add> (bcast62, c0, dps63);
+    let dps65 = op<tensor.empty> ();
+    let reshape66 = op<ttir.reshape>(add64, dps65);
+    let dps67 = op<tensor.empty> ();
+    let reshape68 = op<ttir.reshape>(reshape66, dps67);
+    let dps69 = op<tensor.empty> ();
+    let reshape70 = op<ttir.reshape>(reshape68, dps69);
+    let dps71 = op<tensor.empty> ();
+    let bcast72 = op<ttir.broadcast>(reshape70, dps71);
+    let dps73 = op<tensor.empty> ();
+    let reshape74 = op<ttir.reshape>(bcast72, dps73);
+    let dps75 = op<tensor.empty> ();
+    let bcast76 = op<ttir.broadcast>(reshape86, dps75);
+    let dps77 = op<tensor.empty> ();
+    let reshape78 = op<ttir.reshape>(bcast76, dps77);
+    let dps79 = op<tensor.empty> ();
+    let broadcast80 = op<ttir.broadcast>(typecast41, dps79);
+    let dps81 = op<tensor.empty> ();
+    let reshape82 = op<ttir.reshape>(broadcast80, dps81);
+    let dps83 = op<tensor.empty> ();
+    let bcast84 = op<ttir.broadcast>(typecast49, dps83);
+    let dps85 = op<tensor.empty> ();
+    let reshape86 = op<ttir.reshape>(bcast84, dps85);
+    let dps87 = op<tensor.empty> ();
+    let concat88 = op<ttir.concat>(reshape74, reshape78, reshape82, reshape86, dps87);
+    let dps89 = op<tensor.empty> ();
+    let gather90 = op<ttir.gather>(arg0, concat88, dps89);
+    let dps91 = op<tensor.empty> ();
+    let bcast92 = op<ttir.broadcast>(clamp55, dps91);
+    let dps93 = op<tensor.empty> ();
+    let reshape94 = op<ttir.reshape>(bcast92, dps93);
+    let dps95 = op<tensor.empty> ();
+    let concat96 = op<ttir.concat>(reshape74, reshape78, reshape82, reshape94, dps95);
+    let dps97 = op<tensor.empty> ();
+    let gather98 = op<ttir.gather>(arg0, concat96, dps97);
+    let dps99 = op<tensor.empty> ();
+    let bcast100 = op<ttir.broadcast>(clamp47, dps99);
+    let dps101 = op<tensor.empty> ();
+    let reshape102 = op<ttir.reshape>(bcast100, dps101);
+    let dps103 = op<tensor.empty> ();
+    let concat104 = op<ttir.concat>(reshape74, reshape78, reshape102, reshape86, dps103);
+    let dps105 = op<tensor.empty> ();
+    let gather106 = op<ttir.gather>(arg0, concat104, dps105);
+    let dps107 = op<tensor.empty> ();
+    let concat108 = op<ttir.concat>(reshape74, reshape78, reshape102, reshape94, dps107);
+    let dps109 = op<tensor.empty> ();
+    let gather110 = op<ttir.gather>(arg0, concat108, dps109);
+    let dps111 = op<tensor.empty> ();
+    let typecast112 = op<ttir.typecast>(typecast49, dps111);
+    let dps113 = op<tensor.empty> ();
+    let subtract114 = op<ttir.subtract>(minimum37, typecast112, dps113);
+    let dps115 = op<tensor.empty> ();
+    let typecast116 = op<ttir.typecast>(c8, dps115);
+    let dps117 = op<tensor.empty> ();
+    let reshape118 = op<ttir.reshape>(typecast116, dps117);
+    let dps119 = op<tensor.empty> ();
+    let maximum120 = op<ttir.maximum>(reshape33, subtract114, dps119);
+    let dps121 = op<tensor.empty> ();
+    let minimum122 = op<ttir.minimum>(maximum120, reshape118, dps121);
+    let dps123 = op<tensor.empty> ();
+    let subtract124 = op<ttir.subtract>(gather98, gather90, dps123);
+    let dps125 = op<tensor.empty> ();
+    let bcast126 = op<ttir.broadcast>(subtract124, dps125);
+    let dps127 = op<tensor.empty> ();
+    let bcast128 = op<ttir.broadcast>(minimum122, dps127);
+    let dps129 = op<tensor.empty> ();
+    let multiply130 = op<ttir.multiply> (bcast126, bcast128, dps129);
+    let dps131 = op<tensor.empty> ();
+    let add132 = op<ttir.add> (gather90, multiply130, dps131);
+    let dps133 = op<tensor.empty> ();
+    let subtract134 = op<ttir.subtract>(gather110, gather106, dps133);
+    let dps135 = op<tensor.empty> ();
+    let bcast136 = op<ttir.broadcast>(subtract134, dps135);
+    let dps137 = op<tensor.empty> ();
+    let multiply138 = op<ttir.multiply> (bcast136, bcast128, dps137);
+    let dps139 = op<tensor.empty> ();
+    let add140 = op<ttir.add> (gather106, multiply138, dps139);
+    let dps141 = op<tensor.empty> ();
+    let typecast142 = op<ttir.typecast>(typecast41 dps141);
+    let dps143 = op<tensor.empty> ();
+    let subtract144 = op<ttir.subtract>(reshape39, typecast142, dps143);
+    let dps145 = op<tensor.empty> ();
+    let maximum146 = op<ttir.maximum>(reshape33, subtract144, dps145);
+    let dps147 = op<tensor.empty> ();
+    let minimum148 = op<ttir.minimum>(maximum146, reshape118, dps147);
+    let dps149 = op<tensor.empty> ();
+    let subtract150 = op<ttir.subtract>(add140, reshape118, dps149);
+    let dps151 = op<tensor.empty> ();
+    let bcast152 = op<ttir.broadcast>(subtract150, dps151);
+    let dps153 = op<tensor.empty> ();
+    let bcast154 = op<ttir.broadcast>(minimum148, dps153);
+    let dps155 = op<tensor.empty> ();
+    let multiply156 = op<ttir.multiply> (bcast152, bcast154, dps155);
+    let dps157 = op<tensor.empty> ();
+    let add158 = op<ttir.add> (add132, multiply156, dps157);
+
+    rewrite add158 with {
+        let reluDps = op<tensor.empty> ();
+        let relu = op<ttir.relu>(arg0, reluDps);
+        replace add158 with relu;
+    }
+
+    // rewrite c9 with {
+    //     replace c9 with c0;
+    // };
 }
