@@ -19,6 +19,7 @@
 #include "operations/eltwise/unary/unary.h"
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
+#include "operations/embedding/embedding_backward.h"
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
@@ -187,6 +188,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
     return operations::embedding::run(op->type_as_EmbeddingOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
+    return operations::embedding_backward::run(
+        op->type_as_EmbeddingBackwardOp(), context);
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
     return operations::normalization::run(op->type_as_SoftmaxOp(), context);
