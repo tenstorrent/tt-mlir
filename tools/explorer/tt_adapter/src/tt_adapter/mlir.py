@@ -553,8 +553,10 @@ def build_graph(module):
                         target_node.incomingEdges.append(
                             graph_builder.IncomingEdge(
                                 sourceNodeId=source_node.id,
-                                sourceNodeOutputId=output_connections[source_node.id],
-                                targetNodeInputId=operand_index,
+                                sourceNodeOutputId=str(
+                                    output_connections[source_node.id]
+                                ),
+                                targetNodeInputId=str(operand_index),
                             )
                         )
 
