@@ -32,6 +32,8 @@ def TTIR_Dialect : Dialect {
       "::mlir::cf::ControlFlowDialect",
       "::mlir::tt::TTDialect"
     ];
+
+    let hasConstantMaterializer = 1;
 }
 
 //===----------------------------------------------------------------------===//
