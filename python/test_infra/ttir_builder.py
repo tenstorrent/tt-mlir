@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
-import inspect
 
+import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, func, tensor
+from ttmlir.dialects import ttir, tt, tensor
 from ttmlir.passes import create_golden_tensor, DataType
 import torch
 
@@ -17,7 +17,50 @@ import torch
 Operand = Union[Value, OpView, Operation]
 
 # Convenience alias for shape
-Shape = Union[List[int], Tuple[int]]
+Shape = Union[List[int], Tuple[int, ...]]
+
+
+def get_loc_of_extra_file_callee(id: int = 0) -> Location:
+    """When called, this function returns a `Location` referring to first
+    callee outside the file of the caller of this function. E.G., if a function
+    in `foo.py` called a function in `bar.py` that then called this function,
+    the location would be pointing to the call in `foo.py`.
+
+    NOTE: this location is _NOT_ in the form of
+    {filename}:{line_number}:{col_number}, but instead in the form:
+    {filename}:{line_number}:id({id}), where id is supplied to this function as
+    a disambiguator for calls that happen on the same line
+
+    Arguments
+    ---------
+
+    id : int
+        An optional variable that defaults to 0 to be appended to the location,
+        disambiguating calls on the same line.
+
+    Returns
+    -------
+
+    A `Location` referring to the first extra file callee of the caller of this function
+
+    """
+
+    stack = inspect.stack()
+
+    # find the innermost frame outside of this file
+    caller_filename = stack[1].filename
+
+    while len(stack) > 0 and stack[0].filename == caller_filename:
+        stack = stack[1:]
+
+    assert (
+        len(stack) > 0
+    ), "Top of callstack to builder funcs must be outside the caller's file"
+
+    # FIXME: this should be a `Location.file`, but for some reason it causes
+    # strange decomposition inheritance behaviour that breaks using this as
+    # a key into the golden map
+    return Location.name(f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})")
 
 
 @dataclass(frozen=True)
@@ -251,30 +294,8 @@ class TTIRBuilder:
         inputs: List[Operand],
     ) -> OpView:
 
-        # Snoop the location of the first caller outside of this file to
-        # annotate the MLIR with. NOTE that this location is _NOT_ row:col, but
-        # instead row:id, where id is a unique id given to all calls to builder
-        # funcs. See `get_next_global_id` for more details
-        stack = inspect.stack()
-
-        # find the innermost frame outside of this file
-        cur_filename = stack[0].filename
-
-        while len(stack) > 0 and stack[0].filename == cur_filename:
-            stack = stack[1:]
-
-        assert (
-            len(stack) > 0
-        ), "Top of callstack to builder funcs must be outside this file"
-
         id = self.get_next_global_id()
-
-        # FIXME: this should be a `Location.file`, but for some reason it causes
-        # strange decomposition inheritance behaviour that breaks using this as
-        # a key into the golden map
-        loc = Location.name(
-            stack[0].filename + ":" + str(stack[0].lineno) + ":id(" + str(id) + ")"
-        )
+        loc = get_loc_of_extra_file_callee(id=id)
 
         with self._ctx, self._loc:
             output = self.empty(self.get_shape(inputs[0]))
