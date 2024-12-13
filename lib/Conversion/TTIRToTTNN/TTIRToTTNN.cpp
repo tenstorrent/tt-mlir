@@ -356,10 +356,9 @@ public:
     // broadcast for all operands is supported.(issue #1591)
     bool AllUsesReplaced = false;
     auto replaceIfFn = [&](OpOperand &use) {
-      if (isa<ttir::ReshapeOp>(use.getOwner())) {
+      if (use.getOwner()->getNumOperands() <= 2) {
         // (issue #1345)
-        // Reshape op cannot broadcast and requires input and output tensors to
-        // have same number of elements.
+        // unary Ops cannot broadcast
         return false;
       }
 
