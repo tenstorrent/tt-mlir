@@ -19,32 +19,25 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"size_t",
             /*methodName=*/"getOpPerfCycles",
-            /*args=*/(ins "const std::vector<mlir::RankedTensorType>&":$input_rtts, "const mlir::RankedTensorType&":$output_rtt),
+            /*args=*/(ins "const std::vector<std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>>&":$inputs, "const std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>&":$output),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return std::numeric_limits<size_t>::max();"
         >,
         InterfaceMethod<
             /*desc=*/[{
-                Returns the op memory L1 usage estimate in bytes. The return value is a tuple of 3 values:
-                - The first value is CB L1 peak allocation in bytes.
-                - The second value is Tensor L1 peak allocation in bytes.
-                - The third value is Output L1 buffer allocation in bytes.
+                Returns a tuple of two values:**
+                1. A boolean indicating if the op is legal for the given input/output layouts.
+                2. If the op is legal, a tuple of three values representing the op memory L1 usage estimate in bytes.
+                   - The first value is the CB L1 peak allocation in bytes.
+                   - The second value is the Tensor L1 peak allocation in bytes.
+                   - The third value is the Output L1 buffer allocation in bytes.
+                3. If the op is illegal, a string describing the failure.
             }],
-            /*retTy=*/"std::tuple<size_t, size_t, size_t>",
-            /*methodName=*/"getOpL1Usage",
-            /*args=*/(ins "const std::vector<mlir::RankedTensorType>&":$input_rtts, "const mlir::RankedTensorType&":$output_rtt),
+            /*retTy=*/"std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>, std::optional<std::string>>",
+            /*methodName=*/"getOpConstraints",
+            /*args=*/(ins "const std::vector<std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>>&":$inputs, "const std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>&":$output),
             /*methodBody=*/"",
-            /*defaultImplementation=*/"return std::make_tuple(0,0,0);"
-        >,
-        InterfaceMethod<
-            /*desc=*/[{
-                Returns if input/output layouts are legal for the op.
-            }],
-            /*retTy=*/"bool",
-            /*methodName=*/"isOpLegal",
-            /*args=*/(ins "const std::vector<mlir::RankedTensorType>&":$input_rtts, "const mlir::RankedTensorType&":$output_rtt),
-            /*methodBody=*/"",
-            /*defaultImplementation=*/"return true;"
+            /*defaultImplementation=*/"return std::make_tuple(true,std::make_tuple(0,0,0), std::nullopt);"
         >,
         ];
 }

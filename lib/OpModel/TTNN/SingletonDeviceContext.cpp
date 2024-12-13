@@ -4,21 +4,16 @@
 
 #include "SingletonDeviceContext.h"
 
-#include "TTNNOpModelLib_Impl.h"
-#include "impl/buffers/buffer_constants.hpp"
-
-#include <iostream>
+#include "MetalHeaders.h"
 
 namespace mlir::tt::op_model::ttnn {
 
-size_t SingletonDeviceContext::getNumL1Banks() const {
-  return m_device->num_banks(::tt::tt_metal::BufferType::L1);
-}
 SingletonDeviceContext::SingletonDeviceContext() {
-  m_device = ::tt::tt_metal::CreateDevice(0);
+  m_device = ::tt::tt_metal::v0::CreateDevice(0);
 }
+
 SingletonDeviceContext::~SingletonDeviceContext() {
-  ::tt::tt_metal::CloseDevice(m_device);
+  ::tt::tt_metal::v0::CloseDevice(m_device);
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
