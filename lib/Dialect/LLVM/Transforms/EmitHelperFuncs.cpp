@@ -90,9 +90,12 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
     }
 
     // Call the original function
-    Value callResult = builder.create<LLVM::CallOp>(
+    auto callOp = builder.create<LLVM::CallOp>(
         func.getLoc(), func.getFunctionType().getReturnType(), func.getName(),
         originalCallArgs);
+    // for now, assume we always get single result
+    // we don't really use results anyway, so this should be fine
+    Value callResult = callOp.getResult(0);
 
     // Return the result
     builder.create<LLVM::ReturnOp>(func.getLoc(), callResult);
