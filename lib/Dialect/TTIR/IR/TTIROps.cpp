@@ -23,6 +23,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include <cmath>
 #include <cstdint>
 #include <numeric>
 #include <string>
@@ -30,42 +31,162 @@
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
-template <
-    typename ComputeIntTy = mlir::function_ref<typename mlir::ElementsAttr(
-        const mlir::APFloat &, const mlir::APFloat &)>,
-    typename ComputeFloatTy = mlir::function_ref<typename mlir::ElementsAttr(
-        const mlir::APFloat &, const mlir::APFloat &)>>
-mlir::Attribute
-constFoldBinary(mlir::Attribute lhs, mlir::Attribute rhs, mlir::Type resultType,
-                ComputeIntTy &&computeInt, ComputeFloatTy &&computeFloat) {
+using ComputeUnaryIntegerTy =
+    mlir::function_ref<std::optional<mlir::APInt>(const mlir::APInt &)>;
+using ComputeUnaryFloatTy =
+    mlir::function_ref<std::optional<mlir::APFloat>(const mlir::APFloat &)>;
+using ComputeBinaryIntegerTy = mlir::function_ref<std::optional<mlir::APInt>(
+    const mlir::APInt &, const mlir::APInt &)>;
+using ComputeBinaryFloatTy = mlir::function_ref<std::optional<mlir::APFloat>(
+    const mlir::APFloat &, const mlir::APFloat &)>;
+
+const auto noopUnary = [](const auto &input)
+    -> std::optional<
+        std::remove_cv_t<std::remove_reference_t<decltype(input)>>> {
+  return std::nullopt;
+};
+
+const auto noopBinary = [](const auto &lhs, const auto &rhs)
+    -> std::optional<std::remove_cv_t<std::remove_reference_t<decltype(lhs)>>> {
+  return std::nullopt;
+};
+
+template <typename ElementType,
+          typename ComupteFuncTy = mlir::function_ref<
+              std::optional<ElementType>(const ElementType &)>>
+mlir::ElementsAttr constFoldUnaryOp(mlir::SplatElementsAttr input,
+                                    mlir::ShapedType resultType,
+                                    ComupteFuncTy &&compute) {
+  auto inputValue = input.getSplatValue<ElementType>();
+  auto result = compute(inputValue);
+  if (!result) {
+    return {};
+  }
+  return mlir::DenseElementsAttr::get(resultType, *result);
+}
+
+mlir::LogicalResult
+constFoldUnaryOp(mlir::Attribute inputConst, mlir::Type resultType,
+                 llvm::SmallVectorImpl<mlir::OpFoldResult> &results,
+                 ComputeUnaryIntegerTy &&computeInt,
+                 ComputeUnaryFloatTy &&computeFloat) {
+  if (!inputConst) {
+    return mlir::failure();
+  }
+
+  auto input = mlir::dyn_cast<::mlir::SplatElementsAttr>(inputConst);
+  if (!input) {
+    return mlir::failure();
+  }
+
+  auto resultShapeType = mlir::cast<mlir::ShapedType>(resultType);
+  if (input.getElementType() != resultShapeType.getElementType()) {
+    return mlir::failure();
+  }
+
+  mlir::ElementsAttr result;
+  if (mlir::isa<::mlir::IntegerType>(input.getElementType())) {
+    result = constFoldUnaryOp<mlir::APInt>(input, resultShapeType, computeInt);
+  } else if (mlir::isa<::mlir::FloatType>(input.getElementType())) {
+    result =
+        constFoldUnaryOp<mlir::APFloat>(input, resultShapeType, computeFloat);
+  } else {
+    llvm_unreachable("Unsupported element type.");
+  }
+
+  if (result) {
+    results.push_back(result);
+  }
+  return mlir::success();
+}
+
+template <typename ElementTy,
+          typename ComupteFuncTy = mlir::function_ref<
+              std::optional<ElementTy>(const ElementTy &, const ElementTy &)>>
+mlir::ElementsAttr
+constFoldBinaryOp(mlir::SplatElementsAttr lhs, mlir::SplatElementsAttr rhs,
+                  mlir::ShapedType resultType, ComupteFuncTy &&compute) {
+  auto lhsValue = lhs.getSplatValue<ElementTy>();
+  auto rhsValue = rhs.getSplatValue<ElementTy>();
+  auto result = compute(lhsValue, rhsValue);
+  if (!result) {
+    return {};
+  }
+  return mlir::DenseElementsAttr::get(resultType, *result);
+}
+
+mlir::LogicalResult
+constFoldBinaryOp(mlir::Attribute lhsConst, mlir::Attribute rhsConst,
+                  mlir::Type resultType,
+                  llvm::SmallVectorImpl<mlir::OpFoldResult> &results,
+                  ComputeBinaryIntegerTy &&computeInt,
+                  ComputeBinaryFloatTy &&computeFloat = noopBinary) {
+  if (!lhsConst || !rhsConst) {
+    return mlir::failure();
+  }
+
+  auto lhs = mlir::dyn_cast<::mlir::SplatElementsAttr>(lhsConst);
+  auto rhs = mlir::dyn_cast<::mlir::SplatElementsAttr>(rhsConst);
   if (!lhs || !rhs) {
-    return {};
+    return mlir::failure();
+  }
+  if (lhs.getElementType() != rhs.getElementType()) {
+    return mlir::failure();
   }
 
-  auto lhsElement = mlir::dyn_cast<::mlir::SplatElementsAttr>(lhs);
-  auto rhsElement = mlir::dyn_cast<::mlir::SplatElementsAttr>(rhs);
-  if (!lhsElement || !rhsElement) {
-    return {};
-  }
-  if (lhsElement.getElementType() != rhsElement.getElementType()) {
-    return {};
+  auto resultShapeType = mlir::cast<mlir::ShapedType>(resultType);
+  if (lhs.getElementType() != resultShapeType.getElementType()) {
+    return mlir::failure();
   }
 
-  if (mlir::isa<::mlir::IntegerType>(lhsElement.getElementType())) {
-    auto lhsValue = lhsElement.getSplatValue<mlir::APInt>();
-    auto rhsValue = rhsElement.getSplatValue<mlir::APInt>();
-    auto result = computeInt(lhsValue, rhsValue);
-    return ::mlir::DenseElementsAttr::get(
-        mlir::cast<mlir::ShapedType>(resultType), result);
+  mlir::ElementsAttr result;
+  if (mlir::isa<::mlir::IntegerType>(lhs.getElementType())) {
+    result =
+        constFoldBinaryOp<mlir::APInt>(lhs, rhs, resultShapeType, computeInt);
+  } else if (mlir::isa<::mlir::FloatType>(lhs.getElementType())) {
+    result = constFoldBinaryOp<mlir::APFloat>(lhs, rhs, resultShapeType,
+                                              computeFloat);
+  } else {
+    llvm_unreachable("Unsupported element type.");
   }
-  if (mlir::isa<::mlir::FloatType>(lhsElement.getElementType())) {
-    auto lhsValue = lhsElement.getSplatValue<mlir::APFloat>();
-    auto rhsValue = rhsElement.getSplatValue<mlir::APFloat>();
-    auto result = computeFloat(lhsValue, rhsValue);
-    return ::mlir::DenseElementsAttr::get(
-        mlir::cast<mlir::ShapedType>(resultType), result);
+
+  if (result) {
+    results.push_back(result);
   }
-  llvm_unreachable("Unsupported element type.");
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// AbsOp
+//===----------------------------------------------------------------------===//
+
+// AbsOp folder
+::mlir::LogicalResult mlir::tt::ttir::AbsOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  return constFoldUnaryOp(
+      adaptor.getInputs()[0], getType(0), results,
+      [](const mlir::APInt &value) -> std::optional<mlir::APInt> {
+        return value.abs();
+      },
+      [](const mlir::APFloat &value) -> std::optional<mlir::APFloat> {
+        return abs(value);
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// CbrtOp
+//===----------------------------------------------------------------------===//
+
+// CbrtOp folder
+::mlir::LogicalResult mlir::tt::ttir::CbrtOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  return constFoldUnaryOp(
+      adaptor.getInputs()[0], getType(0), results, noopUnary,
+      [](const mlir::APFloat &value) -> std::optional<mlir::APFloat> {
+        return mlir::APFloat(std::cbrt(value.convertToFloat()));
+      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -76,19 +197,20 @@ constFoldBinary(mlir::Attribute lhs, mlir::Attribute rhs, mlir::Type resultType,
 ::mlir::LogicalResult mlir::tt::ttir::AddOp::fold(
     FoldAdaptor adaptor,
     ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
-  auto foldResult = constFoldBinary(
-      adaptor.getInputs()[0], adaptor.getInputs()[1], getType(0),
-      [](const mlir::APInt &lhs, const mlir::APInt &rhs) { return lhs + rhs; },
-      [](const mlir::APFloat &lhs, const mlir::APFloat &rhs) {
-        return lhs + rhs;
-      });
+  return constFoldBinaryOp(adaptor.getInputs()[0], adaptor.getInputs()[1],
+                           getType(0), results, std::plus<>(), std::plus<>());
+}
 
-  if (!foldResult) {
-    return failure();
-  }
+//===----------------------------------------------------------------------===//
+// SubtractOp
+//===----------------------------------------------------------------------===//
 
-  results.push_back(foldResult);
-  return success();
+// SubtractOp folder
+::mlir::LogicalResult mlir::tt::ttir::SubtractOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  return constFoldBinaryOp(adaptor.getInputs()[0], adaptor.getInputs()[1],
+                           getType(0), results, std::minus<>(), std::minus<>());
 }
 
 //===----------------------------------------------------------------------===//
@@ -99,19 +221,42 @@ constFoldBinary(mlir::Attribute lhs, mlir::Attribute rhs, mlir::Type resultType,
 ::mlir::LogicalResult mlir::tt::ttir::MultiplyOp::fold(
     FoldAdaptor adaptor,
     ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
-  auto foldResult = constFoldBinary(
-      adaptor.getInputs()[0], adaptor.getInputs()[1], getType(0),
-      [](const mlir::APInt &lhs, const mlir::APInt &rhs) { return lhs * rhs; },
-      [](const mlir::APFloat &lhs, const mlir::APFloat &rhs) {
-        return lhs * rhs;
+  return constFoldBinaryOp(adaptor.getInputs()[0], adaptor.getInputs()[1],
+                           getType(0), results, std::multiplies<>(),
+                           std::multiplies<>());
+}
+
+//===----------------------------------------------------------------------===//
+// DivOp
+//===----------------------------------------------------------------------===//
+
+// DivOp folder
+::mlir::LogicalResult mlir::tt::ttir::DivOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  // TODO (azecevic): Consider case when rhs is zero.
+  return constFoldBinaryOp(adaptor.getInputs()[0], adaptor.getInputs()[1],
+                           getType(0), results, noopBinary, std::divides<>());
+}
+
+//===----------------------------------------------------------------------===//
+// RemainderOp
+//===----------------------------------------------------------------------===//
+
+// RemainderOp folder
+::mlir::LogicalResult mlir::tt::ttir::RemainderOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+  // TODO (azecevic): Consider case when rhs is zero.
+  return constFoldBinaryOp(
+      adaptor.getInputs()[0], adaptor.getInputs()[1], getType(0), results,
+      noopBinary,
+      [](const mlir::APFloat &lhs,
+         const mlir::APFloat &rhs) -> std::optional<mlir::APFloat> {
+        APFloat result(lhs);
+        result.mod(rhs);
+        return result;
       });
-
-  if (!foldResult) {
-    return failure();
-  }
-
-  results.push_back(foldResult);
-  return success();
 }
 
 //===----------------------------------------------------------------------===//
