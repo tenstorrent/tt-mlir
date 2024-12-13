@@ -18,112 +18,62 @@ namespace mlir::tt::ttnn {
 // ReluOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-std::tuple<size_t, size_t, size_t>
-ReluOp::getOpL1Usage(const std::vector<mlir::RankedTensorType> &input_rtts,
-                     const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 1);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+ReluOp::getOpConstraints(
+    const std::vector<std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr>> &inputs,
+    const std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr> &output) {
+  assert(inputs.size() == 1);
 
-  const auto input_shape = input_rtts[0].getShape();
-  const auto input_layout =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
+  const auto &input_shape = std::get<0>(inputs[0]);
+  const auto &input_layout = std::get<1>(inputs[0]);
+  const auto &output_shape = std::get<0>(output);
+  const auto &output_layout = std::get<1>(output);
 
-  return op_model::ttnn::ReluOpInterface::getOpL1Usage(
+  return op_model::ttnn::ReluOpInterface::getOpConstraints(
       input_shape, input_layout, output_shape, output_layout);
-}
-
-bool ReluOp::isOpLegal(const std::vector<mlir::RankedTensorType> &input_rtts,
-                       const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 1);
-
-  const auto input_shape = input_rtts[0].getShape();
-  const auto input_layout =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
-
-  return op_model::ttnn::ReluOpInterface::isLegal(input_shape, input_layout,
-                                                  output_shape, output_layout);
 }
 
 //===----------------------------------------------------------------------===//
 // AddOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-std::tuple<size_t, size_t, size_t>
-AddOp::getOpL1Usage(const std::vector<mlir::RankedTensorType> &input_rtts,
-                    const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 2);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+AddOp::getOpConstraints(
+    const std::vector<std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr>> &inputs,
+    const std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr> &output) {
+  assert(inputs.size() == 2);
 
-  const auto input_shape_a = input_rtts[0].getShape();
-  const auto input_layout_a =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto input_shape_b = input_rtts[0].getShape();
-  const auto input_layout_b =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[1].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
+  const auto &input_shape_a = std::get<0>(inputs[0]);
+  const auto &input_layout_a = std::get<1>(inputs[0]);
+  const auto &input_shape_b = std::get<0>(inputs[1]);
+  const auto &input_layout_b = std::get<1>(inputs[1]);
+  const auto &output_shape = std::get<0>(output);
+  const auto &output_layout = std::get<1>(output);
 
-  return op_model::ttnn::AddOpInterface::getOpL1Usage(
+  return op_model::ttnn::AddOpInterface::getOpConstraints(
       input_shape_a, input_layout_a, input_shape_b, input_layout_b,
       output_shape, output_layout);
-}
-
-bool AddOp::isOpLegal(const std::vector<mlir::RankedTensorType> &input_rtts,
-                      const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 2);
-
-  const auto input_shape_a = input_rtts[0].getShape();
-  const auto input_layout_a =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto input_shape_b = input_rtts[0].getShape();
-  const auto input_layout_b =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[1].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
-
-  return op_model::ttnn::AddOpInterface::isLegal(input_shape_a, input_layout_a,
-                                                 input_shape_b, input_layout_b,
-                                                 output_shape, output_layout);
 }
 
 //===----------------------------------------------------------------------===//
 // SoftmaxOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-std::tuple<size_t, size_t, size_t>
-SoftmaxOp::getOpL1Usage(const std::vector<mlir::RankedTensorType> &input_rtts,
-                        const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 1);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+SoftmaxOp::getOpConstraints(
+    const std::vector<std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr>> &inputs,
+    const std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr> &output) {
+  assert(inputs.size() == 1);
 
-  const auto input_shape = input_rtts[0].getShape();
-  const auto input_layout =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
+  const auto &input_shape = std::get<0>(inputs[0]);
+  const auto &input_layout = std::get<1>(inputs[0]);
+  const auto &output_shape = std::get<0>(output);
+  const auto &output_layout = std::get<1>(output);
 
-  return op_model::ttnn::SoftmaxOpInterface::getOpL1Usage(
-      input_shape, input_layout, getDimension(), output_shape, output_layout);
-}
-
-bool SoftmaxOp::isOpLegal(const std::vector<mlir::RankedTensorType> &input_rtts,
-                          const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 1);
-
-  const auto input_shape = input_rtts[0].getShape();
-  const auto input_layout =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
-
-  return op_model::ttnn::SoftmaxOpInterface::isLegal(
+  return op_model::ttnn::SoftmaxOpInterface::getOpConstraints(
       input_shape, input_layout, getDimension(), output_shape, output_layout);
 }
 
@@ -131,41 +81,21 @@ bool SoftmaxOp::isOpLegal(const std::vector<mlir::RankedTensorType> &input_rtts,
 // MatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-std::tuple<size_t, size_t, size_t>
-MatmulOp::getOpL1Usage(const std::vector<mlir::RankedTensorType> &input_rtts,
-                       const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 2);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+MatmulOp::getOpConstraints(
+    const std::vector<std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr>> &inputs,
+    const std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr> &output) {
+  assert(inputs.size() == 2);
 
-  const auto input_shape_a = input_rtts[0].getShape();
-  const auto input_layout_a =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto input_shape_b = input_rtts[0].getShape();
-  const auto input_layout_b =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[1].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
+  const auto &input_shape_a = std::get<0>(inputs[0]);
+  const auto &input_layout_a = std::get<1>(inputs[0]);
+  const auto &input_shape_b = std::get<0>(inputs[1]);
+  const auto &input_layout_b = std::get<1>(inputs[1]);
+  const auto &output_shape = std::get<0>(output);
+  const auto &output_layout = std::get<1>(output);
 
-  return op_model::ttnn::MatmulOpInterface::getOpL1Usage(
-      input_shape_a, input_layout_a, input_shape_b, input_layout_b,
-      output_shape, output_layout);
-}
-
-bool MatmulOp::isOpLegal(const std::vector<mlir::RankedTensorType> &input_rtts,
-                         const mlir::RankedTensorType &output_rtt) {
-  assert(input_rtts.size() == 2);
-
-  const auto input_shape_a = input_rtts[0].getShape();
-  const auto input_layout_a =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[0].getEncoding());
-  const auto input_shape_b = input_rtts[0].getShape();
-  const auto input_layout_b =
-      mlir::cast<TTNNLayoutAttr>(input_rtts[1].getEncoding());
-  const auto output_shape = output_rtt.getShape();
-  const auto output_layout =
-      mlir::cast<TTNNLayoutAttr>(output_rtt.getEncoding());
-
-  return op_model::ttnn::MatmulOpInterface::isLegal(
+  return op_model::ttnn::MatmulOpInterface::getOpConstraints(
       input_shape_a, input_layout_a, input_shape_b, input_layout_b,
       output_shape, output_layout);
 }

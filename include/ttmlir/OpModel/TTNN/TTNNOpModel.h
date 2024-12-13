@@ -13,7 +13,7 @@
 namespace mlir::tt::op_model::ttnn {
 
 //===----------------------------------------------------------------------===//
-// Test MLIR<->METAL Conversion functionality
+// Test MLIR<->METAL Conversion functionality; TODO(mbezulj): remove this
 //===----------------------------------------------------------------------===//
 namespace conversion {
 void debug(const ::llvm::ArrayRef<int64_t> shape,
@@ -25,16 +25,12 @@ void debug(const ::llvm::ArrayRef<int64_t> shape,
 //===----------------------------------------------------------------------===//
 
 namespace ReluOpInterface {
-bool isLegal(const llvm::ArrayRef<int64_t> &inputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-             const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
-
-std::tuple<size_t, size_t, size_t>
-getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-             const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+                 const llvm::ArrayRef<int64_t> &outputShape,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 }; // namespace ReluOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -42,21 +38,14 @@ getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape,
 //===----------------------------------------------------------------------===//
 
 namespace AddOpInterface {
-
-bool isLegal(const llvm::ArrayRef<int64_t> &inputShape_a,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
-             const llvm::ArrayRef<int64_t> &inputShape_b,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
-             const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
-
-std::tuple<size_t, size_t, size_t>
-getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape_a,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
-             const llvm::ArrayRef<int64_t> &inputShape_b,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
-             const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+                 const llvm::ArrayRef<int64_t> &inputShape_b,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+                 const llvm::ArrayRef<int64_t> &outputShape,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 }; // namespace AddOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -64,17 +53,12 @@ getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape_a,
 //===----------------------------------------------------------------------===//
 
 namespace SoftmaxOpInterface {
-
-bool isLegal(const llvm::ArrayRef<int64_t> &inputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-             const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
-
-std::tuple<size_t, size_t, size_t>
-getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
-             const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
+                 const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 }; // namespace SoftmaxOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -82,23 +66,15 @@ getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape,
 //===----------------------------------------------------------------------===//
 
 namespace MatmulOpInterface {
-
-bool isLegal(const llvm::ArrayRef<int64_t> &inputShape_a,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
-             const llvm::ArrayRef<int64_t> &inputShape_b,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
-             const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-             bool transpose_a = false, bool transpose_b = false);
-
-std::tuple<size_t, size_t, size_t>
-getOpL1Usage(const llvm::ArrayRef<int64_t> &inputShape_a,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
-             const llvm::ArrayRef<int64_t> &inputShape_b,
-             const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
-             const llvm::ArrayRef<int64_t> &outputShape,
-             const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-             bool transpose_a = false, bool transpose_b = false);
+std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
+           std::optional<std::string>>
+getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_a,
+                 const llvm::ArrayRef<int64_t> &inputShape_b,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
+                 const llvm::ArrayRef<int64_t> &outputShape,
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+                 bool transpose_a = false, bool transpose_b = false);
 }; // namespace MatmulOpInterface
 
 } // namespace mlir::tt::op_model::ttnn

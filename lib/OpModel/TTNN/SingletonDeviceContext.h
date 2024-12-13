@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
+// SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -29,8 +29,6 @@ public:
   static SingletonDeviceContext &getInstance();
 
   ::tt::tt_metal::v0::Device *getDevice() { return m_device; }
-
-  size_t getNumL1Banks() const;
 
 private:
   SingletonDeviceContext();
