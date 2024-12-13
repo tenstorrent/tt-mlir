@@ -5,9 +5,6 @@
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 
-#include "mlir/Support/LogicalResult.h"
-#include "llvm/Support/LogicalResult.h"
-
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TT/IR/TTOps.cpp.inc"
 
