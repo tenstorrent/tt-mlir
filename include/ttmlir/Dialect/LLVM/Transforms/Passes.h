@@ -9,9 +9,6 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::tt::llvm_util {
-#define GEN_PASS_DECL
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
-
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 } // namespace mlir::tt::llvm_util
