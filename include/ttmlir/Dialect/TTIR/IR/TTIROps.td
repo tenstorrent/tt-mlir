@@ -224,6 +224,8 @@ def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
     let description = [{
       Eltwise absolute operation.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
@@ -584,6 +586,8 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
     let description = [{
       Eltwise subtract operation.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
@@ -599,6 +603,8 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
       %result = "ttir.remainder"(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
       // %result: [2, -2, 2, -2]
     }];
+
+    let hasFolder = 1;
 }
 
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
@@ -1416,6 +1422,8 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     let description = [{
       Eltwise divide operation.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {

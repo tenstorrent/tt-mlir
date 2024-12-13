@@ -993,8 +993,7 @@ public:
 
     int64_t arangeLength = (end - start) / step;
 
-    const llvm::SmallVector<int64_t, 4> requiredShape{1, 1, 1, arangeLength};
-    ArrayRef<int64_t> ttnnShape(requiredShape);
+    SmallVector<int64_t> ttnnShape = {1, 1, 1, arangeLength};
     if (ttnnShape == outputType.getShape()) {
       return success();
     }
