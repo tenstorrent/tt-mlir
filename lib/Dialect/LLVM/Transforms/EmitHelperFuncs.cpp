@@ -66,8 +66,9 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
 
       // Generate GEP and loads for each field in the struct
       Value tensorBase = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
-          builder.getI32ArrayAttr({tensorIdx, 0})); // `start`
+          func.getLoc(),
+          LLVM::LLVMPointerType::get(LLVM::LLVMType::getFloatTy(context)),
+          structPtr, builder.getI32ArrayAttr({tensorIdx, 0})); // `start`
 
       Value alignedBase = builder.create<LLVM::GEPOp>(
           func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
