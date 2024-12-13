@@ -333,24 +333,3 @@ TEST_F(OpModelBase, MatmulSharded) {
 }
 
 } // namespace mlir::tt::op_model::ttnn
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-
-  // Ensure SetUp and TearDown are called on each iteration
-  // ::testing::GTEST_FLAG(recreate_environments_when_repeating) = true;
-  // ::testing::GTEST_FLAG(repeat) = 1; // Add this line to repeat the tests
-
-  // Custom setup code here (if any)
-
-  int result = 0;
-  try {
-
-    result = RUN_ALL_TESTS();
-  } catch (const std::exception &e) {
-
-  } catch (...) {
-  }
-
-  return result;
-}
