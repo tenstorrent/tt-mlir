@@ -18,7 +18,7 @@
 
 namespace mlir::tt::llvm_util {
 
-#define GEN_PASS_DEF_EmitHelperFuncs
+#define GEN_PASS_DEF_EMITHELPERFUNCS
 void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
@@ -42,12 +42,10 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
         {LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getLiteral(
             context,
             {
-                LLVM::LLVMPointerType::get(builder.getF32Type()), // start
-                LLVM::LLVMPointerType::get(
-                    builder.getF32Type()), // aligned_start
-                builder.getI64Type(),      // start_idx
-                LLVM::LLVMPointerType::get(
-                    builder.getI64Type()) // sizes_and_strides
+                LLVM::LLVMPointerType::get(context), // start
+                LLVM::LLVMPointerType::get(context), // aligned_start
+                builder.getI64Type(),                // start_idx
+                LLVM::LLVMPointerType::get(context)  // sizes_and_strides
             }))},
         false);
 
