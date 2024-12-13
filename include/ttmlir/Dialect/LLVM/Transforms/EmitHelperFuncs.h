@@ -10,7 +10,7 @@
 
 namespace mlir::tt::llvm_util {
 
-std::unique_ptr<Pass> createLLVMEmitHelperFuncs();
+std::unique_ptr<OperationPass<ModuleOp>> createLLVMEmitHelperFuncs();
 
 } // namespace mlir::tt::llvm_util
 
