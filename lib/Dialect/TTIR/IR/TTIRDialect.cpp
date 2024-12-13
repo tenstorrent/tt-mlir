@@ -72,3 +72,16 @@ void TTIRDialect::initialize() {
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsAttrs.cpp.inc"
       >();
 }
+
+//===----------------------------------------------------------------------===//
+// TTIR constant materializer.
+//===----------------------------------------------------------------------===//
+
+::mlir::Operation *TTIRDialect::materializeConstant(OpBuilder &builder,
+                                                    Attribute value, Type type,
+                                                    Location loc) {
+  if (auto elementsAttr = mlir::dyn_cast<mlir::ElementsAttr>(value)) {
+    return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
+  }
+  return {};
+}
