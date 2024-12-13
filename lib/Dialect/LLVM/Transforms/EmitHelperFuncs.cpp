@@ -38,15 +38,7 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
 
     // Create the helper function
     auto helperFuncType = LLVM::LLVMFunctionType::get(
-        llvmFuncType.getReturnType(),
-        {LLVM::LLVMPointerType::get(LLVM::LLVMStructType::getLiteral(
-            context,
-            {
-                LLVM::LLVMPointerType::get(context), // start
-                LLVM::LLVMPointerType::get(context), // aligned_start
-                builder.getI64Type(),                // start_idx
-                LLVM::LLVMPointerType::get(context)  // sizes_and_strides
-            }))},
+        llvmFuncType.getReturnType(), {LLVM::LLVMPointerType::get(context)},
         false);
 
     auto helperFunc = builder.create<LLVM::LLVMFuncOp>(
@@ -66,9 +58,8 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
 
       // Generate GEP and loads for each field in the struct
       Value tensorBase = builder.create<LLVM::GEPOp>(
-          func.getLoc(),
-          LLVM::LLVMPointerType::get(LLVM::LLVMType::getFloatTy(context)),
-          structPtr, builder.getI32ArrayAttr({tensorIdx, 0})); // `start`
+          func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
+          builder.getI32ArrayAttr({tensorIdx, 0})); // `start`
 
       Value alignedBase = builder.create<LLVM::GEPOp>(
           func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
