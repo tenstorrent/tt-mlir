@@ -10,7 +10,6 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h" // For LLVM Dialect definitions
-#include "mlir/Dialect/LLVMIR/LLVMOps.h" // For LLVM::LLVMFuncOp, LLVM::LoadOp, etc.
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h" // For LLVM Type support (e.g., LLVMStructType, LLVMPointerType)
 
 #include "llvm/ADT/ArrayRef.h"    // For ArrayRef
