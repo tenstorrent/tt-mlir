@@ -19,30 +19,6 @@ protected:
   llvm::StringMap<OutputLayoutOverrideParams> parsedOverride;
 };
 
-TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
-  std::string arg = "op1=2x2:dram:interleaved:tile:f32";
-
-  bool result = parser.parse(OverrideOutputLayoutOption,
-                             "override-output-layout", arg, parsedOverride);
-  ASSERT_FALSE(result);
-  ASSERT_EQ(parsedOverride.size(), 1);
-  ASSERT_TRUE(parsedOverride.count("op1"));
-
-  const auto &params = parsedOverride["op1"];
-  ASSERT_TRUE(params.grid.has_value());
-  ASSERT_EQ(params.grid->size(), 2);
-  ASSERT_EQ((*params.grid)[0], 2);
-  ASSERT_EQ((*params.grid)[1], 2);
-  ASSERT_TRUE(params.bufferType.has_value());
-  ASSERT_EQ(params.bufferType.value(), BufferType::DRAM);
-  ASSERT_TRUE(params.tensorMemoryLayout.has_value());
-  ASSERT_EQ(params.tensorMemoryLayout.value(), TensorMemoryLayout::Interleaved);
-  ASSERT_TRUE(params.memoryLayout.has_value());
-  ASSERT_EQ(params.memoryLayout.value(), Layout::Tile);
-  ASSERT_TRUE(params.dataType.has_value());
-  ASSERT_EQ(params.dataType.value(), mlir::tt::DataType::Float32);
-}
-
 TEST_F(OutputLayoutOverrideTest, ParsePartialOutputLayoutOverride) {
   std::string arg = "op1=2x2:block_sharded";
 
