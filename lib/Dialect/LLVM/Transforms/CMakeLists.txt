@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTIRTransforms
+add_mlir_dialect_library(MLIRLLVMTransforms
         EmitHelperFuncs.cpp
 
         ADDITIONAL_HEADER_DIRS
