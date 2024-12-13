@@ -274,7 +274,7 @@ MatmulOpInterface::getOpConstraints(
     bool transpose_b) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   return operation::getOpConstraints("MatmulOpInterface", MatmulOpQuery,
-                                     inputShape_a, inputLayout_a, inputShape_a,
+                                     inputShape_a, inputLayout_a, inputShape_b,
                                      inputLayout_b, outputShape, outputLayout,
                                      transpose_a, transpose_b);
 #else
