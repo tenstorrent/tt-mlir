@@ -17,8 +17,9 @@
 #include "llvm/Support/Casting.h" // For dyn_cast
 
 namespace mlir::tt::llvm_util {
-
 #define GEN_PASS_DEF_EMITHELPERFUNCS
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
+
 void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
