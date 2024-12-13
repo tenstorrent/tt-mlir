@@ -494,4 +494,12 @@ def TT_Device : TT_Type<"Device", "device", []> {
     let assemblyFormat = "`<` $desc `>`";
 }
 
+//===----------------------------------------------------------------------===//
+// Auxiliary type definitions
+//===----------------------------------------------------------------------===//
+
+def TT_Tuple : NestedTupleOf<[AnyRankedTensor]>;
+
+def TT_TupleReturnType : AnyTypeOf<[AnyRankedTensor]>;
+
 #endif

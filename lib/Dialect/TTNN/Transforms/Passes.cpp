@@ -4,6 +4,8 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -12,6 +14,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
@@ -19,11 +22,14 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include <algorithm>
+#include <mlir/Support/LLVM.h>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNDECOMPOSELAYOUTS
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
+#define GEN_PASS_DEF_TTNNMODIFYSIGNATURESFORDYLIB
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -905,7 +911,7 @@ public:
     //
     Block *firstBlock = module.getBody(0);
 
-    // Find all the func.func ops in the module
+    // Find all the func.func ops in the module that are "forward" functions
     //
     SmallVector<func::FuncOp, 1> forwardFuncOps;
     for (mlir::Operation &op : firstBlock->getOperations()) {
@@ -1060,6 +1066,96 @@ public:
           rewriter.getUnknownLoc(), rewriter.getI32Type(),
           rewriter.getI32IntegerAttr(0));
       rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
+    }
+  }
+};
+
+class TTNNModifySignaturesForDylib
+    : public impl::TTNNModifySignaturesForDylibBase<
+          TTNNModifySignaturesForDylib> {
+
+public:
+  using impl::TTNNModifySignaturesForDylibBase<
+      TTNNModifySignaturesForDylib>::TTNNModifySignaturesForDylibBase;
+
+  void runOnOperation() final {
+    ModuleOp module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    // Ensure that the module has a single region and a single block within that
+    // region
+    assert(module->getRegions().size() == 1);
+    assert(module->getRegion(0).getBlocks().size() == 1);
+
+    // Get the first block of the region at index 0
+    //
+    Block *firstBlock = module.getBody(0);
+
+    // Find all the func.func ops in the module that are "forward" functions
+    //
+    SmallVector<func::FuncOp, 1> forwardFuncOps;
+    for (mlir::Operation &op : firstBlock->getOperations()) {
+      if (mlir::func::FuncOp funcOp = dyn_cast<func::FuncOp>(op)) {
+
+        // Skip functions that are called elsewhere in the IR
+        //
+        // This will skip utility functions that are used by other functions,
+        // only top-level "forward" functions should be considered
+        //
+        if (!funcOp->getUses().empty()) {
+          continue;
+        }
+
+        forwardFuncOps.push_back(funcOp);
+      }
+    }
+
+    // Iterate over all the func ops and modify the signatures
+    //
+    for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
+      // Replace the signature of the forward function so that all the tensor
+      // arguments are packed into a single tuple
+      //
+      mlir::FunctionType ft = forwardFuncOp.getFunctionType();
+      assert(
+          std::all_of(ft.getInputs().begin(), ft.getInputs().end(),
+                      [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
+          "Expected all inputs must be of type RankedTensorType");
+      mlir::TupleType inputTupleType =
+          mlir::TupleType::get(&getContext(), ft.getInputs());
+      FunctionType tuplifiedFuncType =
+          ft.clone(inputTupleType, ft.getResults());
+      rewriter.modifyOpInPlace(forwardFuncOp,
+                               [&forwardFuncOp, &tuplifiedFuncType]() {
+                                 forwardFuncOp.setType(tuplifiedFuncType);
+                               });
+
+      // First block of the function (often referred to as "entry block") needs
+      // its arguments updated as well - the args need to match the containing
+      // func's arguments; this is implemented here by first inserting the tuple
+      // as the first argument of the block, inserting GetTupleElementOp ops to
+      // start of the block in order to unpack tuple elements, and then
+      // replacing all uses of the original block arguments with the
+      // GetTupleElementOp results - after this it's finally safe to remove
+      // original block arguments as they have no live uses anymore
+      //
+      Block &entryBlock = forwardFuncOp.getBlocks().front();
+      entryBlock.insertArgument(0u, tuplifiedFuncType.getInputs().front(),
+                                forwardFuncOp.getLoc());
+
+      rewriter.setInsertionPointToStart(&entryBlock);
+      for (size_t idx = 0; idx < ft.getInputs().size(); idx++) {
+        ::mlir::tt::GetTupleElementOp getTupleElementOp =
+            rewriter.create<mlir::tt::GetTupleElementOp>(
+                forwardFuncOp.getLoc(), forwardFuncOp.getArgument(0), idx);
+
+        rewriter.replaceAllUsesWith(entryBlock.getArgument(1 + idx),
+                                    getTupleElementOp);
+      }
+
+      // Erase original arguments
+      //
+      entryBlock.eraseArguments(1, ft.getInputs().size());
     }
   }
 };

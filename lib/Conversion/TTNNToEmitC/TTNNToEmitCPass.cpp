@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -39,6 +40,9 @@ public:
     });
     addConversion([ctx](mlir::TensorType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(ctx, "ttnn::Tensor");
+    });
+    addConversion([ctx](mlir::TupleType type) -> emitc::OpaqueType {
+      return emitc::OpaqueType::get(ctx, "std::vector<ttnn::Tensor>");
     });
   }
 };
