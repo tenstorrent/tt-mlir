@@ -7,7 +7,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def EmitHelperFuncs: Pass<"emit-llvm-helpers", "::mlir::ModuleOp">
+def LLVMEmitHelperFuncs: Pass<"emit-llvm-helpers", "::mlir::ModuleOp">
 {
   let summary = "Helper function for emitting standardized call-format for all of our functions lowered to LLVMDialect";
 //   let constructor = "createLLVMEmitHelperFuncs()";

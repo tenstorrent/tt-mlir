@@ -9,6 +9,7 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
@@ -46,7 +47,8 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::tensor::TensorDialect, mlir::linalg::LinalgDialect,
       mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect,
       mlir::tosa::TosaDialect, mlir::vector::VectorDialect,
-      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect>();
+      mlir::emitc::EmitCDialect, mlir::bufferization::BufferizationDialect,
+      mlir::LLVM::LLVMDialect>();
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
@@ -77,6 +79,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerTTNNOptimizer();
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
+  mlir::tt::llvm_util::registerPasses();
 
   // Pipeline registration
   mlir::tt::ttir::registerTTIRPipelines();

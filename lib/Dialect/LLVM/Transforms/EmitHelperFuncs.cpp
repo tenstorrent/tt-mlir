@@ -16,25 +16,35 @@
 #include "llvm/ADT/SmallVector.h" // For SmallVector
 #include "llvm/Support/Casting.h" // For dyn_cast
 
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/Pass.h"
+
 namespace mlir::tt::llvm_util {
-#define GEN_PASS_DEF_EMITHELPERFUNCS
+#define GEN_PASS_DEF_LLVMEMITHELPERFUNCS
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
 void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
+  llvm::outs() << "emitting helper funcs for module: " << moduleOp.getName()
+               << "\n";
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
 
   for (auto func : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
-    if (!func->hasAttr("arg_ranks"))
+    if (!func->hasAttr("arg_ranks")) {
       continue;
+    }
 
     // Extract the `arg_ranks` attribute
     auto argRanksAttr = llvm::dyn_cast<ArrayAttr>(func->getAttr("arg_ranks"));
-    if (!argRanksAttr)
+    if (!argRanksAttr) {
       continue;
+    }
+
+    builder.setInsertionPointToEnd(moduleOp.getBody());
 
     // Define the helper function name and type
     std::string helperName = func.getName().str() + "_helper";
+    llvm::outs() << "emitting for " << helperName << "\n";
     auto llvmFuncType = func.getFunctionType();
 
     // Create the helper function
@@ -49,35 +59,53 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
     builder.setInsertionPointToStart(entryBlock);
 
     // Unpack the argument
-    Value structPtr = entryBlock->getArgument(0);
+    Value structArrayPtr = entryBlock->getArgument(0);
     SmallVector<Value, 16> originalCallArgs;
 
     // Iterate over arg_ranks to unpack tensors
     int tensorIdx = 0;
     for (auto rankAttr : argRanksAttr) {
+      Value tensorIndex = builder.create<LLVM::ConstantOp>(
+          func.getLoc(), builder.getI32Type(),
+          builder.getI32IntegerAttr(tensorIdx++));
+
+      Value structPtr = builder.create<LLVM::GEPOp>(
+          func.getLoc(), LLVM::LLVMPointerType::get(context),
+          LLVM::LLVMPointerType::get(context), structArrayPtr,
+          ValueRange(tensorIndex));
+
       int64_t rank = mlir::cast<IntegerAttr>(rankAttr).getInt();
 
-      // Generate GEP and loads for each field in the struct
+      Value index = builder.create<LLVM::ConstantOp>(
+          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(0));
+      // `start`
       Value tensorBase = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
-          builder.create<LLVM::ConstantOp>(
-              func.getLoc(), builder.getI32Type(),
-              builder.getI32IntegerAttr(tensorIdx)),
-          builder.create<LLVM::ConstantOp>(
-              func.getLoc(), builder.getI32Type(),
-              builder.getI32IntegerAttr(0))); // `start`
+          func.getLoc(), LLVM::LLVMPointerType::get(context),
+          LLVM::LLVMPointerType::get(context), structPtr, ValueRange{index});
 
+      index = builder.create<LLVM::ConstantOp>(
+          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(1));
+      // `aligned_start`
       Value alignedBase = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
-          builder.getI32ArrayAttr({tensorIdx, 1})); // `aligned_start`
+          func.getLoc(), LLVM::LLVMPointerType::get(context),
+          LLVM::LLVMPointerType::get(context), structPtr, ValueRange{index});
 
-      Value startIdx = builder.create<LLVM::GEPOp>(
-          func.getLoc(), builder.getI64Type(), structPtr,
-          builder.getI32ArrayAttr({tensorIdx, 2})); // `start_idx`
+      index = builder.create<LLVM::ConstantOp>(
+          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(2));
+      // `start_idx`
+      Value startIdxPtr = builder.create<LLVM::GEPOp>(
+          func.getLoc(), LLVM::LLVMPointerType::get(context),
+          builder.getI64Type(), structPtr, ValueRange{index});
+      // Convert the pointer to an integer (i64)
+      Value startIdx = builder.create<LLVM::PtrToIntOp>(
+          func.getLoc(), builder.getI64Type(), startIdxPtr);
 
+      index = builder.create<LLVM::ConstantOp>(
+          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(3));
+      // `sizes_and_strides`
       Value sizesAndStrides = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context), structPtr,
-          builder.getI32ArrayAttr({tensorIdx, 3})); // `sizes_and_strides`
+          func.getLoc(), LLVM::LLVMPointerType::get(context),
+          LLVM::LLVMPointerType::get(context), structPtr, ValueRange{index});
 
       originalCallArgs.push_back(tensorBase);
       originalCallArgs.push_back(alignedBase);
@@ -85,14 +113,28 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
 
       // Iterate over size and stride pairs
       for (int i = 0; i < 2 * rank; i++) {
+        // Compute the address of the i-th element
         Value idx = builder.create<LLVM::ConstantOp>(
             func.getLoc(), builder.getI64Type(), builder.getI64IntegerAttr(i));
+
+        Value elementPtr = builder.create<LLVM::GEPOp>(
+            func.getLoc(),
+            LLVM::LLVMPointerType::get(context), // Pointer to i64
+            builder.getI64Type(),
+            sizesAndStrides, // Base pointer
+            ValueRange{idx}  // Offset
+        );
+
+        // Load the value from the computed address
         Value strideOrSize = builder.create<LLVM::LoadOp>(
-            func.getLoc(), builder.getI64Type(), sizesAndStrides, idx);
+            func.getLoc(),
+            builder.getI64Type(), // Type of the loaded value
+            elementPtr            // Computed address
+        );
+
+        // Add the loaded value to the call arguments
         originalCallArgs.push_back(strideOrSize);
       }
-
-      tensorIdx++;
     }
 
     // Call the original function
@@ -107,13 +149,16 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
   }
 }
 
-class EmitHelperFuncs : public impl::EmitHelperFuncsBase<EmitHelperFuncs> {
-  using impl::EmitHelperFuncsBase<EmitHelperFuncs>::EmitHelperFuncs;
+class LLVMEmitHelperFuncs
+    : public impl::LLVMEmitHelperFuncsBase<LLVMEmitHelperFuncs> {
+  using impl::LLVMEmitHelperFuncsBase<
+      LLVMEmitHelperFuncs>::LLVMEmitHelperFuncsBase;
+  // using impl::createLLVMEmitHelperFuncs;
 
   void runOnOperation() final {
     auto moduleOp = getOperation();
     // only run this on our hoisted cpu op modules
-    if (!moduleOp.getAttr("ttir.cpu_module")) {
+    if (!moduleOp->getAttr("ttir.cpu_module")) {
       return;
     }
     generateLLVMHelpersForArgRanks(moduleOp);
@@ -122,8 +167,4 @@ class EmitHelperFuncs : public impl::EmitHelperFuncsBase<EmitHelperFuncs> {
   }
 };
 
-/// This function creates an instance of the pass.
-std::unique_ptr<OperationPass<ModuleOp>> createEmitHelperFuncs() {
-  return std::make_unique<EmitHelperFuncsPass>();
-}
 } // namespace mlir::tt::llvm_util
