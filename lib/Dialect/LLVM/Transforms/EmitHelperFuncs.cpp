@@ -44,7 +44,7 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
     auto helperFunc = builder.create<LLVM::LLVMFuncOp>(
         func.getLoc(), helperName, helperFuncType);
 
-    Block *entryBlock = helperFunc.addEntryBlock();
+    Block *entryBlock = helperFunc.addEntryBlock(builder);
     builder.setInsertionPointToStart(entryBlock);
 
     // Unpack the argument
