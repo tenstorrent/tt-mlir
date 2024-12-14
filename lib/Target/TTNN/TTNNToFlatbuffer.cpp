@@ -518,7 +518,8 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
 createOp(FlatbufferObjectCache &cache, PermuteOp op) {
-  auto input = cache.at<::tt::target::TensorRef>(op.getInput());
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto permutation = toFlatbuffer(cache, op.getPermutation());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
@@ -1176,7 +1177,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
-    return createOperation(cache, createOp(cache, fillCacheOp), debugString, locInfo);
+    return createOperation(cache, createOp(cache, fillCacheOp), debugString,
+                           locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,
