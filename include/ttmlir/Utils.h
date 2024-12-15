@@ -10,8 +10,10 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace ttmlir::utils {
@@ -130,6 +132,27 @@ inline MlirAttribute wrapArrayOfMlirAttributesAsAttribute(
 // Checks if the type of the given `mlir::Value` is a ranked tensor type.
 inline bool isRankedTensor(mlir::Value v) {
   return mlir::isa<mlir::RankedTensorType>(v.getType());
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 mlir::RankedTensorType outputType, mlir::Value input,
+                 AttributeTy &&...attrs) {
+  auto DPSOutput = rewriter.create<mlir::tensor::EmptyOp>(
+      loc, outputType.getShape(), outputType.getElementType());
+
+  return rewriter.create<OpTy>(loc, outputType, input, DPSOutput,
+                               std::forward<AttributeTy>(attrs)...);
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::Type outputElementType, mlir::Value input,
+                 AttributeTy &&...attrs) {
+  auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType);
+  return createDPSOp<OpTy>(rewriter, loc, outputType, input,
+                           std::forward<AttributeTy>(attrs)...);
 }
 
 } // namespace ttmlir::utils

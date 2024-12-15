@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -17,6 +18,10 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinAttributes.h>
 
 using namespace mlir;
@@ -304,9 +309,15 @@ public:
 
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
-    llvm::SmallVector<int64_t, 4> reshapeInputShape(inputShape.begin(),
-                                                    inputShape.end());
+    llvm::SmallVector<int64_t, 4> reshapeInputShape(inputShape);
     reshapeInputShape.push_back(1);
+    llvm::SmallVector<int32_t> reshapeInputShapei32(reshapeInputShape.begin(),
+                                                    reshapeInputShape.end());
+    auto reshapeInputAttr = rewriter.getI32ArrayAttr(reshapeInputShapei32);
+
+    auto reshapeInput = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, op.getLoc(), reshapeInputShape, inputType.getElementType(),
+        adaptor.getInput(), reshapeInputAttr);
 
     auto weightType =
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
@@ -314,11 +325,13 @@ public:
     llvm::SmallVector<int64_t, 4> reshapeWeightShape(weightShape.begin(),
                                                      weightShape.end());
     reshapeWeightShape.push_back(1);
+    llvm::SmallVector<int32_t> reshapeWeightShapei32(reshapeWeightShape.begin(),
+                                                     reshapeWeightShape.end());
+    auto reshapeWeightAttr = rewriter.getI32ArrayAttr(reshapeWeightShapei32);
 
-    ttir::ReshapeOp reshapeInput = createReshapeOp(
-        op.getLoc(), adaptor.getInput(), reshapeInputShape, rewriter);
-    ttir::ReshapeOp reshapeWeight = createReshapeOp(
-        op.getLoc(), adaptor.getWeight(), reshapeWeightShape, rewriter);
+    auto reshapeWeight = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, op.getLoc(), reshapeWeightShape, weightType.getElementType(),
+        adaptor.getWeight(), reshapeWeightAttr);
 
     mlir::DenseI64ArrayAttr conv2dOpWindowsStridesAttr =
         addIntegerToDenseArrayAttr(rewriter, adaptor.getWindowStridesAttr(), 1);
@@ -372,8 +385,13 @@ public:
                 conv2dOutputSpatialDimensions),
             adaptor.getFeatureGroupCountAttr(),
             adaptor.getBatchGroupCountAttr());
-    ttir::ReshapeOp reshapeOutput =
-        createReshapeOp(op.getLoc(), new2dConvolutionOp, outputShape, rewriter);
+
+    auto outputShapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(outputShape));
+    auto reshapeOutput = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, op.getLoc(), outputShape,
+        new2dConvolutionOp.getType().getElementType(), new2dConvolutionOp,
+        outputShapeAttr);
 
     rewriter.replaceOp(op, reshapeOutput);
 
@@ -381,25 +399,6 @@ public:
   }
 
 private:
-  ttir::ReshapeOp createReshapeOp(Location loc, Value tensor,
-                                  llvm::ArrayRef<int64_t> target_input_shape,
-                                  ConversionPatternRewriter &rewriter) const {
-    auto inputType = mlir::cast<RankedTensorType>(tensor.getType());
-
-    auto DPSReshapeOutput = rewriter.create<tensor::EmptyOp>(
-        loc, llvm::ArrayRef<int64_t>(target_input_shape),
-        inputType.getElementType());
-    llvm::SmallVector<int32_t, 2> shapei32(target_input_shape.begin(),
-                                           target_input_shape.end());
-    auto shape_attr = rewriter.getI32ArrayAttr(shapei32);
-
-    return rewriter.create<ttir::ReshapeOp>(
-        loc,
-        mlir::RankedTensorType::get(target_input_shape,
-                                    inputType.getElementType()),
-        tensor, DPSReshapeOutput, shape_attr);
-  }
-
   mlir::DenseI64ArrayAttr
   addIntegerToDenseArrayAttr(ConversionPatternRewriter &rewriter,
                              mlir::DenseI64ArrayAttr denseArrayAttr,
@@ -604,22 +603,6 @@ struct GatherToEmbeddingConversionPattern
     return success();
   }
 
-  ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
-                                  Value input,
-                                  ::llvm::ArrayRef<int64_t> shapei64) const {
-
-    // reshape start indices (input) to remove the last dimension
-    auto ty = mlir::cast<RankedTensorType>(input.getType());
-    auto output = rewriter.create<tensor::EmptyOp>(
-        loc, llvm::ArrayRef<int64_t>(shapei64), ty.getElementType());
-    std::vector<int32_t> shapei32(shapei64.begin(), shapei64.end());
-    auto shape_attr = rewriter.getI32ArrayAttr(shapei32);
-
-    return rewriter.create<ttir::ReshapeOp>(
-        loc, mlir::RankedTensorType::get(shapei64, ty.getElementType()), input,
-        output, shape_attr);
-  }
-
   /**
    * Lowers Gather Op into Embedding Op (and applies Reshape Op, if necessary)
    *
@@ -666,8 +649,11 @@ struct GatherToEmbeddingConversionPattern
       std::vector<int64_t> newShapeI64(startIndicesType.getShape().begin(),
                                        startIndicesType.getShape().end() - 1);
 
-      ttir::ReshapeOp reshapeOp =
-          createReshapeOp(rewriter, op.getLoc(), startIndices, newShapeI64);
+      auto reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, op.getLoc(), newShapeI64, startIndicesType.getElementType(),
+          startIndices,
+          rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+              newShapeI64.begin(), newShapeI64.end())));
 
       assert(reshapeOp && "Failed to create reshape op");
       reshapeOp->moveBefore(op);
