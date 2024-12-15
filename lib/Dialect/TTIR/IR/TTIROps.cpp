@@ -1596,6 +1596,14 @@ static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
 
   auto lhs = block->getArgument(0);
   auto rhs = block->getArgument(1);
+  auto out = block->getArgument(2);
+  lhs.dump();
+  assert(mlir::isa<mlir::MemRefType>(lhs.getType()) &&
+         "Binary op block expects memref arguments.");
+  assert(mlir::isa<mlir::MemRefType>(rhs.getType()) &&
+         "Binary op block expects memref arguments.");
+  assert(mlir::isa<mlir::MemRefType>(out.getType()) &&
+         "Binary op block expects memref arguments.");
   auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
   opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
 }

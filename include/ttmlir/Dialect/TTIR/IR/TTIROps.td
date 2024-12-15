@@ -1368,6 +1368,24 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
+def TTIR_UnpackOp : TTIR_Op<"unpack", []> {
+    let summary = "Unpack.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyMemRef:$memref, Variadic<Index>:$indices);
+    let results = (outs AnyVector:$result);
+}
+
+def TTIR_PackOp : TTIR_Op<"pack", []> {
+    let summary = "Pack.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyMemRef:$memref, Variadic<Index>:$indices);
+    //let results = (outs AnyVector:$result);
+}
+
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
     let summary = "Yield op.";
     let description = [{

@@ -324,9 +324,7 @@ struct TTIRGenericOperandsToMemrefRewriter
                   ConversionPatternRewriter &rewriter) const final {
     Block *entry = &generic.getRegion().front();
     auto firstEntryArgType = entry->getArguments()[0].getType();
-    auto encoding =
-        mlir::cast<RankedTensorType>(firstEntryArgType).getEncoding();
-    if (mlir::isa_and_nonnull<BufferAttr>(encoding)) {
+    if (mlir::isa_and_nonnull<MemRefType>(firstEntryArgType)) {
       // Already converted.
       return failure();
     }
@@ -338,34 +336,10 @@ struct TTIRGenericOperandsToMemrefRewriter
         uint32_t blockArgNumber = blockArg.getArgNumber();
         auto matchingOperand = generic.getMatchingOperand(blockArgNumber);
         auto operandType = matchingOperand.getType();
-
         auto bufferLayout = mlir::cast<MetalLayoutAttr>(
             mlir::cast<RankedTensorType>(operandType).getEncoding());
-        auto bufferType = operandType;
-
-        int64_t cbIndex = generic.getOperandCbMapping()[blockArgNumber];
-
-        if (cbIndex >= 0) {
-          assert(static_cast<size_t>(cbIndex) < generic.getCbs().size());
-          auto cb = generic.getCbs()[cbIndex];
-          auto cbType = cb.getType();
-          auto cbLayout = mlir::cast<MetalLayoutAttr>(
-              mlir::cast<RankedTensorType>(cbType).getEncoding());
-          bufferLayout = cbLayout;
-          bufferType = cbType;
-        }
-
-        // TODO(rpavlovic): introduce multiplier for buffer.
-        auto buffer = BufferAttr::get(
-            getContext(), bufferLayout.getMemref(),
-            (cbIndex >= 0 ? BufferAccess::Stream : BufferAccess::Alias));
-
-        auto ty = RankedTensorType::get(
-            buffer.getShape(),
-            mlir::cast<RankedTensorType>(bufferType).getElementType(), buffer);
-
-        typeMap[blockArg.getType()] = ty;
-        blockArg.setType(ty);
+        typeMap[blockArg.getType()] = bufferLayout.getMemref();
+        blockArg.setType(bufferLayout.getMemref());
       }
       for (Operation &op : generic.getRegion().getOps()) {
         convertTypes(op.getOperands(), typeMap);
@@ -381,17 +355,11 @@ class TTIRGenericRegionMemrefTypeConverter : public TypeConverter {
 public:
   TTIRGenericRegionMemrefTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx](RankedTensorType type) -> Type {
+    addConversion([](RankedTensorType type) -> Type {
       auto encoding = type.getEncoding();
       assert(encoding);
-      if (mlir::isa<BufferAttr>(encoding)) {
-        return type;
-      }
       auto layout = mlir::cast<MetalLayoutAttr>(type.getEncoding());
-      auto buffer =
-          BufferAttr::get(ctx, layout.getMemref(), BufferAccess::Alias);
-      return RankedTensorType::get(buffer.getShape(), type.getElementType(),
-                                   buffer);
+      return layout.getMemref();
     });
   }
 };
