@@ -48,6 +48,7 @@ struct ConvertTTIRToTTNNPass
     //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
+      getOperation()->dump();
       signalPassFailure();
       return;
     }

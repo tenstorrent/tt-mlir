@@ -10,6 +10,7 @@ namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
+  in.print();
   DEBUG_ASSERT(in.is_allocated());
   const auto *fbShape = op->shape();
   std::vector<int32_t> shape(fbShape->begin(), fbShape->end());

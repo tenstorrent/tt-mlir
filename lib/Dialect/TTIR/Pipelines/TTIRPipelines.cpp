@@ -27,6 +27,7 @@ void createStableHLOToTTIRPipeline(
   if (options.legalizeCompositeToCallEnabled) {
     pm.addPass(stablehlo::createStablehloLegalizeCompositeToCallPass());
   }
+  pm.addPass(stablehlo::createStablehloCanonicalizeDynamismPass());
   pm.addPass(createConvertStableHLOToTTIRPass());
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());

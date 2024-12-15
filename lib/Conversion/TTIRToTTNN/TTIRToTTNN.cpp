@@ -282,24 +282,25 @@ public:
     // Fold the BroadcastOp only if it is Operand 0 of the instruction
     // TODO(uazizTT): Remove this restriction for operand number once implicit
     // broadcast for all operands is supported.
-    bool AllUsesReplaced = false;
-    auto replaceIfFn = [&](OpOperand &use) {
-      if (isa<ttir::ReshapeOp>(use.getOwner())) {
-        // Issue# 1345
-        // Reshape op cannot broadcast and requires input and output tensors to
-        // have same number of elements.
-        return false;
-      }
+    // bool AllUsesReplaced = false;
+    // auto replaceIfFn = [&](OpOperand &use) {
+    //   if (isa<ttir::ReshapeOp>(use.getOwner())) {
+    //     // Issue# 1345
+    //     // Reshape op cannot broadcast and requires input and output tensors
+    //     to
+    //     // have same number of elements.
+    //     return false;
+    //   }
 
-      return use.getOperandNumber() == 0;
-    };
+    //   return use.getOperandNumber() == 0;
+    // };
 
-    rewriter.replaceOpUsesWithIf(op, op->getOperand(0), replaceIfFn,
-                                 &AllUsesReplaced);
-    if (AllUsesReplaced) {
-      rewriter.eraseOp(op);
-      return success();
-    }
+    // rewriter.replaceOpUsesWithIf(op, op->getOperand(0), replaceIfFn,
+    //                              &AllUsesReplaced);
+    // if (AllUsesReplaced) {
+    //   rewriter.eraseOp(op);
+    //   return success();
+    // }
     // For Broadcasts other than operand 0, convert them to TTNN Broadcast to
     // apply a workaround to handle them. Issue# 1348
     // TODO(uazizTT): Canonicalize the instructions such that broadcast

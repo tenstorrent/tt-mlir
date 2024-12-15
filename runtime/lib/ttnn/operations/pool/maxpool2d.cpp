@@ -10,6 +10,7 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "ttnn/types.hpp"
 #include <optional>
+#include <ttnn/operations/core/core.hpp>
 
 namespace tt::runtime::ttnn::operations::pool {
 
@@ -71,7 +72,8 @@ void run(const ::tt::target::ttnn::MaxPool2dOp *op, ProgramContext &context) {
       {op->padding_height(), op->padding_width()},
       {op->dilation_height(), op->dilation_width()}, outMemConfig,
       std::nullopt);
-
+  out = ::ttnn::to_layout(out, input.layout(), std::nullopt, std::nullopt,
+                          input.device());
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::pool
