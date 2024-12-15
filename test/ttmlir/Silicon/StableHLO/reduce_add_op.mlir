@@ -5,8 +5,6 @@
 // RUN:     ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: FileCheck --input-file=%t.mlir %s
-// UNSUPPORTED: true
-// error: keepdim=False is not supported
 
 module @jit_reduce_add attributes {} {
   func.func public @test_reduce_add(%arg0: tensor<128x10xf32>, %cst_0: tensor<f32>) -> tensor<128xf32> {

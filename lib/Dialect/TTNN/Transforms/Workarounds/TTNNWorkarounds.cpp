@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -399,44 +400,45 @@ public:
 
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
-      // Placeholder for workaround decomposition patterns.
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      patterns.add<
+          TTNNAllReduceWorkarounds,
+          workarounds::decomposition::ReduceOpsRewritePattern<ttnn::SumOp>,
+          workarounds::decomposition::ReduceOpsRewritePattern<ttnn::MaxOp>,
+          workarounds::decomposition::ReduceOpsRewritePattern<ttnn::MeanOp>>(
+          &getContext());
 
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
-      config.maxIterations = GreedyRewriteConfig::kNoLimit;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
+      runRewritePatterns(std::move(patterns));
     }
     if (layouotWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      // This configuration specifies that the rewriter should traverse the IR
-      // in a top-down order.
-      config.useTopDownTraversal = true;
-      // This configuration specifies the maximum number of iterations the
-      // rewriter will perform on the IR. The rewriter will iterate through the
-      // IR until a fixpoint is reached. All workarounds should be applied
-      // during the first iteration. If the workarounds are not applied in the
-      // first iteration, it indicates a bug in the workarounds implementation.
-      // Although the workarounds are applied in the first iteration, the
-      // rewriter must iterate through the IR once more to confirm that the
-      // fixpoint is reached. If the fixpoint is not reached in the second
-      // iteration, it indicates a bug in the workarounds implementation.
-      config.maxIterations = 2;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
+      runRewritePatterns(std::move(patterns));
+    }
+  }
+
+private:
+  void runRewritePatterns(RewritePatternSet &&patterns) {
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    GreedyRewriteConfig config = GreedyRewriteConfig();
+    // This configuration specifies that the rewriter should traverse the IR
+    // in a top-down order.
+    config.useTopDownTraversal = true;
+    // This configuration specifies the maximum number of iterations the
+    // rewriter will perform on the IR. The rewriter will iterate through the
+    // IR until a fixpoint is reached. All workarounds should be applied
+    // during the first iteration. If the workarounds are not applied in the
+    // first iteration, it indicates a bug in the workarounds implementation.
+    // Although the workarounds are applied in the first iteration, the
+    // rewriter must iterate through the IR once more to confirm that the
+    // fixpoint is reached. If the fixpoint is not reached in the second
+    // iteration, it indicates a bug in the workarounds implementation.
+    config.maxIterations = 2;
+    if (failed(
+            applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+      signalPassFailure();
+      return;
     }
   }
 };

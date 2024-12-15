@@ -1725,23 +1725,75 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
   opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
 }
 
-// Sum op kernel builder
-void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "sum");
+// Common verifier for all Reduce ops.
+static mlir::LogicalResult verifyReduceOp(mlir::Operation *reduceOp,
+                                          const mlir::ArrayAttr &reduceDims) {
+  int64_t inputTensorRank =
+      mlir::cast<mlir::RankedTensorType>(*reduceOp->getOperandTypes().begin())
+          .getRank();
+
+  // TODO: Update the error message if it turns out that reduce on all dims is
+  // actually supported by metal !!!!!!!!!!!!!!!!!!!!
+  if (reduceDims.size() > 2 &&
+      static_cast<int64_t>(reduceDims.size()) != inputTensorRank) {
+    return reduceOp->emitOpError(
+        "Reduce on more than two dimensions is not currently supported");
+  }
+
+  for (const mlir::Attribute &reduceDim : reduceDims) {
+    int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
+    if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
+      return reduceOp->emitOpError("Reduce dimensions are out of range");
+    }
+  }
+
+  return mlir::success();
 }
 
-// Mean op kernel builder
+//===----------------------------------------------------------------------===//
+// MaxOp
+//===----------------------------------------------------------------------===//
+
+// MaxOp kernel builder
+void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "max");
+}
+
+// MaxOp verification
+::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
+  return verifyReduceOp(getOperation(), getDimArgAttr());
+}
+
+//===----------------------------------------------------------------------===//
+// MeanOp
+//===----------------------------------------------------------------------===//
+
+// MeanOp kernel builder
 void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                 ::mlir::Block *block) {
   // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "mean");
 }
 
-// Max op kernel builder
-void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+// MeanOp verification
+::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
+  return verifyReduceOp(getOperation(), getDimArgAttr());
+}
+
+//===----------------------------------------------------------------------===//
+// SumOp
+//===----------------------------------------------------------------------===//
+
+// SumOp kernel builder
+void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "max");
+  createReduceOp(opBuilder, block, getLoc(), "sum");
+}
+
+// SumOp verification
+::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
+  return verifyReduceOp(getOperation(), getDimArgAttr());
 }

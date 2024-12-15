@@ -116,10 +116,10 @@ private:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr().size() > 0
-                                          ? adaptor.getDimensionsAttr()[0]
-                                          : 1)));
+    // Can't reuse the original dimensions attribute because it uses i64 type.
+    mlir::ArrayAttr dimArg =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>(std::vector<int32_t>(
+            srcOp.getDimensions().begin(), srcOp.getDimensions().end())));
 
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,
