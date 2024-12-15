@@ -7,6 +7,7 @@
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
+#include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include <cstdint>
 
 PYBIND11_MAKE_OPAQUE(std::shared_ptr<void>);
@@ -201,6 +202,23 @@ void populatePassesModule(py::module &m) {
           }
         });
 
+  m.def("ttkernel_to_cpp_file",
+        [](MlirModule module, std::string &filepath,
+           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
+          mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+          std::error_code fileError;
+          llvm::raw_fd_ostream file(filepath, fileError);
+          if (fileError) {
+            throw std::runtime_error("Failed to open file: " + filepath +
+                                     ". Error: " + fileError.message());
+          }
+          if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
+                  moduleOp, file))) {
+            throw std::runtime_error("Failed to write flatbuffer to file: " +
+                                     filepath);
+          }
+        });
+        
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16);
