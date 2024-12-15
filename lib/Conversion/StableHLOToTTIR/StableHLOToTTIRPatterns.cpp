@@ -194,14 +194,9 @@ public:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    std::vector<int32_t> new_shape_i32;
-    for (int64_t dim : outputType.getShape()) {
-      new_shape_i32.push_back(static_cast<int32_t>(dim));
-    }
-    ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getOperand(), outputTensor, new_shape_attr);
+        adaptor.getOperand(), outputTensor, outputType.getShape());
     return success();
   }
 

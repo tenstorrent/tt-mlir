@@ -3,28 +3,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/Value.h>
 
 namespace mlir {
 namespace tt {
 namespace ttir_to_ttnn::utils {
-ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
+// TODO (azecevic): Take a look at this again.
+ttnn::ReshapeOp generateReshape(TypedValue<RankedTensorType> input,
+                                ArrayRef<int64_t> newShape,
                                 PatternRewriter &rewriter) {
-  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto inputType = input.getType();
   auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
 
-  std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-  return rewriter.create<ttnn::ReshapeOp>(
-      input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
+  // TODO (azecevic): Verify range of new shape.
+  return rewriter.create<ttnn::ReshapeOp>(input.getLoc(), outputType, input,
+                                          llvm::SmallVector<int32_t>(newShape));
 }
 
-ttnn::ReshapeOp generateNHWFlatten(Value input, PatternRewriter &rewriter) {
-  std::vector<int64_t> shape =
-      mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
+ttnn::ReshapeOp generateNHWFlatten(TypedValue<RankedTensorType> input,
+                                   PatternRewriter &rewriter) {
+  llvm::ArrayRef<int64_t> shape = input.getType().getShape();
 
   assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
 
-  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
-                                   shape[3]};
+  llvm::SmallVector<int64_t> newShape{1, 1, shape[0] * shape[1] * shape[2],
+                                      shape[3]};
   return generateReshape(input, newShape, rewriter);
 }
 

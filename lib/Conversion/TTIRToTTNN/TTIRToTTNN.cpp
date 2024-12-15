@@ -26,7 +26,9 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <algorithm>
 #include <cstdint>
+#include <llvm/ADT/STLExtras.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -367,8 +369,9 @@ public:
   matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto gradType = adaptor.getInGradient().getType();
-    auto gradTensor = mlir::cast<RankedTensorType>(gradType);
+    auto grad =
+        mlir::cast<TypedValue<RankedTensorType>>(adaptor.getInGradient());
+    auto gradTensor = grad.getType();
     auto gradShape = gradTensor.getShape();
 
     // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
@@ -382,7 +385,7 @@ public:
     llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R, gradShape.back()};
 
     auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
-        adaptor.getInGradient(), reshapedGradShape, rewriter);
+        grad, reshapedGradShape, rewriter);
 
     // Get TTNNLayoutAttr of the result type.
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
@@ -568,9 +571,10 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // TODO (azecevic): Range check the shape attribute.
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getShape());
+        adaptor.getInput(), llvm::SmallVector<int32_t>(adaptor.getShape()));
     return success();
   }
 };
@@ -590,6 +594,7 @@ public:
   }
 };
 
+// TODO (azecevic): Move this to decomposition pattern.
 class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
 public:
   using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
@@ -597,41 +602,36 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SqueezeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Extract input tensor type
+    // Extract input tensor type.
     ::mlir::RankedTensorType inputType =
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
 
-    // Get the squeeze dimension
+    // Get the squeeze dimension.
     int32_t dim = adaptor.getDim();
 
     if (dim < 0) {
       dim += inputType.getRank();
     }
 
-    // Get the shape of the input tensor
-    auto inputShape = inputType.getShape();
+    // Get the shape of the input tensor.
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    // TODO (azecevic): Range check shape dimensions.
     llvm::SmallVector<int32_t, 4> newShape;
-
-    // Build the new shape by removing the specified dimension
-    for (int64_t i = 0; i < inputType.getRank(); ++i) {
-      if (i == dim) {
-        continue;
-      }
-      newShape.push_back(inputShape[i]);
-    }
-
-    // Create the new shape attribute
-    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+    std::copy(inputShape.begin(), inputShape.begin() + dim,
+              std::back_inserter(newShape));
+    std::copy(inputShape.begin() + dim + 1, inputShape.end(),
+              std::back_inserter(newShape));
 
     // Replace the SqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), newShape);
 
     return success();
   }
 };
 
+// TODO (azecevic): Move this to decomposition pattern.
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -640,37 +640,32 @@ public:
   LogicalResult
   matchAndRewrite(ttir::UnsqueezeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Extract input tensor type
+    // Extract input tensor type.
     ::mlir::RankedTensorType inputType =
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
 
-    // Get the unsqueeze dimension
+    // Get the unsqueeze dimension.
     int32_t dim = adaptor.getDim();
 
-    // Convert negative dim to its positive equivalent
+    // Convert negative dim to its positive equivalent.
     if (dim < 0) {
       dim += inputType.getRank() + 1;
     }
 
     // Get the shape of the input tensor
-    auto inputShape = inputType.getShape();
-    llvm::SmallVector<int32_t, 5> newShape;
-
-    // Insert the new dimension
-    for (int i = 0; i < inputType.getRank(); ++i) {
-      if (i == dim) {
-        newShape.push_back(1);
-      }
-      newShape.push_back(inputShape[i]);
-    }
-
-    // Create the new shape attribute
-    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    llvm::SmallVector<int32_t> newShape;
+    // TODO (azecevic): Range check the shape attribute.
+    std::copy(inputShape.begin(), inputShape.begin() + dim,
+              std::back_inserter(newShape));
+    newShape.push_back(1);
+    std::copy(inputShape.begin() + dim, inputShape.end(),
+              std::back_inserter(newShape));
 
     // Replace the UnsqueezeOp with a ReshapeOp
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), newShape);
 
     return success();
   }
@@ -782,35 +777,34 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto kernel_ty =
-        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    llvm::ArrayRef<std::int64_t> kernel_shape = kernel_ty.getShape();
+    auto kernelTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    llvm::ArrayRef<int64_t> kernelShape = kernelTy.getShape();
 
-    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+    auto input = mlir::cast<TypedValue<RankedTensorType>>(adaptor.getInput());
+    auto inputTy = input.getType();
+    llvm::ArrayRef<std::int64_t> inputShape = inputTy.getShape();
 
-    auto output_ty =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
-    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    llvm::ArrayRef<int64_t> outputShape = outputTy.getShape();
 
-    auto in_channels =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 1]);
-    auto out_channels =
-        rewriter.getI32IntegerAttr(output_shape[output_shape.size() - 1]);
-    auto batch_size =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 4]);
-    auto input_height =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 3]);
-    auto input_width =
-        rewriter.getI32IntegerAttr(input_shape[input_shape.size() - 2]);
+    auto inChannels =
+        rewriter.getI32IntegerAttr(inputShape[inputShape.size() - 1]);
+    auto outChannels =
+        rewriter.getI32IntegerAttr(outputShape[outputShape.size() - 1]);
+    auto batchSize =
+        rewriter.getI32IntegerAttr(inputShape[inputShape.size() - 4]);
+    auto inputHeight =
+        rewriter.getI32IntegerAttr(inputShape[inputShape.size() - 3]);
+    auto inputWidth =
+        rewriter.getI32IntegerAttr(inputShape[inputShape.size() - 2]);
 
-    auto kernel_height =
-        rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size() - 2]);
-    auto kernel_width =
-        rewriter.getI32IntegerAttr(kernel_shape[kernel_shape.size() - 1]);
+    auto kernelHeight =
+        rewriter.getI32IntegerAttr(kernelShape[kernelShape.size() - 2]);
+    auto kernelWidth =
+        rewriter.getI32IntegerAttr(kernelShape[kernelShape.size() - 1]);
 
-    auto stride_height = rewriter.getI32IntegerAttr(adaptor.getStrideHeight());
-    auto stride_width = rewriter.getI32IntegerAttr(adaptor.getStrideWidth());
+    auto strideHeight = rewriter.getI32IntegerAttr(adaptor.getStrideHeight());
+    auto strideWidth = rewriter.getI32IntegerAttr(adaptor.getStrideWidth());
 
     assert(
         adaptor.getPaddingBottom() == adaptor.getPaddingTop() &&
@@ -820,45 +814,43 @@ public:
            "TTNN only supports padding height/width attributes. Thus, "
            "padding_left must equal padding_right for the op to execute as "
            "expected.");
-    auto padding_height = rewriter.getI32IntegerAttr(adaptor.getPaddingTop());
-    auto padding_width = rewriter.getI32IntegerAttr(adaptor.getPaddingRight());
+    auto paddingHeight = rewriter.getI32IntegerAttr(adaptor.getPaddingTop());
+    auto paddingWidth = rewriter.getI32IntegerAttr(adaptor.getPaddingRight());
 
-    auto dilation_height =
+    auto dilationHeight =
         rewriter.getI32IntegerAttr(adaptor.getDilationHeight());
-    auto dilation_width =
-        rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
+    auto dilationWidth = rewriter.getI32IntegerAttr(adaptor.getDilationWidth());
     auto groups = rewriter.getI32IntegerAttr(adaptor.getGroups());
 
-    std::vector<int64_t> flattenedInputShape = {
-        1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]};
-    Value flattenedInput =
-        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
+    llvm::SmallVector<int64_t> flattenedInputShape{
+        1, 1, inputShape[0] * inputShape[1] * inputShape[2], inputShape[3]};
+    ttnn::ReshapeOp flattenedInput =
+        ttir_to_ttnn::utils::generateNHWFlatten(input, rewriter);
 
-    std::vector<int64_t> flattenedOutputShape = {
-        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
-        output_shape[3]};
+    llvm::SmallVector<int64_t> flattenedOutputShape{
+        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
 
-    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
     // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
     // attribute determination
     auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
         adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
-        output_ty.getElementType());
+        outputTy.getElementType());
 
     // Must set the type to the output type to maintain the layout attributes
-    convDPSOutput.getResult().setType(output_ty);
+    convDPSOutput.getResult().setType(outputTy);
 
     ttnn::Conv2dOp new_conv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), output_ty, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), convDPSOutput, device, in_channels, out_channels,
-        batch_size, input_height, input_width, kernel_height, kernel_width,
-        stride_height, stride_width, padding_height, padding_width,
-        dilation_height, dilation_width, groups);
+        op.getLoc(), outputTy, flattenedInput, adaptor.getWeight(),
+        adaptor.getBias(), convDPSOutput, device, inChannels, outChannels,
+        batchSize, inputHeight, inputWidth, kernelHeight, kernelWidth,
+        strideHeight, strideWidth, paddingHeight, paddingWidth, dilationHeight,
+        dilationWidth, groups);
 
     Value output =
-        ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
+        ttir_to_ttnn::utils::generateReshape(new_conv, outputShape, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
@@ -882,42 +874,40 @@ public:
            "separately");
 
     auto device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+    auto input = mlir::cast<TypedValue<RankedTensorType>>(adaptor.getInput());
+    auto inputTy = input.getType();
+    llvm::ArrayRef<int64_t> inputShape = inputTy.getShape();
 
-    auto batch_size =
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 4]);
+    auto batchSize =
+        rewriter.getSI32IntegerAttr(inputShape[inputShape.size() - 4]);
     auto channels =
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
+        rewriter.getSI32IntegerAttr(inputShape[inputShape.size() - 1]);
 
     Value flattenedInput =
-        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
+        ttir_to_ttnn::utils::generateNHWFlatten(input, rewriter);
 
-    auto output_ty =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
-    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    llvm::ArrayRef<std::int64_t> outputShape = outputTy.getShape();
 
-    std::vector<int64_t> flattenedOutputShape = {
-        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
-        output_shape[3]};
+    llvm::SmallVector<int64_t> flattenedOutputShape{
+        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
 
-    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+    outputTy = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+        outputTy.cloneWith(flattenedOutputShape, outputTy.getElementType())));
 
     // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
     // attribute determination
     auto poolDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
         adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
-        output_ty.getElementType());
+        outputTy.getElementType());
 
     // Must set the type to the output type to maintain the layout attributes
-    poolDPSOutput.getResult().setType(output_ty);
+    poolDPSOutput.getResult().setType(outputTy);
 
-    auto new_pool = rewriter.create<ttnn::MaxPool2dOp>(
-        op.getLoc(), output_ty, flattenedInput, poolDPSOutput, device,
-        batch_size,
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 3]),
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 2]),
+    auto newPool = rewriter.create<ttnn::MaxPool2dOp>(
+        op.getLoc(), outputTy, flattenedInput, poolDPSOutput, device, batchSize,
+        rewriter.getSI32IntegerAttr(inputShape[inputShape.size() - 3]),
+        rewriter.getSI32IntegerAttr(inputShape[inputShape.size() - 2]),
         channels, adaptor.getKernelHeightAttr(), adaptor.getKernelWidthAttr(),
         adaptor.getStrideHeightAttr(), adaptor.getStrideWidthAttr(),
         adaptor.getDilationHeightAttr(), adaptor.getDilationWidthAttr(),
@@ -925,7 +915,7 @@ public:
         adaptor.getPaddingRightAttr());
 
     Value output =
-        ttir_to_ttnn::utils::generateReshape(new_pool, output_shape, rewriter);
+        ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);
 
     rewriter.replaceOp(op, output);
 

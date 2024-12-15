@@ -44,7 +44,7 @@ func.func @ge(%arg0: tensor<224x64xf32>, %arg1: tensor<224x64xf32>) -> tensor<22
 func.func @reshape(%arg0: tensor<4x2x224x64xbf16>) -> tensor<2x4x224x64xbf16> {
   %0 = tensor.empty() : tensor<2x4x224x64xbf16>
   // CHECK: %[[C:.*]] = "ttnn.reshape"[[C:.*]]
-  %1 = "ttir.reshape"(%arg0, %0) <{shape = [2: i32, 4: i32, 224: i32, 64: i32]}> : (tensor<4x2x224x64xbf16>, tensor<2x4x224x64xbf16>) -> tensor<2x4x224x64xbf16>
+  %1 = "ttir.reshape"(%arg0, %0) <{shape = array<i64: 2, 4, 224, 64>}> : (tensor<4x2x224x64xbf16>, tensor<2x4x224x64xbf16>) -> tensor<2x4x224x64xbf16>
   return %1 : tensor<2x4x224x64xbf16>
 }
 

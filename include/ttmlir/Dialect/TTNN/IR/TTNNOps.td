@@ -683,7 +683,7 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         I32ArrayAttr:$shape);
+                         DenseI32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
 

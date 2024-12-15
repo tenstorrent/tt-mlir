@@ -922,7 +922,7 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32ArrayAttr:$shape);
+                         DenseI64ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
 
