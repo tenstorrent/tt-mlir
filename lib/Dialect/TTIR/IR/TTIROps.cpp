@@ -1593,8 +1593,7 @@ bool matchSimpleBlock(mlir::Region &region) {
   // Check that given attribute `permutation` is a valid permutation of the
   // dimensions.
   llvm::ArrayRef<int64_t> permutation = getPermutation();
-  llvm::SmallVector<int64_t> dimensions(inputRank);
-  std::iota(dimensions.begin(), dimensions.end(), 0);
+  auto dimensions = llvm::seq<int64_t>(inputRank);
   if (inputRank != permutation.size() ||
       !std::is_permutation(permutation.begin(), permutation.end(),
                            dimensions.begin())) {
@@ -1605,9 +1604,8 @@ bool matchSimpleBlock(mlir::Region &region) {
 
   // Check that the result shape matches the shape of input tensor after
   // permutation is applied.
-  llvm::SmallVector<int64_t> expectedResultShape(inputShape.size());
-  llvm::transform(permutation, expectedResultShape.begin(),
-                  [&](const int64_t i) { return inputShape[i]; });
+  llvm::SmallVector<int64_t> expectedResultShape =
+      ttmlir::utils::applyPermutation(inputShape, permutation);
   if (!llvm::equal(expectedResultShape, resultShape)) {
     return emitOpError("Expected result shape (" +
                        ttmlir::utils::join(expectedResultShape, ", ") +

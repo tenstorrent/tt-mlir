@@ -125,6 +125,17 @@ inline bool isRankedTensor(mlir::Value v) {
   return mlir::isa<mlir::RankedTensorType>(v.getType());
 }
 
+template <typename T>
+llvm::SmallVector<T> applyPermutation(llvm::ArrayRef<T> input,
+                                      llvm::ArrayRef<int64_t> permutation) {
+  llvm::SmallVector<T> output(input.size());
+
+  llvm::transform(permutation, output.begin(),
+                  [&](const int64_t i) { return input[i]; });
+
+  return output;
+}
+
 } // namespace ttmlir::utils
 
 #endif
