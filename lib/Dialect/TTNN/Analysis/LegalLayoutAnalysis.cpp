@@ -228,16 +228,20 @@ void LegalLayoutAnalysis::analysisImplementation() {
         TensorMemoryLayoutAttr::get(op->getContext(),
                                     TensorMemoryLayout::Interleaved)));
 
-    // L1 Interleaved (same as above).
-    analysisResult.push_back(TTNNLayoutAttr::get(
-        op->getContext(), tensorShape, elementType, BufferType::L1,
-        analysisInput.maxGrid,
-        TensorMemoryLayoutAttr::get(op->getContext(),
-                                    TensorMemoryLayout::Interleaved)));
+    // L1 Interleaved - It must be tiled.
+    if (elementType == tileElementType) {
+      analysisResult.push_back(TTNNLayoutAttr::get(
+          op->getContext(), tensorShape, elementType, BufferType::L1,
+          analysisInput.maxGrid,
+          TensorMemoryLayoutAttr::get(op->getContext(),
+                                      TensorMemoryLayout::Interleaved)));
+    }
 
     // L1 Sharded
     TTNNLayoutAttr shardedBase =
         layout.withBufferType(op->getContext(), BufferType::L1)
+            .withMemoryLayout(op->getContext(),
+                              TensorMemoryLayout::BlockSharded)
             .withElementType(op->getContext(), elementType);
 
     assert(analysisInput.maxGrid.getShape().size() == 2 &&
@@ -246,12 +250,9 @@ void LegalLayoutAnalysis::analysisImplementation() {
     for (int width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
       for (int height = 1; height <= analysisInput.maxGrid.getShape()[1];
            ++height) {
-        shardedResults.push_back(
-            shardedBase
-                .withGrid(op->getContext(), tensorType,
-                          GridAttr::get(op->getContext(), {width, height}))
-                .withMemoryLayout(op->getContext(),
-                                  TensorMemoryLayout::BlockSharded));
+        shardedResults.push_back(shardedBase.withGrid(
+            op->getContext(), tensorType,
+            GridAttr::get(op->getContext(), {width, height})));
       }
     }
 

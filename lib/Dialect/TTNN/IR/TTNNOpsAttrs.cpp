@@ -494,15 +494,24 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
     Type elementType, BufferType bufferType, GridAttr grid,
     TensorMemoryLayoutAttr memLayoutAttr,
     ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+
   // Construct a new affine map which will be used to map from logical
-  // space to physical space
+  // space to physical space.
   AffineMap linear = collapsedLinearAffineMap(
       context, tensorShape, grid.getShape(), collapseIntervals);
-  // Calculate shard shape by evaluating the linear map with last element
-  // of the tensor shape and dividing it by the grid shape
-  mlir::SmallVector<int64_t, 4> shardShape =
-      TTNNLayoutAttr::calculateLogicalShardShapeForSharding(tensorShape, linear,
-                                                            grid);
+
+  // Calculate shard shape by evaluating the linear map.
+  //
+  mlir::SmallVector<int64_t> shardShape;
+  if (bufferType == BufferType::L1 &&
+      memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
+    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForInterleaved(
+        tensorShape, elementType, linear, grid);
+  } else {
+    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
+        tensorShape, linear, grid);
+  }
+
   // Build memref type with the given parameters
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
