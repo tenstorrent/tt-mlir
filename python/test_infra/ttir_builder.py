@@ -244,13 +244,54 @@ class TTIRBuilder:
             return op
 
     # ----- TTIR op factories -----
-    def eltwise_proxy(
+    def _organize_eltwise_ttir(
+        self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
+    ):
+        return ([self._get_type(output)], inputs, [output])
+
+    def _organize_eltwise_golden(
+        self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
+    ):
+        return [self._get_golden_tensor(inp) for inp in inputs]
+
+    def op_proxy(
         self,
         op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
-    ) -> OpView:
+        organize_ttir_args: Optional[Callable] = None,
+        organize_golden_args: Optional[Callable] = None,
+        output_shape: Optional[Shape] = None,
+        golden_kwargs: dict = {},
+        ttir_kwargs: dict = {},
+    ) -> Any:
+        """
+        Provides a general interface for proxy-ing OPs and creating them.
 
+        Parameters:
+        - op_golden_function (Callable): A function that creates the OP using a golden approach.
+        - op_ttir_function (Callable): A function that creates the OP using a TTIR approach.
+        - inputs (List[Operand]): A list of operands serving as inputs to the OP.
+        - organize_ttir_args (Callable): A function that organizes the inputs and other positional arguments for the TTIR approach.
+            - Function signature:
+
+                def organize_ttir_args(inputs: List[Operand], output: OpView, output_shape: Optional[Shape]) -> List/Tuple
+
+                The list/tuple will then be unpacked as the positional arguments for the op_ttir_function
+
+        - organize_golden_args (Callable): A function that organizes the inputs and other arguments for the golden approach.
+            - Function signature:
+
+                def organize_golden_args(inputs: List[Operand], output: OpView, output_shape: Optional[Shape]) -> List/Tuple
+
+                The list/tuple will then be unpacked as the positional arugments for the op_golden_function
+        - output_shape (Optional[Shape]): An optional argument specifying the shape of the output of the OP.
+        - golden_kwargs (dict): Additional keyword arguments for the `op_golden_function`.
+        - ttir_kwargs (dict): Additional keyword arguments for the `op_ttir_function`.
+
+        Returns:
+        - OpView: The created op
+        """
         # Snoop the location of the first caller outside of this file to
         # annotate the MLIR with. NOTE that this location is _NOT_ row:col, but
         # instead row:id, where id is a unique id given to all calls to builder
@@ -267,28 +308,42 @@ class TTIRBuilder:
             len(stack) > 0
         ), "Top of callstack to builder funcs must be outside this file"
 
+        if organize_ttir_args is None:
+            organize_ttir_args = self._organize_eltwise_ttir
+
+        if organize_golden_args is None:
+            organize_golden_args = self._organize_eltwise_golden
+
         with self._ctx, self._loc:
-            output = self.empty(self.get_shape(inputs[0]))
+            shape = self.get_shape(inputs[0]) if not output_shape else output_shape
+            output = self.empty(shape)
 
             id = self.get_next_global_id()
 
             op = op_ttir_function(
-                [self._get_type(output)],
-                inputs,
-                [output],
+                *organize_ttir_args(inputs, output, output_shape),
                 loc=Location.name(str(id)),
+                **ttir_kwargs,
             )
 
-            goldens = []
-            for input in inputs:
-                goldens.append(self._get_golden_tensor(input))
-
-            golden = Golden(op_golden_function(*goldens))
+            golden = Golden(
+                op_golden_function(
+                    *organize_golden_args(inputs, output, output_shape), **golden_kwargs
+                )
+            )
             self.id_golden_map[str(id)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 
             return op
+
+    def eltwise_proxy(
+        self,
+        op_golden_function: Callable,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
+    ) -> OpView:
+        return self.op_proxy(op_golden_function, op_ttir_function, inputs)
 
     def exp(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0])
@@ -355,3 +410,37 @@ class TTIRBuilder:
 
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+
+    def matmul(
+        self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
+    ) -> OpView:
+        # Calculate the output shape for Matmul
+        inputs = [in0, in1]
+        if bias:
+            inputs.append(bias)
+        shapes = [self.get_shape(x) for x in inputs]
+        shape = (shapes[0][0], shapes[1][1])
+        assert (
+            shapes[0][1] == shapes[1][0]
+        ), "Input Shapes not compatible for Matrix Multiplication"
+        return self.op_proxy(
+            torch.matmul,
+            ttir.MatmulOp,
+            inputs,
+            output_shape=shape,
+            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+        )
+
+    def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
+        return self.op_proxy(
+            torch.softmax,
+            ttir.SoftmaxOp,
+            [in0],
+            golden_kwargs={"dim": dimension},
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+                dimension,
+            ),
+        )
