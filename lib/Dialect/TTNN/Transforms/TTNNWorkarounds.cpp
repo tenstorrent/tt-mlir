@@ -471,6 +471,47 @@ public:
   }
 };
 
+class TTNNTypecastWorkarounds : public OpRewritePattern<ttnn::ReshapeOp> {
+public:
+  using OpRewritePattern<ttnn::ReshapeOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ReshapeOp op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getInput().getType());
+
+    if (inputType.getElementType().isBF16() ||
+        inputType.getElementType().isF16() || inputType.isF32() ||
+        inputType.isF64()) {
+    }
+
+    // The remainder of the types require a typecastOp before and after the
+    // actual operation
+    DataTypeAttr toDtypeAttr =
+        DataTypeAttr::get(op.getContext(), DataType::BFloat16);
+
+    rewriter.setInsertionPoint(op);
+    ttnn::TypecastOp toType = rewriter.create<ttnn::TypecastOp>(
+        op.getLoc(), op.getResult().getType(), op.getInput(), toDtypeAttr);
+
+    ttnn::ReshapeOp reshape = rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, op.getType(), toType.getResult(), op.getShape());
+
+    DataTypeAttr fromDtypeAttr = DataTypeAttr::get(
+        op.getContext(),
+        elementTypeToDataType(op.getInput().getType().getElementType()));
+
+    rewriter.setInsertionPointAfter(op);
+    ttnn::TypecastOp fromType = rewriter.create<ttnn::TypecastOp>(
+        op.getLoc(), reshape.getResult().getType(), reshape.getResult(),
+        fromDtypeAttr);
+
+    rewriter.replaceAllOpUsesWith(reshape, fromType);
+
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -481,6 +522,7 @@ public:
       // Placeholder for workaround decomposition patterns.
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      patterns.add<TTNNTypecastWorkarounds>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
