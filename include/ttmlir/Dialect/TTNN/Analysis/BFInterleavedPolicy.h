@@ -25,12 +25,6 @@ public:
     uint64_t numOfUnscheduledUsers;
   };
 
-  // TODO(fbajraktari): Add struct description.
-  struct LookaheadResult {
-    Operation *destOp;
-    uint64_t allocOfL1Mem;
-  };
-
 public:
   BFInterleavedPolicy(
       Operation *rootOp, std::vector<L1ChainConfig> &l1ChainConfigs,
@@ -56,11 +50,6 @@ private:
   //
   void walkOnAnalyzableOperands(Operation *op,
                                 function_ref<void(Operation *)> callback);
-
-  // TODO(fbajraktari): Add method description.
-  LookaheadResult lookahead(
-      Operation *op,
-      const llvm::DenseMap<Operation *, OpL1MemUsage> &currentL1UsagePerOp);
 
   // Fetch op's DRAM layout from legalLayouts.
   bool hasDRAMBufferType(Operation *op);

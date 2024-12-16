@@ -119,16 +119,16 @@ createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
 
 uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
                             DeviceAttr &deviceAttr) {
+  assert(mlir::isa<RankedTensorType>(op->getResult(0).getType()) &&
+         "L1 memory usage of the ops without output tensors cannot be "
+         "calculated.");
+
   // In case the opLayout is not in L1 memory space, L1 memory usage is 0.
   //
   if (opLayout.hasDRAMBufferType()) {
     return 0;
   }
 
-  // L1 memory usage of the ops without output tensors cannot be calculated.
-  // So far, this is only false for ttnn.get_device op.
-  //
-  assert(mlir::isa<RankedTensorType>(op->getResult(0).getType()));
   llvm::ArrayRef<int64_t> opOutputTensorShape =
       mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape();
 

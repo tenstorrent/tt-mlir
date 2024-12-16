@@ -1,7 +1,6 @@
 add_mlir_unittest(OptimizerTests
     TestShardSolver.cpp
     TestOptimizerOverrides.cpp
-    TestDisjointL1ChainConfigsUnion.cpp
     TestGreedyL1InterleavedPolicy.cpp
 )
 

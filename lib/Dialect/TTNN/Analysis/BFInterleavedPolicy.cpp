@@ -10,18 +10,6 @@
 
 namespace mlir::tt::ttnn {
 
-BFInterleavedPolicy::LookaheadResult BFInterleavedPolicy::lookahead(
-    Operation *op,
-    const llvm::DenseMap<Operation *, OpL1MemUsage> &currentL1UsagePerOp) {
-  TTNNLayoutAttr layout = getL1InterleavedLayout(op);
-  uint64_t opOutputL1Usage = utils::getOpOutputL1Usage(op, layout, deviceAttr);
-
-  LookaheadResult result;
-  result.destOp = op;
-  result.allocOfL1Mem = opOutputL1Usage;
-  return result;
-}
-
 void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
@@ -64,11 +52,12 @@ void BFInterleavedPolicy::run() {
         // Analyse the possibility of scheduling the op with L1 memory layout.
         //
         if (hasL1BufferType(op)) {
-          LookaheadResult result = lookahead(op, currentL1UsagePerOp);
+          TTNNLayoutAttr layout = getL1InterleavedLayout(op);
+          uint64_t opOutputL1Usage =
+              utils::getOpOutputL1Usage(op, layout, deviceAttr);
 
-          if (currentL1Usage + result.allocOfL1Mem <=
-              getAvailableL1CacheSize()) {
-            allocOfL1Mem = result.allocOfL1Mem;
+          if (currentL1Usage + opOutputL1Usage <= getAvailableL1CacheSize()) {
+            allocOfL1Mem = opOutputL1Usage;
             opBufferType = BufferType::L1;
           }
         }
