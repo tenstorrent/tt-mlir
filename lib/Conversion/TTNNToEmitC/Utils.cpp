@@ -4,9 +4,54 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
 
+#include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::tt::ttnn_to_emitc::utils {
+
+mlir::ModuleOp getParentModule(mlir::Operation *op) {
+  while (op) {
+    if (auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op)) {
+      return moduleOp;
+    }
+    op = op->getParentOp();
+  }
+  return nullptr;
+}
+
+bool insertVecCreateFnIfNotExists(PatternRewriter &rewriter, Operation *op) {
+  ModuleOp moduleOp = getParentModule(op);
+  assert(op && "Could not find top-level module");
+
+  static constexpr const char *vecCreateFnAsStr = R"(
+template <typename... T>
+std::vector<ttnn::Tensor> utilCreateVec(const T &&...t) {
+  return std::vector<ttnn::Tensor>{std::forward(t)...};
+}
+)";
+
+  for (auto &currOp : moduleOp.getOps()) {
+    if (auto verbatimOp = dyn_cast<emitc::VerbatimOp>(currOp)) {
+      // Check if value of the VerbatimOp is the vecCreateFnAsStr - if so, it
+      // means that the util vec function has already been added to the module
+      //
+      if (verbatimOp.getValue() == vecCreateFnAsStr) {
+        return false;
+      }
+    }
+  }
+
+  // Set insertion to start of module, add the func there, and restore the
+  // insertion point
+  //
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPointToStart(moduleOp.getBody(0));
+  rewriter.create<emitc::VerbatimOp>(op->getLoc(), vecCreateFnAsStr);
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+
+  return true;
+}
 
 emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
   llvm::ArrayRef shape = attr.getShape();
