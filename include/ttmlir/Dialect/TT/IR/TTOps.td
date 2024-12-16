@@ -32,4 +32,16 @@ def TT_GetTupleElementOp: TT_Op<"get_tuple_element", [Pure, DeclareOpInterfaceMe
     }];
 }
 
+def TT_TupleOp : TT_Op<"tuple", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let summary = "Tuple operation";
+  let description = [{}];
+
+  let arguments = (ins Variadic<TT_TupleReturnType>:$operands);
+  let results = (outs TT_Tuple:$result);
+
+  let assemblyFormat = [{
+    $operands attr-dict `:` custom<TupleOpType>(type($operands), type($result))
+  }];
+}
+
 #endif

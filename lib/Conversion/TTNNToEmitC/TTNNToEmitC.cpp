@@ -613,6 +613,36 @@ public:
   }
 };
 
+class TupleOpConversionPattern : public OpConversionPattern<tt::TupleOp> {
+
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::TupleOp tupleOp, tt::TupleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // clang-format off
+// static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange resultTypes, ::llvm::StringRef callee, ::mlir::ValueRange operands, ::mlir::ArrayAttr args = {}, ::mlir::ArrayAttr template_args = {});
+// static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange resultType0, ::mlir::StringAttr callee, /*optional*/::mlir::ArrayAttr args, /*optional*/::mlir::ArrayAttr template_args, ::mlir::ValueRange operands);
+// static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange resultType0, ::llvm::StringRef callee, /*optional*/::mlir::ArrayAttr args, /*optional*/::mlir::ArrayAttr template_args, ::mlir::ValueRange operands);
+    // clang-format on
+
+    // rewriter.create<emitc::CallOpaqueOp>(
+    //     tupleOp->getLoc(),
+    //     this->getTypeConverter()->convertType(tupleOp.getType()),
+    //     "std::vector<ttnn::Tensor>", nullptr, nullptr, ValueRange());
+
+    // rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+    //     tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
+    //     "blatruc", nullptr, nullptr, adaptor.getOperands());
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
+        "blatruc", nullptr, nullptr, adaptor.getOperands());
+    return success();
+  }
+};
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -779,6 +809,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Tuple ops
   //
   patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

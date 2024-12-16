@@ -1122,8 +1122,10 @@ public:
           "Expected all inputs must be of type RankedTensorType");
       mlir::TupleType inputTupleType =
           mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
+      mlir::TupleType outputTupleType =
+          mlir::TupleType::get(&getContext(), originalFuncType.getResults());
       FunctionType tuplifiedFuncType =
-          originalFuncType.clone(inputTupleType, originalFuncType.getResults());
+          originalFuncType.clone(inputTupleType, outputTupleType);
       rewriter.modifyOpInPlace(forwardFuncOp,
                                [&forwardFuncOp, &tuplifiedFuncType]() {
                                  forwardFuncOp.setType(tuplifiedFuncType);
@@ -1156,7 +1158,23 @@ public:
       // Erase original arguments
       //
       entryBlock.eraseArguments(1, originalFuncType.getInputs().size());
+
+      // Find return statement and replace with tuple
+      //
+      rewriter.setInsertionPointToEnd(&entryBlock);
+      forwardFuncOp->walk([&](mlir::func::ReturnOp returnOp) {
+        // auto qwe = returnOp->getOperandTypes();
+        // mlir::TupleType tupleType = mlir::TupleType::get(&getContext(), qwe);
+
+        TupleOp tupleOp = rewriter.create<mlir::tt::TupleOp>(
+            returnOp.getLoc(), returnOp.getOperands());
+
+        rewriter.replaceOpWithNewOp<mlir::func::ReturnOp>(returnOp,
+                                                          tupleOp.getResult());
+      });
     }
+
+    // module.dump();
   }
 };
 

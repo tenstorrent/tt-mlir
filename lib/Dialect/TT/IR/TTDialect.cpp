@@ -58,6 +58,26 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
   }
 };
 
+void printTupleOpType(OpAsmPrinter &p, Operation *, TypeRange, Type result) {
+  p.printType(result);
+}
+
+ParseResult parseTupleOpType(OpAsmParser &parser,
+                             SmallVectorImpl<Type> &operands, Type &result) {
+  // Result type must be tuple type.
+  llvm::SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseType(result))
+    return failure();
+
+  auto tupType = dyn_cast<TupleType>(result);
+  if (!tupType)
+    return parser.emitError(loc, "expected tuple type");
+
+  // Assign operand types to tuple types
+  llvm::append_range(operands, tupType.getTypes());
+  return success();
+}
+
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
