@@ -11,6 +11,7 @@ endif()
 set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
     TTMetalTargetFlatbuffer
+    TTKernelTargetCpp
     MLIRTTDialect
     MLIRTTIRDialect
     MLIRTTNNDialect
