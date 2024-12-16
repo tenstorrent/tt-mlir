@@ -1114,15 +1114,16 @@ public:
       // Replace the signature of the forward function so that all the tensor
       // arguments are packed into a single tuple
       //
-      mlir::FunctionType ft = forwardFuncOp.getFunctionType();
+      mlir::FunctionType originalFuncType = forwardFuncOp.getFunctionType();
       assert(
-          std::all_of(ft.getInputs().begin(), ft.getInputs().end(),
+          std::all_of(originalFuncType.getInputs().begin(),
+                      originalFuncType.getInputs().end(),
                       [](Type t) { return mlir::isa<RankedTensorType>(t); }) &&
           "Expected all inputs must be of type RankedTensorType");
       mlir::TupleType inputTupleType =
-          mlir::TupleType::get(&getContext(), ft.getInputs());
+          mlir::TupleType::get(&getContext(), originalFuncType.getInputs());
       FunctionType tuplifiedFuncType =
-          ft.clone(inputTupleType, ft.getResults());
+          originalFuncType.clone(inputTupleType, originalFuncType.getResults());
       rewriter.modifyOpInPlace(forwardFuncOp,
                                [&forwardFuncOp, &tuplifiedFuncType]() {
                                  forwardFuncOp.setType(tuplifiedFuncType);
@@ -1138,11 +1139,12 @@ public:
       // original block arguments as they have no live uses anymore
       //
       Block &entryBlock = forwardFuncOp.getBlocks().front();
-      entryBlock.insertArgument(0u, tuplifiedFuncType.getInputs().front(),
+      entryBlock.insertArgument(/*index=*/0u,
+                                tuplifiedFuncType.getInputs().front(),
                                 forwardFuncOp.getLoc());
 
       rewriter.setInsertionPointToStart(&entryBlock);
-      for (size_t idx = 0; idx < ft.getInputs().size(); idx++) {
+      for (size_t idx = 0; idx < originalFuncType.getInputs().size(); idx++) {
         ::mlir::tt::GetTupleElementOp getTupleElementOp =
             rewriter.create<mlir::tt::GetTupleElementOp>(
                 forwardFuncOp.getLoc(), forwardFuncOp.getArgument(0), idx);
@@ -1153,7 +1155,7 @@ public:
 
       // Erase original arguments
       //
-      entryBlock.eraseArguments(1, ft.getInputs().size());
+      entryBlock.eraseArguments(1, originalFuncType.getInputs().size());
     }
   }
 };
