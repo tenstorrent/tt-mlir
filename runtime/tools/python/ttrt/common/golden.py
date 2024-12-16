@@ -2,22 +2,26 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
 import re
+from functools import partial
 
 from ttrt.common.util import *
+
+
+class GoldenRuntimeConfig:
+    def __init__(
+        self,
+        atol=1e-08,
+        rtol=1e-05,
+        pcc=0.99,
+        artifact_dir="",
+        save_golden_tensors=False,
+    ):
+        self.artifact_dir = artifact_dir
+        self.pcc = pcc
+        self.atol = atol
+        self.rtol = rtol
+        self.save_golden_tensors = save_golden_tensors
 
 
 def get_atol_rtol_pcc(golden, calculated):
@@ -103,7 +107,9 @@ def get_atol_rtol_pcc(golden, calculated):
     )
 
 
-def golden(binary, programContext, opContext):
+def golden_partial_function(
+    golden_runtime_config, golden_results_data, binary, program_context, op_context
+):
     import torch
     import ttrt.runtime
     import ttrt.binary
@@ -111,33 +117,53 @@ def golden(binary, programContext, opContext):
     print("-----------executing golden comparision-----------")
 
     try:
-        loc = ttrt.runtime.get_op_loc_info(opContext)
+        op_debug_str = ttrt.runtime.get_op_debug_str(op_context)
 
+        # find matching golden tensor based on loc in op debug string
+        match = re.search(r"loc\(([^)]+)\)", op_debug_str)
+
+        if not match:
+            print(f"debug_str={op_debug_str}")
+            print("No location found in debug string - skipping golden comparison")
+            return
+
+        loc = match.group(1).replace('"', "")
         print(f"found location={loc}")
 
         op_golden_tensor = binary.get_debug_info_golden(loc)
-        op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext)
+        op_output_tensor = ttrt.runtime.get_op_output_tensor(
+            op_context, program_context
+        )
 
-        if len(op_golden_tensor) == 0:
-            print("Golden tensor is empty - skipping golden comparison")
+        if op_golden_tensor is None:
+            print("Golden tensor is None - skipping golden comparison")
             return
 
         if len(op_output_tensor) == 0:
             print("Output tensor is empty - skipping golden comparison")
             return
 
-        if len(op_golden_tensor) != len(op_output_tensor):
+        dtype = ttrt_datatype_to_torch_dtype(op_golden_tensor.dtype)
+
+        golden_tensor_torch = torch.frombuffer(op_golden_tensor, dtype=dtype).flatten()
+
+        output_tensor_torch = torch.tensor(op_output_tensor, dtype=dtype).flatten()
+
+        if golden_runtime_config.save_golden_tensors:
+            torch.save(
+                golden_tensor_torch,
+                f"{golden_runtime_config.artifact_dir}/{loc}_golden.pt",
+            )
+            torch.save(
+                output_tensor_torch,
+                f"{golden_runtime_config.artifact_dir}/{loc}_device.pt",
+            )
+
+        if golden_tensor_torch.shape != output_tensor_torch.shape:
             print(
-                "Golden and output tensor sizes do not match - skipping golden comparison"
+                "Golden and output tensor shapes do not match - skipping golden comparison"
             )
             return
-
-        golden_tensor_torch = torch.tensor(
-            op_golden_tensor, dtype=torch.float32
-        ).flatten()
-        output_tensor_torch = torch.tensor(
-            op_output_tensor, dtype=torch.float32
-        ).flatten()
 
         _, _, cal_pcc, output_str = get_atol_rtol_pcc(
             golden_tensor_torch, output_tensor_torch
@@ -145,5 +171,36 @@ def golden(binary, programContext, opContext):
 
         print(f"PCC={cal_pcc}")
         print(output_str)
+
+        results = {}
+        results["expected_pcc"] = golden_runtime_config.pcc
+        results["actual_pcc"] = cal_pcc
+        results["atol"] = golden_runtime_config.atol
+        results["rtol"] = golden_runtime_config.rtol
+        results["allclose"] = torch.allclose(
+            golden_tensor_torch,
+            output_tensor_torch,
+            atol=golden_runtime_config.atol,
+            rtol=golden_runtime_config.rtol,
+        )
+        results["max"] = torch.max(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["mean_absolute_error"] = torch.mean(
+            torch.abs(golden_tensor_torch - output_tensor_torch)
+        ).item()
+        results["root_mean_square_error"] = torch.sqrt(
+            torch.mean((golden_tensor_torch - output_tensor_torch) ** 2)
+        ).item()
+        results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+            golden_tensor_torch.unsqueeze(0), output_tensor_torch.unsqueeze(0)
+        ).item()
+
+        golden_results_data[loc] = results
+
     finally:
         print("-----------finished executing golden comparision-----------")
+
+
+def get_golden_fn(golden_runtime_config, golden_results_data):
+    return partial(golden_partial_function, golden_runtime_config, golden_results_data)

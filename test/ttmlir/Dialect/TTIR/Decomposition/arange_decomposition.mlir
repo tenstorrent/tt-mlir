@@ -1,5 +1,4 @@
 // RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
-#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {} {
   func.func @forward(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32> {
     // CHECK: %[[C:.*]] = "ttir.arange"[[C:.*]]

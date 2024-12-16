@@ -2,7 +2,6 @@
 // Negative tests for matmul operation
 
 // Verify that the parsing fails if input and output shapes do not match.
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @clamp(%arg0: tensor<64x64xbf16>) -> tensor<64x128xbf16> {
     // CHECK: error: 'ttnn.clamp' op input and output must have same shape.
@@ -14,7 +13,6 @@ module attributes {} {
 
 // Verify that parsing fails in case of more than one input.
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @clamp2(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK: error: 'ttnn.clamp' op expects one tensor as input.

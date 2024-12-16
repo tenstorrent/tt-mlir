@@ -2,19 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import sys
-import shutil
+# NOTE: it is _VERY_ important that this import & setup call is _BEFORE_ any
+# other `ttrt` imports and _AFTER_ all system imports to ensure a well ordered
+# setup of the pybound `.so`. Otherwise, undefined behaviour ensues related to
+# the timing of when `TTMETAL_HOME` environment variable is set. DO NOT MOVE
+# w.r.t. other imports. This is a temporary workaround until `TT_METAL_HOME` is
+# not used anymore in TTMetal
+import ttrt.library_tweaks
+
+ttrt.library_tweaks.set_tt_metal_home()
 
 import ttrt.binary
 from ttrt.common.api import API

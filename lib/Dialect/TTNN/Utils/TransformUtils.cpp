@@ -21,7 +21,7 @@ Value getOrInsertDevice(PatternRewriter &rewriter, Operation *op) {
   DeviceAttr deviceAttr = getCurrentScopeDevice(op);
   auto currentInsertionPoint = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(block, block->begin());
-  auto meshShape = deviceAttr.getMeshShape();
+  llvm::SmallVector<int64_t> meshShape{deviceAttr.getMeshShape()};
   if (meshShape.empty()) {
     meshShape = llvm::SmallVector<int64_t, 2>{1, 1};
   }

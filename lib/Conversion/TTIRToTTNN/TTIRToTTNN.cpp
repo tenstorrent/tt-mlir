@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -16,14 +17,16 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <mlir/IR/Operation.h>
+#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -87,6 +90,69 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
         shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+
+    return success();
+  }
+};
+
+class OnesOpConversionPattern : public OpConversionPattern<ttir::OnesOp> {
+public:
+  using OpConversionPattern<ttir::OnesOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::OnesOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get ttnn::TTNNLayoutAttr of the result type
+    //
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+
+    // Get the shape of tensor
+    //
+    // TODO(svuckovic): (#1435) ShapeAttr accepts int64_t, when it should be
+    // uint32_t
+    //
+    ttnn::ShapeAttr shapeAttr = ttnn::ShapeAttr::get(
+        rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
+                                   op.getShape().begin(), op.getShape().end()));
+
+    // Get memref
+    //
+    mlir::MemRefType memref = layoutAttr.getMemref();
+
+    // Get data type, tensor layout, device and memory config
+    //
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    ttnn::Layout ttnnLayoutEnum = llvm::isa<TileType>(memref.getElementType())
+                                      ? ttnn::Layout::Tile
+                                      : ttnn::Layout::RowMajor;
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
+
+    // Device only exists if memLayout is *not* null
+    //
+    auto device =
+        memLayout ? ::ttnn::utils::getOrInsertDevice(rewriter, op) : nullptr;
+
+    // MemoryConfigAttr only exists if memLayout is *not* null
+    //
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        memLayout
+            ? ttnn::MemoryConfigAttr::get(
+                  op.getContext(),
+                  ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+                  ttnn::ShardSpecAttr::get(
+                      op.getContext(),
+                      ttnn::ShapeAttr::get(op.getContext(), memref.getShape())),
+                  memLayout)
+            : nullptr;
+
+    rewriter.replaceOpWithNewOp<ttnn::OnesOp>(
+        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
 
     return success();
   }
@@ -176,9 +242,15 @@ public:
 
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
+    // Check if the output tensor is used by an op that only supports row major.
+    //
+    // EmbeddingBackwardOp supports row major layout for the first and second
+    // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
-          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user)) {
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user) ||
+          (isa<ttir::EmbeddingBackwardOp>(user) &&
+           (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
       }
     }
@@ -282,6 +354,58 @@ public:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
 
+    return success();
+  }
+};
+
+class EmbeddingBackwardOpConversionPattern
+    : public OpConversionPattern<ttir::EmbeddingBackwardOp> {
+public:
+  using OpConversionPattern<ttir::EmbeddingBackwardOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto gradType = adaptor.getInGradient().getType();
+    auto gradTensor = mlir::cast<RankedTensorType>(gradType);
+    auto gradShape = gradTensor.getShape();
+
+    // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
+    // dimensions of grad tensor squeezed and C is the last dimension of grad
+    // tensor. This must be done to obey the constraints of the
+    // ttnn::EmbeddingBackwardOp.
+    int32_t R = 1;
+    for (size_t i = 0; i < gradShape.size() - 1; ++i) {
+      R *= gradShape[i];
+    }
+    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R, gradShape.back()};
+
+    auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        adaptor.getInGradient(), reshapedGradShape, rewriter);
+
+    // Get TTNNLayoutAttr of the result type.
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+    mlir::MemRefType memref = layoutAttr.getMemref();
+
+    // Get data type, tensor layout, buffer type and memory config.
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
+    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
+        ttnn::ShardSpecAttr::get(
+            op.getContext(),
+            ttnn::ShapeAttr::get(rewriter.getContext(), memref.getShape())),
+        memLayout);
+
+    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), reshapedGrad, dTypeAttr,
+        memoryConfigAttr, adaptor.getOutput());
     return success();
   }
 };
@@ -649,28 +773,6 @@ public:
 };
 // ANCHOR_END: adding_an_op_matmul_op_rewriter
 
-static ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
-                                       PatternRewriter &rewriter) {
-  auto inputType = mlir::cast<RankedTensorType>(input.getType());
-  auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
-
-  std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
-  return rewriter.create<ttnn::ReshapeOp>(
-      input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
-}
-
-static ttnn::ReshapeOp generateNHWFlatten(Value input,
-                                          PatternRewriter &rewriter) {
-  std::vector<int64_t> shape =
-      mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
-
-  assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
-
-  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
-                                   shape[3]};
-  return generateReshape(input, newShape, rewriter);
-}
-
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -729,7 +831,8 @@ public:
 
     std::vector<int64_t> flattenedInputShape = {
         1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]};
-    Value flattenedInput = generateNHWFlatten(adaptor.getInput(), rewriter);
+    Value flattenedInput =
+        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
 
     std::vector<int64_t> flattenedOutputShape = {
         1, 1, output_shape[0] * output_shape[1] * output_shape[2],
@@ -754,7 +857,8 @@ public:
         stride_height, stride_width, padding_height, padding_width,
         dilation_height, dilation_width, groups);
 
-    Value output = generateReshape(new_conv, output_shape, rewriter);
+    Value output =
+        ttir_to_ttnn::utils::generateReshape(new_conv, output_shape, rewriter);
 
     rewriter.replaceOp(op, output);
     return success();
@@ -786,7 +890,8 @@ public:
     auto channels =
         rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
 
-    Value flattenedInput = generateNHWFlatten(adaptor.getInput(), rewriter);
+    Value flattenedInput =
+        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
 
     auto output_ty =
         mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
@@ -819,7 +924,8 @@ public:
         adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
         adaptor.getPaddingRightAttr());
 
-    Value output = generateReshape(new_pool, output_shape, rewriter);
+    Value output =
+        ttir_to_ttnn::utils::generateReshape(new_pool, output_shape, rewriter);
 
     rewriter.replaceOp(op, output);
 
@@ -1018,6 +1124,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // ANCHOR: op_rewriter_pattern_set
   patterns
       .add<TensorEmptyConversionPattern,
+           OnesOpConversionPattern,
            ToLayoutOpConversionPattern,
            ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
            ElementwiseOpConversionPattern<ttir::AddOp, ttnn::AddOp>,
@@ -1062,6 +1169,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
 	   ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            EmbeddingOpConversionPattern,
+           EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,

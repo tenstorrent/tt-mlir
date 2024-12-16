@@ -36,8 +36,8 @@ struct StableHLOToTTIRPipelineOptions
 
 struct LinalgToLLVMPipelineOptions
     : public PassPipelineOptions<LinalgToLLVMPipelineOptions> {
-  // TODO: we might want some more options to say lower through affine loops
-  // instead of scf directly, etc. which could be new options
+  // TODO (vwells): we might want some more options to say lower through affine
+  // loops instead of scf directly, etc. which could be new options
   Option<bool> cleanupOutputEnabled{
       *this, "enable-post-pipeline-cleanup",
       llvm::cl::desc(

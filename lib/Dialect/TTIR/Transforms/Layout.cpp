@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
-#include "ttmlir/Dialect/TT/Utils/OperandConstraints.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -174,23 +174,6 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
       ->getResult(0);
 }
 
-static std::optional<Value>
-createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
-                 OperandConstraint operandConstraint,
-                 MemorySpace defaultMemorySpace,
-                 TensorMemoryLayout defaultDeviceMemoryLayout) {
-  auto desiredMemorySpace =
-      getLegalMemorySpace(operandConstraint, defaultMemorySpace);
-
-  auto desiredMemoryLayout = getLegalTensorMemoryLayout(
-      operandConstraint, desiredMemorySpace, defaultDeviceMemoryLayout);
-
-  bool tiled =
-      !bitEnumContainsAny(operandConstraint, OperandConstraint::Scalar);
-  return createToLayoutOp(rewriter, loc, input, desiredMemorySpace,
-                          desiredMemoryLayout, tiled);
-}
-
 class TTIRLayoutDPSOperandsRewriter
     : public OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 public:
@@ -223,16 +206,12 @@ public:
       if (mlir::isa<Conv2dOp>(op.getOperation()) && !isResult) {
         continue;
       }
-      auto operandConstraint =
-          mlir::cast<OperandConstraintAttr>(
-              mlir::cast<TTIROp>(op.getOperation())
-                  .getOperandConstraints()[operand.getOperandNumber()])
-              .getValue();
+
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       auto desiredLayout =
-          createToLayoutOp(rewriter, newLoc, operand.get(), operandConstraint,
-                           defaultMemorySpace, defaultDeviceMemoryLayout);
+          createToLayoutOp(rewriter, newLoc, operand.get(), defaultMemorySpace,
+                           defaultDeviceMemoryLayout, true /* isTiled */);
 
       if (desiredLayout) {
         rewriter.modifyOpInPlace(op, [&]() {

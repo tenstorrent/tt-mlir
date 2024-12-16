@@ -539,6 +539,74 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+// EmbeddingBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttnn::EmbeddingBackwardOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType inputGradType = getInGradient().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // inputType checks:
+  // 1. Must be of type bfloat16 or int32.
+  // 2. Last dimension must be divisible by TILE_WIDTH.
+  if (!inputType.getElementType().isBF16() &&
+      !inputType.getElementType().isInteger(32)) {
+    llvm::errs() << inputType.getElementType() << "\n";
+    return emitOpError("Input must be of type bfloat16 or int32");
+  }
+  if (inputType.getShape().back() % TILE_WIDTH != 0) {
+    return emitOpError("Input's last dim must be divisible by TILE_WIDTH");
+  }
+
+  // weightType must have rank of 2: (dictionary_size, embedding_size).
+  if (weightType.getRank() != 2) {
+    return emitOpError("Input must be a 2D tensor");
+  }
+
+  // inputGradType checks:
+  // 1. inputGradType should have rank of 4, first 2 dimensions must be equal
+  //    to 1, third dimension should match the volume of inputType, and the
+  //    fourth dimension should match the second dimension of weightType.
+  // 2. inputGradType must be of type bfloat16 or bfloat8.
+  // 3. inputGradType and outputType must have the same dtype.
+  if (inputGradType.getRank() != 4) {
+    return emitOpError("Input gradient must be a 4D tensor");
+  }
+  if (inputGradType.getDimSize(0) != 1 || inputGradType.getDimSize(1) != 1) {
+    return emitOpError("Input gradient must be in the form (1, 1, R, C)");
+  }
+
+  int64_t inputTypeVolume = 1;
+  for (int64_t dim : inputType.getShape()) {
+    inputTypeVolume *= dim;
+  }
+  if (inputGradType.getDimSize(2) != inputTypeVolume) {
+    return emitOpError("Input gradient first dimension must match the volume "
+                       "of the input tensor");
+  }
+  if (inputGradType.getDimSize(3) != weightType.getDimSize(1)) {
+    return emitOpError("Input gradient second dimension must match the second "
+                       "dimension of the weight tensor");
+  }
+  if (!inputGradType.getElementType().isBF16()) {
+    return emitOpError("Input gradient must be of type bfloat16 or bfloat8");
+  }
+  if (inputGradType.getElementType() != outputType.getElementType()) {
+    return emitOpError("Input gradient and output must have the same dtype");
+  }
+
+  // outputType should have the same shape as weightType.
+  if (outputType.getShape() != weightType.getShape()) {
+    return emitOpError("Output must have the same shape as weight");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ToMemoryConfigOp
 //===----------------------------------------------------------------------===//
 
@@ -596,6 +664,67 @@ static bool isValidDeviceLayout(TensorMemoryLayoutAttr memLayoutAttr) {
     }
   }
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ToLayoutOp
+//===----------------------------------------------------------------------===//
+
+// ToLayoutOp canonicalization
+// ToLayoutOp can be canonicalized if the previous op is also a ToLayoutOp. The
+// previous op can be merged with the current ToLayoutOp op if the previous op
+// has only one use. df - data format, l - layout, ms - memory space, tml -
+// tensor memory layout
+//
+//                |
+//      -----------------------
+//      |     ToLayoutOp      |                     |
+//      | df1, l1, ms1, tml1  |          -----------------------
+//      -----------------------          |     ToLayoutOp      |
+//                |                 -->  | df2, l1, ms2, tml1  |
+//                |                      -----------------------
+//      -----------------------                     |
+//      |     ToLayoutOp      |
+//      |      df2, ms2       |
+//      -----------------------
+//                |
+//
+::mlir::LogicalResult
+mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
+                                         PatternRewriter &rewriter) {
+  // Get the input operand and verify that the previous op is toLayoutOp
+  ToLayoutOp previousToLayoutOp =
+      toLayoutOp.getOperand(0).getDefiningOp<ToLayoutOp>();
+
+  // NOLINTNEXTLINE
+  if (!previousToLayoutOp) {
+    return mlir::failure();
+  }
+
+  // Check if the previous op has only one use. We can only merge if the
+  // previous op has single use.
+  if (!previousToLayoutOp->hasOneUse()) {
+    return mlir::failure();
+  }
+
+  // Replace the previous op with the merged ToLayoutOp
+  Value mergedToLayout = rewriter.replaceOpWithNewOp<ToLayoutOp>(
+      previousToLayoutOp, toLayoutOp.getType(), previousToLayoutOp.getInput(),
+      toLayoutOp.getLayoutAttr(),
+      toLayoutOp.getDtypeAttr() ? toLayoutOp.getDtypeAttr()
+                                : previousToLayoutOp.getDtypeAttr(),
+      toLayoutOp.getMemoryConfigAttr()
+          ? toLayoutOp.getMemoryConfigAttr()
+          : previousToLayoutOp.getMemoryConfigAttr(),
+      toLayoutOp.getDevice());
+
+  // Replace all uses of the current op with the merged ToLayoutOp
+  rewriter.replaceAllUsesWith(toLayoutOp, mergedToLayout);
+
+  // Erase the current op
+  rewriter.eraseOp(toLayoutOp);
+
+  return mlir::success();
 }
 
 //===----------------------------------------------------------------------===//

@@ -65,14 +65,17 @@ void populateTTModule(py::module &m) {
                 .withElementType(unwrap(ctx), unwrap(elementType));
           })
       .def("getLayout",
-           [](MlirType &type) {
-             assert(isa<RankedTensorType>(
-                 unwrap(type))); // Make sure that this is operating on a
-                                 // RankedTensorType object
+           [](MlirType &type) -> std::variant<tt::MetalLayoutAttr, py::object> {
+             // Make sure that this is operating on a RankedTensorType object
+             if (not isa<RankedTensorType>(unwrap(type))) {
+               return py::none();
+             }
              RankedTensorType tensor =
                  mlir::cast<RankedTensorType>(unwrap(type));
-             assert(tensor.getEncoding()); // Make sure that this Tensor has an
-                                           // encoding value
+             // Make sure that this Tensor has an encoding value
+             if (not tensor.getEncoding()) {
+               return py::none();
+             }
              tt::MetalLayoutAttr layout =
                  mlir::cast<tt::MetalLayoutAttr>(tensor.getEncoding());
              return layout;
@@ -391,24 +394,6 @@ void populateTTModule(py::module &m) {
           })
       .def_property_readonly("iterator_type_as_int",
                              [](tt::IteratorTypeAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
-
-  tt_attribute_class<tt::OperandConstraintAttr>(m, "OperandConstraintAttr")
-      .def_static("get",
-                  [](MlirContext ctx, uint32_t operandConstraint) {
-                    return wrap(tt::OperandConstraintAttr::get(
-                        unwrap(ctx),
-                        static_cast<tt::OperandConstraint>(operandConstraint)));
-                  })
-      .def_static(
-          "get",
-          [](MlirContext ctx, std::vector<MlirAttribute> attributesArray) {
-            return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
-                ctx, attributesArray);
-          })
-      .def_property_readonly("operand_constraint_as_int",
-                             [](tt::OperandConstraintAttr self) {
                                return static_cast<uint32_t>(self.getValue());
                              });
 

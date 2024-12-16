@@ -102,12 +102,10 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
     }
   }
 
-  CoreCoord dram_grid_size = device->dram_grid_size();
-  for (uint32_t y = 0; y < dram_grid_size.y; y++) {
-    for (uint32_t x = 0; x < dram_grid_size.x; x++) {
-      CoreCoord physical = device->dram_core_from_logical_core(CoreCoord(x, y));
-      dram_cores.emplace_back(::tt::target::Dim2d(physical.y, physical.x));
-    }
+  for (int dram_channel = 0; dram_channel < device->num_dram_channels();
+       ++dram_channel) {
+    CoreCoord logical = device->logical_core_from_dram_channel(dram_channel);
+    dram_cores.emplace_back(::tt::target::Dim2d(logical.y, logical.x));
   }
 
   for (const CoreCoord &logical : device->get_active_ethernet_cores(true)) {
@@ -261,8 +259,7 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
-  ::tt::tt_metal::distributed::MeshShape meshShape =
-      std::make_pair(1, numDevices);
+  ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
           meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
