@@ -14,6 +14,8 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
   const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
+  std::cout<<"\n runtime emb. input: ";
+  input.print();
   DEBUG_ASSERT(input.is_allocated());
   DEBUG_ASSERT(weight.is_allocated());
 
