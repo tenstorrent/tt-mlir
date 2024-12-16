@@ -82,6 +82,9 @@ class ModelRunner:
     def get_progress(self):
         return self.progress
 
+    def get_artifacts_dir(self):
+        return self._explorer_artifacts_dir
+
     def is_busy(self):
         return self.runner_thread and self.runner_thread.is_alive()
 
@@ -232,9 +235,7 @@ class ModelRunner:
         self.optimized_model_path = ttnn_ir_file
         self.progress = 100
 
-    def run(
-        self, model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
-    ):
+    def run(self, model_path, compile_options):
         # Check if a run is already in progress
         if self.is_busy():
             raise RuntimeError(
@@ -242,19 +243,8 @@ class ModelRunner:
             )
         self.reset_state()
 
-        options = [
-            f'system-desc-path={f"{self._explorer_artifacts_dir}/system_desc.ttsys"}',
-            "enable-optimizer=true",
-            f"memory-layout-analysis-enabled={memory_layout_analysis_enabled}",
-        ]
-        if memory_layout_analysis_policy:
-            options.append(
-                f"memory-layout-analysis-policy={memory_layout_analysis_policy}"
-            )
-        options_string = " ".join(options)
-
         # Start compile and run in a new thread
         self.runner_thread = threading.Thread(
-            target=self.compile_and_run_wrapper, args=(model_path, options_string)
+            target=self.compile_and_run_wrapper, args=(model_path, compile_options)
         )
         self.runner_thread.start()
