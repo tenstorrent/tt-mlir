@@ -92,28 +92,16 @@
 // GetDimensionSizeOp folder
 ::mlir::OpFoldResult
 mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
-
-  const RankedTensorType inputTensorType =
-      mlir::cast<RankedTensorType>(getOperand().getType());
-
-  int64_t dimensionIndex = getDimension();
-
-  if (dimensionIndex >=
-      static_cast<int64_t>(inputTensorType.getShape().size())) {
-    return nullptr;
-  };
-
+  RankedTensorType inputTensorType = getOperand().getType();
+  uint32_t dimensionIndex = getDimension();
   int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
 
-  mlir::ShapedType valueType = mlir::cast<mlir::ShapedType>(getType());
-
-  return mlir::DenseElementsAttr::get<int>(valueType, dimSize);
+  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
 }
 
 // GetDimensionSizeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
-  const RankedTensorType inputTensorType =
-      mlir::cast<RankedTensorType>(getOperand().getType());
+  RankedTensorType inputTensorType = getOperand().getType();
 
   int64_t dimensionIndex = getDimension();
 
@@ -817,6 +805,22 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// TypecastOp
+//===----------------------------------------------------------------------===//
+
+// TypecastOp folder
+::llvm::LogicalResult mlir::tt::ttir::TypecastOp::fold(
+    FoldAdaptor adaptor,
+    ::llvm::SmallVectorImpl<::mlir::OpFoldResult> &results) {
+
+  if (getType(0) == getInputs()[0].getType()) {
+    results.push_back(getInputs()[0]);
+    return llvm::success();
+  }
+  return llvm::failure();
+}
+
+//===----------------------------------------------------------------------===//
 // UnsqueezeOp
 //===----------------------------------------------------------------------===//
 
@@ -889,6 +893,37 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   //
   if (outputType.getRank() - inputType.getRank() != 1) {
     return emitOpError("Output must have one dimension more than input");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// EmbeddingBackwardOp
+//===----------------------------------------------------------------------===//
+
+// EmbeddingBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttir::EmbeddingBackwardOp::verify() {
+  ::mlir::RankedTensorType weightType = getWeight().getType();
+  ::mlir::RankedTensorType inputGradType = getInGradient().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // weightType must have rank of 2: (dictionary_size, embedding_size).
+  if (weightType.getRank() != 2) {
+    return emitOpError("Input must be a 2D tensor");
+  }
+
+  // inputGradType checks.
+  if (!inputGradType.getElementType().isBF16()) {
+    return emitOpError("Input gradient must be of type bfloat16 or bfloat8");
+  }
+  if (inputGradType.getElementType() != outputType.getElementType()) {
+    return emitOpError("Input gradient and output must have the same dtype");
+  }
+
+  // outputType should have the same shape as weightType.
+  if (outputType.getShape() != weightType.getShape()) {
+    return emitOpError("Output must have the same shape as weight");
   }
 
   return success();
@@ -1606,23 +1641,16 @@ void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 static mlir::tt::ttir::KernelOp
 buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
               ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
-              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs,
-              ::mlir::ArrayAttr operandConstraints) {
+              ::mlir::ValueRange inputs, ::mlir::ValueRange outputs) {
   return opBuilder.create<mlir::tt::ttir::KernelOp>(
-      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs,
-      operandConstraints);
+      loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs);
 }
 
 // Reduce op kernel builder
 static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
                            mlir::Location loc, ::mlir::StringRef kernelKind) {
-  auto kernelOp =
-      buildKernelOp(opBuilder, loc, "reduce", kernelKind, block->getArgument(0),
-                    block->getArgument(1),
-                    opBuilder.getArrayAttr(llvm::SmallVector<mlir::Attribute>(
-                        block->getNumArguments(),
-                        opBuilder.getAttr<mlir::tt::OperandConstraintAttr>(
-                            mlir::tt::OperandConstraint::AnyDeviceTile))));
+  auto kernelOp = buildKernelOp(opBuilder, loc, "reduce", kernelKind,
+                                block->getArgument(0), block->getArgument(1));
   opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
 }
 

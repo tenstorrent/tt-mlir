@@ -61,6 +61,8 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          Optional<TT_Device>:$device);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTNN_TypecastOp : TTNN_Op<"typecast"> {
@@ -604,6 +606,28 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let hasVerifier = 1;
 }
 
+def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
+    let summary = "Embedding backward op.";
+    let description = [{
+      Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$in_gradient,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
     let summary = "Softmax op.";
     let description = [{
@@ -869,6 +893,27 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
+}
+
+def TTNN_OnesOp : TTNN_Op<"ones"> {
+  let summary = "Creates a tensor filled with ones.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones.
+
+    Given a ShapeAttr `shape`, produces a tensor with the same shape, filled with ones.
+
+    Example:
+      %0 = "ttnn.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TT_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FullOp : TTNN_Op<"full"> {

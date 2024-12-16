@@ -69,13 +69,6 @@ ttmlirTTIteratorTypeAttrGet(MlirContext ctx, uint32_t iteratorType);
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTIteratorTypeArrayAttrGet(
     MlirContext ctx, uint32_t *iteratorTypes, size_t iteratorTypesSize);
 
-MLIR_CAPI_EXPORTED MlirAttribute
-ttmlirTTOperandConstraintAttrGet(MlirContext ctx, uint32_t OperandConstraint);
-
-MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTOperandConstraintArrayAttrGet(
-    MlirContext ctx, uint32_t *OperandConstraints,
-    size_t OperandConstraintsSize);
-
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx,
                                                          int64_t y, int64_t x);
 

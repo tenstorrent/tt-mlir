@@ -167,28 +167,6 @@ MlirAttribute ttmlirTTIteratorTypeArrayAttrGet(MlirContext ctx,
   return wrap(ArrayAttr::get(unwrap(ctx), iteratorTypesArray));
 }
 
-MlirAttribute ttmlirTTOperandConstraintAttrGet(MlirContext ctx,
-                                               uint32_t operandConstraint) {
-  return wrap(OperandConstraintAttr::get(
-      unwrap(ctx), static_cast<tt::OperandConstraint>(operandConstraint)));
-}
-
-MlirAttribute
-ttmlirTTOperandConstraintArrayAttrGet(MlirContext ctx,
-                                      uint32_t *operandConstraints,
-                                      size_t operandConstraintsSize) {
-  std::vector<uint32_t> operandConstraintsEnumArray(
-      operandConstraints, operandConstraints + operandConstraintsSize);
-  std::vector<mlir::Attribute> operandConstraintsArray;
-
-  for (auto operandEnum : operandConstraintsEnumArray) {
-    operandConstraintsArray.push_back(OperandConstraintAttr::get(
-        unwrap(ctx), static_cast<tt::OperandConstraint>(operandEnum)));
-  }
-
-  return wrap(ArrayAttr::get(unwrap(ctx), operandConstraintsArray));
-}
-
 MlirAttribute ttmlirTTTileSizeAttrGet(MlirContext ctx, int64_t y, int64_t x) {
   return wrap(TileSizeAttr::get(unwrap(ctx), y, x));
 }

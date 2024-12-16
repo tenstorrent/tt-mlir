@@ -192,33 +192,6 @@ class TTIRBuilder:
     def _get_golden_tensor(self, operand: Operand) -> torch.Tensor:
         return self._get_golden(operand).tensor
 
-    def _get_operand_constraint_attr(
-        self,
-        num_operands: int,
-        operand_constraints: Optional[List[tt.OperandConstraint]] = None,
-    ) -> tt.ir.OperandConstraintAttr:
-        """
-        Helper method to prepack operand constraints given as a list of enums
-        to a list of tt.ir.OperandConstraintAttr and wrap that list in an
-        tt.ir.OperandConstraintAttr.
-
-        If no `operand_constraints` are passed, `tt.OperandConstraint.Any` will
-        be used for each operand.
-        """
-        operand_constraints = (
-            operand_constraints
-            if operand_constraints is not None
-            else [tt.OperandConstraint.Any for _ in range(num_operands)]
-        )
-
-        return tt.ir.OperandConstraintAttr.get(
-            self._ctx,
-            [
-                tt.ir.OperandConstraintAttr.get(self._ctx, operand_constraint)
-                for operand_constraint in operand_constraints
-            ],
-        )
-
     @property
     def _default_dtype(self) -> Type:
         return F32Type.get(self._ctx)
@@ -290,9 +263,6 @@ class TTIRBuilder:
         while len(stack) > 0 and stack[0].filename == cur_filename:
             stack = stack[1:]
 
-        id = self.get_next_global_id()
-        loc = Location.file(stack[0].filename, stack[0].lineno, id)
-
         assert (
             len(stack) > 0
         ), "Top of callstack to builder funcs must be outside this file"
@@ -300,12 +270,13 @@ class TTIRBuilder:
         with self._ctx, self._loc:
             output = self.empty(self.get_shape(inputs[0]))
 
+            id = self.get_next_global_id()
+
             op = op_ttir_function(
                 [self._get_type(output)],
                 inputs,
                 [output],
-                self._get_operand_constraint_attr(3),
-                loc=loc,
+                loc=Location.name(str(id)),
             )
 
             goldens = []
@@ -313,7 +284,7 @@ class TTIRBuilder:
                 goldens.append(self._get_golden_tensor(input))
 
             golden = Golden(op_golden_function(*goldens))
-            self.id_golden_map[str(loc)] = golden
+            self.id_golden_map[str(id)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 

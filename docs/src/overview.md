@@ -81,11 +81,10 @@ simpler.
 So what does MLIR look like, how does it work and get parsed? The
 hierarchy of an MLIR Module is as shown:
 ```
-#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt.grid<8x8>>], [0], [<pcie|host_mmio>], [<0, 0, 0, 0>]>} {
   func.func @forward(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
     %0 = tensor.empty() : tensor<64x128xf32>
-    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device, #any_device]}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
     return %1 : tensor<64x128xf32>
   }
 }
@@ -105,8 +104,7 @@ module attributes {tt.system_desc = #tt.system_desc<[<#tt.arch<wormhole_b0>, #tt
         defines the type of result
 
     -   Quotes are added around ttir.multiply since it's part of a
-        custom dialect, and more custom assembly instructions are
-        applied to specify operand_constraints.
+        custom dialect.
 
     -   Operations typically have operands (arguments) and results which
         are highlighted with %, these results and operands help to show

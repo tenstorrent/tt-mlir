@@ -53,11 +53,7 @@ public:
         srcOp,
         TypeRange(
             this->getTypeConverter()->convertType(outputTensor.getType())),
-        adaptor.getOperands(), ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getOperands(), ValueRange(outputTensor));
     return success();
   }
 };
@@ -125,18 +121,9 @@ private:
                                           ? adaptor.getDimensionsAttr()[0]
                                           : 1)));
 
-    // If someone changes definition of TTIR_ReductionOp this constant will
-    // become outdated, but I currently see no way to get this info (without
-    // manually constructing the adaptor for dest OP).
-    const std::size_t ttirReduceOpOperandsCount = 2;
-    mlir::ArrayAttr operandConstraints =
-        rewriter.getArrayAttr(SmallVector<Attribute>(
-            ttirReduceOpOperandsCount, rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile)));
-
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,
-        false /* keep_dim */, dimArg, operandConstraints);
+        false /* keep_dim */, dimArg);
 
     return success();
   }
@@ -171,11 +158,7 @@ public:
 
       input = rewriter.create<mlir::tt::ttir::TransposeOp>(
           srcOp.getLoc(), outputType, input, outputTensor,
-          rewriter.getSI32IntegerAttr(dim0), rewriter.getSI32IntegerAttr(dim1),
-          rewriter.getArrayAttr(
-              SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                     rewriter.getAttr<OperandConstraintAttr>(
-                                         OperandConstraint::AnyDeviceTile))));
+          rewriter.getSI32IntegerAttr(dim0), rewriter.getSI32IntegerAttr(dim1));
     }
     rewriter.replaceOp(srcOp, input);
     return success();
@@ -218,11 +201,7 @@ public:
     ArrayAttr new_shape_attr = rewriter.getI32ArrayAttr(new_shape_i32);
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getOperand(), outputTensor, new_shape_attr,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getOperand(), outputTensor, new_shape_attr);
     return success();
   }
 
@@ -265,11 +244,7 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getLhs(), adaptor.getRhs(), Value(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getLhs(), adaptor.getRhs(), Value(outputTensor));
     return success();
   }
 
@@ -583,11 +558,7 @@ public:
             dimNums.getOutputBatchDimension(),
             dimNums.getOutputFeatureDimension(),
             dimNums.getOutputSpatialDimensions()),
-        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr(),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getFeatureGroupCountAttr(), adaptor.getBatchGroupCountAttr());
 
     return success();
   }
@@ -683,10 +654,6 @@ public:
                  : rewriter.getDenseI64ArrayAttr(
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
-    auto operandConstraints = rewriter.getArrayAttr(SmallVector<Attribute>(
-        adaptor.getOperands().size(), rewriter.getAttr<OperandConstraintAttr>(
-                                          OperandConstraint::AnyDeviceTile)));
-
     mlir::tt::ttir::PoolingMethod poolingMethod;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
@@ -701,7 +668,7 @@ public:
     rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
         srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
         windowDimensions, windowStrides, baseDilations, window_dilations,
-        padding, operandConstraints);
+        padding);
 
     return success();
   }
@@ -836,11 +803,7 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        Value(adaptor.getOperand()), Value(outputTensor), dimArg,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        Value(adaptor.getOperand()), Value(outputTensor), dimArg);
 
     return success();
   }
@@ -932,11 +895,7 @@ private:
         srcOp,
         TypeRange(
             this->getTypeConverter()->convertType(outputTensor.getType())),
-        adaptor.getOperands(), ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getOperands(), ValueRange(outputTensor));
 
     return success();
   }
@@ -975,11 +934,7 @@ public:
         adaptor.getInputs(), // input values
         Value(outputTensor), // output value
         rewriter.getSI32IntegerAttr(
-            static_cast<int32_t>(adaptor.getDimension())), // dimension
-        rewriter.getArrayAttr( // operand constraints
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+            static_cast<int32_t>(adaptor.getDimension()))); // dimension
     return success();
   }
 
@@ -1035,11 +990,7 @@ public:
         srcOp,
         TypeRange(
             this->getTypeConverter()->convertType(outputTensor.getType())),
-        adaptor.getOperands(), ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        adaptor.getOperands(), ValueRange(outputTensor));
     return success();
   }
 
@@ -1196,14 +1147,6 @@ public:
         StringAttr::get(this->getContext(), "reduce_type");
     Attribute reduceTypeAttr = rewriter.getAttr<ReduceTypeAttr>(reduceType);
     ttirAttrs.push_back({reduceTypeAttrName, reduceTypeAttr});
-
-    StringAttr operationConstraintAttrName =
-        StringAttr::get(this->getContext(), "operand_constraints");
-    Attribute operationConstraintAttr = rewriter.getArrayAttr(
-        SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                               rewriter.getAttr<OperandConstraintAttr>(
-                                   OperandConstraint::AnyDeviceTile)));
-    ttirAttrs.push_back({operationConstraintAttrName, operationConstraintAttr});
 
     auto ttirAllReduceOp = rewriter.create<mlir::tt::ttir::AllReduceOp>(
         srcOp.getLoc(), ttirTypes, ValueRange(ttirOperands.getAsOperandRange()),
@@ -1463,15 +1406,6 @@ private:
         GridAttr::get(this->getContext(), shardAttrValue.shardShape);
     meshShardAttrs.push_back({shardShapeAttrName, shardShape});
 
-    StringAttr operationConstraintAttrName =
-        StringAttr::get(this->getContext(), "operand_constraints");
-    Attribute operationConstraintAttr = rewriter.getArrayAttr(
-        SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                               rewriter.getAttr<OperandConstraintAttr>(
-                                   OperandConstraint::SystemScalar)));
-    meshShardAttrs.push_back(
-        {operationConstraintAttrName, operationConstraintAttr});
-
     auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
         srcOp.getLoc(), outputTypes,
         ValueRange(meshShardOperands.getAsOperandRange()), meshShardAttrs);
@@ -1527,11 +1461,7 @@ public:
         adaptor.getOperand(), // input values
         outputTensor,         // output value
         rewriter.getI32ArrayAttr(start_indices),
-        rewriter.getI32ArrayAttr(end_indices), rewriter.getI32ArrayAttr(step),
-        rewriter.getArrayAttr( // operand constraints
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        rewriter.getI32ArrayAttr(end_indices), rewriter.getI32ArrayAttr(step));
     return success();
   }
 };
@@ -1575,31 +1505,19 @@ public:
             this->getTypeConverter()->convertType(outputTensor.getType()),
             Value(adaptor.getOperand()), Value(outputTensor),
             rewriter.getF32FloatAttr(minValue),
-            rewriter.getF32FloatAttr(maxValue),
-            rewriter.getArrayAttr(
-                SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                       rewriter.getAttr<OperandConstraintAttr>(
-                                           OperandConstraint::AnyDeviceTile))));
+            rewriter.getF32FloatAttr(maxValue));
 
         return success();
       }
     }
 
     ttir::MaximumOp maximumOp = rewriter.create<mlir::tt::ttir::MaximumOp>(
-        srcOp->getLoc(), min, adaptor.getOperand(), outputTensor,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        srcOp->getLoc(), min, adaptor.getOperand(), outputTensor);
 
     tensor::EmptyOp finalOutputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinimumOp>(
-        srcOp, maximumOp->getResult(0), max, finalOutputTensor,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        srcOp, maximumOp->getResult(0), max, finalOutputTensor);
     return success();
   }
 };
@@ -1629,11 +1547,7 @@ public:
         dimensionNumbers.getOperandBatchingDims(),
         dimensionNumbers.getStartIndicesBatchingDims(),
         dimensionNumbers.getStartIndexMap(),
-        dimensionNumbers.getIndexVectorDim(), srcOp.getSliceSizesAttr(), false,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        dimensionNumbers.getIndexVectorDim(), srcOp.getSliceSizesAttr(), false);
     return success();
   }
 };
@@ -1686,9 +1600,6 @@ public:
     Value operand = srcOp.getInputs()[0];
     Value scatterIndices = srcOp.getScatterIndices();
     Value update = srcOp.getUpdates()[0];
-    mlir::ArrayAttr binaryConstraints = rewriter.getArrayAttr(
-        SmallVector<Attribute>(4, rewriter.getAttr<OperandConstraintAttr>(
-                                      OperandConstraint::AnyDeviceTile)));
     auto updateWindowsDims =
         adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
     auto insertedWindowDims =
@@ -1716,8 +1627,7 @@ public:
             convertArrayRefToInt32vector(scatterIndicesBatchingDims)),
         llvm::ArrayRef<int32_t>(
             convertArrayRefToInt32vector(scatterDimsToOperandDims)),
-        indexVectorDim, indicesAreSorted, uniqueIndices, outputTensor,
-        binaryConstraints);
+        indexVectorDim, indicesAreSorted, uniqueIndices, outputTensor);
 
     // Replaces with different types do not work and will fail silently, so we
     // manually set the second operand, since the type changes there from i32 to

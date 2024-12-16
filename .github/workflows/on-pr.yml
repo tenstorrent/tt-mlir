@@ -15,3 +15,19 @@ jobs:
   build-and-test:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
+
+  # When a PR runs on the uplift branch trigger the downstream checks
+  downstream-checks:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.ref == 'uplift'
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Trigger tt-forge-fe
+        shell: bash
+        run: |
+          gh workflow run build-and-test.yml \
+            --repo tenstorrent/tt-forge-fe --ref main \
+            --field test_mark=push \
+            --field mlir_override=${{ github.sha }}
+          gh run list --workflow=build-and-test.yml --repo tenstorrent/tt-forge-fe --limit 1

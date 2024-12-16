@@ -3,22 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import json
-import importlib.machinery
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
-from pkg_resources import get_distribution
-import shutil
-import atexit
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.golden import golden
+from ttrt.common.golden import get_golden_fn, GoldenRuntimeConfig
 
 
 class Run:
@@ -104,6 +92,13 @@ class Run:
             help="atol for golden test",
         )
         Run.register_arg(
+            name="--pcc",
+            type=float,
+            default=0.99,
+            choices=None,
+            help="pcc for golden test",
+        )
+        Run.register_arg(
             name="--seed",
             type=int,
             default=0,
@@ -158,6 +153,13 @@ class Run:
             default=True,
             choices=[True, False],
             help="run golden comparison for intermediate and output tensors",
+        )
+        Run.register_arg(
+            name="--save-golden-tensors",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="save golden and device tensors that are compared during callback runtime",
         )
         Run.register_arg(
             name="binary",
@@ -348,9 +350,6 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            if self["--golden"]:
-                callback_env = ttrt.runtime.DebugHooks.get(golden)
-
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
@@ -373,6 +372,9 @@ class Run:
                     try:
                         self.logging.info(f"evaluating binary={bin.file_path}")
 
+                        if self["--save-artifacts"]:
+                            self.artifacts.create_binary_artifacts_folder(bin)
+
                         program_indices = []
                         if self["--program-index"] == "all":
                             program_indices.extend(range(bin.get_num_programs()))
@@ -392,10 +394,16 @@ class Run:
                                     f"input_{i}"
                                 )
 
-                                if len(golden_tensor) != 0:
-                                    golden_inputs.append(
-                                        torch.tensor(golden_tensor, dtype=torch.float32)
+                                if golden_tensor is not None:
+
+                                    dtype = ttrt_datatype_to_torch_dtype(
+                                        golden_tensor.dtype
                                     )
+
+                                    golden_tensor_torch = torch.frombuffer(
+                                        golden_tensor, dtype=dtype
+                                    )
+                                    golden_inputs.append(golden_tensor_torch)
 
                             program.populate_inputs(
                                 Run.TorchInitializer.get_initilizer(self["--init"]),
@@ -440,6 +448,20 @@ class Run:
                                 total_outputs.append(outputs)
 
                             event = None
+                            golden_results_data = {}
+                            if self["--golden"]:
+                                callback_env = ttrt.runtime.DebugHooks.get(
+                                    get_golden_fn(
+                                        GoldenRuntimeConfig(
+                                            self["--atol"],
+                                            self["--rtol"],
+                                            self["--pcc"],
+                                            f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}",
+                                            self["--save-golden-tensors"],
+                                        ),
+                                        golden_results_data,
+                                    )
+                                )
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -519,6 +541,28 @@ class Run:
                                 self.logging.debug(f"{tensor}\n")
 
                             device.deallocate_buffers()
+
+                            # if golden comparison is enabled, check golden results json file to see if test passed
+                            if self["--golden"]:
+                                if self["--save-artifacts"]:
+                                    golden_results_file_path = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
+
+                                    with open(
+                                        golden_results_file_path, "w"
+                                    ) as json_file:
+                                        json.dump(
+                                            golden_results_data, json_file, indent=4
+                                        )
+
+                                for loc, golden_data in golden_results_data.items():
+                                    if (
+                                        golden_data["actual_pcc"]
+                                        < golden_data["expected_pcc"]
+                                    ):
+                                        raise Exception(
+                                            f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
+                                        )
+
                     except Exception as e:
                         test_result = {
                             "file_path": bin.file_path,

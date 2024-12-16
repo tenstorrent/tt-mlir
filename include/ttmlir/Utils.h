@@ -92,8 +92,7 @@ std::string join(const llvm::SmallVector<T> &vec,
 // This util function can be used as a helper to create an attribute from an
 // array of attributes for any type defined like for example:
 //
-// `def TT_OperandConstraintArrayAttr
-//            : TypedArrayAttrBase<TT_OperandConstraintAttr, "">;`
+// def TT_IteratorTypeArrayAttr : TypedArrayAttrBase<TT_IteratorTypeAttr, "">;
 //
 // since these don't get any special Cpp class generated for them from
 // tablegen.
