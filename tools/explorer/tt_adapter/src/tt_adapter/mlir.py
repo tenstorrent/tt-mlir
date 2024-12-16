@@ -5,9 +5,18 @@
 import re
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
+import dataclasses
 
 from ttmlir.dialects import tt, ttnn, ttir
 from ttmlir import ir, util
+
+
+def make_editable_kv(kv, editable):
+    obj = dataclasses.asdict(kv)
+    obj["editable"] = editable
+    return dataclasses.make_dataclass(
+        "KeyValue", ((k, type(v)) for k, v in obj.items())
+    )(**obj)
 
 
 def get_loc_str(loc):
@@ -398,9 +407,15 @@ def parse_ttnn_ttnn_layout(attr):
     memory_layout = layout.memory_layout_as_int
     if memory_layout is not None:
         result.append(
-            graph_builder.KeyValue(
-                key="memory_layout",
-                value=str(ttnn.TensorMemoryLayout(memory_layout)),
+            make_editable_kv(
+                graph_builder.KeyValue(
+                    key="Tensor Memory Layout",
+                    value=str(ttnn.TensorMemoryLayout(memory_layout)),
+                ),
+                editable={
+                    "input_type": "value_list",
+                    "options": [str(o) for o in ttnn.TensorMemoryLayout],
+                },
             )
         )
     result.append(
@@ -451,6 +466,38 @@ class OpHandler:
         result = []
         for attr in self.op.attributes:
             result.extend(AttrHandler.parse_attr(attr))
+
+        # Add output tensor properties to the op itself
+        if self.op.results:
+            output_tensor = self.op.result
+            output_attrs = []
+            if isinstance(output_tensor.type, ir.RankedTensorType):
+                output_attrs = [
+                    graph_builder.KeyValue(
+                        key="shape", value=str(output_tensor.type.shape)
+                    ),
+                    graph_builder.KeyValue(
+                        key="dtype", value=str(output_tensor.type.element_type)
+                    ),
+                    graph_builder.KeyValue(
+                        key="rank", value=str(output_tensor.type.rank)
+                    ),
+                ]
+            if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
+                if "ttnn_layout" in str(output_tensor.type.encoding):
+                    output_attrs.extend(
+                        AttrHandler.parse_attr(
+                            output_tensor.type.encoding.get_named("ttnn_layout")
+                        )
+                    )
+                else:
+                    # Parse as a standard layout
+                    output_attrs.extend(
+                        AttrHandler.parse_attr(
+                            output_tensor.type.encoding.get_named("tt.layout")
+                        )
+                    )
+            result.extend(output_attrs)
         return result
 
     def make_graph_node(self):
