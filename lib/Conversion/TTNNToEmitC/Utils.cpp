@@ -3,10 +3,48 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
-
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
+#include <string>
 
 namespace mlir::tt::ttnn_to_emitc::utils {
+
+constexpr char kCreateVectorFunctionName[] = "utilCreateVec";
+
+mlir::ModuleOp getTopLevelModule(mlir::Operation *op) {
+  while (op) {
+    if (auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op)) {
+      return moduleOp; // Found the top-level ModuleOp
+    }
+    op = op->getParentOp(); // Traverse to the parent operation
+  }
+  return nullptr; // No ModuleOp found
+}
+
+bool insertVecCreateFnIfNotExists(PatternRewriter &rewriter, Operation *op) {
+  ModuleOp moduleOp = getTopLevelModule(op);
+  assert(op && "Could not find top-level module");
+  for (auto &op : moduleOp.getOps()) {
+    if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+      if (funcOp.getName() == kCreateVectorFunctionName) {
+        return false; // Function already exists
+      }
+    }
+  }
+
+  static constexpr const char *vecCreateFnAsStr = R"(
+template <typename... T>
+std::vector<ttnn::Tensor> utilCreateVec(const T &...t) {
+  return std::vector<ttnn::Tensor>{t...};
+}
+)";
+
+  auto currentInsertionPoint = rewriter.saveInsertionPoint();
+  rewriter.setInsertionPoint(op->getParentOfType<func::FuncOp>());
+  rewriter.create<emitc::VerbatimOp>(op->getLoc(), vecCreateFnAsStr);
+  rewriter.restoreInsertionPoint(currentInsertionPoint);
+  return true;
+}
 
 emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
   llvm::ArrayRef shape = attr.getShape();

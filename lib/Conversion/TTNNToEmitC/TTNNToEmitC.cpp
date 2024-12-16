@@ -621,24 +621,14 @@ public:
   LogicalResult
   matchAndRewrite(tt::TupleOp tupleOp, tt::TupleOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // clang-format off
-// static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange resultTypes, ::llvm::StringRef callee, ::mlir::ValueRange operands, ::mlir::ArrayAttr args = {}, ::mlir::ArrayAttr template_args = {});
-// static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange resultType0, ::mlir::StringAttr callee, /*optional*/::mlir::ArrayAttr args, /*optional*/::mlir::ArrayAttr template_args, ::mlir::ValueRange operands);
-// static void build(::mlir::OpBuilder &odsBuilder, ::mlir::OperationState &odsState, ::mlir::TypeRange resultType0, ::llvm::StringRef callee, /*optional*/::mlir::ArrayAttr args, /*optional*/::mlir::ArrayAttr template_args, ::mlir::ValueRange operands);
-    // clang-format on
-
-    // rewriter.create<emitc::CallOpaqueOp>(
-    //     tupleOp->getLoc(),
-    //     this->getTypeConverter()->convertType(tupleOp.getType()),
-    //     "std::vector<ttnn::Tensor>", nullptr, nullptr, ValueRange());
-
-    // rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-    //     tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
-    //     "blatruc", nullptr, nullptr, adaptor.getOperands());
+    // Try to find if "util_create_vec" function is already defined in the
+    // module. If not, insert it.
+    //
+    ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, tupleOp);
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
-        "blatruc", nullptr, nullptr, adaptor.getOperands());
+        "util_create_vec", nullptr, nullptr, adaptor.getOperands());
     return success();
   }
 };

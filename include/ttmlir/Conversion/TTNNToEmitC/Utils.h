@@ -12,6 +12,9 @@
 
 namespace mlir::tt::ttnn_to_emitc::utils {
 
+// TODO
+bool insertVecCreateFnIfNotExists(PatternRewriter &rewriter, Operation *op);
+
 // Create emitc::OpaqueAttr for ttnn::Shape
 //
 emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr);
