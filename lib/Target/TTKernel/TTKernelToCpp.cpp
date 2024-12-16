@@ -15,12 +15,15 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
-
+#include "mlir/Pass/PassManager.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "mlir/Conversion/ArithToEmitC/ArithToEmitCPass.h"
+#include "mlir/Conversion/SCFToEmitC/SCFToEmitC.h"
+#include "mlir/Conversion/FuncToEmitC/FuncToEmitCPass.h"
 
 namespace mlir::tt::ttkernel {
 
-static void translateModuleToCpp(
+static llvm::LogicalResult translateModuleToCpp(
     Operation *op, llvm::raw_ostream &os) {
     ModuleOp module = dyn_cast<ModuleOp>(op);
     assert(module && "Expected ModuleOp as top level operation");
@@ -32,18 +35,18 @@ static void translateModuleToCpp(
     pm.addPass(mlir::createConvertFuncToEmitC());
 
     if (mlir::failed(pm.run(op))) {
-      throw std::runtime_error("Failed to lower MLIR to EmitC");
+      return llvm::failure();
     }
 
     if ( mlir::failed( mlir::emitc::translateToCpp(op, os) ) ) {
-      throw std::runtime_error("Failed to write C++ code to file");
+      return llvm::failure();
     }
+    return success();
 }
 
 LogicalResult translateTTKernelToCpp(
     Operation *op, llvm::raw_ostream &os) {
-  translateModuleToCpp(op, os);
-  return success();
+  return translateModuleToCpp(op, os);
 }
 
 } // namespace mlir::tt::ttkernel
