@@ -4,9 +4,8 @@
 
 import os
 import inspect
-from typing import Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 
-import torch
 from ttmlir.dialects import func
 from ttmlir.ir import *
 from ttmlir.passes import (
