@@ -43,4 +43,6 @@ PYBIND11_MODULE(_ttmlir, m) {
   auto optimizer_overrides = m.def_submodule(
       "optimizer_overrides", "Python-Bound Optimizer Overrides");
   mlir::ttmlir::python::populateOptimizerOverridesModule(optimizer_overrides);
+  auto util = m.def_submodule("util", "Python-Bound Utilities & Helpers");
+  mlir::ttmlir::python::populateUtilModule(util);
 }

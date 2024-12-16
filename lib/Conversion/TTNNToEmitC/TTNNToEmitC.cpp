@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 
 #include "ttmlir/Conversion/TTNNToEmitC/Utils.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsDialect.h.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -576,6 +577,42 @@ public:
   }
 };
 
+class GetTupleElementOpConversionPattern
+    : public OpConversionPattern<tt::GetTupleElementOp> {
+
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::GetTupleElementOp getTupleElementOp,
+                  tt::GetTupleElementOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // SubscriptOp requires a Value object as index, which is created by
+    // invoking the emitc::LiteralOp
+    //
+    Value indexAsVal = rewriter.create<emitc::LiteralOp>(
+        getTupleElementOp->getLoc(), rewriter.getIndexType(),
+        std::to_string(adaptor.getIndex()));
+
+    // SubscriptOp also returns an emitc::LValueType, so we wrap the OpaqueType
+    // with LValueType
+    //
+    emitc::LValueType lvalueReturnType = emitc::LValueType::get(
+        emitc::OpaqueType::get(rewriter.getContext(), "ttnn::Tensor"));
+    Value subscript = rewriter.create<emitc::SubscriptOp>(
+        getTupleElementOp->getLoc(), lvalueReturnType, adaptor.getOperand(),
+        indexAsVal);
+
+    // As SubscriptOp returns an LValueType, we need to convert it to an
+    // OpaqueType - this is done by invoking the emitc::LoadOp
+    //
+    rewriter.replaceOpWithNewOp<emitc::LoadOp>(
+        getTupleElementOp, emitc::OpaqueType::get(getContext(), "ttnn::Tensor"),
+        subscript);
+    return success();
+  }
+};
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -724,10 +761,6 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::MeshShardOp>>(typeConverter,
                                                               ctx);
 
-  // Module op
-  //
-  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
-
   // KV Cache ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::UpdateCacheOp>>(typeConverter,
@@ -738,6 +771,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Arith ops
   //
   patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
+
+  // Module op
+  //
+  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
+
+  // Tuple ops
+  //
+  patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
