@@ -205,8 +205,7 @@ void populatePassesModule(py::module &m) {
         });
 
   m.def("ttkernel_to_cpp_file",
-        [](MlirModule module, std::string &filepath,
-           std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap) {
+        [](MlirModule module, std::string &filepath) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
           std::error_code fileError;
           llvm::raw_fd_ostream file(filepath, fileError);
@@ -216,7 +215,7 @@ void populatePassesModule(py::module &m) {
           }
           if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
                   moduleOp, file))) {
-            throw std::runtime_error("Failed to write flatbuffer to file: " +
+            throw std::runtime_error("Failed to write C++ to file: " +
                                      filepath);
           }
         });
