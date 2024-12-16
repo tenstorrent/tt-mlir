@@ -16,15 +16,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Utils.h"
 
 #include <algorithm>
-#include <cstdint>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/Location.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -89,6 +82,9 @@ using PaddingMatrix = std::array<std::array<int64_t, 2>, NDims>;
 
 template <uint32_t NDims>
 static PaddingMatrix<NDims> getPaddingMatrix(ArrayRef<int64_t> padding) {
+  assert(padding.size() >= 2 * NDims &&
+         "padding must be at least 2 * NDims sized array");
+
   PaddingMatrix<NDims> paddingMatrix;
 
   for (uint32_t i = 0; i < 2 * NDims; i += 2) {
@@ -96,105 +92,34 @@ static PaddingMatrix<NDims> getPaddingMatrix(ArrayRef<int64_t> padding) {
   }
   return paddingMatrix;
 }
-/*
- * The following functions are used to generate the transpose operations needed
- * to convert a convolution operation to the specific op definitions for a
- * ConvNdOp for any N spatial dimensions.
- *
- * All convolutions will have a batch and feature dimension, and the kernel will
- * have an input and output feature dimension. The spatial dimensions can be
- * represented by non-negative integers.
- */
-enum ConvolutionDimension { BATCH = -1, FEATURE = -2, INVALID_DIM = -3 };
-
-enum ConvolutionKernelDimension {
-  INPUT_FEATURES = -1,
-  OUTPUT_FEATURES = -2,
-  INVALID_KERNEL_DIM = -3
-};
-
-// TODO (azecevic): DOCUMENTATION
-static llvm::SmallVector<int64_t>
-generatePermuteIndices(llvm::ArrayRef<int64_t> currentLayout,
-                       llvm::ArrayRef<int64_t> desiredLayout) {
-  llvm::SmallVector<int64_t> permutation;
-  for (const int64_t dim : desiredLayout) {
-    permutation.push_back(std::distance(
-        currentLayout.begin(),
-        std::find(currentLayout.begin(), currentLayout.end(), dim)));
-  }
-  return permutation;
-}
-
-/*
- * This function will generate the transpose indices needed to convert a
- * convolution input to a desired layout. The reason for the separate
- * function is to encapsulate the logic for constructuring the inputLayout
- */
-static llvm::SmallVector<int64_t>
-generateConvTransposeIndices(ttir::ConvolutionOp op,
-                             llvm::ArrayRef<int64_t> ttnnConvolutionLayout) {
-
-  std::vector<int64_t> inputLayout(ttnnConvolutionLayout.size(),
-                                   ConvolutionDimension::INVALID_DIM);
-  inputLayout[op.getConvolutionLayout().getInputBatchDimension()] =
-      ConvolutionDimension::BATCH;
-  inputLayout[op.getConvolutionLayout().getInputFeatureDimension()] =
-      ConvolutionDimension::FEATURE;
-
-  int64_t spatialCount = 0;
-  for (int64_t spatialDim :
-       op.getConvolutionLayout().getInputSpatialDimensions()) {
-    inputLayout[spatialDim] = spatialCount;
-    spatialCount++;
-  }
-
-  return generatePermuteIndices(inputLayout, ttnnConvolutionLayout);
-}
-
-/*
- * This function will generate the transpose indices needed to convert a
- * convolution input to a desired layout. The reason for the separate
- * function is to encapsulate the logic for constructuring the kernelLayout
- */
-static llvm::SmallVector<int64_t> generateConvKernelTransposeIndices(
-    ttir::ConvolutionOp op,
-    llvm::ArrayRef<int64_t> ttnnConvolutionKernelLayout) {
-
-  std::vector<int64_t> kernelLayout(
-      ttnnConvolutionKernelLayout.size(),
-      ConvolutionKernelDimension::INVALID_KERNEL_DIM);
-  kernelLayout[op.getConvolutionLayout().getKernelOutputFeatureDimension()] =
-      ConvolutionKernelDimension::OUTPUT_FEATURES;
-  kernelLayout[op.getConvolutionLayout().getKernelInputFeatureDimension()] =
-      ConvolutionKernelDimension::INPUT_FEATURES;
-
-  int64_t spatialCount = 0;
-  for (int64_t spatialDim :
-       op.getConvolutionLayout().getKernelSpatialDimensions()) {
-    kernelLayout[spatialDim] = spatialCount;
-    spatialCount++;
-  }
-
-  return generatePermuteIndices(kernelLayout, ttnnConvolutionKernelLayout);
-}
 
 struct ConvolutionDecompositionPattern
     : public OpConversionPattern<ttir::ConvolutionOp> {
 public:
   using OpConversionPattern<ttir::ConvolutionOp>::OpConversionPattern;
 
+  //  All convolutions will have a batch and feature dimension, and the kernel
+  //  will have an input and output feature dimension. The spatial dimensions
+  //  can be
+  // represented by non-negative integers.
+  enum ConvolutionDimension { BATCH = -1, FEATURE = -2, INVALID_DIM = -3 };
+  enum ConvolutionKernelDimension {
+    INPUT_FEATURES = -1,
+    OUTPUT_FEATURES = -2,
+    INVALID_KERNEL_DIM = -3
+  };
+
   LogicalResult
   matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override = 0;
 
 protected:
-  bool isNDimensional(ttir::ConvolutionOp op, uint32_t numSpatialDims) const {
+  static bool isNDimensional(ttir::ConvolutionOp op, uint32_t numSpatialDims) {
     return op.getConvolutionLayout().getInputSpatialDimensions().size() ==
            numSpatialDims;
   }
 
-  bool isSupportedConv(ttir::ConvolutionOp op) const {
+  static bool isSupportedConv(ttir::ConvolutionOp op) {
     assert(op.getConvolutionLayout().getInputSpatialDimensions().size() ==
                op.getConvolutionLayout().getOutputSpatialDimensions().size() &&
            "Convolution input, output, and kernel must have the same number of "
@@ -205,12 +130,8 @@ protected:
            "spatial dimensions");
 
     // Not currently supporting window reversal
-    std::vector<bool> windowReversal(op.getWindowReversal().begin(),
-                                     op.getWindowReversal().end());
-    for (bool reversed : windowReversal) {
-      if (reversed) {
-        return false;
-      }
+    if (llvm::any_of(op.getWindowReversal(), ttmlir::utils::identity<bool>)) {
+      return false;
     }
 
     // Not currently support batch groups
@@ -220,16 +141,54 @@ protected:
 
     return true;
   }
-};
 
-static llvm::SmallVector<int64_t>
-inversePermutaion(llvm::ArrayRef<int64_t> permutation) {
-  llvm::SmallVector<int64_t> inversePermutation(permutation.size());
-  for (size_t i = 0; i < permutation.size(); ++i) {
-    inversePermutation[permutation[i]] = i;
+  // This function will generate the transpose indices needed to convert a
+  // convolution input to a desired layout. The reason for the separate
+  // function is to encapsulate the logic for constructuring the inputLayout.
+  static llvm::SmallVector<int64_t>
+  generateConvPermutation(ttir::ConvolutionOp op,
+                          llvm::ArrayRef<int64_t> ttnnConvolutionLayout) {
+
+    llvm::SmallVector<int64_t> inputLayout(ttnnConvolutionLayout.size(),
+                                           ConvolutionDimension::INVALID_DIM);
+    inputLayout[op.getConvolutionLayout().getInputBatchDimension()] =
+        ConvolutionDimension::BATCH;
+    inputLayout[op.getConvolutionLayout().getInputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getConvolutionLayout().getInputSpatialDimensions())) {
+      inputLayout[spatialDim] = spatialCount;
+    }
+
+    return ttmlir::utils::generatePermutation(llvm::ArrayRef(inputLayout),
+                                              ttnnConvolutionLayout);
   }
-  return inversePermutation;
-}
+
+  // This function will generate the transpose indices needed to convert a
+  // convolution input to a desired layout. The reason for the separate
+  // function is to encapsulate the logic for constructuring the kernelLayout.
+  static llvm::SmallVector<int64_t> generateConvKernelPermutation(
+      ttir::ConvolutionOp op,
+      llvm::ArrayRef<int64_t> ttnnConvolutionKernelLayout) {
+
+    llvm::SmallVector<int64_t> kernelLayout(
+        ttnnConvolutionKernelLayout.size(),
+        ConvolutionKernelDimension::INVALID_KERNEL_DIM);
+    kernelLayout[op.getConvolutionLayout().getKernelOutputFeatureDimension()] =
+        ConvolutionKernelDimension::OUTPUT_FEATURES;
+    kernelLayout[op.getConvolutionLayout().getKernelInputFeatureDimension()] =
+        ConvolutionKernelDimension::INPUT_FEATURES;
+
+    for (const auto [spatialCount, spatialDim] : llvm::enumerate(
+             op.getConvolutionLayout().getKernelSpatialDimensions())) {
+      kernelLayout[spatialDim] = spatialCount;
+    }
+
+    return ttmlir::utils::generatePermutation(llvm::ArrayRef(kernelLayout),
+                                              ttnnConvolutionKernelLayout);
+  }
+};
 
 // A decomposition pattern that matches to a ttir.convolution op that does 1D
 // convolution. Since that is not supported in ttnn, we reshape the inputs and
@@ -239,12 +198,12 @@ inversePermutaion(llvm::ArrayRef<int64_t> permutation) {
 struct Legalize1DConvolutionPattern : public ConvolutionDecompositionPattern {
 public:
   using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
-  constexpr static uint32_t numSpatialDims = 1;
+  constexpr static uint32_t NUM_SPATIAL_DIMS = 1;
 
   LogicalResult
   matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!(isSupportedConv(op) && isNDimensional(op, numSpatialDims))) {
+    if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
       return failure();
     }
 
@@ -387,7 +346,7 @@ struct ConvolutionToConv2dPattern : public ConvolutionDecompositionPattern {
 public:
   using ConvolutionDecompositionPattern::ConvolutionDecompositionPattern;
 
-  constexpr static uint32_t numSpatialDims = 2;
+  constexpr static uint32_t NUM_SPATIAL_DIMS = 2;
   constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
   constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
 
@@ -409,7 +368,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (!(isSupportedConv(op) && isNDimensional(op, numSpatialDims))) {
+    if (!(isSupportedConv(op) && isNDimensional(op, NUM_SPATIAL_DIMS))) {
       return failure();
     }
 
@@ -425,7 +384,8 @@ public:
     // Padding is a list of 2-tuples, the order of the 2-tuples is in
     // most-significant spatial dimension first order For Conv2d the most
     // significant spatial dimension is the height, followed by the width.
-    auto paddingMatrix = getPaddingMatrix<numSpatialDims>(adaptor.getPadding());
+    auto paddingMatrix =
+        getPaddingMatrix<NUM_SPATIAL_DIMS>(adaptor.getPadding());
     auto paddingTopAttr =
         rewriter.getSI32IntegerAttr(paddingMatrix[SPATIAL_DIM_HEIGHT][0]);
     auto paddingBottomAttr =
@@ -455,7 +415,7 @@ public:
     auto convDPSOutput = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), newOutputShape, outputType.getElementType());
 
-    auto permutation = generateConvTransposeIndices(op, conv2dLayout);
+    auto permutation = generateConvPermutation(op, conv2dLayout);
     auto permuteOutputShape =
         ::ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
     auto permuteDPSOutput = rewriter.create<tensor::EmptyOp>(
@@ -467,7 +427,7 @@ public:
     auto weightType =
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
     auto kernelPermutation =
-        generateConvKernelTransposeIndices(op, conv2dKernelLayout);
+        generateConvKernelPermutation(op, conv2dKernelLayout);
     auto weightOutputShape = ::ttmlir::utils::applyPermutation(
         mlir::cast<RankedTensorType>(adaptor.getWeight().getType()).getShape(),
         kernelPermutation);
@@ -482,11 +442,11 @@ public:
         dilationWidthAttr, groupsAttr, paddingLeftAttr, paddingRightAttr,
         paddingTopAttr, paddingBottomAttr);
 
-    // Applying the transposes in reverse order to the output will restore the
-    // tensor to the original layout
+    // Applying the inverse of permutation to the output will restore the
+    // tensor to the original layout.
     rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
         op, op.getResult().getType(), newConv, adaptor.getOutput(),
-        inversePermutaion(permutation));
+        ttmlir::utils::inversePermutation(permutation));
 
     return success();
   }
@@ -771,8 +731,9 @@ public:
       }
     }
 
-    auto permutation = generatePermuteIndices(currentLayout, desiredLayout);
-    auto inverseOfPermutaion = inversePermutaion(permutation);
+    auto permutation = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
+    auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
 
     auto kernelHeightAttr = rewriter.getSI32IntegerAttr(
         static_cast<int32_t>(op.getWindowDimensions()[spatialDims[0]]));
@@ -827,14 +788,13 @@ public:
           dilationHeightAttr, dilationWidthAttr, ceilModeAttr, paddingTopAttr,
           paddingBottomAttr, paddingLeftAttr, paddingRightAttr);
 
-      // Applying the transposes in reverse order to the output will restore the
-      // tensor to the original layout
-
+      // Applying the inverse of permutation to the output will restore the
+      // tensor to the original layout.
       auto reversePoolDPSOuput = rewriter.create<tensor::EmptyOp>(
           op.getLoc(), outputType.getShape(), outputType.getElementType());
       Value output = rewriter.create<ttir::PermuteOp>(
           op.getLoc(), reversePoolDPSOuput.getType(), newPool,
-          reversePoolDPSOuput, inverseOfPermutaion);
+          reversePoolDPSOuput, inverseOfPermutation);
 
       outputs.push_back(output);
     }

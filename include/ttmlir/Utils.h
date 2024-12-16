@@ -5,14 +5,14 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
-#include <cstdint>
-
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
+
+#include <cstdint>
 
 namespace ttmlir::utils {
 template <typename T>
@@ -125,15 +125,59 @@ inline bool isRankedTensor(mlir::Value v) {
   return mlir::isa<mlir::RankedTensorType>(v.getType());
 }
 
+// Returns the element received as a parameter. Useful as a callback for
+// higher-order functions.
 template <typename T>
-llvm::SmallVector<T> applyPermutation(llvm::ArrayRef<T> input,
-                                      llvm::ArrayRef<int64_t> permutation) {
+inline T identity(T x) {
+  return x;
+}
+
+// Returns a vector of indices `permutation` such that input[permutation[i]] ==
+// output[i], for all i. Assumes that input and output have the same elements.
+// Example:  input = [1, 2, 3], output = [3, 1, 2] -> [2, 0, 1]
+template <typename T>
+inline llvm::SmallVector<int64_t>
+generatePermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<T> output) {
+  assert(input.size() == output.size());
+
+  llvm::DenseMap<T, int64_t> indices;
+  for (const auto [index, value] : llvm::enumerate(input)) {
+    indices[value] = index;
+  }
+  llvm::SmallVector<int64_t> permutation;
+  for (const T &dim : output) {
+    permutation.push_back(indices[dim]);
+  }
+  return permutation;
+}
+
+// Returns a vector `output`, such that output[i] = input[permutation[i]], for
+// all i. Assumes that permutation is a valid permutation of the indices of
+// input. Example:  input = [1, 2, 3], permutation = [2, 0, 1] -> [3, 1, 2]
+template <typename T>
+inline llvm::SmallVector<T>
+applyPermutation(llvm::ArrayRef<T> input, llvm::ArrayRef<int64_t> permutation) {
+  assert(input.size() == permutation.size());
+
   llvm::SmallVector<T> output(input.size());
 
   llvm::transform(permutation, output.begin(),
                   [&](const int64_t i) { return input[i]; });
 
   return output;
+}
+
+// Returns a vector `inversePermutation`, such that
+// inversePermutation[permutation[i]] = i, for all i. Assumes that permutation
+// is a valid permutation of a range(0, permutation.size()). Example:
+// permutation = [2, 0, 1] -> [1, 2, 0]
+inline llvm::SmallVector<int64_t>
+inversePermutation(llvm::ArrayRef<int64_t> permutation) {
+  llvm::SmallVector<int64_t> inversePermutation(permutation.size());
+  for (size_t i = 0; i < permutation.size(); ++i) {
+    inversePermutation[permutation[i]] = i;
+  }
+  return inversePermutation;
 }
 
 } // namespace ttmlir::utils
