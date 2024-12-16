@@ -572,6 +572,18 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        wa::TTNNOperandWorkarounds inputWorkaround;
+        inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+        wa::TTNNOperandWorkarounds outputWorkaround;
+        outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+          // wa::TTNNOperandWorkarounds weightWorkaround;
+          return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
+          .addInputOperandWorkaround(inputWorkaround)
+          .addInputOperandWorkaround(outputWorkaround)
+          .addInputOperandWorkaround(outputWorkaround)
+          .addOutputOperandWorkaround(outputWorkaround);
+      }
     }];
 
     let hasVerifier = 1;
@@ -834,13 +846,13 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
-      }
-    }];
+    // let extraClassDeclaration = [{
+    //   wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+    //     wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
+    //     return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+    //     .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+    //   }
+    // }];
 
     let hasVerifier = 1;
 }
