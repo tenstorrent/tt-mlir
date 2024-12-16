@@ -4,13 +4,10 @@
 
 #include <numeric>
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/DialectImplementation.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir::tt::ttnn;
 
@@ -66,6 +63,50 @@ bool TTNNLayoutAttr::hasInterleavedL1TensorMemoryLayout() const {
 bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
   return hasDRAMBufferType() &&
          (getMemLayout().getValue() == TensorMemoryLayout::Interleaved);
+}
+
+// Calculate the logical shape of the shard.
+// Shard is defined as a piece of the tensor that is mapped to a single grid
+// core. It is assumed that the TensorMemoryLayout is sharded.
+llvm::SmallVector<int64_t>
+TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
+    ArrayRef<int64_t> tensorShape, mlir::AffineMap linear, GridAttr grid) {
+  assert(linear.getNumResults() == grid.getShape().size());
+  mlir::SmallVector<std::int64_t> logicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
+  mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
+  for (unsigned i = 0; i < linear.getNumResults(); ++i) {
+    shardShape[i] =
+        (logicalShape[i] + grid.getShape()[i] - 1) / grid.getShape()[i];
+  }
+  return shardShape;
+}
+
+// Calculate the logical shape of the shard.
+// Shard is defined as a piece of the tensor that is mapped to a single grid
+// core. It is assumed that the TensorMemoryLayout is interleaved.
+llvm::SmallVector<int64_t>
+TTNNLayoutAttr::calculateLogicalShardShapeForInterleaved(
+    ArrayRef<int64_t> tensorShape, mlir::Type elementType,
+    mlir::AffineMap linear, mlir::tt::GridAttr grid) {
+  assert(linear.getNumResults() == grid.getShape().size());
+  assert(mlir::isa<mlir::tt::TileType>(elementType));
+
+  mlir::SmallVector<std::int64_t> logicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
+  mlir::SmallVector<std::int64_t> logicalTiledShape =
+      mlir::cast<mlir::tt::TileType>(elementType).getTiledShape(logicalShape);
+  uint64_t numOfTiles =
+      std::accumulate(logicalTiledShape.begin(), logicalTiledShape.end(), 1,
+                      std::multiplies<std::int64_t>());
+  uint64_t numOfGridUnits =
+      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
+                      std::multiplies<std::int64_t>());
+
+  mlir::SmallVector<std::int64_t> shardShape;
+  shardShape.push_back(1);
+  shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
+  return mlir::cast<mlir::tt::TileType>(elementType).getScalarShape(shardShape);
 }
 
 // Get stride given tensor logical shape
@@ -460,7 +501,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   // Calculate shard shape by evaluating the linear map with last element
   // of the tensor shape and dividing it by the grid shape
   mlir::SmallVector<int64_t, 4> shardShape =
-      calculateLogicalShardShape(tensorShape, linear, grid);
+      TTNNLayoutAttr::calculateLogicalShardShapeForSharding(tensorShape, linear,
+                                                            grid);
   // Build memref type with the given parameters
   MemRefType memRefType = buildMemRef<BufferType, BufferTypeAttr>(
       context, shardShape, elementType, bufferType);
