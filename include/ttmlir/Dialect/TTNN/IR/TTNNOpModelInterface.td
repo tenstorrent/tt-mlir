@@ -19,7 +19,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"size_t",
             /*methodName=*/"getOpPerfCycles",
-            /*args=*/(ins "const std::vector<std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>>&":$inputs, "const std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>&":$output),
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return std::numeric_limits<size_t>::max();"
         >,
@@ -35,7 +35,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             }],
             /*retTy=*/"std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>, std::optional<std::string>>",
             /*methodName=*/"getOpConstraints",
-            /*args=*/(ins "const std::vector<std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>>&":$inputs, "const std::tuple<ArrayRef<int64_t>,TTNNLayoutAttr>&":$output),
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const TTNNLayoutAttr&":$output),
             /*methodBody=*/"",
             /*defaultImplementation=*/"return std::make_tuple(true,std::make_tuple(0,0,0), std::nullopt);"
         >,
