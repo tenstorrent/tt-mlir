@@ -12,7 +12,6 @@ with Context() as ctx:
 
     module = Module.parse(
         """
-    #any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
     %0 = tensor.empty() : tensor<64x128xf32>
     %1 = tensor.empty() : tensor<64x128xf32>
     %2 = tensor.empty() : tensor<64x128xf32>
