@@ -68,6 +68,7 @@ size_t getNumAvailableDevices() {
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
+  compile_error_hello_there();
 
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
