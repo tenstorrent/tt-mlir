@@ -33,6 +33,7 @@ public:
   void SetUp() override { context.loadDialect<TTNNDialect>(); }
   void TearDown() override {}
 
+  // helper function to create layout
   TTNNLayoutAttr CreateLayout(llvm::ArrayRef<int64_t> tensorShape,
                               BufferType bufferType,
                               TensorMemoryLayout tensorMemoryLayout,
@@ -43,37 +44,36 @@ public:
         TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout));
   }
 
+  // helper function to extract op data and call into get op constraints
   std::optional<
       std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
                  std::optional<std::string>>>
   getOpConstraints(Operation *op) {
-    std::vector<std::tuple<ArrayRef<int64_t>, TTNNLayoutAttr>> inputs;
+    std::vector<TTNNLayoutAttr> inputs;
 
+    // create input layouts
     auto numOperand = op->getNumOperands();
+    // some ops have multiple operands
     auto limit = (numOperand > 1) ? numOperand - 1 : numOperand;
     for (size_t i = 0; i < limit; i++) {
       auto operand = op->getOperand(i);
       auto inputShape =
           mlir::cast<RankedTensorType>(operand.getType()).getShape();
-      auto layout_dram = CreateLayout(inputShape, BufferType::L1,
+      auto inputLayout = CreateLayout(inputShape, BufferType::L1,
                                       TensorMemoryLayout::Interleaved);
-      inputs.push_back({inputShape, layout_dram});
-
-      std::cout << "OPERAND[" << i << "]: " << inputShape[0] << "x"
-                << inputShape[1] << std::endl;
+      inputs.push_back(inputLayout);
     }
+
+    // create output layout
     auto output = op->getResult(0);
     auto outputShape =
         mlir::cast<RankedTensorType>(output.getType()).getShape();
+    auto outputLayout = CreateLayout(outputShape, BufferType::L1,
+                                     TensorMemoryLayout::Interleaved);
 
-    std::cout << "OUTPUTSHAPE: " << outputShape[0] << "x" << outputShape[1]
-              << std::endl;
-    auto outputLayout_dram = CreateLayout(outputShape, BufferType::L1,
-                                          TensorMemoryLayout::Interleaved);
-
+    // call op model interface - getOpConstraints()
     if (OpModel backend = dyn_cast<OpModel>(op)) {
-      auto constraints =
-          backend.getOpConstraints(inputs, {outputShape, outputLayout_dram});
+      auto constraints = backend.getOpConstraints(inputs, outputLayout);
       return constraints;
     }
     return std::nullopt;
@@ -103,10 +103,10 @@ TEST_F(OpModelBase, ReluInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1_value = l1.value();
-      EXPECT_GT(std::get<0>(l1_value), 0);
-      EXPECT_GT(std::get<1>(l1_value), 0);
-      EXPECT_GT(std::get<2>(l1_value), 0);
+      auto l1Usage = l1.value();
+      EXPECT_GT(std::get<0>(l1Usage), 0);
+      EXPECT_GT(std::get<1>(l1Usage), 0);
+      EXPECT_GT(std::get<2>(l1Usage), 0);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -137,10 +137,10 @@ TEST_F(OpModelBase, SoftmaxInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1_value = l1.value();
-      EXPECT_GT(std::get<0>(l1_value), 0);
-      EXPECT_GT(std::get<1>(l1_value), 0);
-      EXPECT_GT(std::get<2>(l1_value), 0);
+      auto l1Usage = l1.value();
+      EXPECT_GT(std::get<0>(l1Usage), 0);
+      EXPECT_GT(std::get<1>(l1Usage), 0);
+      EXPECT_GT(std::get<2>(l1Usage), 0);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -175,10 +175,10 @@ TEST_F(OpModelBase, AddInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1_value = l1.value();
-      EXPECT_GT(std::get<0>(l1_value), 0);
-      EXPECT_GT(std::get<1>(l1_value), 0);
-      EXPECT_GT(std::get<2>(l1_value), 0);
+      auto l1Usage = l1.value();
+      EXPECT_GT(std::get<0>(l1Usage), 0);
+      EXPECT_GT(std::get<1>(l1Usage), 0);
+      EXPECT_GT(std::get<2>(l1Usage), 0);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -219,10 +219,10 @@ TEST_F(OpModelBase, MatmulInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1_value = l1.value();
-      EXPECT_GT(std::get<0>(l1_value), 0);
-      EXPECT_GT(std::get<1>(l1_value), 0);
-      EXPECT_GT(std::get<2>(l1_value), 0);
+      auto l1Usage = l1.value();
+      EXPECT_GT(std::get<0>(l1Usage), 0);
+      EXPECT_GT(std::get<1>(l1Usage), 0);
+      EXPECT_GT(std::get<2>(l1Usage), 0);
     } else {
       FAIL() << "Missing L1 constraints";
     }
