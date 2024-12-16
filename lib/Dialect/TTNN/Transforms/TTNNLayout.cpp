@@ -263,6 +263,13 @@ static bool changeLayoutToHost(DestinationStyleOpInterface &op,
   return false;
 }
 
+bool shouldOpHaveTileResultDefault(Operation *op) {
+  if (mlir::isa<ttir::MaxPool2dOp>(op)) {
+    return false;
+  }
+  return true;
+}
+
 // Updates the layout of the operands of a TTIR ops which have DPS operands.
 // This function rewrites the operands and result to have the correct layout
 // with respect to operand constraints.
@@ -311,7 +318,7 @@ public:
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
           TensorMemoryLayoutAttr::get(rewriter.getContext(),
                                       g_defaultMemoryLayout),
-          true /* isTiled */);
+          shouldOpHaveTileResultDefault(op));
 
       // If layout changed update the operand
       if (desiredLayout) {
