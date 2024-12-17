@@ -377,9 +377,29 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
         .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
   }
 
-  return CircularBufferConfig(totalSize, {{cbRef->desc()->port(), dataFormat}},
-                              *buffers.at(cbRef->tensor_ref()->global_id()))
-      .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  LOG_ASSERT(cbRef->tensor_ref());
+  if (cbRef->tensor_ref()->address() == cbRef->address()) { 
+    return CircularBufferConfig(totalSize,
+                                {{cbRef->desc()->port(), dataFormat}},
+                                *buffers.at(cbRef->tensor_ref()->global_id()))
+        .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  } else {
+    InterleavedBufferConfig l1_config = {
+      .device = buffers.at(cbRef->tensor_ref()->global_id())->device(),
+      .size = cbRef->desc()->memory_desc()->size()*64,
+      .page_size = cbRef->desc()->page_size(),
+      .buffer_type = BufferType::L1,
+      .allocate = false
+    };
+
+    std::shared_ptr<::tt::tt_metal::Buffer> l1_buffer =
+        ::tt::tt_metal::CreateBuffer(l1_config);
+    l1_buffer->set_address(cbRef->address());
+
+    return CircularBufferConfig(totalSize,
+                                {{cbRef->desc()->port(), dataFormat}}, *l1_buffer)
+        .set_page_size(cbRef->desc()->port(), cbRef->desc()->page_size());
+  }
 }
 
 // Process various types of runtime args if present and call Metal APIs.
@@ -395,6 +415,7 @@ static void processRuntimeArgs(
 
   using SemaphoreAddr = ::tt::target::metal::RuntimeArgSemaphoreAddress;
   using TensorAddr = ::tt::target::metal::RuntimeArgTensorAddress;
+  using MMArgs = ::tt::target::metal::RuntimeArgMMArgs;
 
   const auto *rt_args_types = kernelDesc->runtime_args_type();
   const auto *rt_args = kernelDesc->runtime_args();
@@ -407,6 +428,11 @@ static void processRuntimeArgs(
   LOG_ASSERT(rt_args_types->size() == rt_args->size());
   std::vector<uint32_t> rt_args_vec;
 
+  std::vector<CoreCoord> coreCoords = corerange_to_cores(coreRange);
+  std::vector<std::vector<uint32_t>> rt_args_per_core;
+  for (size_t i = 0; i < coreCoords.size(); i++) {
+    rt_args_per_core.push_back(std::vector<uint32_t>{});
+  }
   for (size_t i = 0; i < rt_args->size(); i++) {
     switch (rt_args_types->Get(i)) {
     case ::tt::target::metal::RuntimeArg::RuntimeArgTensorAddress: {
@@ -416,6 +442,9 @@ static void processRuntimeArgs(
       uint32_t global_id = operands->Get(rt_arg->operand_idx())->global_id();
       uint32_t addr = buffers.at(global_id)->address();
       rt_args_vec.push_back(addr);
+      for (size_t i = 0; i < coreCoords.size(); i++) {
+        rt_args_per_core[i].push_back(addr);
+      }
       break;
     }
     case ::tt::target::metal::RuntimeArg::RuntimeArgSemaphoreAddress: {
@@ -424,6 +453,20 @@ static void processRuntimeArgs(
           program, coreRange, rt_arg->initial_value(),
           toCoreType(rt_arg->core_type()));
       rt_args_vec.push_back(addr);
+      for (size_t i = 0; i < coreCoords.size(); i++) {
+        rt_args_per_core[i].push_back(addr);
+      }
+      break;
+    }
+    case ::tt::target::metal::RuntimeArg::RuntimeArgMMArgs: {
+      const auto *rt_arg = static_cast<const MMArgs *>(rt_args->Get(i));
+      assert(rt_arg->args()->size() == coreCoords.size());
+      for (size_t i = 0; i < rt_arg->args()->size(); i++) {
+        rt_args_per_core[i].push_back(
+            rt_arg->args()->Get(i));
+        rt_args_per_core[i].push_back(rt_arg->trans_x());
+        rt_args_per_core[i].push_back(rt_arg->trans_y());
+      }
       break;
     }
     case ::tt::target::metal::RuntimeArg::NONE:
@@ -431,7 +474,8 @@ static void processRuntimeArgs(
     }
   }
 
-  ::tt::tt_metal::SetRuntimeArgs(program, handle, coreRange, rt_args_vec);
+  // ::tt::tt_metal::SetRuntimeArgs(program, handle, coreRange, rt_args_vec);
+  ::tt::tt_metal::SetRuntimeArgs(program, handle, coreCoords, rt_args_per_core);
 }
 
 void CQExecutor::execute(

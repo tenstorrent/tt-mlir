@@ -78,9 +78,16 @@ table RuntimeArgSemaphoreAddress {
   core_type: CoreType;
 }
 
+table RuntimeArgMMArgs {
+  args: [uint32];
+  trans_x: uint32;
+  trans_y: uint32;
+}
+
 union RuntimeArg {
   RuntimeArgTensorAddress,
   RuntimeArgSemaphoreAddress,
+  RuntimeArgMMArgs
 }
 
 table KernelDesc {

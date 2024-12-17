@@ -112,6 +112,13 @@ def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
   let assemblyFormat = "`<` $initial_value `>`";
 }
 
+def TTKernel_MMArgs : TTKernel_Type<"MMArgs", "mm_args"> {
+  let summary = "TTKernel mm args";
+  let description = "MM args type in TTKernel dialect";
+  let parameters = (ins ArrayRefParameter<"uint32_t">:$args, "uint32_t":$trans_x, "uint32_t":$trans_y);
+  let assemblyFormat = "`<``[` $args `]``,`$trans_x`,`$trans_y`>`";
+}
+
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
     let summary = "TTKernel noc address";
     let description = "Noc address type in TTKernel dialect";
