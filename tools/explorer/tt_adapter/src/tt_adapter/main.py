@@ -56,7 +56,9 @@ class TTAdapter(model_explorer.Adapter):
 
         # Convert TTIR to Model Explorer Graphs and Display/Return
         graph, perf_data = mlir.build_graph(module, perf_trace)
-        return {"graphs": [graph], "perf_data": perf_data}
+        if perf_data:
+            graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
+        return {"graphs": [graph]}
 
     def execute(
         self, model_path: str, settings: Dict
