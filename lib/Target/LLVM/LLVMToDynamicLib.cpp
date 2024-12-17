@@ -11,10 +11,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 
-// #include "lld/Common/Driver.h"
-// #include "lld/Common/ErrorHandler.h"
-// #include "lld/Common/Memory.h"
-
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -34,8 +30,13 @@
 
 #include <fstream>
 
-// a lot of this code is adapted from IREE's LLVMCPU target code
 namespace mlir::tt::llvm_to_cpu {
+
+// flag to toggle whether we delete temp files after we're done with them
+static llvm::cl::opt<bool>
+    cleanupTempFiles("cleanup-dylib-temp-files",
+                     llvm::cl::desc("Delete temporary files after translation"),
+                     llvm::cl::init(true));
 
 // helper to create randomized tempDir to store our temp files
 llvm::SmallString<128> createTempDir() {
@@ -72,7 +73,7 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
 
   // Use MLIR's translation utility
   auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext,
-                                                  "test-llvm-custom-name");
+                                                  "llvm-dylib-module");
   if (!llvmModule) {
     llvm::errs() << "Failed to convert MLIR ModuleOp to LLVM IR\n";
     return nullptr;
@@ -106,7 +107,7 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::StringRef outputFilename) {
 
   //  Initialize LLVM targets
-  // TODO (vwells): eventually, we should get this working on other archs, but
+  // TODO (#1631): eventually, we should get this working on other archs, but
   // adding new archs requires corresponding cmake changes
   LLVMInitializeX86Target();
   LLVMInitializeX86TargetMC();
@@ -166,8 +167,7 @@ llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine) {
   return llvm::failure();
 }
 
-// TODO: decide if we have any use cases where we actually need multiple .o
-// files, or we should just pass in a single 1
+// wrapper function to invoke linker w/ correct options on set of .o files
 llvm::LogicalResult
 linkDynamicLibrary(llvm::StringRef libraryName,
                    ArrayRef<llvm::StringRef> objectFileNames) {
@@ -175,37 +175,19 @@ linkDynamicLibrary(llvm::StringRef libraryName,
       llvm::SmallString<13>("ld.lld-17"), llvm::SmallString<13>("-o"),
       libraryName};
 
-  // Avoids including any libc/startup files that initialize the CRT as
-  // we don't use any of that. Our shared libraries must be freestanding.
-  flags.emplace_back("-nostdlib"); // -nodefaultlibs + -nostartfiles
+  // no stdlib dependency makes things easier for us
+  flags.emplace_back("-nostdlib");
 
-  // Statically link all dependencies so we don't have any runtime deps.
-  // We cannot have any imports in the module we produce.
+  // want to create a standalone dylib w/o dependencies on other dylibs
+  // apparently, only lld supports this combo
   flags.emplace_back("-static");
-
-  // Generate a dynamic library (ELF type: ET_DYN), otherwise dlopen()
-  // won't succeed on it. This is not incompatible with -static. The GNU
-  // man page for ld, `man ld`, says the following:
-  //
-  //   -static
-  //       Do not link against shared libraries. [...] This option can be
-  //       used with -shared. Doing so means that a shared library is
-  //       being created but that all of the library's external references
-  //       must be resolved by pulling in entries from static libraries.
-  //
-  // While that much is said in the GNU ld man page, the reality is that
-  // out of ld.bfd, ld.gold and ld.lld, only ld.lld actually implements
-  // that. Meanwhile, ld.bfd interprets -static -shared as just -static,
-  // and ld.gold rejects -static -shared outright as "incompatible".
   flags.emplace_back("-shared");
 
-  // Strip debug information (only, no relocations) when not requested.
   // In our case, we probably don't gain much useful info from debug symbols
   // anyway
   flags.emplace_back("--strip-debug");
 
-  // Link all input objects. Note that we are not linking whole-archive as
-  // we want to allow dropping of unused codegen outputs.
+  // Link all input .o into 1 output .so
   for (const auto &objectFile : objectFileNames) {
     flags.emplace_back(objectFile);
   }
@@ -244,6 +226,8 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   }
 }
 
+// Wrapper func to create objects, link them into dylib, and return dylib as
+// binary buffer is successful
 std::optional<llvm::SmallVector<char, 2048>>
 compileAndLinkToSharedLibrary(llvm::Module &module,
                               llvm::LLVMContext &context) {
@@ -280,15 +264,16 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
     return std::nullopt;
   }
 
-  // TODO: we ought to delete the .so here, unless we want to keep for debug
-  // reasons
+  if (cleanupTempFiles) {
+    llvm::sys::fs::remove_directories(tmpDirName);
+  } else {
+    llvm::outs() << "wrote temp files to: " << tmpDirName << "\n";
+  }
 
   return buffer;
 }
 
-llvm::LogicalResult
-translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os,
-                     std::unordered_map<std::string, GoldenTensor>) {
+llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
 
   if (!llvm::isa<mlir::ModuleOp>(op)) {
     llvm::errs() << "The operation is not a ModuleOp, cannot perform this "

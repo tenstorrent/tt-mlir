@@ -13,16 +13,13 @@
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::llvm_to_cpu {
 // Convert a linalg operation to a dylib
-// This function signature is required in order to register the conversion in
-// mlir translation framework even though we don't use last 2 args
-LogicalResult translateLLVMToDyLib(
-    Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap = {});
+LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os);
 } // namespace mlir::tt::llvm_to_cpu
 
 #endif
