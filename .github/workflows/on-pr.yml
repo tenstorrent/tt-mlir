@@ -36,4 +36,4 @@ jobs:
             --field mlir_override=${{ github.sha }}
           gh run list --workflow=${{ env.WORKFLOW_NAME }} --repo ${{ env.TARGET_REPO }} --limit 1
           echo "Triggered ${{ env.TARGET_REPO }}"
-          echo "### Triggered [${{ env.TARGET_REPO }}] (https://github.com/${{ env.TARGET_REPO }}/actions/workflows/${{ env.WORKFLOW_NAME }}) :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### Triggered [${{ env.TARGET_REPO }}](https://github.com/${{ env.TARGET_REPO }}/actions/workflows/${{ env.WORKFLOW_NAME }}) :rocket:" >> $GITHUB_STEP_SUMMARY
