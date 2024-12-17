@@ -471,42 +471,54 @@ public:
   }
 };
 
-class TTNNTypecastWorkarounds : public OpRewritePattern<ttnn::ReshapeOp> {
+class TTNNTypecastWorkarounds : public RewritePattern {
 public:
-  using OpRewritePattern<ttnn::ReshapeOp>::OpRewritePattern;
+  TTNNTypecastWorkarounds(MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
-  LogicalResult matchAndRewrite(ttnn::ReshapeOp op,
+  LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
+
+    if (!isa<ttnn::ReshapeOp>(op) && !isa<ttnn::TransposeOp>(op) &&
+        !isa<ttnn::SliceOp>(op)) {
+      return success();
+    }
+
     RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(op.getInput().getType());
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
 
     if (inputType.getElementType().isBF16() ||
-        inputType.getElementType().isF16() || inputType.isF32() ||
-        inputType.isF64()) {
+        inputType.getElementType().isF32()) {
+      return success();
     }
 
     // The remainder of the types require a typecastOp before and after the
     // actual operation
     DataTypeAttr toDtypeAttr =
-        DataTypeAttr::get(op.getContext(), DataType::BFloat16);
+        DataTypeAttr::get(op->getContext(), DataType::Float32);
 
     rewriter.setInsertionPoint(op);
     ttnn::TypecastOp toType = rewriter.create<ttnn::TypecastOp>(
-        op.getLoc(), op.getResult().getType(), op.getInput(), toDtypeAttr);
+        op->getLoc(), op->getResult(0).getType(), op->getOperand(0),
+        toDtypeAttr);
 
-    ttnn::ReshapeOp reshape = rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
-        op, op.getType(), toType.getResult(), op.getShape());
+    op->setOperand(0, toType.getResult());
 
-    DataTypeAttr fromDtypeAttr = DataTypeAttr::get(
-        op.getContext(),
-        elementTypeToDataType(op.getInput().getType().getElementType()));
+    DataTypeAttr fromDtypeAttr =
+        DataTypeAttr::get(op->getContext(), elementTypeToDataType(inputType));
 
     rewriter.setInsertionPointAfter(op);
     ttnn::TypecastOp fromType = rewriter.create<ttnn::TypecastOp>(
-        op.getLoc(), reshape.getResult().getType(), reshape.getResult(),
-        fromDtypeAttr);
+        op->getLoc(), inputType, op->getResult(0), fromDtypeAttr);
 
-    rewriter.replaceAllOpUsesWith(reshape, fromType);
+    auto replaceIfFn = [&](OpOperand &use) {
+      if (use.getOwner() == fromType) {
+        return false;
+      }
+      return true;
+    };
+
+    rewriter.replaceOpUsesWithIf(op, fromType.getResult(), replaceIfFn);
 
     return success();
   }
@@ -520,14 +532,16 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       // Placeholder for workaround decomposition patterns.
+
+      GreedyRewriteConfig config = GreedyRewriteConfig();
+      config.useTopDownTraversal = true;
+      config.maxIterations = 1;
+
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds>(&getContext());
       patterns.add<TTNNTypecastWorkarounds>(&getContext());
 
       FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
-      config.maxIterations = GreedyRewriteConfig::kNoLimit;
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
                                               config))) {
         signalPassFailure();
