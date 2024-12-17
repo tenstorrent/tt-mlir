@@ -1,4 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s  > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module attributes {} {
   func.func @neg_dim_five(%arg0: tensor<4x2x32x32xbf16>) -> tensor<1x4x2x32x32xbf16> {
     %0 = tensor.empty() : tensor<1x4x2x32x32xbf16>
