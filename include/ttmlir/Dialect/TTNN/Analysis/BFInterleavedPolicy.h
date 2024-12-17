@@ -7,7 +7,6 @@
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisPolicy.h"
-#include <cstdint>
 
 namespace mlir::tt::ttnn {
 
