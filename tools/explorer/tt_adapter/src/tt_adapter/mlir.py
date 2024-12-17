@@ -7,20 +7,14 @@ from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 
 from ttmlir.dialects import tt, ttnn, ttir
-from ttmlir import ir
+from ttmlir import ir, util
 
 
 def get_loc_str(loc):
     try:
-        # Constant loc( at the start of the location and ) at the end. Can just strip these characters
-        loc = str(loc)
-        if loc.startswith("loc(") and loc.endswith(")"):
-            # Fuzzy parse first string inside location
-            # 'loc("matmul_1"("MNISTLinear":4294967295:10))' -> matmul_1
-            # TODO(odjuricic) Need to have this pybinded.
-            res = re.search(r'"([^"]+)"', loc).group(1)
-        else:
-            res = loc  # This is a fallback to just visualize / see what the loc is if not processable.
+        res = util.get_loc_name(loc)
+        if res == "-":
+            res = util.get_loc_full(loc)
     except:
         res = "unknown"
     return res
