@@ -41,7 +41,8 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
     builder.setInsertionPointToEnd(moduleOp.getBody());
 
     // Define the helper function name and type
-    std::string helperName = func.getName().str() + "_helper";
+    llvm::SmallString<32> helperName(func.getName());
+    helperName.append("_helper");
 
     // Create the helper function
     auto helperFuncType = LLVM::LLVMFunctionType::get(

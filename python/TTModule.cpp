@@ -397,24 +397,6 @@ void populateTTModule(py::module &m) {
                                return static_cast<uint32_t>(self.getValue());
                              });
 
-  tt_attribute_class<tt::OperandConstraintAttr>(m, "OperandConstraintAttr")
-      .def_static("get",
-                  [](MlirContext ctx, uint32_t operandConstraint) {
-                    return wrap(tt::OperandConstraintAttr::get(
-                        unwrap(ctx),
-                        static_cast<tt::OperandConstraint>(operandConstraint)));
-                  })
-      .def_static(
-          "get",
-          [](MlirContext ctx, std::vector<MlirAttribute> attributesArray) {
-            return ::ttmlir::utils::wrapArrayOfMlirAttributesAsAttribute(
-                ctx, attributesArray);
-          })
-      .def_property_readonly("operand_constraint_as_int",
-                             [](tt::OperandConstraintAttr self) {
-                               return static_cast<uint32_t>(self.getValue());
-                             });
-
   tt_type_class<tt::DeviceType>(m, "DeviceType")
       .def_static(
           "get",

@@ -1,6 +1,5 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline  %s | FileCheck %s
-#any_device = #tt.operand_constraint<dram|l1|scalar|tile|any_device|any_device_tile>
 module @jit_eltwise_convert attributes {} {
   func.func public @test_convert(%arg0: tensor<2x4xf32>) -> tensor<2x4xbf16> {
     %0 = stablehlo.convert %arg0 : (tensor<2x4xf32>) -> tensor<2x4xbf16>

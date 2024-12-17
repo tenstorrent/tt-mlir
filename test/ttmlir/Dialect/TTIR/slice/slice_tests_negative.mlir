@@ -13,7 +13,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the begins size is not equal to the input tensor rank
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_begins(%arg0: tensor<3x128x64xbf16>) -> tensor<1x64x64xbf16> {
     %0 = tensor.empty() : tensor<1x64x64xbf16>
@@ -25,7 +24,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the ends size is not equal to the input tensor rank
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_ends(%arg0: tensor<3x128x64xbf16>) -> tensor<1x64x64xbf16> {
     %0 = tensor.empty() : tensor<1x64x64xbf16>
@@ -37,7 +35,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the step size is not equal to the input tensor rank
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_step(%arg0: tensor<3x128x64xbf16>) -> tensor<1x64x64xbf16> {
     %0 = tensor.empty() : tensor<1x64x64xbf16>
@@ -49,7 +46,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the output type is not equal to the input tensor type
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_output_datatype(%arg0: tensor<3x128x64xbf16>) -> tensor<1x64x64xf32> {
     %0 = tensor.empty() : tensor<1x64x64xf32>
@@ -61,7 +57,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the output rank is not equal to the input tensor rank
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_input_output_rank_missmatch(%arg0: tensor<3x128x64xbf16>) -> tensor<1x1x64x64xbf16> {
     %0 = tensor.empty() : tensor<1x1x64x64xbf16>
@@ -73,7 +68,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the begin value exceeds positive limit
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_begin_positive(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -85,7 +79,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the begin value exceeds negative limit
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_begin_negative(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -97,7 +90,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the end value exceeds positive limit
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_end_positive(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -109,7 +101,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the end value exceeds negative limit
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_end_negative(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -121,7 +112,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the step value is equal to zero
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_step_is_zero(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -133,7 +123,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the begin index is greater than end and step is positive
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_begin_greater_than_end_positive_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -144,7 +133,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_begin_greater_than_end_positive_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x8x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x8x8xbf16>
@@ -156,7 +144,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the end index is greater than begin and step is negative
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_begin_less_than_end_negative_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x8xbf16>
@@ -167,7 +154,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_begin_less_than_end_negative_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<5x1x16x8xbf16> {
     %0 = tensor.empty() : tensor<5x1x16x8xbf16>
@@ -179,7 +165,6 @@ module attributes {} {
 
 // Verify that the parsing fails if there is missmatch in output dimension
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @slice_negative_invalid_output_shape(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x16xbf16> {
     %0 = tensor.empty() : tensor<4x1x16x16xbf16>

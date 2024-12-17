@@ -12,7 +12,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_1d_1d_inner_dimension_missmatch(%arg0: tensor<128xbf16>, %arg1: tensor<bf16>) -> tensor<1xbf16> {
     // CHECK: error: 'ttir.matmul' op Input B must be at least a 1D tensor
@@ -24,7 +23,6 @@ module attributes {} {
 
 // Verify that the parsing fails if the output is a scalar
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_1d_1d_inner_dimension_missmatch(%arg0: tensor<128xbf16>, %arg1: tensor<128xbf16>) -> tensor<bf16> {
     // CHECK: error: 'ttir.matmul' op Scalar output is not supported, output must be at least a 1D tensor
@@ -35,7 +33,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_1d_1d_inner_dimension_missmatch(%arg0: tensor<128xbf16>, %arg1: tensor<128xbf16>) -> tensor<2xbf16> {
     // CHECK: error: 'ttir.matmul' op Scalar output must be a 1D tensor of size 1
@@ -47,7 +44,6 @@ module attributes {} {
 
 // Inner dimension mismatch tests
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_1d_1d_inner_dimension_missmatch(%arg0: tensor<128xbf16>, %arg1: tensor<64xbf16>) -> tensor<1xbf16> {
     // CHECK: error: 'ttir.matmul' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
@@ -58,7 +54,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
 func.func @matmul_negative_1d_2d_inner_dimension_missmatch(%arg0: tensor<64xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<64xbf16> {
     // CHECK: error: 'ttir.matmul' op Input A[-1](64) and B[-2](128) must have matching inner dimensions
@@ -69,7 +64,6 @@ func.func @matmul_negative_1d_2d_inner_dimension_missmatch(%arg0: tensor<64xbf16
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_2d_1d_inner_dimension_missmatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<64xbf16>) -> tensor<64xbf16> {
    // CHECK: error: 'ttir.matmul' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
@@ -80,7 +74,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_2d_2d_inner_dimension_missmatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>) -> tensor<64x64xbf16> {
     // CHECK: error: 'ttir.matmul' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
@@ -91,7 +84,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_nd_nd_inner_dimension_missmatch(%arg0: tensor<7x64x128xbf16>, %arg1: tensor<1x64x128xbf16>) -> tensor<7x64x64xbf16> {
     // CHECK: error: 'ttir.matmul' op Input A[-1](128) and B[-2](64) must have matching inner dimensions
@@ -103,7 +95,6 @@ module attributes {} {
 
 // Batch dimension mismatch tests
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_nd_nd_same_rank_batch_broadcast_incompatible_1(%arg0: tensor<7x64x128xbf16>, %arg1: tensor<2x128x64xbf16>) -> tensor<7x64x64xbf16> {
    // CHECK: error: 'ttir.matmul' op Batch dimensions of input A(7) and B(2) are not broadcast compatible
@@ -114,7 +105,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_nd_nd_same_rank_batch_broadcast_incompatible_2(%arg0: tensor<2x7x64x128xbf16>, %arg1: tensor<7x1x128x64xbf16>) -> tensor<7x7x64x64xbf16> {
     // CHECK: error: 'ttir.matmul' op Batch dimensions of input A(2,7) and B(7,1) are not broadcast compatible
@@ -125,7 +115,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_nd_nd_different_rank_batch_broadcast_incompatible(%arg0: tensor<12x2x7x64x128xbf16>, %arg1: tensor<7x1x128x64xbf16>) -> tensor<12x7x7x64x64xbf16> {
     // CHECK: error: 'ttir.matmul' op Batch dimensions of input A(12,2,7) and B(7,1) are not broadcast compatible
@@ -137,7 +126,6 @@ module attributes {} {
 
 // Output shape mismatch tests
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_2d_2d_inner_dimension_missmatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<64xbf16> {
     // CHECK: error: 'ttir.matmul' op Output shape rank(1) must match the expected output shape rank(2)
@@ -148,7 +136,6 @@ module attributes {} {
 }
 
 // -----
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module attributes {} {
   func.func @matmul_negative_2d_2d_inner_dimension_missmatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<64x128xbf16> {
     // CHECK: error: 'ttir.matmul' op Output shape dimension[1](128) doesn't match the expected output shape dimension[1](64)

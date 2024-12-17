@@ -3,7 +3,7 @@ include(ExternalProject)
 set(TT_EXPLORER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/run.py)
 set(TTMLIR_BUILD_BIN_DIR ${TTMLIR_BINARY_DIR}/bin)
 
-set(MODEL_EXPLORER_VERSION "d0b53c3b7049fd41ea1caff193706272c399fac9")
+set(MODEL_EXPLORER_VERSION "ca884d5eb3291507e7f4e76776957e231b2d9b6d")
 ExternalProject_Add(
   model-explorer
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer
@@ -18,7 +18,9 @@ ExternalProject_Add(
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
   COMMAND pip install $<$<CONFIG:Debug>:-e> ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
-  COMMAND pip install ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package
+  COMMAND pip uninstall -y ai-edge-model-explorer
+  COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package/build
+  COMMAND pip install --upgrade ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package
 
   DEPENDS TTMLIRPythonModules model-explorer ttrt ttmlir-opt ttmlir-translate
 )

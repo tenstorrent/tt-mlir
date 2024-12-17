@@ -124,7 +124,7 @@ def test_execute_model(model_path):
 def test_execute_mnist_l1_interleaved():
     execute_command_and_wait(
         "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
-        {"optimizationPolicy": "L1 Interleaved"},
+        {"optimizationPolicy": "Greedy L1 Interleaved"},
         timeout=60,
     )
 
