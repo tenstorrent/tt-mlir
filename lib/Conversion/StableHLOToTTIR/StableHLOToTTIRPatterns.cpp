@@ -184,6 +184,45 @@ public:
   matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    
+    // don't need the legality check in this pass (?)
+
+    auto outputType = mlir::cast<RankedTensorType>(
+      getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+      srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::DotGeneralOp>(
+      srcOp, getTypeConverter()->convertType(outputTensor.getType()),
+      adaptor.getLhs(), adaptor.getRhs(), adaptor.getLhsBatchingDimensions(),
+      adaptor.getRhsBatchingDimensions(), adaptor.getLhsContractingDimensions(),
+      adaptor.getRhsContractingDimensions(), Value(outputTensor),
+    )
+    return success();
+    }
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+class StableHLOToTTIRDotGeneralOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
+  using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
+                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
     // This is a basic version that can only work for cases that can be directly
     // converted to matmul. The op should be extended as other ops such as
     // ttir.permute and ttir.broadcast_in_dim become available.
