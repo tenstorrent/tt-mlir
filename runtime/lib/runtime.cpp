@@ -44,6 +44,22 @@ void deallocateBuffers(Device device) {
 #endif
   LOG_FATAL("runtime is not enabled");
 }
+
+void dumpMemoryReport(Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::dumpMemoryReport(device);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::dumpMemoryReport(device);
+  }
+#endif
+
+  LOG_FATAL("runtime is not enabled");
+}
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {

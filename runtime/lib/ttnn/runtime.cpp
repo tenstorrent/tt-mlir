@@ -214,6 +214,14 @@ void deallocateBuffers(Device deviceHandle) {
   }
 }
 
+void dumpMemoryReport(Device deviceHandle) {
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  for (::ttnn::Device *device : meshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
+  }
+}
+
 void wait(Event event) {
   // Nothing to do for ttnn runtime
   LOG_ASSERT(event.matchesRuntime(DeviceRuntime::TTNN));

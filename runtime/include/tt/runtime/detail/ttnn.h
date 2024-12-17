@@ -9,6 +9,7 @@
 #include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
+#include "tt_metal/detail/reports/memory_reporter.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
@@ -89,6 +90,8 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
 void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
+
+void dumpMemoryReport(Device device);
 
 void wait(Event event);
 

@@ -85,6 +85,20 @@ class Perf:
             help="test file to save results to",
         )
         Perf.register_arg(
+            name="--disable-golden",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable golden comparison for intermediate and output tensors",
+        )
+        Perf.register_arg(
+            name="--memory",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump memory reports after every op execution",
+        )
+        Perf.register_arg(
             name="binary",
             type=str,
             default="",
@@ -367,6 +381,12 @@ class Perf:
                     )
 
                     command_options = f"--program-index {self['--program-index']} --loops {self['--loops']} --save-artifacts "
+
+                    if self["--memory"]:
+                        command_options += " --memory "
+
+                    if self["--disable-golden"]:
+                        command_options += " --disable-golden "
 
                     ttrt_executable_path = shutil.which("ttrt")
                     test_command = (
