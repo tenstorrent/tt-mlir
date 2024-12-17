@@ -1,5 +1,4 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
-#any_device_tile = #tt.operand_constraint<dram|l1|tile|any_device_tile>
 module @jit_convolution {
   func.func public @test_NCHW_IOHW_to_NHWC_OIHW_conv2d(%arg0: tensor<1x3x100x100xbf16>, %arg1: tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16> {
     %0 = tensor.empty() : tensor<1x7x100x100xbf16>
@@ -21,7 +20,6 @@ module @jit_convolution {
       >,
       feature_group_count = 1 : i64,
       input_dilation = array<i64: 1, 1>,
-      operand_constraints = [#any_device_tile, #any_device_tile, #any_device_tile],
       padding = array<i64: 1, 1, 1 ,1>,
       weight_dilation = array<i64: 1, 1>,
       window_reversal = array<i1: false, false>,

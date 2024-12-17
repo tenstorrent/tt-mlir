@@ -19,10 +19,14 @@ ShardSolver::ShardSolver(
     const std::vector<OpL1MemSpec> &shardSpecs,
     const llvm::DenseSet<Operation *> &shardedOps,
     const unsigned usableL1CacheSize,
-    const std::unordered_set<Edge> &overrideReshardEdges)
+    const std::unordered_set<Edge> &overrideReshardEdges,
+    std::function<bool(Operation *, TTNNLayoutAttr const &, Operation *,
+                       TTNNLayoutAttr const &)>
+        customCheckShardCompatible)
     : legalLayouts(&legalLayouts), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), usableL1CacheSize(usableL1CacheSize),
-      memReconfigEdges(overrideReshardEdges) {
+      memReconfigEdges(overrideReshardEdges),
+      customCheckShardCompatible(customCheckShardCompatible) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
   bitsets.reserve(shardedOps.size());
@@ -504,6 +508,13 @@ void ShardSolver::set(Operation *op, TTNNLayoutAttr const &layout) {
 bool ShardSolver::checkShardCompatible(
     Operation *producerOp, TTNNLayoutAttr const &producerLayout,
     Operation *consumerOp, TTNNLayoutAttr const &consumerLayout) const {
+
+  // Custom(test) hook for shard compatibility check.
+  //
+  if (customCheckShardCompatible) {
+    return customCheckShardCompatible(producerOp, producerLayout, consumerOp,
+                                      consumerLayout);
+  }
 
   // TEMP : Dummy mock implementation, will be replaced.
   //

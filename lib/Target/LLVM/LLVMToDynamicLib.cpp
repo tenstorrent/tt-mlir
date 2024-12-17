@@ -15,6 +15,7 @@
 // #include "lld/Common/ErrorHandler.h"
 // #include "lld/Common/Memory.h"
 
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
@@ -36,6 +37,7 @@
 // a lot of this code is adapted from IREE's LLVMCPU target code
 namespace mlir::tt::llvm_to_cpu {
 
+// helper to create randomized tempDir to store our temp files
 llvm::SmallString<128> createTempDir() {
   llvm::SmallString<128> tempDir;
   if (llvm::sys::fs::createUniqueDirectory("ttmlir_tmp", tempDir)) {
@@ -45,6 +47,7 @@ llvm::SmallString<128> createTempDir() {
   return tempDir;
 }
 
+// helper to create specific temp file inside a dir
 llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
                                       llvm::StringRef prefix,
                                       llvm::StringRef extension) {
@@ -78,8 +81,9 @@ convertToLLVMModule(mlir::ModuleOp mlirModule, llvm::LLVMContext &llvmContext) {
   return llvmModule;
 }
 
+// helper to get an llvm::TargetMachine with proper default options
 std::unique_ptr<llvm::TargetMachine>
-createTargetMachine(const std::string &targetTriple) {
+createTargetMachine(llvm::StringRef targetTriple) {
   std::string errorMessage;
   auto llvmTarget =
       llvm::TargetRegistry::lookupTarget(targetTriple, errorMessage);
@@ -100,35 +104,22 @@ createTargetMachine(const std::string &targetTriple) {
 llvm::LogicalResult compileToObject(llvm::Module &module,
                                     llvm::LLVMContext &context,
                                     llvm::StringRef outputFilename) {
-  // Initialize LLVM targets
+
+  //  Initialize LLVM targets
+  // TODO (vwells): eventually, we should get this working on other archs, but
+  // adding new archs requires corresponding cmake changes
   LLVMInitializeX86Target();
   LLVMInitializeX86TargetMC();
   LLVMInitializeX86TargetInfo();
   LLVMInitializeX86AsmPrinter();
   LLVMInitializeX86AsmParser();
 
-  llvm::errs()
-      << "(debug) Registered targets after explicit x86 registration :\n";
-  for (const auto &Target : llvm::TargetRegistry::targets()) {
-    llvm::errs() << "  " << Target.getName() << "\n";
-  }
-
   // Set target triple if not already set
   if (module.getTargetTriple().empty()) {
-    std::string defaultTriple = llvm::sys::getDefaultTargetTriple();
-    llvm::outs() << "Setting default target triple: " << defaultTriple << "\n";
+    auto defaultTriple = llvm::sys::getDefaultTargetTriple();
     module.setTargetTriple(defaultTriple);
   }
 
-  // auto relocModel = llvm::Optional<llvm::Reloc::Model>();
-
-  // Look up the target
-  llvm::outs() << "Target triple for this module:" << module.getTargetTriple()
-               << "\n";
-  llvm::SmallVector<std::string, 0> attrs; // Empty feature list
-
-  // llvm::TargetMachine *targetMachine = llvm::EngineBuilder().selectTarget(
-  // llvm::Triple(module.getTargetTriple()), "x86-64", "generic", attrs);
   auto targetMachine = createTargetMachine(module.getTargetTriple());
   if (!targetMachine) {
     llvm::errs() << "Failed to create TargetMachine for triple: "
@@ -138,12 +129,6 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
 
   // Set data layout
   module.setDataLayout(targetMachine->createDataLayout());
-
-  // debug info:
-  llvm::outs() << "TargetMachine Info: \n";
-  llvm::outs() << "Triple: " << targetMachine->getTargetTriple().str() << "\n";
-  llvm::outs() << "DataLayout: "
-               << module.getDataLayout().getStringRepresentation() << "\n";
 
   // Create an output file stream to write the object file
   std::error_code EC;
@@ -168,9 +153,10 @@ llvm::LogicalResult compileToObject(llvm::Module &module,
   return llvm::success();
 }
 
-llvm::LogicalResult runLinkCommand(std::string commandLine) {
+// simple wrapper for running link command + error handling
+llvm::LogicalResult runLinkCommand(llvm::StringRef commandLine) {
   llvm::dbgs() << "Running linker command:\n" << commandLine << "\n";
-  const auto exitCode = system(commandLine.c_str());
+  const auto exitCode = system(commandLine.data());
   if (exitCode == 0) {
     return llvm::success();
   }
@@ -185,18 +171,17 @@ llvm::LogicalResult runLinkCommand(std::string commandLine) {
 llvm::LogicalResult
 linkDynamicLibrary(llvm::StringRef libraryName,
                    ArrayRef<llvm::StringRef> objectFileNames) {
-  SmallVector<std::string, 8> flags = {
-      "ld.lld-17",
-      "-o " + libraryName.str(),
-  };
+  SmallVector<llvm::SmallString<13>, 8> flags = {
+      llvm::SmallString<13>("ld.lld-17"), llvm::SmallString<13>("-o"),
+      libraryName};
 
   // Avoids including any libc/startup files that initialize the CRT as
   // we don't use any of that. Our shared libraries must be freestanding.
-  flags.push_back("-nostdlib"); // -nodefaultlibs + -nostartfiles
+  flags.emplace_back("-nostdlib"); // -nodefaultlibs + -nostartfiles
 
   // Statically link all dependencies so we don't have any runtime deps.
   // We cannot have any imports in the module we produce.
-  flags.push_back("-static");
+  flags.emplace_back("-static");
 
   // Generate a dynamic library (ELF type: ET_DYN), otherwise dlopen()
   // won't succeed on it. This is not incompatible with -static. The GNU
@@ -212,17 +197,17 @@ linkDynamicLibrary(llvm::StringRef libraryName,
   // out of ld.bfd, ld.gold and ld.lld, only ld.lld actually implements
   // that. Meanwhile, ld.bfd interprets -static -shared as just -static,
   // and ld.gold rejects -static -shared outright as "incompatible".
-  flags.push_back("-shared");
+  flags.emplace_back("-shared");
 
   // Strip debug information (only, no relocations) when not requested.
   // In our case, we probably don't gain much useful info from debug symbols
   // anyway
-  flags.push_back("--strip-debug");
+  flags.emplace_back("--strip-debug");
 
   // Link all input objects. Note that we are not linking whole-archive as
   // we want to allow dropping of unused codegen outputs.
   for (const auto &objectFile : objectFileNames) {
-    flags.push_back(objectFile.str());
+    flags.emplace_back(objectFile);
   }
 
   auto commandLine = llvm::join(flags, " ");
@@ -231,6 +216,8 @@ linkDynamicLibrary(llvm::StringRef libraryName,
   return llvm::success();
 }
 
+// checker to make sure we don't attempt translation unless entire module is
+// properly converted to LLVM Dialect
 llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
 
@@ -250,7 +237,6 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   });
 
   if (isAllLLVM) {
-    llvm::outs() << "All operations belong to the LLVM dialect.\n";
     return llvm::success();
   } else {
     llvm::errs() << "Module contains non-LLVM dialect operations.\n";
@@ -258,7 +244,7 @@ llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   }
 }
 
-std::optional<std::vector<char>>
+std::optional<llvm::SmallVector<char, 2048>>
 compileAndLinkToSharedLibrary(llvm::Module &module,
                               llvm::LLVMContext &context) {
   const auto tmpDirName = createTempDir();
@@ -288,7 +274,7 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
   file.seekg(0, std::ios::beg);
 
   // Read the file into a vector.
-  std::vector<char> buffer(size);
+  llvm::SmallVector<char, 2048> buffer(size);
   if (!file.read(buffer.data(), size)) {
     llvm::errs() << "Failed to read file: " << dylibName << "\n";
     return std::nullopt;

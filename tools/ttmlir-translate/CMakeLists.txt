@@ -4,7 +4,6 @@ get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 get_property(target_libs GLOBAL PROPERTY LLVM_STATIC_LIBS)
 
-
 add_llvm_executable(ttmlir-translate ttmlir-translate.cpp DISABLE_LLVM_LINK_LLVM_DYLIB)
 
 llvm_update_compile_flags(ttmlir-translate)

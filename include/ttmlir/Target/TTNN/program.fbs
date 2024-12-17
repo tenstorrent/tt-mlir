@@ -60,9 +60,18 @@ table EmptyOp {
   dtype: DataType;
   layout: TensorLayout;
   num_shards: uint32;
-  device: tt.target.DeviceRef;         // optional
-  memcfg: tt.target.MemoryConfigDesc;  // optional
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   strategy: tt.target.DistributionStrategy;
+  out: tt.target.TensorRef;
+}
+
+table OnesOp {
+  shape: [int64];
+  dtype: DataType = null;
+  layout: TensorLayout = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -78,9 +87,9 @@ table ArangeOp {
   start: float;
   end: float;
   step: float;
-  dtype: tt.target.DataType = null; // optional
-  device: tt.target.DeviceRef; // optional
-  memcfg: tt.target.MemoryConfigDesc;  // optional
+  dtype: tt.target.DataType = null;
+  device: tt.target.DeviceRef;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -168,6 +177,15 @@ table ReductionOp {
 table EmbeddingOp {
   input: tt.target.TensorRef;
   weight: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+}
+
+table EmbeddingBackwardOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  in_grad: tt.target.TensorRef;
+  dtype: tt.target.DataType = null;
+  memcfg: tt.target.MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
@@ -299,12 +317,14 @@ union OpType {
   ToDeviceOp,
   FromDeviceOp,
   EmptyOp,
+  OnesOp,
   FullOp,
   EltwiseOp,
   LinearOp,
   MatmulOp,
   ReductionOp,
   EmbeddingOp,
+  EmbeddingBackwardOp,
   SoftmaxOp,
   TransposeOp,
   Conv2dOp,

@@ -174,6 +174,7 @@ ttrt run out.ttnn --save-artifacts --artifact-dir /path/to/some/dir
 ttrt run out.ttnn --load-kernels-from-disk
 ttrt run out.ttnn --enable-async-ttnn
 ttrt run out.ttnn --result-file result.json
+ttrt run out.ttnn --golden
 ```
 
 ### query
@@ -327,8 +328,44 @@ custom_artifacts = Artifacts(logger=custom_logger, artifacts_folder_path=artifac
 
 run_instance = API.Run(args=custom_args, logger=custom_logger, artifacts=custom_artifacts)
 result_code, results = run_instance()
-
 ```
+
+## Bonus Section: Extending runtime to other FE's
+MLIR Runtime exposes a feature to register a python callback function. Any python fuction can be provided - and this function will be executed after every op in MLIR Runtime. The following steps describe how to extend your application to register a python function.
+
+1. Pybind DebugHooks C++ class, specifically `tt::runtime::debug::Hooks::get`. See `runtime/tools/python/ttrt/runtime/module.cpp` for an example of how TTRT pybinds it.
+```bash
+tt::runtime::debug::Hooks
+tt::runtime::debug::Hooks::get
+```
+
+2. Register callback function in your python script. The following is registering a golden python function. Assume the Debug Hooks `get` function has been pybinded to `ttrt.runtime.DebugHooks.get`
+```bash
+callback_env = ttrt.runtime.DebugHooks.get(golden)
+```
+
+3. The callback function has a particular function signature, which looks like the following
+```bash
+def golden(binary, programContext, opContext):
+```
+binary: reference to the binary you are currently running
+programContext: reference to the program currently running
+opContext: reference to the op that is currently running
+
+4. Each of these parameters has certain APIs exposed which can be called within the callback function
+```bash
+op_debug_str = ttrt.runtime.get_op_debug_str(opContext) : get the op debug str (ie you can parse this string to get the location of the op which is used as the key when indexing the golden tensors stored in the flatbuffer)
+op_golden_tensor = binary.get_debug_info_golden(loc) : get the golden tensor from the binary as list of float32
+op_output_tensor = ttrt.runtime.get_op_output_tensor(opContext, programContext) : get the currently running output tensor from device as list of float32
+```
+
+5. A potential application for this callback function is implementing a golden callback. TTRT achieves this by first storing the golden data within the flatbuffer binary. See `python/Passes.cpp` - specifically `ttnn_to_flatbuffer_file` function for an example. This is used by `python/test_infra/ttir_builder.py` to construct flatbuffers with embedded golden data. You can store input/output/intermediate data within the flatbuffer. The choice of the map `key` for inputs/outputs is left to the golden implementor. The intermediate tensor key is derived from loc data for ttrt. External users can implement their own key/value logic. See `runtime/tools/python/ttrt/common/golden.py` for how ttrt implement the golden callback function.
+```bash
+std::unordered_map<std::string, mlir::tt::GoldenTensor> goldenMap
+mlir::tt::ttnn::translateTTNNToFlatbuffer(moduleOp, file, goldenMap)
+```
+
+Note: ttrt is not needed to implement this callback feature. It aims to provide an example of how this callback feature can be implemented for golden application.
 
 ## FAQ
 Flatbuffer version does not match ttrt version!

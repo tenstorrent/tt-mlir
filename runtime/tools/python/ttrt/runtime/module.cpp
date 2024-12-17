@@ -222,4 +222,14 @@ PYBIND11_MODULE(_C, m) {
               &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
 #endif
+
+  /**
+   * Cleanup code to force a well ordered destruction w.r.t. the GIL
+   */
+  auto cleanup_callback = []() {
+    ::tt::runtime::debug::Hooks::get().unregisterHooks();
+  };
+  m.add_object("_cleanup", py::capsule(cleanup_callback));
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }

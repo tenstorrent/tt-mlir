@@ -35,10 +35,6 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-// Get Layout from MemRefType
-//
-Layout getLayoutFromMemRef(mlir::MemRefType memref);
-
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);
 

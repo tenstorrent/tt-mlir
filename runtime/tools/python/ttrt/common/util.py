@@ -6,17 +6,13 @@ import os
 import json
 import importlib.machinery
 import importlib.util
-import sys
-import signal
-import os
-import io
-import subprocess
-import time
-import socket
 from pkg_resources import get_distribution
 import shutil
 
-import ttrt.binary
+import torch
+
+from ttrt.runtime._C import DataType
+
 
 # environment tweaks
 if "LOGGER_LEVEL" not in os.environ:
@@ -25,23 +21,51 @@ if "TT_METAL_LOGGER_LEVEL" not in os.environ:
     os.environ["TT_METAL_LOGGER_LEVEL"] = "FATAL"
 
 
+def ttrt_datatype_to_torch_dtype(dtype: DataType) -> torch.dtype:
+
+    """Converts a PyBound `::tt::target::DataType` into a `torch.dtype`.
+
+    Currently, only `float32`, `uint32`, `uint16`, & `uint8` are supported for
+    this conversion
+
+    Arguments
+    ---------
+
+    dtype : DataType
+        A datatype from the PyBound `DataType` enum from ttrt
+
+    Returns
+    -------
+
+    A `torch.dtype` corresponding to `dtype`
+
+    Throws
+    ------
+
+    A `ValueError` if `dtype` is not one of `Float32`, `UInt32`, `UInt16`, or `UInt8`
+
+    """
+    match dtype:
+        case DataType.Float32:
+            return torch.float32
+        case DataType.UInt32:
+            return torch.uint32
+        case DataType.UInt16:
+            return torch.uint16
+        case DataType.UInt8:
+            return torch.uint8
+        case _:
+            raise ValueError(
+                "Only F32 and unsigned integers are supported in the runtime"
+            )
+
+
 def get_ttrt_metal_home_path():
     package_name = "ttrt"
     spec = importlib.util.find_spec(package_name)
     package_path = os.path.dirname(spec.origin)
     tt_metal_home = f"{package_path}/runtime"
     return tt_metal_home
-
-
-os.environ["TT_METAL_HOME"] = get_ttrt_metal_home_path()
-
-new_linker_path = f"{get_ttrt_metal_home_path()}/tests"
-current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
-if current_ld_library_path:
-    updated_ld_library_path = f"{new_linker_path}:{current_ld_library_path}"
-else:
-    updated_ld_library_path = new_linker_path
-os.environ["LD_LIBRARY_PATH"] = updated_ld_library_path
 
 
 class Logger:
@@ -409,16 +433,22 @@ class Artifacts:
     def clean_binary_artifacts(self, binary):
         self.file_manager.remove_directory(self.get_binary_folder_path(binary))
 
+    def create_binary_artifacts_folder(self, binary):
+        binary_folder = self.get_binary_folder_path(binary)
+        self.file_manager.create_directory(binary_folder)
+        self.file_manager.create_directory(f"{binary_folder}/run")
+        self.file_manager.create_directory(f"{binary_folder}/perf")
+
+        for program in binary.programs:
+            program_folder = f"{binary_folder}/run/program_{program.index}"
+            self.file_manager.create_directory(program_folder)
+
     def save_binary(self, binary, query=None):
         binary_folder = self.get_binary_folder_path(binary)
 
         self.logging.info(
             f"saving binary={binary.file_path} to binary_folder={binary_folder}"
         )
-        self.file_manager.create_directory(binary_folder)
-        self.file_manager.create_directory(f"{binary_folder}/run")
-        self.file_manager.create_directory(f"{binary_folder}/perf")
-
         self.file_manager.copy_file(f"{binary_folder}", binary.file_path)
 
         for program in binary.programs:
@@ -427,20 +457,19 @@ class Artifacts:
             self.logging.info(
                 f"saving program={program.index} for binary={binary.file_path} to program_folder={program_folder}"
             )
-            self.file_manager.create_directory(program_folder)
 
             for i in range(len(program.input_tensors)):
                 self.save_torch_tensor(
                     program_folder,
                     program.input_tensors[i],
-                    f"program_{program.index}_input_{i}.pt",
+                    f"input_{i}.pt",
                 )
 
             for i in range(len(program.output_tensors)):
                 self.save_torch_tensor(
                     program_folder,
                     program.output_tensors[i],
-                    f"program_{program.index}_output_{i}.pt",
+                    f"output_{i}.pt",
                 )
 
         if query != None:

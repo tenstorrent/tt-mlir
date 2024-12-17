@@ -86,4 +86,36 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
   }];
 }
 
+def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::mlir::ModuleOp"> {
+  let summary = "Modify signatures of the functions for dylib path.";
+  let description = [{
+    This pass is intended to be used only when the end result is a dylib!
+
+    It modifies signatures of forward functions so that they take a canonical
+    form. Essentially, input tensors are packed into a tuple and then accessed
+    in the function body. This allows for easier interfacing with the generated
+    dylib as the signatures are then uniform across all forward functions.
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %0 : tensor<32x32xbf16>
+    }
+    ```
+
+    The pass will modify the signature and prepend unpacking ops like so:
+
+    ```mlir
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16> {
+      %0 = tt.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = tt.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.add"(%0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %2 : tensor<32x32xbf16>
+    }
+    ```
+  }];
+}
+
 #endif

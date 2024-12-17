@@ -287,7 +287,10 @@ public:
               const std::vector<OpL1MemSpec> &shardSpecs,
               const llvm::DenseSet<Operation *> &shardedOps,
               const unsigned usableL1CacheSize,
-              const std::unordered_set<Edge> &overrideReshardEdges);
+              const std::unordered_set<Edge> &overrideReshardEdges,
+              std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
+                                 mlir::Operation *, TTNNLayoutAttr const &)>
+                  customCheckShardCompatible = nullptr);
   RemainingLayoutAttrs at(Operation *operation) const;
   void set(Operation *operation, TTNNLayoutAttr const &layout);
   static bool supportsInterleavedInputShardedOutput(Operation *op);
@@ -310,6 +313,9 @@ private:
 
   llvm::DenseMap<Operation *, TTNNLayoutAttr> selectedOpLayout;
   std::unordered_set<Edge> memReconfigEdges;
+  std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
+                     mlir::Operation *, TTNNLayoutAttr const &)>
+      customCheckShardCompatible;
 };
 
 } // namespace mlir::tt::ttnn
