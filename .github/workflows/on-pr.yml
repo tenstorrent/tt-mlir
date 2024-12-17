@@ -19,9 +19,9 @@ jobs:
   # When a PR runs on the uplift branch trigger the downstream checks
   downstream-checks:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.head.ref == 'uplift'
+    # if: github.event.pull_request.head.ref == 'uplift'
     env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
       - name: Trigger tt-forge-fe
         shell: bash
