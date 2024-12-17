@@ -90,7 +90,8 @@ namespace mlir::tt::ttmetal {
   for (auto &region : getRegions()) {
     for (auto arg : region.getArguments()) {
       if (!(mlir::isa<ttkernel::CBType>(arg.getType()) ||
-            mlir::isa<ttkernel::SemaphoreType>(arg.getType()))) {
+            mlir::isa<ttkernel::SemaphoreType>(arg.getType()) ||
+            mlir::isa<ttkernel::MMArgsType>(arg.getType()))) {
         return emitOpError("Block inputs must be CBType or SemType");
       }
     }

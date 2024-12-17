@@ -157,6 +157,16 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttkernel::SemaphoreType sem) {
   return std::make_pair(runtimeArgType, semAddr.Union());
 }
 
+std::pair<::tt::target::metal::RuntimeArg, ::flatbuffers::Offset<void>>
+toFlatbuffer(FlatbufferObjectCache &cache, ttkernel::MMArgsType mm_args) {
+  auto runtimeArgType =
+      ::tt::target::metal::RuntimeArg::RuntimeArgMMArgs;
+  const std::vector<uint32_t> vec (mm_args.getArgs().begin(),
+                              mm_args.getArgs().end());  
+  auto mmargs_rt = ::tt::target::metal::CreateRuntimeArgMMArgsDirect(*cache.fbb, &vec, mm_args.getTransX(), mm_args.getTransY());
+  return std::make_pair(runtimeArgType, mmargs_rt.Union());
+}
+
 std::pair<::tt::target::metal::HostBuffer, ::flatbuffers::Offset<void>>
 hostBufferToFlatbuffer(FlatbufferObjectCache &cache,
                        ElementsAttr elementsAttr) {
@@ -263,9 +273,15 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(Operation *op) {
                   toFlatbuffer(cache, semType);
               runtime_args_type.push_back(runtime_arg_type);
               runtime_args.push_back(runtime_arg);
+            } else if (mlir::isa<ttkernel::MMArgsType>(arg.getType())) {
+              auto mmArgsType = mlir::cast<ttkernel::MMArgsType>(arg.getType());
+              auto [runtime_arg_type, runtime_arg] =
+                  toFlatbuffer(cache, mmArgsType);
+              runtime_args_type.push_back(runtime_arg_type);
+              runtime_args.push_back(runtime_arg);
             } else {
               llvm_unreachable(
-                  "Block arguments must be either CBType or SemaphoreType");
+                  "Block arguments must be either CBType or SemaphoreType or MMArgsType");
             }
           }
 
