@@ -229,6 +229,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
                                     TensorMemoryLayout::Interleaved)));
 
     // L1 Interleaved - It must be tiled.
+    // TODO(odjuricic): Check that this is always the case.
     if (elementType == tileElementType) {
       analysisResult.push_back(TTNNLayoutAttr::get(
           op->getContext(), tensorShape, elementType, BufferType::L1,
@@ -250,9 +251,12 @@ void LegalLayoutAnalysis::analysisImplementation() {
     for (int width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
       for (int height = 1; height <= analysisInput.maxGrid.getShape()[1];
            ++height) {
-        shardedResults.push_back(shardedBase.withGrid(
-            op->getContext(), tensorType,
-            GridAttr::get(op->getContext(), {width, height})));
+        shardedResults.push_back(
+            shardedBase
+                .withGrid(op->getContext(), tensorType,
+                          GridAttr::get(op->getContext(), {width, height}))
+                .withMemoryLayout(op->getContext(),
+                                  TensorMemoryLayout::BlockSharded));
       }
     }
 

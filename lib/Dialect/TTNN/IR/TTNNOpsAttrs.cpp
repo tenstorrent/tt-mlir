@@ -84,9 +84,10 @@ TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
 
 // Calculate the logical shape of the shard.
 // Shard is defined as a piece of the tensor that is mapped to a single grid
-// core. It is assumed that the TensorMemoryLayout is interleaved.
+// core. It is assumed that the TensorMemoryLayout is interleaved and buffer
+// type is L1.
 llvm::SmallVector<int64_t>
-TTNNLayoutAttr::calculateLogicalShardShapeForInterleaved(
+TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
     ArrayRef<int64_t> tensorShape, mlir::Type elementType,
     mlir::AffineMap linear, mlir::tt::GridAttr grid) {
   assert(linear.getNumResults() == grid.getShape().size());
@@ -104,7 +105,7 @@ TTNNLayoutAttr::calculateLogicalShardShapeForInterleaved(
                       std::multiplies<std::int64_t>());
 
   mlir::SmallVector<std::int64_t> shardShape;
-  shardShape.push_back(1);
+  shardShape.resize(grid.getShape().size() - 1, 1);
   shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
   return mlir::cast<mlir::tt::TileType>(elementType).getScalarShape(shardShape);
 }
@@ -505,7 +506,7 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
   mlir::SmallVector<int64_t> shardShape;
   if (bufferType == BufferType::L1 &&
       memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
-    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForInterleaved(
+    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
         tensorShape, elementType, linear, grid);
   } else {
     shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
