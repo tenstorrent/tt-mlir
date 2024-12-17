@@ -96,6 +96,38 @@ public:
     return PhysicalCoreCoordMapping(grid, physCores);
   }
 
+  static uint32_t getXMapping(ChipDescAttr chipDesc) {
+    auto chipGrid = chipDesc.getGrid();
+    ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
+    assert(chipPhysicalCores.getWorker().size() ==
+           static_cast<size_t>(chipGrid[0] * chipGrid[1]));
+    uint32_t mapping = 0;
+    for (int i = chipGrid[0] - 1; i >= 0 ; i--) {
+      mapping = mapping | ((chipPhysicalCores.getWorker()[i].getX() - i) & 0x7);
+      assert((chipPhysicalCores.getWorker()[i].getX() - i) == ((chipPhysicalCores.getWorker()[i].getX() - i) & 0x7));
+      if (i == 0) break;
+      mapping = mapping << 3;
+    }
+    return mapping;
+  }
+
+  static uint32_t getYMapping(ChipDescAttr chipDesc) {
+    auto chipGrid = chipDesc.getGrid();
+    ChipPhysicalCoresAttr chipPhysicalCores = chipDesc.getChipPhysicalCores();
+    assert(chipPhysicalCores.getWorker().size() ==
+           static_cast<size_t>(chipGrid[0] * chipGrid[1]));
+    uint32_t mapping = 0;
+    for (int i = chipGrid[1] - 1; i >= 0; i--) {
+      mapping = mapping | ((chipPhysicalCores.getWorker()[i * chipGrid[0]].getY() - i) & 0x7);
+      assert(
+          (chipPhysicalCores.getWorker()[i * chipGrid[0]].getY() - i) ==
+          ((chipPhysicalCores.getWorker()[i * chipGrid[0]].getY() - i) & 0x7));
+      if (i == 0) break;
+      mapping = mapping << 3;
+    }
+    return mapping;
+  }
+
   static PhysicalCoreCoordMapping
   getMemorySpaceMapping(ArrayRef<unsigned> chipIds,
                         ArrayRef<tt::ChipDescAttr> chipDescs,
