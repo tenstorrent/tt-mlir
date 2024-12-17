@@ -471,6 +471,11 @@ public:
   }
 };
 
+//
+// Introduce a workaround to add Typecast instructions for some operations
+// that only support certain data types. Two Typecast instructions are added,
+// one before and one after the target operation to convert to and from
+// FLOAT32 data type.
 class TTNNTypecastWorkarounds : public RewritePattern {
 public:
   TTNNTypecastWorkarounds(MLIRContext *ctx)
@@ -479,37 +484,55 @@ public:
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
 
-    if (!isa<ttnn::ReshapeOp>(op) && !isa<ttnn::TransposeOp>(op) &&
-        !isa<ttnn::SliceOp>(op)) {
-      return success();
+    // Added support for ReshapeOp only, the list will be expanded to several
+    // ops.
+    if (!isa<ttnn::ReshapeOp>(op)) {
+      return failure();
     }
 
     RankedTensorType inputType =
         mlir::cast<RankedTensorType>(op->getOperand(0).getType());
 
+    // Skip if the inputs are already in a supported type.
     if (inputType.getElementType().isBF16() ||
         inputType.getElementType().isF32()) {
-      return success();
+      return failure();
     }
+
+    ttnn::ReshapeOp origReshape = dyn_cast<ttnn::ReshapeOp>(op);
 
     // The remainder of the types require a typecastOp before and after the
     // actual operation
     DataTypeAttr toDtypeAttr =
         DataTypeAttr::get(op->getContext(), DataType::Float32);
 
+    auto origType = origReshape.getType();
+    auto origElementType = origReshape.getInput().getType().getElementType();
+
+    // Get the input operand type.
+    auto layoutOp =
+        dyn_cast<ttnn::ToLayoutOp>(origReshape.getInput().getDefiningOp());
+    auto toEncoding = RankedTensorType::get(layoutOp.getType().getShape(),
+                                            Float32Type::get(op->getContext()),
+                                            layoutOp.getType().getEncoding());
+
     rewriter.setInsertionPoint(op);
     ttnn::TypecastOp toType = rewriter.create<ttnn::TypecastOp>(
-        op->getLoc(), op->getResult(0).getType(), op->getOperand(0),
-        toDtypeAttr);
+        op->getLoc(), toEncoding, op->getOperand(0), toDtypeAttr);
 
-    op->setOperand(0, toType.getResult());
+    auto resultType = RankedTensorType::get(
+        origReshape.getType().getShape(), Float32Type::get(op->getContext()),
+        origReshape.getType().getEncoding());
 
-    DataTypeAttr fromDtypeAttr =
-        DataTypeAttr::get(op->getContext(), elementTypeToDataType(inputType));
+    ttnn::ReshapeOp reshape = rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, resultType, toType.getResult(), origReshape.getShape());
 
-    rewriter.setInsertionPointAfter(op);
+    DataTypeAttr fromDtypeAttr = DataTypeAttr::get(
+        reshape->getContext(), elementTypeToDataType(origElementType));
+
+    rewriter.setInsertionPointAfter(reshape);
     ttnn::TypecastOp fromType = rewriter.create<ttnn::TypecastOp>(
-        op->getLoc(), inputType, op->getResult(0), fromDtypeAttr);
+        reshape->getLoc(), origType, reshape->getResult(0), fromDtypeAttr);
 
     auto replaceIfFn = [&](OpOperand &use) {
       if (use.getOwner() == fromType) {
@@ -518,8 +541,7 @@ public:
       return true;
     };
 
-    rewriter.replaceOpUsesWithIf(op, fromType.getResult(), replaceIfFn);
-
+    rewriter.replaceOpUsesWithIf(reshape, fromType.getResult(), replaceIfFn);
     return success();
   }
 };
