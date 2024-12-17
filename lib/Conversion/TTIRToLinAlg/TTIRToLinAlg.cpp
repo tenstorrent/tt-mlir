@@ -37,7 +37,7 @@ public:
       return failure();
     }
 
-    auto newOp = rewriter.replaceOpWithNewOp<LinAlgOpTy>(
+    rewriter.replaceOpWithNewOp<LinAlgOpTy>(
         op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
     return success();
   }
@@ -88,72 +88,9 @@ namespace mlir::tt {
 
 void populateTTIRToLinAlgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
-  // clang-format off
-  // ANCHOR: op_rewriter_pattern_set
-  patterns
-      .add<
-        // TensorEmptyConversionPattern,
-        //    ToLayoutOpConversionPattern,
-        //    ElementwiseOpConversionPattern<ttir::AbsOp, ttnn::AbsOp>,
-           ElementwiseOpConversionPattern<ttir::AddOp, linalg::AddOp>,
-        //    ElementwiseOpConversionPattern<ttir::CbrtOp, ttnn::CbrtOp>,
-        //    ElementwiseOpConversionPattern<ttir::FloorOp, ttnn::FloorOp>,
-        //    ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
-        //    ElementwiseOpConversionPattern<ttir::LogicalAndOp, ttnn::LogicalAndOp>,
-        //    ElementwiseOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
-        //    ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
-        //    ElementwiseOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
-           ElementwiseOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-        //    ElementwiseOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
-        //    ElementwiseOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
-        //    ElementwiseOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
-        //    ElementwiseOpConversionPattern<ttir::GreaterThanOp, ttnn::GreaterThanOp>,
-        //    ElementwiseOpConversionPattern<ttir::LessEqualOp, ttnn::LessEqualOp>,
-        //    ElementwiseOpConversionPattern<ttir::LessThanOp, ttnn::LessThanOp>,
-        //    ElementwiseOpConversionPattern<ttir::MaximumOp, ttnn::MaximumOp>,
-        //    ElementwiseOpConversionPattern<ttir::MinimumOp, ttnn::MinimumOp>,
-        //    ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
-        //    ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
-        //    ElementwiseOpConversionPattern<ttir::GeluOp, ttnn::GeluOp>,
-        //    ElementwiseOpConversionPattern<ttir::SqrtOp, ttnn::SqrtOp>,
-        //    ElementwiseOpConversionPattern<ttir::RsqrtOp, ttnn::RsqrtOp>,
-        //    ElementwiseOpConversionPattern<ttir::SignOp, ttnn::SignOp>,
-        //    ElementwiseOpConversionPattern<ttir::SigmoidOp, ttnn::SigmoidOp>,
-        //    ElementwiseOpConversionPattern<ttir::Log1pOp, ttnn::Log1pOp>,
-        //    ElementwiseOpConversionPattern<ttir::ReciprocalOp, ttnn::ReciprocalOp>,
-        //    ElementwiseOpConversionPattern<ttir::ExpOp, ttnn::ExpOp>,
-        //    ElementwiseOpConversionPattern<ttir::LogOp, ttnn::LogOp>,
-        //    ElementwiseOpConversionPattern<ttir::DivOp, ttnn::DivOp>,
-        //    ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
-        //    ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
-        //    ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
-        //    ElementwiseOpConversionPattern<ttir::Expm1Op, ttnn::Expm1Op>,
-        //    ElementwiseOpConversionPattern<ttir::RemainderOp, ttnn::RemainderOp>,
-        //    ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
-        //    ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
-        //    ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
-        //    ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
-        //    ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
-        //    BroadcastOpConversionPattern,
-        //    EmbeddingOpConversionPattern,
-        //    SoftmaxOpConversionPattern,
-        //    TransposeOpConversionPattern,
-        //    TypecastOpConversionPattern,
-        //    ClampOpConversionPattern,
-        //    ConcatOpConversionPattern,
-        //    ReshapeOpConversionPattern,
-        //    SliceOpConversionPattern,
-        //    SqueezeOpConversionPattern,
-        //    UnsqueezeOpConversionPattern,
-        //    ConstantOpConversionPattern,
-        //    MatmulOpConversionPattern,
-        //    Conv2dOpConversionPattern,
-        //    MaxPool2dOpConversionPattern,
-           SubtractOpConversionPattern
-        //    AllGatherOpConversionPattern
-           >(typeConverter, ctx);
-  // ANCHOR_END: op_rewriter_pattern_set
-  // clang-format on
+  patterns.add<ElementwiseOpConversionPattern<ttir::AddOp, linalg::AddOp>,
+               ElementwiseOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
+               SubtractOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
