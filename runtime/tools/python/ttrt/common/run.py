@@ -460,7 +460,17 @@ class Run:
                             )
                             for tensor in program.output_tensors:
                                 self.logging.debug(f"{tensor}\n")
+                                self.logging.debug(f"{tensor.shape}\n")
 
+                            torch_output = program.input_tensors[0] @ program.input_tensors[1]
+                            result, pcc = comp_pcc(torch_output, program.output_tensors[0])
+                            self.logging.debug(
+                                f"torch output tensor:\n {torch_output}\n"
+                            )
+                            self.logging.debug(
+                                f"{torch_output.shape}\n"
+                            )
+                            self.logging.debug(f"Result: {result}, PCC: {pcc}")
                             device.deallocate_buffers()
                     except Exception as e:
                         test_result = {

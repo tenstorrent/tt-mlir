@@ -13,6 +13,8 @@ import io
 import subprocess
 import time
 import socket
+import torch
+import numpy as np
 from pkg_resources import get_distribution
 import shutil
 
@@ -594,6 +596,30 @@ class Binary(Flatbuffer):
                     ),
                 )
                 self.input_tensors.append(torch_tensor)
+            
+            
+            # try:
+            #     # in0_a = torch.ones(self.program["inputs"][0]["desc"]["shape"][0]//2, self.program["inputs"][0]["desc"]["shape"][1], dtype=Binary.Program.from_data_type(self.program["inputs"][0]["desc"]["layout"]["memory_desc"]["data_type"]))
+            #     # in0_b = torch.zeros(self.program["inputs"][0]["desc"]["shape"][0]//2, self.program["inputs"][0]["desc"]["shape"][1], dtype=Binary.Program.from_data_type(self.program["inputs"][0]["desc"]["layout"]["memory_desc"]["data_type"]))
+                
+            #     # in0 = torch.cat((in0_a, in0_b), dim=0)
+
+            #     # in1_l = torch.ones(self.program["inputs"][1]["desc"]["shape"][0], self.program["inputs"][1]["desc"]["shape"][1]//2, dtype=Binary.Program.from_data_type(self.program["inputs"][1]["desc"]["layout"]["memory_desc"]["data_type"]))
+            #     # in1_r = torch.zeros(self.program["inputs"][1]["desc"]["shape"][0], self.program["inputs"][1]["desc"]["shape"][1]//2, dtype=Binary.Program.from_data_type(self.program["inputs"][1]["desc"]["layout"]["memory_desc"]["data_type"]))
+            #     # # in1 = torch.ones(self.program["inputs"][1]["desc"]["shape"][0], self.program["inputs"][1]["desc"]["shape"][1], dtype=Binary.Program.from_data_type(self.program["inputs"][1]["desc"]["layout"]["memory_desc"]["data_type"]))
+            #     # # y, x = 4, 0
+            #     # # # in1[32*(y):32*(y+1), 32*(x):32*(x+1)] = 1
+            #     # # in1_r[0,0] = 1
+
+            #     # in1 = torch.cat((in1_l, in1_r), dim=1)
+            #     in0 = torch.arange(0, self.program["inputs"][0]["desc"]["shape"][0] *  self.program["inputs"][0]["desc"]["shape"][1], dtype=Binary.Program.from_data_type(self.program["inputs"][0]["desc"]["layout"]["memory_desc"]["data_type"])).reshape(self.program["inputs"][0]["desc"]["shape"])
+            #     in1 = torch.eye(n=self.program["inputs"][1]["desc"]["shape"][0], m=self.program["inputs"][1]["desc"]["shape"][1], dtype=Binary.Program.from_data_type(self.program["inputs"][1]["desc"]["layout"]["memory_desc"]["data_type"]))
+            
+            #     self.input_tensors.append(in0)
+            #     self.input_tensors.append(in1)
+            # except Exception as e:
+            #     print(e)
+
 
         def populate_outputs(self, init_fn):
             for i in self.program["outputs"]:
@@ -672,3 +698,55 @@ class Results:
             json.dump(self.results, file, indent=2)
 
         self.logging.info(f"results saved to={file_name}")
+
+
+def comp_pcc(golden, calculated, pcc=0.99):
+    golden = torch.Tensor(golden)
+    calculated = torch.Tensor(calculated)
+
+    if golden.dtype != calculated.dtype:
+        calculated = calculated.type(golden.dtype)
+
+    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
+        return True, 1.0
+
+    if torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
+        return False, 0.0
+
+    # Test if either is completely zero
+    if torch.any(golden.bool()) != torch.any(calculated.bool()):
+        return False, 0.0
+
+    # For now, mask all infs and nans so that we check the rest... TODO
+    golden = golden.clone()
+    golden[
+        torch.logical_or(
+            torch.isnan(golden),
+            torch.logical_or(torch.isinf(golden), torch.isneginf(golden)),
+        )
+    ] = 0
+    calculated = calculated.clone()
+    calculated[
+        torch.logical_or(
+            torch.isnan(calculated),
+            torch.logical_or(torch.isinf(calculated), torch.isneginf(calculated)),
+        )
+    ] = 0
+
+    if torch.equal(golden, calculated):
+        return True, 1.0
+
+    if golden.dtype == torch.bfloat16:
+        golden = golden.type(torch.float32)
+        calculated = calculated.type(torch.float32)
+    cal_pcc = np.min(
+        np.ma.corrcoef(
+            np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),
+            np.ma.masked_invalid(torch.squeeze(calculated).detach().numpy()).flatten(),
+        )
+    )
+
+    if isinstance(cal_pcc, np.ma.core.MaskedConstant):
+        return True, 1.0
+
+    return cal_pcc >= pcc, cal_pcc
