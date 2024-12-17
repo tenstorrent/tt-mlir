@@ -63,7 +63,7 @@ createEmptyOnMultiDevice(ProgramContext &context, EmptyTensorConfig &config,
                     return ::ttnn::zeros(config.shape, config.dtype,
                                          config.layout);
                   });
-  ::ttnn::Tensor out = ::ttnn::distributed::api::create_multi_device_tensor(
+  ::ttnn::Tensor out = ::ttnn::distributed::create_multi_device_tensor(
       tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST, strategy);
   if (deviceRef) {
     ::ttnn::MeshDevice &meshDevice = context.getSubMesh(deviceRef->global_id());
