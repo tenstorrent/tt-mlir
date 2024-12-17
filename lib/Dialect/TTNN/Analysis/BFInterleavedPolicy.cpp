@@ -62,7 +62,7 @@ void BFInterleavedPolicy::run() {
           }
         }
 
-        // Check if the scheduling of the op is consumes the least amount of L1
+        // Check if the scheduling of the op is consuming the least amount of L1
         // memory among all the scheduleable ops.
         //
         changeInL1Usage = allocOfL1Mem - deallocOfL1Mem;
@@ -131,7 +131,6 @@ void BFInterleavedPolicy::run() {
       l1ChainConfig.build();
       l1ChainConfig.resolve();
       l1ChainConfig.complete();
-      l1ChainConfigs->push_back(l1ChainConfig);
     }
   }
 }

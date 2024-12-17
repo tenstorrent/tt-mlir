@@ -11,9 +11,14 @@
 
 namespace mlir::tt::ttnn {
 
+// The goal of this policy is to always solve simple fork-joins if that is
+// possible. Fork-join is considered to be simple if there is no need for DRAM
+// spill in its execution. Furthermore, if DRAM spill is necessary, this policy
+// will not produce globally optimal solution.
+//
 class BFInterleavedPolicy : public MemoryLayoutAnalysisPolicy {
 public:
-  // In order to keep track of the L1 memory usage, we have know two things
+  // In order to keep track of the L1 memory usage, we have to know two things
   // for each op:
   //    1. The L1 memory usage of each op's output tensor.
   //    2. The number of op's users currently relying on the op's output tensor.
@@ -38,8 +43,6 @@ public:
   void run() final;
 
 private:
-  DeviceAttr deviceAttr;
-
   // Check if the op is analyzable. Op is analyzable if it has at least one
   // legal layout.
   bool isAnalyzable(Operation *op);

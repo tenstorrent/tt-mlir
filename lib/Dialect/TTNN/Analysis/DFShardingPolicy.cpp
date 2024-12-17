@@ -10,7 +10,7 @@ namespace mlir::tt::ttnn {
 
 void DFShardingPolicy::run() {
   rootOp->walk([&](func::FuncOp func) {
-    DeviceAttr deviceAttr = getCurrentScopeDevice(func);
+    deviceAttr = getCurrentScopeDevice(func);
     mlir::tt::scheduler::Scheduler scheduler(&func);
     l1ChainConfigs->push_back(L1ChainConfig());
     llvm::SmallVector<mlir::Operation *> scheduleableOps;

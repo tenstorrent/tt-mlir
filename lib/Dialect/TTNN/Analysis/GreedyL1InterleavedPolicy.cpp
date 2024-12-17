@@ -130,7 +130,7 @@ GreedyL1InterleavedPolicy::OpConfig GreedyL1InterleavedPolicy::getGreedyConfig(
 void GreedyL1InterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
-    DeviceAttr deviceAttr = getCurrentScopeDevice(func);
+    deviceAttr = getCurrentScopeDevice(func);
 
     // Start the policy.
     //
