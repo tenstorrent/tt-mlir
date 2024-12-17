@@ -116,10 +116,12 @@ private:
     tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg = rewriter.getArrayAttr(SmallVector<Attribute>(
-        1, rewriter.getI32IntegerAttr(adaptor.getDimensionsAttr().size() > 0
-                                          ? adaptor.getDimensionsAttr()[0]
-                                          : 1)));
+    mlir::SmallVector<int32_t> dims;
+    for (int64_t dim : adaptor.getDimensions()) {
+      dims.push_back(static_cast<int32_t>(dim));
+    }
+
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(dims);
 
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,
