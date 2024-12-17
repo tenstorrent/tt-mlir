@@ -24,11 +24,9 @@ def add_to_dataclass(dataclass, new_attr_name: str, new_attr_value):
     classname = dataclass.__class__.__name__
     dataclass = asdict(dataclass)
     dataclass[new_attr_name] = new_attr_value
-    return make_dataclass(classname, [(k, type(v)) for k, v in dataclass.items()])(
-        **dataclass
-    )
+    return to_dataclass(dataclass, dc_name=classname)
 
 
-def to_adapter_format(objs: list):
-    objs = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
-    return {"graphs": objs}
+def to_adapter_format(*objs):
+    res = [x if is_dataclass(x) else to_dataclass(x) for x in objs]
+    return {"graphs": res}

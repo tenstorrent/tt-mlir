@@ -93,13 +93,11 @@ class TTAdapter(model_explorer.Adapter):
         error = self.model_runner.get_error()
 
         return utils.to_adapter_format(
-            [
-                {
-                    "isDone": done,
-                    "progress": progress,
-                    "total": 100,
-                    "error": error,
-                    "stdout": logs,
-                }
-            ]
+            {
+                "isDone": done,
+                "progress": progress,
+                "total": 100,
+                "error": error,
+                "stdout": logs,
+            }
         )
