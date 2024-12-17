@@ -11,6 +11,9 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+
 #include "llvm/ADT/SmallSet.h"
 
 namespace mlir::tt::ttir {
@@ -51,25 +54,28 @@ static llvm::SmallVector<int64_t, 4> getTensorRanks(mlir::Operation *op) {
 // generate unique name base on operation type + argument tensors dims & types
 static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Start building the unique function name
-  llvm::SmallString<16> uniqueName = "hoisted_" + op->getName().getStringRef();
+  llvm::SmallString<16> uniqueName("hoisted_");
+  uniqueName.append(op->getName().getStringRef().begin(),
+                    op->getName().getStringRef().end());
 
   // Iterate over operands to extract tensor shapes and types
   for (auto operand : op->getOperands()) {
-    mlir::ShapedType shapedType = dyn_cast<mlir::ShapedType>(operand.getType());
-    if (shapedType && shapedType.hasRank()) {
+    auto rankedTensorType = dyn_cast<mlir::RankedTensorType>(operand.getType());
+    if (rankedTensorType && rankedTensorType.hasRank()) {
       // Append the shape (dimensions) and the element type
-      llvm::SmallString<5> shapeStr = "_";
-      for (auto dim : shapedType.getShape()) {
+      llvm::SmallString<5> shapeStr("_");
+      for (auto dim : rankedTensorType.getShape()) {
         shapeStr += std::to_string(dim) + "x";
       }
 
       // Append the element type (e.g., f32, i32) -- unforunately I don't think
       // there's a better way to get string from mlir::Type
-      llvm::SmallString<3> elementTypeStr;
+      std::string elementTypeStr;
       llvm::raw_string_ostream stream(elementTypeStr);
-      shapedType.getElementType().print(stream);
+      rankedTensorType.getElementType().print(stream);
 
-      uniqueName += shapeStr + elementTypeStr;
+      uniqueName.append(shapeStr.begin(), shapeStr.end());
+      uniqueName.append(elementTypeStr.begin(), elementTypeStr.end());
     }
   }
 
@@ -164,15 +170,15 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 // hoisted, useful for testing
 class TTIRHoistAnalyzeManual {
 public:
-  using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *>>;
+  using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
   TTIRHoistAnalyzeManual(mlir::ModuleOp moduleOp,
-                         const llvm::SmallSet<llvm::StringRef> &targetLocs) {
+                         const llvm::SmallSet<llvm::StringRef, 4> &targetLocs) {
 
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (const auto nameLoc = dyn_cast<NameLoc>(op->getLoc())) {
+      if (const auto nameLoc = dyn_cast<NameLoc>(nestedOp->getLoc())) {
         if (targetLocs.contains(nameLoc.getName().getValue())) {
-          llvm::SmallSet<mlir::Operation *> opSet;
+          llvm::SmallSet<mlir::Operation *, 4> opSet;
           opSet.insert(nestedOp);
           hoistedOps.push_back(opSet);
         }
@@ -194,8 +200,6 @@ public:
   using impl::TTIRHoistTransformBase<
       TTIRHoistTransform>::TTIRHoistTransformBase;
 
-  // MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TTIRHoistTransform)
-
   void runOnOperation() final {
     mlir::ModuleOp moduleOp = getOperation();
 
@@ -203,8 +207,8 @@ public:
 
     auto loc = moduleOp->getLoc();
 
-    // TODO (vwells): add logic for automatic vs manual flag here when we have
-    // automatic analysis pass
+    // TODO (Issue #1629): add logic for automatic vs manual flag here when we
+    // have automatic analysis pass
 
     // only create cpu-module etc. if we actually have ops to hoist
     if (!hoistLocs.hasValue()) {
@@ -249,8 +253,8 @@ public:
   }
 
 protected:
-  llvm::SmallSet<llvm::StringRef> getLocations() {
-    llvm::SmallSet<llvm::StringRef> locs;
+  llvm::SmallSet<llvm::StringRef, 4> getLocations() {
+    llvm::SmallSet<llvm::StringRef, 4> locs;
     for (const auto &loc : hoistLocs) {
       locs.insert(loc);
     }
