@@ -405,6 +405,8 @@ public:
       : builder(builder), loc(loc), kernelConfig(kernelConfig) {
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
+    builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
+                                      /*isStandard=*/false);
     if (kernelConfig.getThreadType() == ttkernel::ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
@@ -414,6 +416,8 @@ public:
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/tilize.h",
                                         /*isStandard=*/false);
