@@ -295,6 +295,14 @@ table AllGatherOp {
   num_links: uint32;
 }
 
+table PermuteOp {
+  in: tt.target.TensorRef;
+  permutation: [int64];
+  memory_config: MemoryConfigDesc;
+  pad_value: float;
+  out: tt.target.TensorRef;
+}
+
 table ReduceScatterOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -311,12 +319,6 @@ table MeshShardOp {
   shard_direction: uint32;
   shard_type: uint32;
   shard_shape: [int64];
-}
-
-table PermuteOp {
-  in: tt.target.TensorRef;
-  permutation: [int64];
-  out: tt.target.TensorRef;
 }
 
 union OpType {

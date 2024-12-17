@@ -72,6 +72,9 @@ constexpr std::underlying_type_t<Enum> enum_as_int(Enum e) {
   return static_cast<std::underlying_type_t<Enum>>(e);
 }
 
+// Returns a string that is the concatenation of the string representations of
+// Range R elements interleaved with separator. Example: join({1, 2, 3}, ", ")
+// -> "1, 2, 3"
 template <typename Range>
 std::string join(Range &&R, llvm::StringRef separator) {
   return llvm::join(

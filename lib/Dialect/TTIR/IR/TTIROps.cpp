@@ -1593,13 +1593,14 @@ bool matchSimpleBlock(mlir::Region &region) {
   // Check that given attribute `permutation` is a valid permutation of the
   // dimensions.
   llvm::ArrayRef<int64_t> permutation = getPermutation();
-  auto dimensions = llvm::seq<int64_t>(inputRank);
+  llvm::SmallVector<int64_t> dimensions(inputRank);
+  std::iota(dimensions.begin(), dimensions.end(), 0);
   if (inputRank != permutation.size() ||
       !std::is_permutation(permutation.begin(), permutation.end(),
                            dimensions.begin())) {
-    return emitOpError("Expected a permutation of {k | 0 <= k < " +
-                       std::to_string(inputRank) + "} got (" +
-                       ttmlir::utils::join(permutation, ", ") + ")");
+    return emitOpError("Expected a permutation of (")
+           << ttmlir::utils::join(dimensions, ", ")
+           << "), got (" + ttmlir::utils::join(permutation, ", ") << ")";
   }
 
   // Check that the result shape matches the shape of input tensor after
@@ -1607,10 +1608,9 @@ bool matchSimpleBlock(mlir::Region &region) {
   llvm::SmallVector<int64_t> expectedResultShape =
       ttmlir::utils::applyPermutation(inputShape, permutation);
   if (!llvm::equal(expectedResultShape, resultShape)) {
-    return emitOpError("Expected result shape (" +
-                       ttmlir::utils::join(expectedResultShape, ", ") +
-                       "), got (" + ttmlir::utils::join(resultShape, ", ") +
-                       ")");
+    return emitOpError("Expected result shape (")
+           << ttmlir::utils::join(expectedResultShape, ", ") << "), got ("
+           << ttmlir::utils::join(resultShape, ", ") << ")";
   }
 
   return success();

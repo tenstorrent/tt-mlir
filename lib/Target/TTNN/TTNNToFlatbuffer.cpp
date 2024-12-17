@@ -518,13 +518,20 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
 createOp(FlatbufferObjectCache &cache, PermuteOp op) {
-  auto input =
+  flatbuffers::Offset<::tt::target::TensorRef> input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto permutation = toFlatbuffer(cache, op.getPermutation());
+  flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation =
+      toFlatbuffer(cache, op.getPermutation());
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  float padValue = op.getPadValue().convertToFloat();
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreatePermuteOp(*cache.fbb, input, permutation,
-                                             output);
+  return ::tt::target::ttnn::CreatePermuteOp(
+      *cache.fbb, input, permutation,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0,
+      padValue, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
