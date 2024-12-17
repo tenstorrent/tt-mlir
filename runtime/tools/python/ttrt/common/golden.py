@@ -117,17 +117,7 @@ def golden_partial_function(
     print("-----------executing golden comparision-----------")
 
     try:
-        op_debug_str = ttrt.runtime.get_op_debug_str(op_context)
-
-        # find matching golden tensor based on loc in op debug string
-        match = re.search(r"loc\(([^)]+)\)", op_debug_str)
-
-        if not match:
-            print(f"debug_str={op_debug_str}")
-            print("No location found in debug string - skipping golden comparison")
-            return
-
-        loc = match.group(1).replace('"', "")
+        loc = ttrt.runtime.get_op_loc_info(op_context)
         print(f"found location={loc}")
 
         op_golden_tensor = binary.get_debug_info_golden(loc)

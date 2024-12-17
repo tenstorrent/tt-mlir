@@ -11,6 +11,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/SmallSet.h"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRHOISTTRANSFORM
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -18,6 +20,10 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 // Hoist CPU ops to standalone funcs pass
 //===----------------------------------------------------------------------===//
+
+// helper function to get ranks of an op's operands
+// we use this to populate attrs which we need to tensor unpacking operations
+// later
 static llvm::SmallVector<int64_t, 4> getTensorRanks(mlir::Operation *op) {
   llvm::SmallVector<int64_t, 4> ranks;
 
@@ -42,25 +48,24 @@ static llvm::SmallVector<int64_t, 4> getTensorRanks(mlir::Operation *op) {
   return ranks;
 }
 
-static std::string generateHoistedFuncName(mlir::Operation *op) {
-  std::string opName = op->getName().getStringRef().str();
-
+// generate unique name base on operation type + argument tensors dims & types
+static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Start building the unique function name
-  std::string uniqueName = "hoisted_" + opName;
+  llvm::SmallString<16> uniqueName = "hoisted_" + op->getName().getStringRef();
 
   // Iterate over operands to extract tensor shapes and types
   for (auto operand : op->getOperands()) {
     mlir::ShapedType shapedType = dyn_cast<mlir::ShapedType>(operand.getType());
     if (shapedType && shapedType.hasRank()) {
       // Append the shape (dimensions) and the element type
-      std::string shapeStr = "_";
+      llvm::SmallString<5> shapeStr = "_";
       for (auto dim : shapedType.getShape()) {
         shapeStr += std::to_string(dim) + "x";
       }
 
       // Append the element type (e.g., f32, i32) -- unforunately I don't think
       // there's a better way to get string from mlir::Type
-      std::string elementTypeStr;
+      llvm::SmallString<3> elementTypeStr;
       llvm::raw_string_ostream stream(elementTypeStr);
       shapedType.getElementType().print(stream);
 
@@ -74,12 +79,15 @@ static std::string generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
+// helper to hoist an arbitrary op into a new function in targetModule, generate
+// a matching extern prototype in the sourceModule, and replace the original op
+// with a callOp to the extern function
 static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp sourceModule,
                                      mlir::ModuleOp targetModule) {
   const auto ranks = getTensorRanks(opToHoist);
 
-  const std::string functionName = generateHoistedFuncName(opToHoist);
+  const auto functionName = generateHoistedFuncName(opToHoist);
 
   auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
       sourceModule.lookupSymbol(functionName));
@@ -156,18 +164,18 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 // hoisted, useful for testing
 class TTIRHoistAnalyzeManual {
 public:
-  using HoistOpSet = std::vector<std::set<mlir::Operation *>>;
+  using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *>>;
 
-  TTIRHoistAnalyzeManual(mlir::Operation *op,
-                         const std::vector<std::string> &targetLocs) {
-    auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
-    assert(moduleOp && "somehow got non-ModuleOp in TTIRHoistAnalyzeManual!");
+  TTIRHoistAnalyzeManual(mlir::ModuleOp moduleOp,
+                         const llvm::SmallSet<llvm::StringRef> &targetLocs) {
 
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (matchesLocation(nestedOp, targetLocs)) {
-        std::set<mlir::Operation *> opSet;
-        opSet.insert(nestedOp);
-        hoistedOps.push_back(opSet);
+      if (const auto nameLoc = dyn_cast<NameLoc>(op->getLoc())) {
+        if (targetLocs.contains(nameLoc.getName().getValue())) {
+          llvm::SmallSet<mlir::Operation *> opSet;
+          opSet.insert(nestedOp);
+          hoistedOps.push_back(opSet);
+        }
       }
     });
   }
@@ -176,51 +184,10 @@ public:
 
 private:
   HoistOpSet hoistedOps;
-
-  static bool matchesLocation(mlir::Operation *op,
-                              const std::vector<std::string> &targetLocations) {
-    if (const auto nameLoc = dyn_cast<NameLoc>(op->getLoc())) {
-      const auto &opLocString = nameLoc.getName().str();
-
-      for (const auto &loc : targetLocations) {
-        if (opLocString == loc) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
 };
 
-struct TargetLocsParser : llvm::cl::parser<std::vector<std::string>> {
-  TargetLocsParser(llvm::cl::Option &opt)
-      : llvm::cl::parser<std::vector<std::string>>(opt) {}
-
-  bool parse(llvm::cl::Option &opt, llvm::StringRef argName,
-             llvm::StringRef argValue, std::vector<std::string> &value) {
-    // Split the input string on commas
-    llvm::SmallVector<llvm::StringRef, 4> names;
-    argValue.split(names, ',');
-
-    value.assign(names.begin(), names.end());
-
-    return false; // Success
-  }
-
-  static std::string toString(const std::vector<std::string> &locList) {
-    std::string result;
-    for (const auto &loc : locList) {
-      result += loc + ",";
-    }
-    return result;
-  }
-
-  static void print(llvm::raw_ostream &os,
-                    const std::vector<std::string> &locList) {
-    os << "hoist-locs=" << toString(locList) << "\n";
-  }
-};
-
+// Transform pass to hoist specific ops (based on configured analysis pass) into
+// a cpu submodule for later independent lowering
 class TTIRHoistTransform
     : public impl::TTIRHoistTransformBase<TTIRHoistTransform> {
 public:
@@ -231,8 +198,6 @@ public:
 
   void runOnOperation() final {
     mlir::ModuleOp moduleOp = getOperation();
-    assert(moduleOp != nullptr && "TTIRHoistTransform should run on ModuleOps, "
-                                  "somehow got something else!");
 
     IRRewriter rewriter(&getContext());
 
@@ -284,10 +249,10 @@ public:
   }
 
 protected:
-  std::vector<std::string> getLocations() {
-    std::vector<std::string> locs;
-    for (const std::string &loc : hoistLocs) {
-      locs.emplace_back(loc);
+  llvm::SmallSet<llvm::StringRef> getLocations() {
+    llvm::SmallSet<llvm::StringRef> locs;
+    for (const auto &loc : hoistLocs) {
+      locs.insert(loc);
     }
     return locs;
   }

@@ -9,6 +9,7 @@
 #include "distributed/mesh_device.hpp"
 #include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
+#include "tt_metal/detail/tt_metal.hpp"
 #include "tt_metal/host_api.hpp"
 
 #include "tt/runtime/types.h"

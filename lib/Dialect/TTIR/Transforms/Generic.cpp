@@ -149,23 +149,6 @@ public:
     llvm_unreachable("Unsupported kernel kind");
   }
 
-  static ArrayAttr createOperandConstraints(PatternRewriter &rewriter,
-                                            StringRef kind,
-                                            mlir::OperandRange operands) {
-    auto numOperands = operands.size();
-    if (kind == "eltwise") {
-      return rewriter.getArrayAttr(SmallVector<Attribute>(
-          numOperands, rewriter.getAttr<OperandConstraintAttr>(
-                           OperandConstraint::AnyDevice)));
-    }
-    if (kind == "matmul") {
-      return rewriter.getArrayAttr(SmallVector<Attribute>(
-          numOperands, rewriter.getAttr<OperandConstraintAttr>(
-                           OperandConstraint::AnyDeviceTile)));
-    }
-    llvm_unreachable("Unsupported kernel kind");
-  }
-
   LogicalResult matchAndRewrite(KernelOp op,
                                 PatternRewriter &rewriter) const final {
     if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
@@ -175,12 +158,10 @@ public:
     // Create a dispatch op
     auto [indexingMaps, iteratorTypes] =
         createIndexingMaps(rewriter, op.getKind(), op.getOperands());
-    auto constraints =
-        createOperandConstraints(rewriter, op.getKind(), op.getOperands());
     auto dispatch = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         ValueRange() /* cbs */, op.getOutputs(), rewriter.getAttr<GridAttr>(),
-        indexingMaps, iteratorTypes, constraints);
+        indexingMaps, iteratorTypes);
 
     // Create a new basic block for the dispatch op and create block arguments
     Block *block = rewriter.createBlock(&dispatch.getRegion());
@@ -246,9 +227,6 @@ public:
 
     // Create a generic op.
     auto [indexingMaps, iteratorTypes] = op.getIndexingMaps(rewriter);
-    auto constraints = rewriter.getArrayAttr(SmallVector<Attribute>(
-        op->getNumOperands(), rewriter.getAttr<OperandConstraintAttr>(
-                                  OperandConstraint::AnyDeviceTile)));
 
     // For testing purposes try getting grid of the resulting tensor and put the
     // op in the grid.
@@ -264,7 +242,7 @@ public:
     auto genericOp = rewriter.create<ttir::GenericOp>(
         op.getLoc(), op->getResults().getTypes(), dps.getDpsInputs(),
         ValueRange() /* cbs */, dps.getDpsInits(), gridAttr, indexingMaps,
-        iteratorTypes, constraints);
+        iteratorTypes);
 
     // Create a new basic block for the generic op and create block arguments.
     Block *block = rewriter.createBlock(&genericOp.getRegion());
@@ -439,14 +417,8 @@ public:
 
     SmallVector<Value> cbValues;
     SmallVector<int64_t> operandCBMapping;
-    SmallVector<Attribute> oldConstraints;
-    SmallVector<Attribute> cbConstraints;
-    size_t i = 0;
 
     for (auto operand : generic->getOperands()) {
-      size_t operandIdx = i++;
-      oldConstraints.push_back(generic.getOperandConstraints()[operandIdx]);
-
       auto ty = mlir::cast<RankedTensorType>(operand.getType());
 
       // Enforcing tiled layout as in kernel we always want to work with tiles.
@@ -472,42 +444,14 @@ public:
           generic->getLoc(), ty.getShape(), ty.getElementType(), desiredLayout);
       cbValues.push_back(emptyOp.getResult());
       operandCBMapping.push_back(cbValues.size() - 1);
-
-      // Inheriting constraints from the original operand.
-      // OperandConstraint inherittedConstraint =
-      //     mlir::cast<OperandConstraintAttr>(
-      //         generic.getOperandConstraints()[operandIdx])
-      //         .getValue();
-      // inherittedConstraint =
-      //     bitEnumSet(inherittedConstraint, OperandConstraint::L1);
-      // inherittedConstraint =
-      //     bitEnumClear(inherittedConstraint, OperandConstraint::DRAM);
-      // inherittedConstraint =
-      //     bitEnumClear(inherittedConstraint, OperandConstraint::System);
-
-      // Fixing constraint to L1 for the CB operand.
-      // TODO(rpavlovic) remove or use code above when we decide on the operand
-      // constraints model.
-      cbConstraints.push_back(
-          rewriter.getAttr<OperandConstraintAttr>(OperandConstraint::L1));
     }
-
-    SmallVector<Attribute> combinedConstraints;
-    combinedConstraints.append(oldConstraints.begin(),
-                               oldConstraints.begin() +
-                                   generic.getInputs().size());
-    combinedConstraints.append(cbConstraints.begin(), cbConstraints.end());
-    combinedConstraints.append(oldConstraints.begin() +
-                                   generic.getInputs().size(),
-                               oldConstraints.end());
-    auto newConstraintsArray = rewriter.getArrayAttr(combinedConstraints);
 
     rewriter.setInsertionPointAfter(generic);
     auto newGenericOp = rewriter.create<ttir::GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         cbValues, generic.getOutputs(), generic.getGrid(),
         generic.getIndexingMaps(), generic.getIteratorTypes(),
-        newConstraintsArray, operandCBMapping);
+        operandCBMapping);
 
     auto &oldRegion = generic.getRegion();
     newGenericOp->getRegion(0).takeBody(oldRegion);
