@@ -136,7 +136,7 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
   std::shared_ptr<::ttnn::Tensor> tensor = std::make_shared<::ttnn::Tensor>(
-      ::ttnn::distributed::api::create_multi_device_tensor(
+      ::ttnn::distributed::create_multi_device_tensor(
           tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
           distributionStrategy));
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
