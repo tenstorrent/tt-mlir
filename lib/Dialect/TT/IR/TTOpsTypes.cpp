@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Utils.h"
 
