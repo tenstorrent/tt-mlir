@@ -327,6 +327,9 @@ void memcpy(Tensor dst, Tensor src) {
 
 void deallocateTensor(Tensor &tensor, bool force) {
   ::ttnn::Tensor &ttnnTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  if (ttnnTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+    return;
+  }
   ::ttnn::deallocate(ttnnTensor, force);
 }
 

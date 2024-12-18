@@ -235,25 +235,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
 }
 
-// Nop is single input, output tensor where input is returned as output.
-static bool isNopProgram(const ::tt::target::ttnn::Program *program) {
-  return program->inputs()->size() == 1 && program->outputs()->size() == 1 &&
-         program->inputs()->Get(0)->global_id() ==
-             program->outputs()->Get(0)->global_id();
-}
-
-static ::ttnn::Tensor
-handleNopProgram(::tt::target::ttnn::Program const *program,
-                 std::vector<::ttnn::Tensor *> const &inputs) {
-  const ::ttnn::Tensor &input = *inputs[0];
-  ::ttnn::Tensor output =
-      ::ttnn::zeros(input.get_shape(), input.get_dtype(), input.get_layout());
-  const void *src = ::tt::tt_metal::get_raw_host_data_ptr(input);
-  void *dst = ::tt::tt_metal::get_raw_host_data_ptr(output);
-  std::memcpy(dst, src, input.volume() * input.element_size());
-  return output;
-}
-
 namespace legacy {
 
 static bool handleNopProgram(::tt::target::ttnn::Program const *program,
@@ -331,11 +312,6 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
-  if (isNopProgram(program)) {
-    Tensor out =
-        utils::createRuntimeTensorFromTTNN(handleNopProgram(program, inputs));
-    return {out};
-  }
   std::unordered_map<uint32_t, ::ttnn::Tensor *> liveTensors;
   std::vector<uint32_t> programInputs;
   int inputIndex = 0;

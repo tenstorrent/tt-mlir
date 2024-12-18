@@ -24,10 +24,11 @@ namespace mlir::tt::ttir {
 // Hoist CPU ops to standalone funcs pass
 //===----------------------------------------------------------------------===//
 
-// helper function to get ranks of an op's operands
+// Helper function to get ranks of an op's operands
 // we use this to populate attrs which we need to tensor unpacking operations
-// later
-static llvm::SmallVector<int64_t, 4> getTensorRanks(mlir::Operation *op) {
+// later.
+static llvm::SmallVector<int64_t, 4>
+getOperandTensorRanks(mlir::Operation *op) {
   llvm::SmallVector<int64_t, 4> ranks;
 
   // Iterate over operands (inputs)
@@ -42,7 +43,7 @@ static llvm::SmallVector<int64_t, 4> getTensorRanks(mlir::Operation *op) {
   return ranks;
 }
 
-// generate unique name base on operation type + argument tensors dims & types
+// Generate unique name base on operation type + argument tensors dims & types.
 static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Start building the unique function name
   llvm::SmallString<16> uniqueName("hoisted_");
@@ -52,7 +53,7 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Iterate over operands to extract tensor shapes and types
   for (auto operand : op->getOperands()) {
     auto rankedTensorType = dyn_cast<mlir::RankedTensorType>(operand.getType());
-    if (rankedTensorType && rankedTensorType.hasRank()) {
+    if (rankedTensorType) {
       // Append the shape (dimensions) and the element type
       llvm::SmallString<5> shapeStr("_");
       for (auto dim : rankedTensorType.getShape()) {
@@ -76,26 +77,25 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   return uniqueName;
 }
 
-// helper to hoist an arbitrary op into a new function in targetModule, generate
-// a matching extern prototype in the sourceModule, and replace the original op
-// with a callOp to the extern function
+// Helper function to hoist an arbitrary op into a new function in targetModule,
+// generate a matching extern prototype in the sourceModule, and replace the
+// original op with a callOp to the extern function.
 static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp sourceModule,
                                      mlir::ModuleOp targetModule) {
-  const auto ranks = getTensorRanks(opToHoist);
+  const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
 
-  const auto functionName = generateHoistedFuncName(opToHoist);
+  const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
 
   auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
       sourceModule.lookupSymbol(functionName));
 
-  // if we have not already emitted an equivalent function call, perform this
-  // hoist
+  // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
 
     mlir::MLIRContext *context = sourceModule.getContext();
 
-    // Gather operand and result types
+    // Gather operand and result types.
     llvm::SmallVector<mlir::Type> operandTypes, resultTypes;
     for (auto operand : opToHoist->getOperands()) {
       operandTypes.push_back(operand.getType());
@@ -104,20 +104,20 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       resultTypes.push_back(result);
     }
 
-    // Create the function signature
+    // Create the function signature.
     mlir::FunctionType funcType =
         mlir::FunctionType::get(context, operandTypes, resultTypes);
 
-    // Create the function in the target module
+    // Create the function in the target module.
     auto hoistedFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
     targetModule.push_back(hoistedFunc);
 
-    // Add a basic block to the function
+    // Add a basic block to the function.
     mlir::Block *block = hoistedFunc.addEntryBlock();
     mlir::OpBuilder builder(block, block->end());
 
-    // Map operands to block arguments and clone the operation
+    // Map operands to block arguments and clone the operation.
     llvm::SmallVector<mlir::Value> newOperands;
     for (auto operand : llvm::enumerate(opToHoist->getOperands())) {
       newOperands.push_back(block->getArgument(operand.index()));
@@ -130,35 +130,35 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
     mlir::Operation *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Add a return operation to the function
+    // Add a return operation to the function.
     builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
                                          clonedOp->getResults());
 
-    // Declare the function prototype in the source module
+    // Declare the function prototype in the source module.
     localFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
-    localFunc.setPrivate(); // Mark as external (no body)
+    localFunc.setPrivate();
     sourceModule.push_back(localFunc);
 
     hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
   }
 
-  // Replace the original operation with a call to the hoisted function
+  // Replace the original operation with a call to the hoisted function.
   mlir::OpBuilder opBuilder(opToHoist);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       opToHoist->getLoc(), localFunc, opToHoist->getOperands());
 
-  // Replace all results of the original operation with the call results
+  // Replace all results of the original operation with the call results.
   for (auto result : llvm::zip(opToHoist->getResults(), callOp.getResults())) {
     std::get<0>(result).replaceAllUsesWith(std::get<1>(result));
   }
 
-  // Erase the original operation
+  // Erase the original operation.
   opToHoist->erase();
 }
 
-// an analysis class which relies on manual input locations to mark ops to be
-// hoisted, useful for testing
+// An analysis class which relies on manual input locations to mark ops to be
+// hoisted, useful for testing.
 class TTIRHoistAnalyzeManual {
 public:
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
@@ -184,7 +184,7 @@ private:
 };
 
 // Transform pass to hoist specific ops (based on configured analysis pass) into
-// a cpu submodule for later independent lowering
+// a cpu submodule for later independent lowering.
 class TTIRHoistTransform
     : public impl::TTIRHoistTransformBase<TTIRHoistTransform> {
 public:
@@ -198,10 +198,10 @@ public:
 
     auto loc = moduleOp->getLoc();
 
-    // TODO (#1629): add logic for automatic vs manual flag here when we
-    // have automatic analysis pass
+    // TODO (#1629): Add logic for automatic vs manual flag here when we
+    // have automatic analysis pass.
 
-    // only create cpu-module etc. if we actually have ops to hoist
+    // Only create cpu-module etc. if we actually have ops to hoist.
     if (!hoistLocs.hasValue()) {
       return;
     }
@@ -213,7 +213,7 @@ public:
     TTIRHoistAnalyzeManual analysisPass(moduleOp, targetLocs);
     const auto &hoistOpSets = analysisPass.getResults();
 
-    // Check if a "cpu_module" already exists
+    // Check if a "cpu_module" already exists.
     mlir::ModuleOp cpuModule;
     for (auto &op : moduleOp.getBody()->getOperations()) {
       if (auto module = llvm::dyn_cast<mlir::ModuleOp>(op)) {
@@ -224,7 +224,7 @@ public:
       }
     }
 
-    // If no CPU module exists, create one
+    // If no CPU module exists, create one.
     if (!cpuModule) {
       rewriter.setInsertionPointToEnd(moduleOp.getBody());
       cpuModule = rewriter.create<mlir::ModuleOp>(loc);

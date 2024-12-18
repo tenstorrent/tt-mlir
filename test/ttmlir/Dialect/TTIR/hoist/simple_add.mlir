@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-cpu-hoist-transform="hoist-locations=add_op1,add_op2,add_op3,add_op4" %s | tee /tmp/output.mlir | FileCheck %s
+// RUN: ttmlir-opt --ttir-cpu-hoist-transform="hoist-locations=add_op1,add_op2,add_op3,add_op4" %s | FileCheck %s
 
 func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
