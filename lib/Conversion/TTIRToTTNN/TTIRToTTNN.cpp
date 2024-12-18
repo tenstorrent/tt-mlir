@@ -664,6 +664,10 @@ public:
       newShape.push_back(inputShape[i]);
     }
 
+    if (inputType.getRank() == dim) {
+      newShape.push_back(1);
+    }
+
     // Create the new shape attribute
     auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
 

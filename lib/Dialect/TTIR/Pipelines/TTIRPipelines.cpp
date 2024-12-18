@@ -64,8 +64,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
 
-  // this wasn't in original example, but sometimes it seems needed to eliminate
-  // some nasty bufferization::clone() calls
+  // sometimes needed to eliminate some nasty bufferization::clone() calls
   manager.addPass(mlir::createBufferizationToMemRefPass());
 
   // lower linalg to scf-based loops
