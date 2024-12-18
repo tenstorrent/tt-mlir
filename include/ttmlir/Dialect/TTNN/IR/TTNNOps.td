@@ -567,8 +567,8 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         AnyRankedTensor:$weight);
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 

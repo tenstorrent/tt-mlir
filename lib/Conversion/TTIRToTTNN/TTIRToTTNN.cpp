@@ -352,7 +352,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getOutput());
 
     return success();
   }
