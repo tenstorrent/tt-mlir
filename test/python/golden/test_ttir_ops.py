@@ -198,6 +198,17 @@ def test_maximum(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 @compile_to_flatbuffer(
     [
+        (1, 784),
+        (784, 256),
+    ],
+    targets=["ttnn"],
+)
+def test_embedding(in0: Operand, in1: Operand, builder: TTIRBuilder):
+    return builder.embedding(in0, in1)
+
+
+@compile_to_flatbuffer(
+    [
         (32, 32),
         (32, 32),
         (32, 32),

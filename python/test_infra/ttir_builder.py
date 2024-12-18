@@ -389,6 +389,50 @@ class TTIRBuilder:
     ) -> OpView:
         return self.op_proxy(op_golden_function, op_ttir_function, inputs)
 
+    def embedding_proxy(
+        self,
+        op_golden_function: Callable,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
+        organize_ttir_args: Optional[Callable],
+        output_shape: Optional[Shape],
+    ) -> OpView:
+        stack = inspect.stack()
+
+        # find the innermost frame outside of this file
+        cur_filename = stack[0].filename
+
+        while len(stack) > 0 and stack[0].filename == cur_filename:
+            stack = stack[1:]
+
+        assert (
+            len(stack) > 0
+        ), "Top of callstack to builder funcs must be outside this file"
+
+        with self._ctx, self._loc:
+            weight_tensor_shape = self.get_shape(inputs[1])
+            shape = (output_shape[0], output_shape[1], weight_tensor_shape[1])
+            output = self.empty(shape)
+
+            id = self.get_next_global_id()
+            loc = get_loc_of_extra_file_callee(id=id)
+
+            op = op_ttir_function(
+                *organize_ttir_args(inputs, output, output_shape),
+                loc=loc,
+            )
+
+            embedding_layer = op_golden_function(
+                weight_tensor_shape[0], weight_tensor_shape[1]
+            )
+
+            golden = Golden(embedding_layer(inputs[1]))
+            self.id_golden_map[str(loc)] = golden
+            self._store_golden(op, golden)
+            self._override_golden(output, golden)
+
+            return op
+
     def exp(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0])
 
@@ -454,6 +498,22 @@ class TTIRBuilder:
 
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+
+    def embedding(self, in0: Operand, in1: Operand) -> OpView:
+        inputs = [in0, in1]
+        shapes = [self.get_shape(x) for x in inputs]
+        shape = (shapes[0][0], shapes[1][1])
+        assert (
+            shapes[0][1] == shapes[1][0]
+        ), "Input Shapes not compatible for Embedding op"
+
+        return self.embedding_proxy(
+            torch.nn.Embedding,
+            ttir.EmbeddingOp,
+            inputs,
+            output_shape=shape,
+            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+        )
 
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
