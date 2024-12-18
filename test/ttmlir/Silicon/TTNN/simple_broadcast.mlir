@@ -1,4 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s| FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 module {
   func.func @main(%arg0: tensor<1x23x40x1xf32>, %arg1: tensor<128xf32>) -> tensor<1x23x40x128xf32> {
     // CHECK: [[VAL0:%[0-9]+]] = "ttnn.to_device"(%{{[0-9]+}}, %{{[0-9]+}})
