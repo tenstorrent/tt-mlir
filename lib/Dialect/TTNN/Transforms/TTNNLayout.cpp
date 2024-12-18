@@ -5,12 +5,12 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -51,7 +51,7 @@ inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
 // To layout pass
 //===----------------------------------------------------------------------===//
 
-// Converts tensor types to have a ttnn layout attribute with default values
+// Converts tensor types to have a ttnn layout attribute with deault values
 //
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with default values
@@ -127,7 +127,12 @@ public:
     }
     funcOp.setFunctionType(newType);
 
+    if (funcOp.isDeclaration()) {
+      return true;
+    }
+
     Block &entryBlock = funcOp.getBody().front();
+
     for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
       entryBlock.getArgument(i).setType(inputTypes[i]);
     }
@@ -330,6 +335,72 @@ public:
   }
 };
 
+class TTNNLayoutHoistedFuncCallRewriter
+    : public OpRewritePattern<func::CallOp> {
+public:
+  TTNNLayoutHoistedFuncCallRewriter(MLIRContext *ctx)
+      : OpRewritePattern<func::CallOp>(ctx) {}
+
+  // Match and rewrite the CallOp
+  LogicalResult matchAndRewrite(func::CallOp callOp,
+                                PatternRewriter &rewriter) const override {
+    auto device = utils::getOrInsertDevice(rewriter, callOp);
+    llvm::outs() << "0\n";
+
+    llvm::outs() << callOp->getName() << "\n";
+    if (!callOp->hasAttr("hoisted_call")) {
+      return failure();
+    }
+
+    llvm::outs() << "1\n";
+
+    // Create a FromDevice operation for each operand
+    SmallVector<Value, 4> fromDeviceOperands;
+    for (auto operand : callOp.getOperands()) {
+      // Insert FromDevice op before the operand and collect the new operands
+      auto fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
+          callOp.getLoc(), operand.getType(), operand);
+      fromDeviceOp.dump();
+      fromDeviceOperands.push_back(fromDeviceOp.getResult());
+    }
+
+    llvm::outs() << "2\n";
+
+    // Create the original CallOp with the new operands (FromDevice'd)
+    rewriter.create<func::CallOp>(callOp.getLoc(), callOp.getCallee(),
+                                  callOp.getResultTypes(), fromDeviceOperands);
+
+    llvm::outs() << "3\n";
+
+    // Now, insert ToDevice ops for the results of the CallOp
+    SmallVector<Value, 4> toDeviceResults;
+    for (auto result : callOp.getResults()) {
+      // Insert ToDevice op after the result
+      auto toDeviceOp = rewriter.create<ttnn::ToDeviceOp>(
+          callOp.getLoc(), result.getType(), result, device,
+          ttnn::MemoryConfigAttr{});
+      toDeviceResults.push_back(toDeviceOp.getResult());
+    }
+    llvm::outs() << "4\n";
+
+    // Replace the original call with a dummy op (since it has been rewritten)
+    rewriter.replaceOp(callOp, toDeviceResults);
+
+    llvm::outs() << "5\n";
+
+    // Replace the original operands with the FromDevice'd operands
+    for (size_t i = 0; i < callOp.getOperands().size(); ++i) {
+      // Replace the uses of the original operand with the new FromDevice
+      // operand
+      callOp.getOperand(i).replaceAllUsesWith(fromDeviceOperands[i]);
+    }
+
+    llvm::outs() << "6\n";
+
+    return success();
+  }
+};
+
 // Updates the layout of the operands of a func::ReturnOp.
 // The intent is to move the result to host.
 class TTNNLayoutFuncReturnRewriter
@@ -390,6 +461,9 @@ public:
       // Takes func::Return op and sets layout which will
       // move it's operands to host
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
+      // Move operands + results of hoisted funcs to and from device
+      // appropriately
+      patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
