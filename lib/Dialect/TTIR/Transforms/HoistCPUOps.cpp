@@ -198,7 +198,7 @@ public:
 
     auto loc = moduleOp->getLoc();
 
-    // TODO (Issue #1629): add logic for automatic vs manual flag here when we
+    // TODO (#1629): add logic for automatic vs manual flag here when we
     // have automatic analysis pass
 
     // only create cpu-module etc. if we actually have ops to hoist
