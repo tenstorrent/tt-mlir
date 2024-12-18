@@ -218,6 +218,12 @@ table ReshapeOp {
   shape: [int32];
 }
 
+table RepeatOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  shape: [int32];
+}
+
 table SliceOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
