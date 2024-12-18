@@ -48,14 +48,15 @@ void createStableHLOToTTIRPipeline(
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
-  // initial passes to ensure we start with well-form linalg dialect operations
+  // These are initial passes to ensure we start with well-form linalg dialect
+  // operations.
   manager.addPass(mlir::createCanonicalizerPass());
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 
-  // One-shot bufferize, from
+  // One-shot bufferize passes convert tensors into memrefs, which we can lower
+  // into LLVM Dialect.  See:
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
-  // convert tensors into memrefs, which we can lower into LLVM Dialect
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
   manager.addPass(
@@ -64,28 +65,30 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   mlir::bufferization::buildBufferDeallocationPipeline(manager,
                                                        deallocationOptions);
 
-  // sometimes needed to eliminate some nasty bufferization::clone() calls
+  // An explicit bufferization to memref conversion is sometimes needed to
+  // eliminate some nasty bufferization::clone() calls.
   manager.addPass(mlir::createBufferizationToMemRefPass());
 
-  // lower linalg to scf-based loops
+  // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
 
-  // Needed to lower memref.subview before we can convert all memref ops to llvm
+  // This is needed to lower memref.subview before we can convert all memref ops
+  // to LLVM.
   manager.addPass(mlir::memref::createExpandStridedMetadataPass());
 
-  // convert scf to llvm control flow in 2 steps
+  // These two passes convert scf to LLVM control flow.
   manager.addPass(mlir::createConvertSCFToCFPass());
   manager.addPass(mlir::createConvertControlFlowToLLVMPass());
-  // convert basic primitives to llvm
+  // These passes convert corresponding primitives to their LLVM equivalents.
   manager.addPass(mlir::createArithToLLVMConversionPass());
   manager.addPass(mlir::createConvertFuncToLLVMPass());
   manager.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
-  // cleanup any unrealized conversion casts between types--we should be
-  // completely in LLVM Dialect now -> all unrealized conversions should be
-  // removable
+  // This pass is a cleanup for any unrealized conversion casts between
+  // types--we should be completely in LLVM Dialect now, so all unrealized
+  // conversions should be removable.
   manager.addPass(mlir::createReconcileUnrealizedCastsPass());
 
-  // optional cleanup passes to make output cleaner
+  // Optionally, we can run some cleanup passes to eliminate dead code, etc.
   if (options.cleanupOutputEnabled) {
     manager.addPass(mlir::createCanonicalizerPass());
     manager.addPass(mlir::createSCCPPass());
