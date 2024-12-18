@@ -39,15 +39,6 @@ static llvm::SmallVector<int64_t, 4> getTensorRanks(mlir::Operation *op) {
     }
   }
 
-  // Iterate over results (outputs)
-  for (auto result : op->getResults()) {
-    // Check if the result is a tensor
-    if (auto tensorType = dyn_cast<mlir::RankedTensorType>(result.getType())) {
-      // Add the rank of the tensor (number of dimensions)
-      ranks.push_back(tensorType.getRank());
-    }
-  }
-
   return ranks;
 }
 
