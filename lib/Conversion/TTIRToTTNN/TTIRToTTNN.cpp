@@ -337,6 +337,21 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    int64_t inputTensorRank =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType())
+            .getRank();
+
+    // TODO(mrakita): Only last two dimensions can be reduced, check for that
+    // too. Should this check be in verifier?
+    if (adaptor.getDimArg().has_value() &&
+        adaptor.getDimArg().value().size() > 2 &&
+        static_cast<int64_t>(adaptor.getDimArg().value().size()) !=
+            inputTensorRank) {
+      return rewriter.notifyMatchFailure(op,
+                                         "Reduce on more than two dimensions "
+                                         "is not currently supported by TTNN");
+    }
+
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getKeepDim(),

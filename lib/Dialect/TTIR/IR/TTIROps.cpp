@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <numeric>
 #include <string>
+#include <unordered_set>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -1726,25 +1727,28 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
 }
 
 // Common verifier for all Reduce ops.
-static mlir::LogicalResult verifyReduceOp(mlir::Operation *reduceOp,
-                                          const mlir::ArrayAttr &reduceDims) {
+static mlir::LogicalResult
+verifyReduceOp(mlir::Operation *reduceOp,
+               const std::optional<mlir::ArrayAttr> &reduceDims) {
+  if (!reduceDims.has_value()) {
+    return mlir::success();
+  }
+
   int64_t inputTensorRank =
       mlir::cast<mlir::RankedTensorType>(*reduceOp->getOperandTypes().begin())
           .getRank();
 
-  // TODO: Update the error message if it turns out that reduce on all dims is
-  // actually supported by metal !!!!!!!!!!!!!!!!!!!!
-  if (reduceDims.size() > 2 &&
-      static_cast<int64_t>(reduceDims.size()) != inputTensorRank) {
-    return reduceOp->emitOpError(
-        "Reduce on more than two dimensions is not currently supported");
-  }
-
-  for (const mlir::Attribute &reduceDim : reduceDims) {
+  std::unordered_set<int64_t> uniqueReduceDims;
+  for (const mlir::Attribute &reduceDim : reduceDims.value()) {
     int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
     if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
       return reduceOp->emitOpError("Reduce dimensions are out of range");
     }
+    uniqueReduceDims.insert(reduceDimInt);
+  }
+
+  if (uniqueReduceDims.size() != reduceDims.value().size()) {
+    return reduceOp->emitOpError("Reduce dimensions are not unique");
   }
 
   return mlir::success();
@@ -1763,7 +1767,7 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MaxOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getDimArgAttr());
+  return verifyReduceOp(getOperation(), getDimArg());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1779,7 +1783,7 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MeanOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getDimArgAttr());
+  return verifyReduceOp(getOperation(), getDimArg());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1795,5 +1799,5 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // SumOp verification
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
-  return verifyReduceOp(getOperation(), getDimArgAttr());
+  return verifyReduceOp(getOperation(), getDimArg());
 }

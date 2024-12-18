@@ -7,16 +7,33 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include <vector>
+
 namespace mlir::tt::ttnn::workarounds::decomposition {
+
+std::vector<int64_t>
+getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg);
 
 std::vector<int64_t>
 calculateNewReduceShape(const std::optional<mlir::ArrayAttr> &dimArg,
                         const RankedTensorType &inputType);
 
+mlir::ArrayAttr
+calculateNewReduceDimArg(const RankedTensorType &inputType,
+                         const std::optional<mlir::ArrayAttr> &dimArg);
+
+// This workaround addresses next two Metal issues:
+// - https://github.com/tenstorrent/tt-metal/issues/13361
+// - https://github.com/tenstorrent/tt-metal/issues/16118
+//
+// TODO(mrakita): Remove this workaround once these Metal issues are fixed
+// (tracked by https://github.com/tenstorrent/tt-mlir/issues/1624).
+//
 template <typename ReduceOp>
 class ReduceOpsRewritePattern : public OpRewritePattern<ReduceOp> {
 public:
@@ -53,12 +70,12 @@ private:
         calculateNewReduceShape(srcOp.getDimArg(), inputType);
 
     RankedTensorType newOutputType = RankedTensorType::get(
-        llvm::ArrayRef<int64_t>(outputShapeVec), outputType.getElementType(),
-        outputType.getEncoding());
+        llvm::ArrayRef<int64_t>(outputShapeVec), inputType.getElementType(),
+        inputType.getEncoding());
 
-    return rewriter.create<ReduceOp>(srcOp.getLoc(), newOutputType,
-                                     srcOp.getInput(), true /*keep_dim*/,
-                                     srcOp.getDimArg().value_or(nullptr));
+    return rewriter.create<ReduceOp>(
+        srcOp.getLoc(), newOutputType, srcOp.getInput(), true /*keep_dim*/,
+        calculateNewReduceDimArg(inputType, srcOp.getDimArg()));
   }
 
   void createReshapeOp(ReduceOp &srcOp, ReduceOp &newReduceOp,
