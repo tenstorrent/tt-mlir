@@ -25,7 +25,7 @@ LogicalResult convertTTKernelRegionToEmitC(
 
 // Converts given region to EmitC dialect and translates it to C++ code.
 LogicalResult
-emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
+emitOpRegionAsCpp(Region *region, std::string &regionCpp,
                           const ttkernel::KernelConfigInterface &kernelConfig);
 
 // Converts dispatch op's regions to C++ code.
