@@ -45,6 +45,9 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
+  // Registering BufferizableOpInterface for each dialect (including
+  // intermediate dialects) is required to convert types to memrefs during
+  // lowering.
   arith::registerBufferizableOpInterfaceExternalModels(registry);
   linalg::registerBufferizableOpInterfaceExternalModels(registry);
   scf::registerBufferizableOpInterfaceExternalModels(registry);
