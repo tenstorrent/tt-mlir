@@ -11,21 +11,31 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <vector>
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-std::vector<int64_t>
+// Extracts reduce dimensions' values from the dimArg attribute. In case when
+// dimArg is not specified, returns empty vector.
+llvm::SmallVector<int64_t>
 getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg);
 
+// Calculates the shape of the new Reduce op created in the workaround, based
+// on the input shape and reducing dimensions.
 std::vector<int64_t>
-calculateNewReduceShape(const std::optional<mlir::ArrayAttr> &dimArg,
-                        const RankedTensorType &inputType);
+calculateNewReduceShape(const RankedTensorType &inputType,
+                        const std::optional<mlir::ArrayAttr> &dimArg);
 
+// Creates the dimArg attribute of the new Reduce op created in the workaround.
+// In case when reduce is done over all dimensions of the input nullptr is
+// returned, because Metal supports reduce over all dimensions for any tensor
+// rank when reduce dimensions are not specified, but it doesn't support reduce
+// for tensors with rank larger than 2 when reduce dimensions are specified.
 mlir::ArrayAttr
-calculateNewReduceDimArg(const RankedTensorType &inputType,
-                         const std::optional<mlir::ArrayAttr> &dimArg);
+createNewReduceDimArg(const RankedTensorType &inputType,
+                      const std::optional<mlir::ArrayAttr> &dimArg);
 
 // This workaround addresses next two Metal issues:
 // - https://github.com/tenstorrent/tt-metal/issues/13361
@@ -45,16 +55,20 @@ public:
       return failure();
     }
 
-    RankedTensorType inputType =
-        mlir::cast<RankedTensorType>(srcOp.getInput().getType());
-    RankedTensorType outputType =
-        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    RankedTensorType inputType = srcOp.getInput().getType();
+    RankedTensorType outputType = srcOp.getResult().getType();
 
     ReduceOp newReduceOp =
         createReduceOpWithKeepDim(srcOp, rewriter, inputType, outputType);
 
+    // Metal TTNN implementation of Reduce ops doesn't yet support
+    // keepDim=false. As a workaround, we convert Reduce ops to combination of
+    // Reduce op with keepDim=true + Reshape op to remove the reduce dims so
+    // that the rest of the graph is not affected. In case when this is not
+    // needed (for example because type converters already promoted rank of the
+    // op result) then we avoid adding unnecessary Reshape op.
     if (outputType.getShape().size() < inputType.getShape().size()) {
-      createReshapeOp(srcOp, newReduceOp, rewriter, outputType);
+      replaceOpWithReshapeOp(srcOp, newReduceOp, rewriter, outputType);
     } else {
       rewriter.replaceOp(srcOp, newReduceOp);
     }
@@ -67,22 +81,21 @@ private:
                                      const RankedTensorType &inputType,
                                      const RankedTensorType &outputType) const {
     std::vector<int64_t> outputShapeVec =
-        calculateNewReduceShape(srcOp.getDimArg(), inputType);
+        calculateNewReduceShape(inputType, srcOp.getDimArg());
 
     RankedTensorType newOutputType = RankedTensorType::get(
-        llvm::ArrayRef<int64_t>(outputShapeVec), inputType.getElementType(),
-        inputType.getEncoding());
+        outputShapeVec, inputType.getElementType(), inputType.getEncoding());
 
     return rewriter.create<ReduceOp>(
         srcOp.getLoc(), newOutputType, srcOp.getInput(), true /*keep_dim*/,
-        calculateNewReduceDimArg(inputType, srcOp.getDimArg()));
+        createNewReduceDimArg(inputType, srcOp.getDimArg()));
   }
 
-  void createReshapeOp(ReduceOp &srcOp, ReduceOp &newReduceOp,
-                       PatternRewriter &rewriter,
-                       RankedTensorType &outputType) const {
-    mlir::ArrayAttr shapeAttr = rewriter.getI32ArrayAttr(std::vector<int32_t>(
-        outputType.getShape().begin(), outputType.getShape().end()));
+  void replaceOpWithReshapeOp(ReduceOp &srcOp, ReduceOp &newReduceOp,
+                              PatternRewriter &rewriter,
+                              RankedTensorType &outputType) const {
+    mlir::ArrayAttr shapeAttr = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(outputType.getShape()));
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
         srcOp, outputType, newReduceOp, shapeAttr);

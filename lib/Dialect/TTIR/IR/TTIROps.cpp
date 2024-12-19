@@ -18,6 +18,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
@@ -1730,7 +1731,7 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
 static mlir::LogicalResult
 verifyReduceOp(mlir::Operation *reduceOp,
                const std::optional<mlir::ArrayAttr> &reduceDims) {
-  if (!reduceDims.has_value()) {
+  if (!reduceDims) {
     return mlir::success();
   }
 
@@ -1738,8 +1739,8 @@ verifyReduceOp(mlir::Operation *reduceOp,
       mlir::cast<mlir::RankedTensorType>(*reduceOp->getOperandTypes().begin())
           .getRank();
 
-  std::unordered_set<int64_t> uniqueReduceDims;
-  for (const mlir::Attribute &reduceDim : reduceDims.value()) {
+  llvm::SmallSet<int64_t, 4> uniqueReduceDims;
+  for (mlir::Attribute reduceDim : *reduceDims) {
     int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
     if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
       return reduceOp->emitOpError("Reduce dimensions are out of range");
@@ -1747,9 +1748,14 @@ verifyReduceOp(mlir::Operation *reduceOp,
     uniqueReduceDims.insert(reduceDimInt);
   }
 
-  if (uniqueReduceDims.size() != reduceDims.value().size()) {
+  if (uniqueReduceDims.size() != reduceDims->size()) {
     return reduceOp->emitOpError("Reduce dimensions are not unique");
   }
+
+  // TODO(mrakita): Add a check that depending on inputShape, reduceDims and
+  // keepDim computes the expected output shape and checks if it matches the
+  // actual output shape. Tracked by:
+  // https://github.com/tenstorrent/tt-mlir/issues/1639
 
   return mlir::success();
 }

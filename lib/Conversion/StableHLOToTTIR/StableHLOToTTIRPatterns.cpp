@@ -117,9 +117,8 @@ private:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     // Can't reuse the original dimensions attribute because it uses i64 type.
-    mlir::ArrayAttr dimArg =
-        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>(std::vector<int32_t>(
-            srcOp.getDimensions().begin(), srcOp.getDimensions().end())));
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
 
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,

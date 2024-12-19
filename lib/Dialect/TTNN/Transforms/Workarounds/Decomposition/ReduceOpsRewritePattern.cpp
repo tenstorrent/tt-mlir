@@ -9,9 +9,9 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-std::vector<int64_t>
+llvm::SmallVector<int64_t>
 getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg) {
-  std::vector<int64_t> reduceDims;
+  llvm::SmallVector<int64_t> reduceDims;
   if (!dimArg.has_value()) {
     return reduceDims;
   }
@@ -24,18 +24,24 @@ getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg) {
 }
 
 std::vector<int64_t>
-calculateNewReduceShape(const std::optional<mlir::ArrayAttr> &dimArg,
-                        const RankedTensorType &inputType) {
+calculateNewReduceShape(const RankedTensorType &inputType,
+                        const std::optional<mlir::ArrayAttr> &dimArg) {
   std::vector<int64_t> outputShapeVec = inputType.getShape().vec();
-  std::vector<int64_t> reduceDims = getReduceDims(dimArg);
+  llvm::SmallVector<int64_t> reduceDims = getReduceDims(dimArg);
 
   if (reduceDims.empty()) {
+    // When reduce dimensions are not specified that means we are reducing over
+    // all dimensions, so all dimensions of the output shape become 1.
     std::fill(outputShapeVec.begin(), outputShapeVec.end(), 1);
   } else {
+    // Dimensions can be specified as negative numbers, so to calculate the
+    // index in the output shape vector we need to sum them with the output
+    // shape rank.
+    int64_t outputShapeRank = static_cast<int64_t>(outputShapeVec.size());
     for (const int64_t reduceDim : reduceDims) {
-      outputShapeVec[reduceDim < 0 ? outputShapeVec.size() -
-                                         static_cast<size_t>(-reduceDim)
-                                   : static_cast<size_t>(reduceDim)] = 1;
+      int64_t outputShapeIndex =
+          reduceDim < 0 ? outputShapeRank + reduceDim : reduceDim;
+      outputShapeVec[static_cast<size_t>(outputShapeIndex)] = 1;
     }
   }
 
@@ -43,9 +49,9 @@ calculateNewReduceShape(const std::optional<mlir::ArrayAttr> &dimArg,
 }
 
 mlir::ArrayAttr
-calculateNewReduceDimArg(const RankedTensorType &inputType,
-                         const std::optional<mlir::ArrayAttr> &dimArg) {
-  std::vector<int64_t> reduceDims = getReduceDims(dimArg);
+createNewReduceDimArg(const RankedTensorType &inputType,
+                      const std::optional<mlir::ArrayAttr> &dimArg) {
+  llvm::SmallVector<int64_t> reduceDims = getReduceDims(dimArg);
   if (reduceDims.empty()) {
     return nullptr;
   }
@@ -53,6 +59,11 @@ calculateNewReduceDimArg(const RankedTensorType &inputType,
   std::unordered_set<int64_t> uniqueReduceDims(reduceDims.begin(),
                                                reduceDims.end());
   if (uniqueReduceDims.size() == inputType.getShape().size()) {
+    // In case when reduce is done over all dimensions of the input nullptr is
+    // returned, because Metal supports reduce over all dimensions for any
+    // tensor rank when reduce dimensions are not specified, but it doesn't
+    // support reduce for tensors with rank larger than 2 when reduce
+    // dimensions are specified.
     return nullptr;
   }
 
