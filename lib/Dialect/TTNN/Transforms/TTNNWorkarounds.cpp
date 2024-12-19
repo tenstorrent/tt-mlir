@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -22,7 +23,6 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Utils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -35,82 +35,35 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNWORKAROUNDS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
-// Helper method to get the tensor layout attribute from the op operand.
-static TTNNLayoutAttr getLayoutAttrFromOpOperand(OpOperand &opOperand) {
-  auto tensorType = mlir::cast<RankedTensorType>(opOperand.get().getType());
-  return mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-}
+// If the layout of the output result has changed as a result of applying a
+// workaround, this method transforms the layout back to the previous state
+// by inserting a ToLayoutOp after the op result output in order to maintain
+// the workarounds changes locally.
+//
+static void revertOutputLayout(wa::TTNNWorkaroundInterface &op,
+                               PatternRewriter &rewriter,
+                               wa::WorkaroundResults &workaroundResults,
+                               mlir::TypedValue<RankedTensorType> newOpResult) {
+  // Check if the data type of the output result has changed.
+  if (!workaroundResults.isModified()) {
+    return;
+  }
 
-// Helper method to get the tensor layout attribute from the op result.
-static TTNNLayoutAttr getLayoutAttrFromOpResult(OpResult &opResult) {
-  auto tensorType = mlir::cast<RankedTensorType>(opResult.getType());
-  return mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-}
+  // Insert the toLayoutOp after the op output.
+  rewriter.setInsertionPointAfter(op);
 
-// Helper method to get the element type for the given tensor layout and data.
-static Type getElementType(MLIRContext *context, Layout tensorLayout,
-                           DataType dataType) {
-  return tensorLayout == Layout::Tile
-             ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
-                             dataType)
-             : ttnn::utils::createRowMajorTypeFromDtype(context, dataType);
-}
+  // Cast the data type back to the previous data type by inserting ToLayoutOp.
+  mlir::Value castLayoutOp = utils::createToLayoutOp(
+      op.getOperation(), newOpResult, rewriter,
+      workaroundResults.tensorLayoutResult.previousValue,
+      workaroundResults.tensorBufferTypeResult.previousValue,
+      workaroundResults.tensorMemoryLayoutResult.previousValue);
 
-// Helper method to insert a ToLayoutOp to convert the input operand to the
-// desired tensor layout, buffer type and memory layout.
-static mlir::Value
-createToLayoutOp(wa::TTNNWorkaroundInterface &op, OpOperand &inputOperand,
-                 PatternRewriter &rewriter, Layout targetTensorLayout,
-                 BufferType targetTensorBufferType,
-                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout) {
-  TTNNLayoutAttr inputLayoutAttr = getLayoutAttrFromOpOperand(inputOperand);
-
-  // Create element type based on tensor layout.
-  Type elementType = getElementType(rewriter.getContext(), targetTensorLayout,
-                                    inputLayoutAttr.getDataType());
-
-  // Create tensor memory layout attribute.
-  ttnn::TensorMemoryLayoutAttr outputMemLayoutAttr =
-      targetTensorMemoryLayout.has_value()
-          ? ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(),
-                                              targetTensorMemoryLayout.value())
-          : nullptr;
-
-  // Create the output memory config attribute.
-  ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
-      rewriter.getContext(),
-      ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
-      ttnn::ShardSpecAttr::get(
-          op.getContext(),
-          ttnn::ShapeAttr::get(rewriter.getContext(),
-                               inputLayoutAttr.getMemref().getShape())),
-      outputMemLayoutAttr);
-
-  // Get the input operand type.
-  RankedTensorType inputOperandType =
-      mlir::cast<RankedTensorType>(inputOperand.get().getType());
-
-  // Create a ToLayoutOp to convert the input operand to the desired
-  // tensor layout, buffer type and memory layout.
-  return rewriter
-      .create<ttnn::ToLayoutOp>(
-          op.getLoc(),
-          ttnn::utils::createRankedTensorTypeWithEncoding(
-              inputOperandType,
-              inputLayoutAttr
-                  .withElementType(rewriter.getContext(), elementType)
-                  .withBufferType(rewriter.getContext(), targetTensorBufferType)
-                  .withMemoryLayout(rewriter.getContext(),
-                                    outputMemLayoutAttr)),
-          inputOperand.get(),
-          LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
-          DataTypeAttr::get(rewriter.getContext(),
-                            inputLayoutAttr.getDataType()),
-          outputMemConfigAttr,
-          (targetTensorBufferType == ttnn::BufferType::SystemMemory)
-              ? nullptr
-              : utils::getOrInsertDevice(rewriter, op))
-      ->getResult(0);
+  // Replace the new output result with the casted output result.
+  rewriter.replaceUsesWithIf(
+      newOpResult, castLayoutOp, [&](OpOperand &operand) {
+        return operand.getOwner() != castLayoutOp.getDefiningOp();
+      });
 }
 
 // Helper method to apply workarounds to an input operand. This method inserts a
@@ -121,24 +74,26 @@ static bool workaroundInputOperand(
     PatternRewriter &rewriter, wa::TTNNWorkaroundInterface op) {
   // Get the current input tensor layout, buffer type and memory layout from the
   // input operand.
-  TTNNLayoutAttr inputLayoutAttr = getLayoutAttrFromOpOperand(inputOperand);
+  auto inputValue =
+      mlir::cast<mlir::TypedValue<RankedTensorType>>(inputOperand.get());
+  TTNNLayoutAttr inputLayoutAttr = utils::getLayoutAttrFromTensor(inputValue);
 
   // Apply the workarounds on the input operand workaround arguments
-  wa::WorkaroundResult inputWorkaroundResult =
+  wa::WorkaroundResults inputWorkaroundResults =
       applyWorkarounds(inputWorkaround, inputLayoutAttr);
 
   // If there were no modifications by workarounds, return false.
-  if (!inputWorkaroundResult.modified()) {
+  if (!inputWorkaroundResults.isModified()) {
     return false;
   }
 
   // Apply the workarounds on the input operand by inserting the ToLayoutOp with
   // the desired tensor layout, buffer type and memory layout.
-  mlir::Value insertedToLayoutOpValue = createToLayoutOp(
-      op, inputOperand, rewriter,
-      inputWorkaroundResult.targetTensorLayoutResult.first,
-      inputWorkaroundResult.targetTensorBufferTypeResult.first,
-      inputWorkaroundResult.targetTensorMemoryLayoutResult.first);
+  mlir::Value insertedToLayoutOpValue = utils::createToLayoutOp(
+      op.getOperation(), inputValue, rewriter,
+      inputWorkaroundResults.tensorLayoutResult.targetValue,
+      inputWorkaroundResults.tensorBufferTypeResult.targetValue,
+      inputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
 
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
@@ -159,34 +114,29 @@ static bool workaroundInputOperand(
 // the
 //   output result and returns true if the workarounds were successfully
 //   applied.
-static bool workaroundOutputOperand(
-    OpResult &opResult, const wa::TTNNOperandWorkarounds &outputWorkaround,
-    PatternRewriter &rewriter, wa::TTNNWorkaroundInterface op) {
+static bool
+workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
+                        const wa::TTNNOperandWorkarounds &outputWorkaround,
+                        PatternRewriter &rewriter,
+                        wa::TTNNWorkaroundInterface op) {
   // Get the current output tensor layout, buffer type and memory layout from
   // the input operand.
-  TTNNLayoutAttr opResultLayoutAttr = getLayoutAttrFromOpResult(opResult);
+  TTNNLayoutAttr opResultLayoutAttr = utils::getLayoutAttrFromTensor(opResult);
 
   // Apply the workarounds on the output result workaround arguments
-  wa::WorkaroundResult outputWorkaroundResult =
+  wa::WorkaroundResults outputWorkaroundResults =
       wa::applyWorkarounds(outputWorkaround, opResultLayoutAttr);
 
-  // At this point, the DPS result should already be propagated, hence we only
-  // need to verify that the output workaround is in sync with the current DPS
-  // result.
-  assert(!(outputWorkaroundResult.modified() &&
-           mlir::isa<DestinationStyleOpInterface>(op.getOperation())) &&
-         "Output operand workarounds not supported for DPS ops");
-
   // If there were no modifications by workarounds, return false.
-  if (!outputWorkaroundResult.modified()) {
+  if (!outputWorkaroundResults.isModified()) {
     return false;
   }
 
   // Create the data type attribute.
-  Type elementType =
-      getElementType(rewriter.getContext(),
-                     outputWorkaroundResult.targetTensorLayoutResult.first,
-                     opResultLayoutAttr.getDataType());
+  Type elementType = utils::getElementType(
+      rewriter.getContext(),
+      outputWorkaroundResults.tensorLayoutResult.targetValue,
+      opResultLayoutAttr.getDataType());
 
   // Get the input operand type.
   RankedTensorType opResultType =
@@ -194,11 +144,10 @@ static bool workaroundOutputOperand(
 
   // Create tensor memory layout attribute.
   TensorMemoryLayoutAttr outputMemLayoutAttr =
-      outputWorkaroundResult.targetTensorMemoryLayoutResult.first.has_value()
+      outputWorkaroundResults.tensorMemoryLayoutResult.targetValue
           ? ttnn::TensorMemoryLayoutAttr::get(
                 rewriter.getContext(),
-                outputWorkaroundResult.targetTensorMemoryLayoutResult.first
-                    .value())
+                *outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
           : nullptr;
 
   // Create the new output result type with the updated tensor layout, buffer
@@ -209,7 +158,7 @@ static bool workaroundOutputOperand(
           opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
               .withBufferType(
                   rewriter.getContext(),
-                  outputWorkaroundResult.targetTensorBufferTypeResult.first)
+                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
               .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr));
 
   // Update the type of result with applied workarounds.
@@ -219,15 +168,15 @@ static bool workaroundOutputOperand(
     // Some ops defines attributes with tensor layout, buffer type and memory
     // layout, hence we need to update the attributes as well. For example,
     // the empty op defines layout and memory_config attributes.
-    if (outputWorkaroundResult.targetTensorLayoutResult.second &&
+    if (outputWorkaroundResults.tensorLayoutResult.isModified() &&
         op->getAttrDictionary().get("layout")) {
       LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
-          outputWorkaroundResult.targetTensorLayoutResult.first);
+          outputWorkaroundResults.tensorLayoutResult.targetValue);
       op->setAttr("layout", updatedLayoutAttr);
     }
 
-    if ((outputWorkaroundResult.targetTensorBufferTypeResult.second ||
-         outputWorkaroundResult.targetTensorMemoryLayoutResult.second) &&
+    if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
+         outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) &&
         op->getAttrDictionary().get("memory_config")) {
 
       MemoryConfigAttr currentMemoryConfig =
@@ -235,17 +184,17 @@ static bool workaroundOutputOperand(
 
       // Create the output memory config attribute.
       // Check if the buffer type got updated.
-      if (outputWorkaroundResult.targetTensorBufferTypeResult.second) {
+      if (outputWorkaroundResults.tensorBufferTypeResult.isModified()) {
         currentMemoryConfig = currentMemoryConfig.withBufferType(
             rewriter.getContext(),
-            outputWorkaroundResult.targetTensorBufferTypeResult.first);
+            outputWorkaroundResults.tensorBufferTypeResult.targetValue);
       }
 
       // Check if the memory layout got updated.
-      if (outputWorkaroundResult.targetTensorMemoryLayoutResult.second) {
+      if (outputWorkaroundResults.tensorMemoryLayoutResult.isModified()) {
         currentMemoryConfig = currentMemoryConfig.withMemoryLayout(
             rewriter.getContext(),
-            outputWorkaroundResult.targetTensorMemoryLayoutResult.first
+            outputWorkaroundResults.tensorMemoryLayoutResult.targetValue
                 .value());
       }
 
@@ -254,61 +203,35 @@ static bool workaroundOutputOperand(
     }
   });
 
+  revertOutputLayout(op, rewriter, outputWorkaroundResults, opResult);
+
   return true;
-}
-
-// Propagate the workaround changes for DPS input operands if they are applied
-// in above graph transforms, either in a pattern for a current op, or in a
-// pattern matched for a previous ops.
-static bool propagateDpsInitChangesToDpsResults(wa::TTNNWorkaroundInterface &op,
-                                                PatternRewriter &rewriter) {
-  // Check if the op is a DPS op.
-  if (!mlir::isa<DestinationStyleOpInterface>(op.getOperation())) {
-    return false;
-  }
-
-  bool modified = false;
-
-  auto dpsOp = mlir::cast<DestinationStyleOpInterface>(op.getOperation());
-  mlir::OperandRange dpsInits = dpsOp.getDpsInits();
-
-  // Iterate through all dps destination operands and propagate the changes if
-  // any.
-  for (size_t dpsInitIndex = 0; dpsInitIndex < dpsInits.size();
-       dpsInitIndex++) {
-    OpOperand *dpsInit = dpsOp.getDpsInitOperand(dpsInitIndex);
-    OpResult tiedDpsResult = dpsOp.getTiedOpResult(dpsInit);
-
-    // If the DPS destination is changed, update the DPS result as well.
-    if (tiedDpsResult.getType() != dpsInit->get().getType()) {
-      modified = true;
-      rewriter.modifyOpInPlace(
-          op, [&]() { tiedDpsResult.setType(dpsInit->get().getType()); });
-    }
-  }
-
-  return modified;
 }
 
 // TTNNWorkaroundInterface rewriter applies workarounds to the operands of TTNN
 // operations. TTNNWorkaroundInterface is an interface on TTNN_Op, so this
-// pattern should match each op in the IR.
+// pattern should match each op in the IR. Each op has a default implementation
+// of the interface that returns a default TTNNOperandsWorkarounds object
+// without workarounds. For each op that is required, we can override the
+// default implementation to return the specific workarounds for the op.
 //
-// The rewriter processes both input and output operands of TTNN operations:
+// The main goal of the rewriter is to apply workaround changes to the input and
+// output operands of TTNN operations. The idea is to insert a ToLayoutOp before
+// input operands and after output results to apply the necessary workarounds in
+// order to keep workaround changes consistent and local to the affected op. The
+// rewriter processes both input and output operands of TTNN operations:
 // 1. **Input Operands**: The rewriter iterates through all input tensor
 // operands and applies the necessary workarounds.
-//    - Workarounds are applied by inserting ToLayoutOp with the desired tensor
-//    layout, buffer type, and memory layout.
-// 2. **DPS result propagation**: The rewriter propagates changes to tied DPS
-// destination operands to ensure consistency with previous graph
-// transformations, either in the current op match or previous op matches.
-// 3. **Output Operands**: Output workarounds are applied only if the operation
-// is not a DPS op.
-//    - At this stage, all DPS result changes should be propagated. An assertion
-//    ensures that the output result workaround matches
-//      the corresponding DPS output result.
+//    - If the input workarounds makes any changes to the input operand layout,
+//    we are inserting a ToLayoutOp before the op to transform the layout to the
+//    desired tensor layout, buffer type, and memory layout.
+// 2. **Output Operands**: The rewriter iterates through all output tensor
+// results and applies the necessary workarounds.
 //    - Workarounds are applied by updating the output result type with the new
 //    tensor layout, buffer type, and memory layout.
+//    - If the output workaround makes any changes to the output layout, we
+//    are inserting a ToLayoutOp after the op to transform the layout back to
+//    the previous state in order to maintain the workarounds changes locally.
 //    - For operations that define attributes with tensor layout, buffer type,
 //    and memory layout, these attributes are also updated.
 //      For example, the empty op defines layout and memory_config attributes.
@@ -321,7 +244,8 @@ public:
   LogicalResult matchAndRewrite(wa::TTNNWorkaroundInterface op,
                                 PatternRewriter &rewriter) const final {
 
-    // To layout op is a special case, we don't want to rewrite it.
+    // To layout op is a special case, we don't want to rewrite it. We use it
+    // to apply workarounds to the operands and results of TTNN operations.
     if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
       return failure();
     }
@@ -348,11 +272,6 @@ public:
                                             std::get<1>(pair), rewriter, op);
         });
 
-    // Propagate the workaround changes for DPS input operands to DPS results if
-    // they are applied in above graph transforms, either in a pattern for a
-    // current op, or in a pattern matched for a previous ops.
-    modified |= propagateDpsInitChangesToDpsResults(op, rewriter);
-
     // Filter out all the output tensor results.
     auto outputTensorResults =
         llvm::make_filter_range(op->getOpResults(), [](OpResult v) {
@@ -366,8 +285,10 @@ public:
         [&](std::tuple<mlir::OpResult, const wa::TTNNOperandWorkarounds &>
                 pair) {
           modified |= std::get<1>(pair).hasAnyWorkaround() &&
-                      workaroundOutputOperand(std::get<0>(pair),
-                                              std::get<1>(pair), rewriter, op);
+                      workaroundOutputOperand(
+                          mlir::cast<mlir::TypedValue<RankedTensorType>>(
+                              std::get<0>(pair)),
+                          std::get<1>(pair), rewriter, op);
         });
 
     // Return success if the transformations were applied.
