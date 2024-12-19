@@ -20,6 +20,7 @@ add_mlir_dialect_library(MLIRTTNNDialect
         TTMLIRTTNNUtils
         MLIRSCFToEmitC
         MLIRLinalgDialect
+        MLIRBufferizationDialect
         MLIRMLProgramDialect
         TTNNOpModelLib
         )

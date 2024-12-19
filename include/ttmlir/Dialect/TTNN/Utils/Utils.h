@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
 #include <llvm/Support/CommandLine.h>
+#include <mlir/IR/Value.h>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -46,9 +47,15 @@ createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
 //
-uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
-                            DeviceAttr &deviceAttr);
+uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 
+// Helper method to get the tensor layout attribute from the tensor value.
+TTNNLayoutAttr
+getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue);
+
+// Helper method to get the element type for the given tensor layout and data.
+Type getElementType(MLIRContext *context, Layout tensorLayout,
+                    DataType dataType);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

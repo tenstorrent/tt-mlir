@@ -610,6 +610,14 @@ createEltwiseOp(FlatbufferObjectCache &cache, EltwiseOp op) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalOr;
   } else if constexpr (std::is_same_v<EltwiseOp, LogicalXorOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::LogicalXor;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseAndOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseAnd;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseOrOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseOr;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseXorOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseXor;
+  } else if constexpr (std::is_same_v<EltwiseOp, BitwiseNotOp>) {
+    type = ::tt::target::ttnn::EltwiseOpType::BitwiseNot;
   } else if constexpr (std::is_same_v<EltwiseOp, MultiplyOp>) {
     type = ::tt::target::ttnn::EltwiseOpType::Multiply;
   } else if constexpr (std::is_same_v<EltwiseOp, NegOp>) {
@@ -753,9 +761,9 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto in1 = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, out);
 }
 
 template <typename EmbeddingBackwardOp>
@@ -912,16 +920,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseOp(cache, isFiniteOp),
                            debugString, locInfo);
   }
-  if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
-    return createOperation(cache, createEltwiseOp(cache, andOp), debugString,
-                           locInfo);
-  }
   if (auto cbrtOp = dyn_cast<CbrtOp>(op); cbrtOp) {
     return createOperation(cache, createEltwiseOp(cache, cbrtOp), debugString,
                            locInfo);
   }
-  if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
-    return createOperation(cache, createEltwiseOp(cache, notOp), debugString,
+  if (auto andOp = dyn_cast<LogicalAndOp>(op); andOp) {
+    return createOperation(cache, createEltwiseOp(cache, andOp), debugString,
                            locInfo);
   }
   if (auto orOp = dyn_cast<LogicalOrOp>(op); orOp) {
@@ -931,6 +935,26 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto xorOp = dyn_cast<LogicalXorOp>(op); xorOp) {
     return createOperation(cache, createEltwiseOp(cache, xorOp), debugString,
                            locInfo);
+  }
+  if (auto notOp = dyn_cast<LogicalNotOp>(op); notOp) {
+    return createOperation(cache, createEltwiseOp(cache, notOp), debugString,
+                           locInfo);
+  }
+  if (auto bitwiseAndOp = dyn_cast<BitwiseAndOp>(op); bitwiseAndOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseAndOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseOrOp = dyn_cast<BitwiseOrOp>(op); bitwiseOrOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseOrOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseXorOp = dyn_cast<BitwiseXorOp>(op); bitwiseXorOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseXorOp),
+                           debugString, locInfo);
+  }
+  if (auto bitwiseNotOp = dyn_cast<BitwiseNotOp>(op); bitwiseNotOp) {
+    return createOperation(cache, createEltwiseOp(cache, bitwiseNotOp),
+                           debugString, locInfo);
   }
   if (auto multiplyOp = dyn_cast<MultiplyOp>(op); multiplyOp) {
     return createOperation(cache, createEltwiseOp(cache, multiplyOp),

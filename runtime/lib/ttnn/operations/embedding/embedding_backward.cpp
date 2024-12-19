@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "embedding_backward.h"
+#include "operations/embedding/embedding_backward.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include <ttnn/operations/embedding_backward/embedding_backward.hpp>
-#include <ttnn/tensor/tensor.hpp>
+#include "ttnn/operations/embedding_backward/embedding_backward.hpp"
+#include "ttnn/tensor/tensor.hpp"
 
 namespace tt::runtime::ttnn::operations::embedding_backward {
 void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,

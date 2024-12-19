@@ -176,17 +176,6 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let description = [{
       Eltwise absolute operation.
     }];
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds tileLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::Tile);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(tileLayoutWorkaround)
-        .addInputOperandWorkaround(tileLayoutWorkaround)
-        .addOutputOperandWorkaround(tileLayoutWorkaround);
-      }
-    }];
 }
 
 def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
@@ -254,6 +243,19 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
+    let summary = "Eltwise bitwise NOT.";
+    let description = [{
+        Performs element-wise NOT of tensor `operand` and produces a `result` tensor.
+
+        Example:
+            // Bitwise operation with with integer tensors
+            // %operand: [[1, 2], [3, 4]]
+            %result = "ttnn.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[-2, -3], [-4, -5]]
     }];
 }
 
@@ -472,6 +474,48 @@ def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
+def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryOp<"bitwise_and"> {
+    let summary = "Eltwise bitwise AND.";
+    let description = [{
+        Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttnn.bitwise_and"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[1, 2], [3, 0]]
+    }];
+}
+
+def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryOp<"bitwise_or"> {
+    let summary = "Eltwise bitwise OR.";
+    let description = [{
+        Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttnn.bitwise_or"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[5, 6], [7, 12]]
+    }];
+}
+
+def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryOp<"bitwise_xor"> {
+    let summary = "Eltwise bitwise XOR.";
+    let description = [{
+        Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+          // %lhs: [[1, 2], [3, 4]]
+          // %rhs: [[5, 6], [7, 8]]
+          %result = "ttnn.bitwise_xor"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+          // %result: [[4, 4], [4, 12]]
+    }];
+}
+
 def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum OP.";
     let description = [{
@@ -567,8 +611,8 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         AnyRankedTensor:$weight);
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -817,6 +861,9 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds();
+      }
     }];
 
     let hasVerifier = 1;
@@ -857,14 +904,6 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
                          OptionalAttr<TTNN_LayoutAttr>:$layout,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
-      }
-    }];
 
     let hasVerifier = 1;
 }
