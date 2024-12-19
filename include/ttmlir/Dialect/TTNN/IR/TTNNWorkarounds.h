@@ -218,6 +218,9 @@ public:
 
   // Create workarounds for embedding op operands.
   static TTNNOperandsWorkarounds createEmbeddingOpOperandsWorkarounds();
+
+  // Create workarounds for full op operands.
+  static TTNNOperandsWorkarounds createFullOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

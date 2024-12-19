@@ -121,4 +121,16 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
       .addInputOperandWorkaround(weightWorkaround)
       .addOutputOperandWorkaround(weightWorkaround);
 }
+
+// Factory method to create a set of workarounds for full op output operand.
+// ttnn::FullOp does not support 1D tilized tensors
+// If the output of full is a 1D tensor and is tiled
+// we need to convert it to row major layout then tilize separately
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createFullOpOperandsWorkarounds() {
+  wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+}
 } // namespace mlir::tt::ttnn::wa
