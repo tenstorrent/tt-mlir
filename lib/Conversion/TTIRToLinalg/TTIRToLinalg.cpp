@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRToLinAlg/TTIRToLinAlg.h"
+#include "ttmlir/Conversion/TTIRTo/TTIRTo.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -22,7 +22,7 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-template <typename TTIROpTy, typename LinAlgOpTy,
+template <typename TTIROpTy, typename OpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
@@ -37,8 +37,8 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<LinAlgOpTy>(
-        op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
+    rewriter.replaceOpWithNewOp<OpTy>(op, resultTypes, adaptor.getInputs(),
+                                      adaptor.getOutputs());
     return success();
   }
 };
@@ -57,7 +57,7 @@ public:
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
 
     if (lhsType.getShape() == rhsType.getShape()) {
-      rewriter.replaceOpWithNewOp<linalg::SubOp>(
+      rewriter.replaceOpWithNewOp<::SubOp>(
           srcOp, adaptor.getInputs(), adaptor.getOutputs(), srcOp->getAttrs());
 
       // Broadcast for rhs operand require the operation to be commutative to
@@ -68,11 +68,11 @@ public:
     } else {
       auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), rhsType.getShape(), rhsType.getElementType());
-      auto negOp = rewriter.create<linalg::NegFOp>(
+      auto negOp = rewriter.create<::NegFOp>(
           srcOp.getLoc(), ValueRange{adaptor.getInputs().back()},
           ValueRange{negEmptyOp}, srcOp->getAttrs());
 
-      rewriter.replaceOpWithNewOp<linalg::AddOp>(
+      rewriter.replaceOpWithNewOp<::AddOp>(
           srcOp,
           ValueRange{adaptor.getInputs().front(), negOp.getResults().front()},
           adaptor.getOutputs(), srcOp->getAttrs());
@@ -86,10 +86,10 @@ public:
 
 namespace mlir::tt {
 
-void populateTTIRToLinAlgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter) {
-  patterns.add<ElementwiseOpConversionPattern<ttir::AddOp, linalg::AddOp>,
-               ElementwiseOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
+void populateTTIRToPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                            TypeConverter &typeConverter) {
+  patterns.add<ElementwiseOpConversionPattern<ttir::AddOp, ::AddOp>,
+               ElementwiseOpConversionPattern<ttir::MultiplyOp, ::MulOp>,
                SubtractOpConversionPattern>(typeConverter, ctx);
 }
 
