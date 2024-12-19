@@ -5,6 +5,7 @@
 #include "ttmlir/RegisterAll.h"
 
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
+#include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -36,6 +37,13 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
 #endif
+  arith::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  scf::registerBufferizableOpInterfaceExternalModels(registry);
+  bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
+      registry);
+  tensor::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
