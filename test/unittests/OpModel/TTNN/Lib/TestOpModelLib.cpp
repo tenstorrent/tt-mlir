@@ -53,43 +53,94 @@ TEST_F(OpModelBase, ReluInterleaved) {
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
-  legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, tensorShape, inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, tensorShape, inputLayout_l1));
-  EXPECT_EQ(legal, true);
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
+
+  opConstraint = ReluOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 8192);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = ReluOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 8192);
+  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 4096);
+
+  opConstraint = ReluOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, tensorShape, inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 8192);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = ReluOpInterface::getOpConstraints(tensorShape, inputLayout_l1,
+                                                   tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 8192);
+  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 4096);
 }
 
 TEST_F(OpModelBase, ReluSharded) {
-  llvm::ArrayRef<int64_t> tensorShape_a = {16 * 64 * 32, 32};
+  llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
-      CreateLayout(tensorShape_a, mlir::tt::ttnn::BufferType::L1,
+      CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
-      CreateLayout(tensorShape_a, mlir::tt::ttnn::BufferType::L1,
+      CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
   std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
+
+  opConstraint = ReluOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 0);
+  EXPECT_EQ(output_size, tensorShape[0] * tensorShape[1] * 2 / 64);
+  EXPECT_EQ(peak_size, tensorShape[0] * tensorShape[1] * 2 / 64);
+
   legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape_a, inputLayout_l1_hs, tensorShape_a, inputLayout_l1_hs));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape_a, inputLayout_l1_hs, tensorShape_a, inputLayout_l1_i));
+      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_i));
   // Unary operation requires Input and Output memory layout to match.
   EXPECT_EQ(legal, false);
   legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape_a, inputLayout_l1_i, tensorShape_a, inputLayout_l1_hs));
+      tensorShape, inputLayout_l1_i, tensorShape, inputLayout_l1_hs));
   // Unary operation requires Input and Output memory layout to match.
   EXPECT_EQ(legal, false);
 }
@@ -108,43 +159,131 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram));
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1));
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram));
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 4096);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1));
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 4096);
+  EXPECT_EQ(peak_size, 4096);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 137216);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
 }
 
 TEST_F(OpModelBase, SoftmaxSharded) {
-  llvm::ArrayRef<int64_t> tensorShape_a = {16 * 64 * 32, 32};
+  llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
-      CreateLayout(tensorShape_a, mlir::tt::ttnn::BufferType::L1,
+      CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
-      CreateLayout(tensorShape_a, mlir::tt::ttnn::BufferType::L1,
+      CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
   std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape_a, inputLayout_l1_hs, -2, tensorShape_a, inputLayout_l1_hs));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape_a, inputLayout_l1_hs, -2, tensorShape_a, inputLayout_l1_i));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(SoftmaxOpInterface::getOpConstraints(
-      tensorShape_a, inputLayout_l1_i, -2, tensorShape_a, inputLayout_l1_hs));
-  EXPECT_EQ(legal, true);
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 32768);
+  EXPECT_EQ(peak_size, 32768);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 38912);
+  EXPECT_EQ(peak_size, 38912);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 32768);
+  EXPECT_EQ(peak_size, 32768);
+
+  opConstraint = SoftmaxOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 24576);
+  EXPECT_EQ(output_size, 32768);
+  EXPECT_EQ(peak_size, 32768);
 }
 
 TEST_F(OpModelBase, AddInterleaved) {
@@ -161,39 +300,119 @@ TEST_F(OpModelBase, AddInterleaved) {
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
 
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(output_size, 0);
+
+  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_dram,
+                                                  tensorShape, inputLayout_dram,
+                                                  tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 4096);
+
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(output_size, 0);
+
+  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_dram,
+                                                  tensorShape, inputLayout_l1,
+                                                  tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 4096);
+
+  opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(output_size, 0);
+
+  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_l1,
+                                                  tensorShape, inputLayout_dram,
+                                                  tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 4096);
+
+  opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(output_size, 0);
+
+  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_l1,
+                                                  tensorShape, inputLayout_l1,
+                                                  tensorShape, inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(peak_size, 4096);
+  EXPECT_EQ(output_size, 4096);
+
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 12288);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
 }
 
 TEST_F(OpModelBase, AddSharded) {
@@ -201,7 +420,7 @@ TEST_F(OpModelBase, AddSharded) {
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                   mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
+                   mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 1});
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
@@ -214,45 +433,47 @@ TEST_F(OpModelBase, AddSharded) {
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
+
+  opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
-      tensorShape, inputLayout_l1_hs));
-  // FAILED AddOpInterface: TT_FATAL @
-  //
-  // / proj_sw / user_dev / mbezulj / work / tt - mlir / third_party / tt -
-  //     metal / src / tt -
-  //     metal / tt_metal / impl / kernels /
-  //         kernel.cpp : 269 :
-  // set_rt_args.size() == runtime_args.size() info: Illegal Runtime Args on
-  // (x=0,y=7): Number of runtime args cannot be modified from 5793382363 to
-  // 7!
-  EXPECT_EQ(legal, false);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 32768);
+  EXPECT_EQ(peak_size, 262144);
+  EXPECT_EQ(output_size, 262144);
+
+  opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
-      tensorShape, inputLayout_dram));
-  // FAILED AddOpInterface: TT_FATAL @
-  //
-  // / proj_sw / user_dev / mbezulj / work / tt - mlir / third_party / tt -
-  //     metal / src / tt -
-  //     metal / tt_metal / impl / kernels /
-  //         kernel.cpp : 269 :
-  // set_rt_args.size() == runtime_args.size() info: Illegal Runtime Args on
-  // (x=0,y=7): Number of runtime args cannot be modified from 5793382388 to
-  // 7!
-  EXPECT_EQ(legal, false);
-  legal = std::get<0>(AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 65536);
+  EXPECT_EQ(peak_size, 0);
+  EXPECT_EQ(output_size, 0);
+
+  opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1_hs));
-  // FAILED AddOpInterface: TT_FATAL @
-  //
-  // / proj_sw / user_dev / mbezulj / work / tt - mlir / third_party / tt -
-  //     metal / src / tt -
-  //     metal / tt_metal / impl / kernels /
-  //         kernel.cpp : 269 :
-  // set_rt_args.size() == runtime_args.size() info: Illegal Runtime Args on
-  // (x=0,y=7): Number of runtime args cannot be modified from 5793382372 to
-  // 7!
-  EXPECT_EQ(legal, false);
+      inputLayout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 65536);
+  EXPECT_EQ(peak_size, 262144);
+  EXPECT_EQ(output_size, 262144);
 }
 
 TEST_F(OpModelBase, MatmulInterleaved) {
@@ -269,67 +490,166 @@ TEST_F(OpModelBase, MatmulInterleaved) {
              std::optional<std::string>>
       opConstraint;
   bool legal = false;
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
 
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
+  opConstraint = MatmulOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
+      inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 151552);
+  EXPECT_EQ(peak_size, 151552);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
+      inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 151552);
+  EXPECT_EQ(peak_size, 151552);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
+      inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 151552);
+  EXPECT_EQ(peak_size, 151552);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
+      inputLayout_dram);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 0);
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_l1));
-  EXPECT_EQ(legal, true);
+      inputLayout_l1);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 786432);
+  EXPECT_EQ(output_size, 151552);
+  EXPECT_EQ(peak_size, 151552);
 }
 
 TEST_F(OpModelBase, MatmulSharded) {
-  llvm::ArrayRef<int64_t> tensorShape = {1024, 1024};
+  const llvm::ArrayRef<int64_t> tensorShape = {1024, 1024};
+  const SmallVector<int64_t> gridShape = {4, 4};
 
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
+  mlir::tt::ttnn::TTNNLayoutAttr layout_l1_hs =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                   mlir::tt::ttnn::TensorMemoryLayout::BlockSharded, {4, 4});
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+                   mlir::tt::ttnn::TensorMemoryLayout::BlockSharded, gridShape);
+  mlir::tt::ttnn::TTNNLayoutAttr layout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
-                   mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {4, 4});
+                   mlir::tt::ttnn::TensorMemoryLayout::Interleaved, gridShape);
 
   std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
              std::optional<std::string>>
       opConstraint;
+
   bool legal = false;
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
-      tensorShape, inputLayout_l1_hs));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
-      tensorShape, inputLayout_dram));
-  EXPECT_EQ(legal, true);
-  legal = std::get<0>(MatmulOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1_hs));
-  EXPECT_EQ(legal, true);
+  std::optional<std::tuple<size_t, size_t, size_t>> l1Usage = std::nullopt;
+  std::optional<std::string> errorMsg = "";
+  size_t cb_size = 0;
+  size_t peak_size = 0;
+  size_t output_size = 0;
+
+  opConstraint = MatmulOpInterface::getOpConstraints(tensorShape, layout_l1_hs,
+                                                     tensorShape, layout_dram,
+                                                     tensorShape, layout_l1_hs);
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 524352);
+  EXPECT_EQ(output_size, 131072);
+  EXPECT_EQ(peak_size, 131072);
+
+  opConstraint = (MatmulOpInterface::getOpConstraints(
+      tensorShape, layout_l1_hs, tensorShape, layout_dram, tensorShape,
+      layout_dram));
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 655424);
+  EXPECT_EQ(output_size, 0); // dram
+  EXPECT_EQ(peak_size, 0);
+
+  opConstraint = (MatmulOpInterface::getOpConstraints(
+      tensorShape, layout_dram, tensorShape, layout_dram, tensorShape,
+      layout_l1_hs));
+  std::tie(legal, l1Usage, errorMsg) = opConstraint;
+  EXPECT_TRUE(legal);
+  EXPECT_TRUE(l1Usage.has_value());
+  EXPECT_FALSE(errorMsg.has_value());
+  std::tie(cb_size, peak_size, output_size) = l1Usage.value();
+  EXPECT_EQ(cb_size, 262144);
+  EXPECT_EQ(output_size, 524288);
+  EXPECT_EQ(peak_size, 524288);
 }
 
 } // namespace mlir::tt::op_model::ttnn
