@@ -456,11 +456,8 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::vector<Tensor> const &outputHandles) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    LOG_WARNING("This submit API will soon be deprecated. Please switch to the "
-                "new API.");
-    return ::tt::runtime::ttnn::legacy::submit(deviceHandle, executableHandle,
-                                               programIndex, inputHandles,
-                                               outputHandles);
+    LOG_FATAL("This submit API is deprecated for TTNN. Please switch to the "
+              "new API.");
   }
 #endif
 

@@ -83,33 +83,52 @@ struct TTNNOperandWorkarounds {
   }
 };
 
+// Workaround result struct that encapsulates the previous and target
+// (workaround) value and a method indicating whether the workaround modifies
+// the workaround value.
+template <typename T>
+struct WorkaroundResult {
+  T previousValue;
+  T targetValue;
+  bool isModified() const { return previousValue != targetValue; }
+};
+
+// Layout workaround result struct.
+struct LayoutWorkaroundResult : public WorkaroundResult<Layout> {};
+
+// Buffer type workaround result struct.
+struct BufferTypeWorkaroundResult : public WorkaroundResult<BufferType> {};
+
+// Memory layout workaround result struct.
+struct MemoryLayoutWorkaroundResult
+    : public WorkaroundResult<std::optional<TensorMemoryLayout>> {};
+
 // Struct that encapsulates the result of applying the workarounds.
 // It contains the target tensor layout, buffer type and tensor memory layout
 // results and a flag indicating whether the workarounds were applied.
-struct WorkaroundResult {
-  // Target tensor layout.
-  std::pair<Layout, bool> targetTensorLayoutResult;
+struct WorkaroundResults {
+  // Tensor layout workaround result.
+  LayoutWorkaroundResult tensorLayoutResult;
 
-  // Target tensor buffer type.
-  std::pair<BufferType, bool> targetTensorBufferTypeResult;
+  // Tensor buffer type workaround result.
+  BufferTypeWorkaroundResult tensorBufferTypeResult;
 
-  // Target tensor memory layout. Can be nullopt for tensors on host.
-  std::pair<std::optional<TensorMemoryLayout>, bool>
-      targetTensorMemoryLayoutResult;
+  // Tensor memory layout workaround result.
+  MemoryLayoutWorkaroundResult tensorMemoryLayoutResult;
 
   // Returns true if any of the workarounds were applied.
-  bool modified() const {
-    return targetTensorLayoutResult.second ||
-           targetTensorBufferTypeResult.second ||
-           targetTensorMemoryLayoutResult.second;
+  bool isModified() const {
+    return tensorLayoutResult.isModified() ||
+           tensorBufferTypeResult.isModified() ||
+           tensorMemoryLayoutResult.isModified();
   }
 };
 
 // Apply the operand workarounds to the layout attribute that contains
 // tensor layout, buffer type and tensor memory layout arguments.
 // Returns the result of applying the workarounds.
-WorkaroundResult applyWorkarounds(const TTNNOperandWorkarounds &workaround,
-                                  const TTNNLayoutAttr &inputLayoutAttr);
+WorkaroundResults applyWorkarounds(const TTNNOperandWorkarounds &workaround,
+                                   const TTNNLayoutAttr &inputLayoutAttr);
 
 // Class that encapsulates operands workarounds.
 // It contains input and output workarounds for operands.
@@ -168,6 +187,13 @@ private:
 
   // Workarounds for output operands.
   llvm::SmallVector<TTNNOperandWorkarounds> outputOperandWorkarounds;
+};
+
+// Workaround factory class that creates workarounds for ops.
+class TTNNOperandsWorkaroundsFactory {
+public:
+  // Create workarounds for max_pool2d op operands.
+  static TTNNOperandsWorkarounds createMaxPool2DOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

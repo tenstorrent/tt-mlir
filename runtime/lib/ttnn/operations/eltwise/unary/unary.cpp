@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "unary.h"
+#include "operations/eltwise/unary/unary.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/eltwise/unary/utils.h"
@@ -149,6 +149,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::LeakyRelu: {
     runEltwiseUnaryWithFloatParameterOp(op, tensorPool, ::ttnn::leaky_relu);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseNot: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::bitwise_not);
     break;
   }
   default:

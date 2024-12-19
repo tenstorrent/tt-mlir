@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "slice.h"
+#include "operations/data_movement/slice.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "ttmlir/Target/TTNN/program_generated.h"

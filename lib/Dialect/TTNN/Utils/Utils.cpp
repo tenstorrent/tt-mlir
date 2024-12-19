@@ -4,6 +4,9 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include <mlir/IR/Value.h>
+
 namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType
 //
@@ -117,24 +120,29 @@ createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
                                tensorType.getElementType(), encoding);
 }
 
-uint64_t getOpOutputL1Usage(Operation *op, TTNNLayoutAttr opLayout,
-                            DeviceAttr &deviceAttr) {
-  assert(mlir::isa<RankedTensorType>(op->getResult(0).getType()) &&
-         "L1 memory usage of the ops without output tensors cannot be "
-         "calculated.");
-
+uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   // In case the opLayout is not in L1 memory space, L1 memory usage is 0.
   //
   if (opLayout.hasDRAMBufferType()) {
     return 0;
   }
 
-  llvm::ArrayRef<int64_t> opOutputTensorShape =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape();
+  return opLayout.getShardSizeInBytes();
+}
 
-  uint64_t opL1OutputUsage =
-      opLayout.getTensorSizeInBytes(opOutputTensorShape, deviceAttr);
-  return opL1OutputUsage;
+// Helper method to get the tensor layout attribute from the value.
+TTNNLayoutAttr
+getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue) {
+  return mlir::cast<TTNNLayoutAttr>(tensorValue.getType().getEncoding());
+}
+
+// Helper method to get the element type for the given tensor layout and data.
+Type getElementType(MLIRContext *context, Layout tensorLayout,
+                    DataType dataType) {
+  return tensorLayout == Layout::Tile
+             ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
+                             dataType)
+             : ttnn::utils::createRowMajorTypeFromDtype(context, dataType);
 }
 
 } // namespace mlir::tt::ttnn::utils

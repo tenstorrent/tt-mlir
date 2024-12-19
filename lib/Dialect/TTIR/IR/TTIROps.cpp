@@ -1546,6 +1546,40 @@ bool matchSimpleBlock(mlir::Region &region) {
 }
 
 //===----------------------------------------------------------------------===//
+// ReverseOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::ReverseOp::verify() {
+  llvm::ArrayRef<int64_t> dimensions = getDimensions();
+
+  // Check that all given dimensions are unique/not repeating.
+  llvm::SmallDenseSet<int64_t> uniqueDims(dimensions.begin(), dimensions.end());
+
+  if (uniqueDims.size() != dimensions.size()) {
+    return emitOpError("dimensions should be unique. Got: ") << dimensions;
+  }
+
+  ::mlir::RankedTensorType operandTy = getInput().getType();
+
+  // Check that each dimension is positive and within valid interval [0,
+  // operandRank).
+  for (int64_t dim : dimensions) {
+    if (dim < 0) {
+      return emitOpError(
+                 "all dimensions should be non-negative. Got dimension: ")
+             << dim;
+    }
+
+    if (dim >= operandTy.getRank()) {
+      return emitOpError("all dimensions should be in interval [0, ")
+             << operandTy.getRank() << "). Got dimension: " << dim;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 

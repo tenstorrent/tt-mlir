@@ -130,7 +130,6 @@ GreedyL1InterleavedPolicy::OpConfig GreedyL1InterleavedPolicy::getGreedyConfig(
 void GreedyL1InterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
-    deviceAttr = getCurrentScopeDevice(func);
 
     // Start the policy.
     //
@@ -166,8 +165,8 @@ void GreedyL1InterleavedPolicy::run() {
 
           if (op->hasOneUse() && hasL1BufferType(op)) {
             L1Usage l1Usage;
-            l1Usage.outputL1Usage = utils::getOpOutputL1Usage(
-                op, getL1InterleavedLayout(op), deviceAttr);
+            l1Usage.outputL1Usage =
+                utils::getOpOutputL1Usage(getL1InterleavedLayout(op));
             l1Usage.requiredL1Usage = 0;
             opsL1Usage[op] = l1Usage;
           }
@@ -192,8 +191,8 @@ void GreedyL1InterleavedPolicy::run() {
             //
             if (operandOpLayout.hasInterleavedL1TensorMemoryLayout()) {
               L1Usage l1Usage;
-              l1Usage.outputL1Usage = utils::getOpOutputL1Usage(
-                  operandOp, operandOpLayout, deviceAttr);
+              l1Usage.outputL1Usage =
+                  utils::getOpOutputL1Usage(operandOpLayout);
               l1Usage.requiredL1Usage = OpMemSpecMap[operandOp].requiredL1Usage;
               opsL1Usage[operandOp] = l1Usage;
             }
@@ -252,15 +251,14 @@ void GreedyL1InterleavedPolicy::run() {
                   std::max(intermediateRequiredL1Usage,
                            intermediateL1Usage +
                                OpMemSpecMap[operandOp].requiredL1Usage);
-              intermediateL1Usage += utils::getOpOutputL1Usage(
-                  operandOp, OpMemSpecMap[operandOp].layout, deviceAttr);
+              intermediateL1Usage +=
+                  utils::getOpOutputL1Usage(OpMemSpecMap[operandOp].layout);
             }
           }
           OpMemSpecMap[op].requiredL1Usage =
               std::max(intermediateRequiredL1Usage,
                        intermediateL1Usage +
-                           utils::getOpOutputL1Usage(
-                               op, OpMemSpecMap[op].layout, deviceAttr));
+                           utils::getOpOutputL1Usage(OpMemSpecMap[op].layout));
         }
       }
     }

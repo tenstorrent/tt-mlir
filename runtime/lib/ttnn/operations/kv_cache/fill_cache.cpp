@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "fill_cache.h"
+#include "operations/kv_cache/fill_cache.h"
 
 namespace tt::runtime::ttnn::operations::kv_cache {
 void run(const ::tt::target::ttnn::FillCacheOp *op, ProgramContext &context) {
