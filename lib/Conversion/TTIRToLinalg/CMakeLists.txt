@@ -3,7 +3,7 @@ add_mlir_library(TTMLIRTTIRToLinAlg
   TTIRToLinAlgPass.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToLinAlg
+  ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToLinalg
 
   DEPENDS
   TTMLIRConversionPassIncGen
