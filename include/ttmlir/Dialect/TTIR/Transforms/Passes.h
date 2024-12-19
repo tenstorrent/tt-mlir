@@ -11,6 +11,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
+#include "llvm/ADT/SmallString.h"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
