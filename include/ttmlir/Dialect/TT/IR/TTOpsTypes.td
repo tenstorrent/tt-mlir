@@ -494,6 +494,6 @@ def TT_Device : TT_Type<"Device", "device", []> {
 
 def TT_Tuple : NestedTupleOf<[AnyRankedTensor]>;
 
-def TT_TupleReturnType : AnyTypeOf<[AnyRankedTensor]>;
+def TT_TupleMemberType : AnyTypeOf<[AnyRankedTensor]>;
 
 #endif
