@@ -24,7 +24,6 @@
 
 #include <cstdint>
 #include <string>
-#include <unordered_set>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
@@ -1658,15 +1657,13 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
 
 // Common verifier for all Reduce ops.
 static mlir::LogicalResult
-verifyReduceOp(mlir::Operation *reduceOp,
+verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
                const std::optional<mlir::ArrayAttr> &reduceDims) {
   if (!reduceDims) {
     return mlir::success();
   }
 
-  int64_t inputTensorRank =
-      mlir::cast<mlir::RankedTensorType>(*reduceOp->getOperandTypes().begin())
-          .getRank();
+  int64_t inputTensorRank = inputType.getRank();
 
   llvm::SmallSet<int64_t, 4> uniqueReduceDims;
   for (mlir::Attribute reduceDim : *reduceDims) {
@@ -1702,7 +1699,7 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MaxOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1718,7 +1715,7 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MeanOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1734,5 +1731,5 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // SumOp verification
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
-  return verifyReduceOp(getOperation(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }

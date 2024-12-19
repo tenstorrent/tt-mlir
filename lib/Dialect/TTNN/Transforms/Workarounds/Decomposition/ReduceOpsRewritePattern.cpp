@@ -4,29 +4,30 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 
+#include "llvm/ADT/SmallSet.h"
+
 #include <algorithm>
-#include <unordered_set>
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 llvm::SmallVector<int64_t>
 getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg) {
   llvm::SmallVector<int64_t> reduceDims;
-  if (!dimArg.has_value()) {
+  if (!dimArg) {
     return reduceDims;
   }
 
-  for (const mlir::Attribute &reduceDim : dimArg.value()) {
+  for (const mlir::Attribute &reduceDim : *dimArg) {
     reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
   }
 
   return reduceDims;
 }
 
-std::vector<int64_t>
-calculateNewReduceShape(const RankedTensorType &inputType,
+llvm::SmallVector<int64_t>
+calculateNewReduceShape(RankedTensorType inputType,
                         const std::optional<mlir::ArrayAttr> &dimArg) {
-  std::vector<int64_t> outputShapeVec = inputType.getShape().vec();
+  llvm::SmallVector<int64_t> outputShapeVec(inputType.getShape());
   llvm::SmallVector<int64_t> reduceDims = getReduceDims(dimArg);
 
   if (reduceDims.empty()) {
@@ -49,15 +50,15 @@ calculateNewReduceShape(const RankedTensorType &inputType,
 }
 
 mlir::ArrayAttr
-createNewReduceDimArg(const RankedTensorType &inputType,
+createNewReduceDimArg(RankedTensorType inputType,
                       const std::optional<mlir::ArrayAttr> &dimArg) {
   llvm::SmallVector<int64_t> reduceDims = getReduceDims(dimArg);
   if (reduceDims.empty()) {
     return nullptr;
   }
 
-  std::unordered_set<int64_t> uniqueReduceDims(reduceDims.begin(),
-                                               reduceDims.end());
+  llvm::SmallSet<int64_t, 4> uniqueReduceDims(reduceDims.begin(),
+                                              reduceDims.end());
   if (uniqueReduceDims.size() == inputType.getShape().size()) {
     // In case when reduce is done over all dimensions of the input nullptr is
     // returned, because Metal supports reduce over all dimensions for any
@@ -67,7 +68,7 @@ createNewReduceDimArg(const RankedTensorType &inputType,
     return nullptr;
   }
 
-  return dimArg.value();
+  return *dimArg;
 }
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition
