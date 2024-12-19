@@ -22,7 +22,7 @@ using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
-template <typename TTIROpTy, typename OpTy,
+template <typename TTIROpTy, typename LinalgOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
@@ -37,8 +37,8 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<OpTy>(op, resultTypes, adaptor.getInputs(),
-                                      adaptor.getOutputs());
+    rewriter.replaceOpWithNewOp<LinalgOpTy>(
+        op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
     return success();
   }
 };
@@ -57,7 +57,7 @@ public:
         mlir::cast<RankedTensorType>(adaptor.getInputs().back().getType());
 
     if (lhsType.getShape() == rhsType.getShape()) {
-      rewriter.replaceOpWithNewOp<::SubOp>(
+      rewriter.replaceOpWithNewOp<linalg::SubOp>(
           srcOp, adaptor.getInputs(), adaptor.getOutputs(), srcOp->getAttrs());
 
       // Broadcast for rhs operand require the operation to be commutative to
@@ -68,11 +68,11 @@ public:
     } else {
       auto negEmptyOp = rewriter.create<tensor::EmptyOp>(
           srcOp.getLoc(), rhsType.getShape(), rhsType.getElementType());
-      auto negOp = rewriter.create<::NegFOp>(
+      auto negOp = rewriter.create<linalg::NegFOp>(
           srcOp.getLoc(), ValueRange{adaptor.getInputs().back()},
           ValueRange{negEmptyOp}, srcOp->getAttrs());
 
-      rewriter.replaceOpWithNewOp<::AddOp>(
+      rewriter.replaceOpWithNewOp<linalg::AddOp>(
           srcOp,
           ValueRange{adaptor.getInputs().front(), negOp.getResults().front()},
           adaptor.getOutputs(), srcOp->getAttrs());
@@ -86,10 +86,11 @@ public:
 
 namespace mlir::tt {
 
-void populateTTIRToPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                            TypeConverter &typeConverter) {
-  patterns.add<ElementwiseOpConversionPattern<ttir::AddOp, ::AddOp>,
-               ElementwiseOpConversionPattern<ttir::MultiplyOp, ::MulOp>,
+void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                                  TypeConverter &typeConverter) {
+  patterns.add<ElementwiseOpConversionPattern<ttir::AddOp, linalg::AddOp>,
+               ElementwiseOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
+
                SubtractOpConversionPattern>(typeConverter, ctx);
 }
 

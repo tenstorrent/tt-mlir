@@ -13,10 +13,10 @@
 
 namespace mlir::tt {
 
-void populateTTIRToLinAlgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter);
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToLinAlgPass();
+std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToLinalgPass();
 
 } // namespace mlir::tt
 

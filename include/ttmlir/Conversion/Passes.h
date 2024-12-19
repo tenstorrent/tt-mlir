@@ -9,7 +9,7 @@
 #include "ttmlir/Conversion/ArithToStableHLO/ArithToStableHLO.h"
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
 #endif
-#include "ttmlir/Conversion/TTIRToLinAlg/TTIRToLinAlg.h"
+#include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/TTIRToTTMetal/TTIRToTTMetal.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
