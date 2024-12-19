@@ -14,7 +14,6 @@ void BFInterleavedPolicy::run() {
   for (Operation &funcOp : rootOp->getRegion(0).getOps()) {
     func::FuncOp func = dyn_cast<func::FuncOp>(funcOp);
     mlir::tt::scheduler::Scheduler scheduler(&func);
-    deviceAttr = getCurrentScopeDevice(func);
 
     // Initialize the policy.
     //
@@ -53,8 +52,7 @@ void BFInterleavedPolicy::run() {
         //
         if (hasL1BufferType(op)) {
           TTNNLayoutAttr layout = getL1InterleavedLayout(op);
-          uint64_t opOutputL1Usage =
-              utils::getOpOutputL1Usage(op, layout, deviceAttr);
+          uint64_t opOutputL1Usage = utils::getOpOutputL1Usage(layout);
 
           if (currentL1Usage + opOutputL1Usage <= getAvailableL1CacheSize()) {
             allocOfL1Mem = opOutputL1Usage;
@@ -92,8 +90,7 @@ void BFInterleavedPolicy::run() {
         uint64_t numOfUsers = std::distance(nextOpForScheduling->user_begin(),
                                             nextOpForScheduling->user_end());
         currentL1UsagePerOp[nextOpForScheduling].l1MemUsagePerUser =
-            utils::getOpOutputL1Usage(nextOpForScheduling, opL1MemSpec.layout,
-                                      deviceAttr);
+            utils::getOpOutputL1Usage(opL1MemSpec.layout);
         currentL1UsagePerOp[nextOpForScheduling].numOfUnscheduledUsers =
             numOfUsers;
         currentL1Usage +=
