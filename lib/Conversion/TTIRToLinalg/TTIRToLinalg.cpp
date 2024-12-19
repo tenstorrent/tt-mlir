@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Conversion/TTIRTo/TTIRTo.h"
+#include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
