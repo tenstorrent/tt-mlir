@@ -17,11 +17,16 @@ namespace mlir::tt::ttmetal {
 void registerTTMetalToFlatbuffer();
 } // namespace mlir::tt::ttmetal
 
+namespace mlir::tt::llvm_to_cpu {
+void registerLLVMToDynamicLibrary();
+} // namespace mlir::tt::llvm_to_cpu
+
 // Place to register all the custom translations
 static void registerCustomTranslations() {
   static bool initOnce = []() {
     mlir::tt::ttnn::registerTTNNToFlatbuffer();
     mlir::tt::ttmetal::registerTTMetalToFlatbuffer();
+    mlir::tt::llvm_to_cpu::registerLLVMToDynamicLibrary();
     return true;
   }();
   (void)initOnce;
