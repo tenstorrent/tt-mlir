@@ -772,8 +772,8 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   return ::tt::target::ttnn::CreateEmbeddingBackwardOp(
       *cache.fbb, in0, in1, in2,
       dtype.has_value()
@@ -783,7 +783,7 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
       memoryConfig.has_value()
           ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
           : 0,
-      output);
+      out);
 }
 
 template <typename ReshapeOp>
