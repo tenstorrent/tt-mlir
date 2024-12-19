@@ -20,9 +20,6 @@ namespace mlir::tt::ttnn {
 static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
     {{{0, -1}}};
 
-// Default memory space for tensors on host
-static const BufferType g_defaultMemorySpaceHost = BufferType::SystemMemory;
-
 // Default memory space for tesnors on device
 static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 
@@ -75,8 +72,10 @@ public:
           g_defaultCollapseDims);
 
       TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
-          ctx, type.getShape(), type.getElementType(), g_defaultMemorySpaceHost,
-          tensorGrid, nullptr /* memLayoutAttr */, collapseDimsRef);
+          ctx, type.getShape(), type.getElementType(),
+          g_defaultMemorySpaceDevice, tensorGrid,
+          TensorMemoryLayoutAttr::get(ctx, g_defaultMemoryLayout),
+          collapseDimsRef);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -345,8 +344,10 @@ public:
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       std::optional<Value> layout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                      g_defaultMemoryLayout),
+          false /* tiled */);
       if (layout.has_value()) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
