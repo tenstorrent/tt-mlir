@@ -1184,6 +1184,40 @@ def TTIR_OnesOp : TTIR_Op<"ones"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
+def TTIR_ReverseOp : TTIR_DPSOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
+  let summary = "Reverse operation.";
+
+  let description = [{
+      Reverses the order of elements in the `operand` along the specified
+      `dimensions` and produces a `result` tensor.
+
+      Examples:
+        // %operand = [[1, 2], [3, 4], [5, 6]]
+        %result = "ttir.reverse"(%operand) {
+          dimensions = array<i64: 1>
+        } : (tensor<3x2xi32>) -> tensor<3x2xi32>
+        // %result: [[2, 1], [4, 3], [6, 5]]
+
+        // %operand = [[1, 2], [3, 4], [5, 6]]
+        %result = "ttir.reverse"(%operand) {
+          dimensions = array<i64: 1, 0>
+        } : (tensor<3x2xi64>) -> tensor<3x2xi64>
+        // %result: [[6, 5], [4, 3], [2, 1]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$dimensions);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";

@@ -1728,6 +1728,33 @@ public:
   }
 };
 
+class StableHLOToTTIROpReverseOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ReverseOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ReverseOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ReverseOp srcOp,
+                  mlir::stablehlo::ReverseOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReverseOp>(
+        srcOp,
+        outputType,                 // result type
+        adaptor.getOperand(),       // input
+        outputTensor,               // output
+        adaptor.getDimensionsAttr() // dimensions
+    );
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -1930,6 +1957,12 @@ void addReturnOpConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReturnOpConversionPattern>(typeConverter, ctx);
 }
 
+void addReverseOpConversionPattern(MLIRContext *ctx,
+                                   RewritePatternSet &patterns,
+                                   TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1958,6 +1991,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReturnOpConversionPatterns(ctx, patterns, typeConverter);
+  addReverseOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
