@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   ${PROJECT_SOURCE_DIR}/include/ttmlir
 
   LINK_LIBS PUBLIC
+  MLIRLLVMTransforms
   MLIRTTIRDialect
   MLIRPass
   MLIRTransforms
