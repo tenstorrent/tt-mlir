@@ -42,18 +42,6 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::add);
     break;
   }
-  case ::tt::target::ttnn::EltwiseOpType::LogicalAnd: {
-    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_and);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::LogicalOr: {
-    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_or);
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseOpType::LogicalXor: {
-    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_xor);
-    break;
-  }
   case ::tt::target::ttnn::EltwiseOpType::Multiply: {
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::multiply);
     break;
@@ -88,6 +76,36 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::EltwiseOpType::Div: {
     runEltwiseBinaryOp(op, tensorPool, ::ttnn::divide);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::LogicalAnd: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_and);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::LogicalOr: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_or);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::LogicalXor: {
+    runEltwiseBinaryOp(op, tensorPool, ::ttnn::logical_xor);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseAnd: {
+    LOG_ASSERT(false, "Binary bitwise_and op not supported in ttnn. See "
+                      "https://github.com/tenstorrent/tt-metal/issues/13582");
+    // runEltwiseBinaryOP(op, tensorPool, ::ttnn::bitwise_and);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseOr: {
+    LOG_ASSERT(false, "Binary bitwise_or op not supported in ttnn. See "
+                      "https://github.com/tenstorrent/tt-metal/issues/13582");
+    // runEltwiseBinaryOP(op, tensorPool, ::ttnn::bitwise_or);
+    break;
+  }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseXor: {
+    LOG_ASSERT(false, "Binary bitwise_xor op not supported in ttnn. See "
+                      "https://github.com/tenstorrent/tt-metal/issues/13582");
+    // runEltwiseBinaryOP(op, tensorPool, ::ttnn::bitwise_xor);
     break;
   }
   default:

@@ -151,6 +151,10 @@ void run(const ::tt::target::ttnn::EltwiseOp *op, ProgramContext &context) {
     runEltwiseUnaryWithFloatParameterOp(op, tensorPool, ::ttnn::leaky_relu);
     break;
   }
+  case ::tt::target::ttnn::EltwiseOpType::BitwiseNot: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::bitwise_not);
+    break;
+  }
   default:
     LOG_FATAL("Unsupported unary operation");
   }
