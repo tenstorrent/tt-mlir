@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ones.h"
+#include "operations/creation/ones.h"
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -38,9 +38,9 @@ void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
   if (op->device()) {
     DeviceVariant targetDevice =
         context.getTargetDevice(op->device()->global_id());
-    assert(std::holds_alternative<std::reference_wrapper<::ttnn::Device>>(
-               targetDevice) &&
-           "ttnn::ones does not support MeshDevice.");
+    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::Device>>(
+                   targetDevice),
+               "ttnn::ones does not support MeshDevice.");
     device = std::get<std::reference_wrapper<::ttnn::Device>>(targetDevice);
   }
 

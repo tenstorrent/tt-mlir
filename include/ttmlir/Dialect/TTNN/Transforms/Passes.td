@@ -38,7 +38,7 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   let options = [
       Option<"layouotWorkaroundsEnabled",
              "ttnn-enable-layout-workaround-pass",
-             "bool", /*default=*/"false",
+             "bool", /*default=*/"true",
              "TTNN Layout Workarounds Pass">,
       Option<"decompositionWorkaroundsEnabled",
              "ttnn-enable-decomposition-workaround-pass",
