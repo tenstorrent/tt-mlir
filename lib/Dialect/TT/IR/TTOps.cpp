@@ -17,12 +17,14 @@ static ParseResult parseTupleOpType(OpAsmParser &parser,
                                     Type &result) {
   // Result type must be tuple type.
   llvm::SMLoc loc = parser.getCurrentLocation();
-  if (parser.parseType(result))
+  if (parser.parseType(result)) {
     return failure();
+  }
 
   auto tupType = dyn_cast<TupleType>(result);
-  if (!tupType)
+  if (!tupType) {
     return parser.emitError(loc, "expected tuple type");
+  }
 
   // Assign operand types to tuple types
   llvm::append_range(operands, tupType.getTypes());
