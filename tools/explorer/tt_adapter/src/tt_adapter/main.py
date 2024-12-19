@@ -44,25 +44,39 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
-        perf_trace = None
-        if optimized_model_path := self.model_runner.get_optimized_model_path():
+        if optimized_model_path := self.model_runner.get_optimized_model_path(
+            model_path
+        ):
             print(f"Using optimized model: {optimized_model_path}")
-            model_path = optimized_model_path
-
             # Get performance results.
-            perf_trace = self.model_runner.get_perf_trace()
+            perf_trace = self.model_runner.get_perf_trace(model_path)
 
-        module = utils.parse_mlir_file(model_path)
+            module = utils.parse_mlir_file(optimized_model_path)
 
-        # Convert TTIR to Model Explorer Graphs and Display/Return
-        graph, perf_data = mlir.build_graph(module, perf_trace)
-        if perf_data:
-            graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
+            # Convert TTIR to Model Explorer Graphs and Display/Return
+            graph, perf_data = mlir.build_graph(module, perf_trace)
+            if perf_data:
+                # TODO(odjuricic) We can probably edit the actual graph response or create our own instead of just adding to dataclass.s
+                graph = utils.add_to_dataclass(
+                    graph, "overlays", {"Performance Trace": perf_data.graphsData}
+                )
+
+            if overrides := self.model_runner.get_overrides(model_path):
+                graph = utils.add_to_dataclass(graph, "overrides", overrides)
+        else:
+            module = utils.parse_mlir_file(model_path)
+
+            # Convert TTIR to Model Explorer Graphs and Display/Return
+            graph, _ = mlir.build_graph(module)
+
         return {"graphs": [graph]}
 
     def execute(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
+
+        print("SETTINGS: ", settings)
+
         override_handler = optimizer_overrides.OptimizerOverridesHandler()
         override_handler.set_system_desc_path(
             f"{self.model_runner.get_artifacts_dir()}/system_desc.ttsys"
@@ -84,7 +98,9 @@ class TTAdapter(model_explorer.Adapter):
                 OPTIMIZATION_POLICIES[optimization_policy]
             )
 
-        self.model_runner.run(model_path, override_handler.to_string())
+        self.model_runner.run(
+            model_path, override_handler.to_string(), settings.get("overrides", None)
+        )
 
         return {"graphs": []}
 

@@ -11,6 +11,7 @@ from ttmlir.dialects import tt, ttnn, ttir
 from ttmlir import ir, util
 
 
+# TODO: Also change the KeyValue to support editable instead of this.
 def make_editable_kv(kv, editable):
     obj = dataclasses.asdict(kv)
     obj["editable"] = editable
@@ -19,14 +20,14 @@ def make_editable_kv(kv, editable):
     )(**obj)
 
 
-def get_loc_str(loc):
-    try:
-        res = util.get_loc_name(loc)
-        if res == "-":
-            res = util.get_loc_full(loc)
-    except:
-        res = "unknown"
-    return res
+def parse_loc_string(loc_str):
+    """
+    This can be replaces by ttmlir.ir.Module.parse, but requires some further wodo to extract the actual location object from the module.
+    """
+    match = re.match(r'^loc\("([^"]+)"', loc_str)
+    if match:
+        return match.group(1)
+    return None
 
 
 class AttrHandler:
@@ -409,7 +410,7 @@ def parse_ttnn_ttnn_layout(attr):
         result.append(
             make_editable_kv(
                 graph_builder.KeyValue(
-                    key="Tensor Memory Layout",
+                    key="tensor_memory_layout",
                     value=str(ttnn.TensorMemoryLayout(memory_layout)),
                 ),
                 editable={
@@ -419,22 +420,59 @@ def parse_ttnn_ttnn_layout(attr):
             )
         )
     result.append(
-        graph_builder.KeyValue(
-            key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+        make_editable_kv(
+            graph_builder.KeyValue(
+                key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+            ),
+            editable={
+                "input_type": "grid",
+                "separator": "x",
+                "min_value": 1,
+                "max_value": 100,
+                "step": 1,
+            },
         )
     )
     result.append(
         graph_builder.KeyValue(key="memref_shape", value=str(layout.memref.shape))
     )
-    result.append(
-        graph_builder.KeyValue(key="memref_rank", value=str(layout.memref.rank))
-    )
     buffer_attr = ttnn.ir.BufferTypeAttr.maybe_downcast(layout.memref.memory_space)
     result.append(
-        graph_builder.KeyValue(
-            key="memref_memory_space", value=str(ttnn.BufferType(buffer_attr.value))
+        make_editable_kv(
+            graph_builder.KeyValue(
+                key="buffer_type", value=str(ttnn.BufferType(buffer_attr.value))
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.BufferType],
+            },
         )
     )
+
+    result.append(
+        make_editable_kv(
+            graph_builder.KeyValue(
+                key="is_tiled",
+                value=str(layout.is_tiled),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": ["True", "False"],
+            },
+        )
+    )
+
+    # result.append(
+    #     make_editable_kv(
+    #         graph_builder.KeyValue(
+    #             key="data_type", value=str(layout.data_type),
+    #         ),
+    #         editable={
+    #             "input_type": "value_list",
+    #             "options": [str(o) for o in ttnn.DataType],
+    #         },
+    #     )
+    # )
     return result
 
 
@@ -444,11 +482,14 @@ class OpHandler:
 
     def __init__(self, op):
         self.op = op
-        self.location = get_loc_str(self.op.location)
+        self.named_location = util.get_loc_name(self.op.location)
+        self.full_location = util.get_loc_full(self.op.location)
         self.id = self._create_unique_id()
 
     def _create_unique_id(self):
-        name = self.location
+        # Change this to something else PLEASE.
+        # I think that we can just use uniqe numbers here
+        name = self.full_location if self.full_location else "unknown"
         name_num = self.name_dict[name]
         id = name + "__" + str(name_num)
         self.name_dict[name] += 1
@@ -456,10 +497,12 @@ class OpHandler:
 
     def get_namespace(self, parent_op=None):
         op = self.op if not parent_op else parent_op
-        name = get_loc_str(op.location)
+        name = util.get_loc_name(op.location)
         if op.parent and op.parent.name != "builtin.module":
-            return self.get_namespace(op.parent) + "/" + name
-        return name
+            parent_name = self.get_namespace(op.parent)
+            if parent_name:
+                return parent_name + "/" + name
+        return name or ""
 
     def get_attributes(self):
         # Parse Op Attributes themselves
@@ -467,7 +510,17 @@ class OpHandler:
         for attr in self.op.attributes:
             result.extend(AttrHandler.parse_attr(attr))
 
-        # Add output tensor properties to the op itself
+        # Add location as an attribute
+        if self.named_location:
+            result.append(
+                graph_builder.KeyValue(key="named_location", value=self.named_location)
+            )
+        if self.full_location:
+            result.append(
+                graph_builder.KeyValue(key="full_location", value=self.full_location)
+            )
+
+        # Add output tensor attriributes to the op itself
         if self.op.results:
             output_tensor = self.op.result
             output_attrs = []
@@ -538,9 +591,11 @@ def build_graph(module, perf_trace=None):
     loc_to_perf = {}
     if perf_trace is not None:
         for _, row in perf_trace.iterrows():
-            loc = get_loc_str(row["LOC"])
-            assert loc not in loc_to_perf
-            loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
+            loc = parse_loc_string(row["LOC"])
+            # TODO(odjuricic) Locations seem to be missing from ttrt perf csv.
+            # assert loc not in loc_to_perf
+            if loc:
+                loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -558,9 +613,12 @@ def build_graph(module, perf_trace=None):
                     operation = OpHandler(op)
                     graph_node = operation.make_graph_node()
 
-                    if operation.location in loc_to_perf:
+                    if (
+                        operation.named_location in loc_to_perf
+                        and operation.op.name != "ttnn.empty"
+                    ):
                         perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                            loc_to_perf[operation.location]
+                            loc_to_perf[operation.named_location]
                         )
 
                     if op.name in EMPTY_OPS:

@@ -16,8 +16,9 @@ TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
     "tools/explorer/test/models/*.mlir",
 ]
+MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
-    "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
+    MNIST_SHARDING_PATH,
 ]
 
 
@@ -28,7 +29,7 @@ def get_test_files(paths):
     return files
 
 
-def send_command(command, model_path, settings):
+def send_command(command, model_path, settings={}):
     cmd = {
         "extensionId": "tt_adapter",
         "cmdId": command,
@@ -51,7 +52,7 @@ def execute_command(model_path, settings):
 def wait_for_execution_to_finish(timeout):
     for _ in range(timeout):
         try:
-            response = send_command("status_check", "", {})
+            response = send_command("status_check", "")
             if response.status_code == 200 and response.json().get("graphs")[0].get(
                 "isDone"
             ):
@@ -60,9 +61,7 @@ def wait_for_execution_to_finish(timeout):
             print(f"Request failed: {e}")
             raise Exception("Status check request failed")
         time.sleep(1)
-    raise RuntimeError(
-        f"Execution did not finish within {MODEL_EXECUTION_TIMEOUT} seconds"
-    )
+    raise RuntimeError(f"Execution did not finish within {timeout} seconds")
 
 
 def execute_command_and_wait(model_path, settings, timeout):
@@ -107,7 +106,7 @@ def start_server(request):
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
 def test_load_model(model_path):
-    result = send_command("convert", model_path, {})
+    result = send_command("convert", model_path)
     assert result.ok
     if "error" in result.json():
         print(result.json())
@@ -119,22 +118,25 @@ def test_execute_model(model_path):
     execute_command_and_wait(
         model_path, {"optimizationPolicy": "DF Sharding"}, timeout=60
     )
+    send_command("convert", model_path)
 
 
 def test_execute_mnist_l1_interleaved():
     execute_command_and_wait(
-        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
+        MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Greedy L1 Interleaved"},
         timeout=60,
     )
+    send_command("convert", MNIST_SHARDING_PATH)
 
 
 def test_execute_mnist_optimizer_disabled():
     execute_command_and_wait(
-        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
+        MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=60,
     )
+    send_command("convert", MNIST_SHARDING_PATH)
 
 
 def test_execute_model_invalid_policy():
