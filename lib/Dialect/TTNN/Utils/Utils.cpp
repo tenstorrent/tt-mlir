@@ -4,6 +4,9 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include <mlir/IR/Value.h>
+
 namespace mlir::tt::ttnn::utils {
 // Map TT::MemorySpace to TTNN::BufferType
 //
@@ -125,6 +128,21 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
   }
 
   return opLayout.getShardSizeInBytes();
+}
+
+// Helper method to get the tensor layout attribute from the value.
+TTNNLayoutAttr
+getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue) {
+  return mlir::cast<TTNNLayoutAttr>(tensorValue.getType().getEncoding());
+}
+
+// Helper method to get the element type for the given tensor layout and data.
+Type getElementType(MLIRContext *context, Layout tensorLayout,
+                    DataType dataType) {
+  return tensorLayout == Layout::Tile
+             ? TileType::get(context, {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH},
+                             dataType)
+             : ttnn::utils::createRowMajorTypeFromDtype(context, dataType);
 }
 
 } // namespace mlir::tt::ttnn::utils
