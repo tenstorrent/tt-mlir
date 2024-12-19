@@ -343,10 +343,8 @@ public:
 
     // TODO(mrakita): Only last two dimensions can be reduced, check for that
     // too. Should this check be in verifier?
-    if (adaptor.getDimArg().has_value() &&
-        adaptor.getDimArg().value().size() > 2 &&
-        static_cast<int64_t>(adaptor.getDimArg().value().size()) !=
-            inputTensorRank) {
+    if (adaptor.getDimArg() && adaptor.getDimArg()->size() > 2 &&
+        static_cast<int64_t>(adaptor.getDimArg()->size()) != inputTensorRank) {
       return rewriter.notifyMatchFailure(op,
                                          "Reduce on more than two dimensions "
                                          "is not currently supported by TTNN");
