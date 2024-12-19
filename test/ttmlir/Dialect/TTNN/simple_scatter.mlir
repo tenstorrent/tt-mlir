@@ -8,7 +8,7 @@ module attributes {} {
     ^bb0(%arg3: tensor<1xf32>, %arg4: tensor<1xf32>):
       "ttir.yield"(%arg4) : (tensor<1xf32>) -> ()
     }) : (tensor<1x3x320x320xf32>, tensor<1x1xi32>, tensor<1x3x32x32xf32>, tensor<1x3x320x320xf32>) -> tensor<1x3x320x320xf32>
-    // CHECK: {{[0-9]+}} = "ttnn.scatter"(%4, %2, %5) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x3x32x32xf32, {{.*}}>, tensor<[[TENSOR_SHAPE1]], {{.*}}>, tensor<[[TENSOR_SHAPE1]], {{.*}}>) -> tensor<[[TENSOR_SHAPE1]], {{.*}}>
+    // CHECK: %{{[0-9]+}} = "ttnn.scatter"(%arg1, %arg0, %1) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x3x32x32xf32, {{.*}}>, tensor<[[TENSOR_SHAPE1]], {{.*}}>, tensor<[[TENSOR_SHAPE1]], {{.*}}>) -> tensor<[[TENSOR_SHAPE1]], {{.*}}>
     return %2 : tensor<1x3x320x320xf32>
     // CHECK: return %{{[0-9]+}} : tensor<[[TENSOR_SHAPE1]], {{.*}}>
   }

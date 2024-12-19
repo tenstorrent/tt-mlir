@@ -131,11 +131,6 @@ toTTNNBufferType(::tt::target::MemorySpace memorySpace) {
   }
 };
 
-std::vector<uint32_t>
-toShapeFromFBShape(const flatbuffers::Vector<int32_t> &vec) {
-  return std::vector<uint32_t>(vec.begin(), vec.end());
-}
-
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =

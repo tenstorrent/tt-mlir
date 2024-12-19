@@ -20,9 +20,6 @@ namespace mlir::tt::ttnn {
 static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
     {{{0, -1}}};
 
-// Default memory space for tensors on host
-static const BufferType g_defaultMemorySpaceHost = BufferType::SystemMemory;
-
 // Default memory space for tesnors on device
 static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 
@@ -55,7 +52,7 @@ inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
 //
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with default values
-// SystemMemory, MemoryLayout::None, Grid<1x1>
+// Dram, MemoryLayout::Interleaved, Grid<1x1>
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTNNLayoutTensorTypeConverter(MLIRContext *ctx, GridAttr deviceGrid) {
@@ -74,9 +71,12 @@ public:
       llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
           g_defaultCollapseDims);
 
+      // Force TileType for tensors
+      auto elementType = TileType::get(ctx, type.getElementType());
       TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
-          ctx, type.getShape(), type.getElementType(), g_defaultMemorySpaceHost,
-          tensorGrid, nullptr /* memLayoutAttr */, collapseDimsRef);
+          ctx, type.getShape(), elementType, g_defaultMemorySpaceDevice,
+          tensorGrid, TensorMemoryLayoutAttr::get(ctx, g_defaultMemoryLayout),
+          collapseDimsRef);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -167,7 +167,13 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
 
   // Get the current element type (i.e bf16/TileType etc)
+  // If the defining op is arange, then we need to assume ROW_MAJOR (scalar)
+  // element type.
   Type currElementType = ttnnLayoutAttr.getElementType();
+  ttir::ArangeOp existingArange = input.getDefiningOp<ttir::ArangeOp>();
+  if (existingArange) {
+    currElementType = ttnnLayoutAttr.getScalarElementType();
+  }
 
   // Get mem layout. If the tensor is on host layout is null
   TensorMemoryLayoutAttr currMemLayout = ttnnLayoutAttr.getMemLayout();
@@ -220,7 +226,6 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
   // it is ROW_MAJOR - and to make it tile layout we still must insert
   // ToLayoutOp on its output. We can do this by setting the element type to
   // ty.getElementType() in case desiredElementType is a TileType.
-  ttir::ArangeOp existingArange = input.getDefiningOp<ttir::ArangeOp>();
   if (existingArange) {
     TTNNLayoutAttr arangeLayout = rewriter.getAttr<TTNNLayoutAttr>(
         ty.getShape(), ty.getElementType(), desiredBufferType,
@@ -306,12 +311,15 @@ public:
 
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+
+      bool isTiled = shouldTilize(op, operand.getOperandNumber());
+
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
           TensorMemoryLayoutAttr::get(rewriter.getContext(),
                                       g_defaultMemoryLayout),
-          true /* isTiled */);
+          isTiled);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -328,6 +336,33 @@ public:
 
     return modified ? success() : failure();
   }
+
+private:
+  bool shouldTilize(DestinationStyleOpInterface dpsOp,
+                    int64_t operandNumber) const {
+
+    Operation *operation = dpsOp.getOperation();
+
+    // TTNN Reshape does not support implicit tilization/untilization
+    // Therefore input output layouts should be the same
+    if (mlir::isa<ttir::ReshapeOp>(operation) && operandNumber == 1) {
+      Value input = dpsOp->getOperand(0);
+      RankedTensorType inputType =
+          mlir::cast<RankedTensorType>(input.getType());
+      TTNNLayoutAttr inputLayout =
+          mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
+      return mlir::isa<TileType>(inputLayout.getElementType());
+    }
+
+    // These ops constrain to ROW_MAJOR on their operands
+    if (mlir::isa<ttir::Conv2dOp>(operation) ||
+        mlir::isa<ttir::SliceOp>(operation) ||
+        (mlir::isa<ttir::EmbeddingBackwardOp>(operation) &&
+         operandNumber < 2)) {
+      return false;
+    }
+    return true;
+  }
 };
 
 // Updates the layout of the operands of a func::ReturnOp.
@@ -342,11 +377,14 @@ public:
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
+      bool isTiled = true;
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       std::optional<Value> layout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                      g_defaultMemoryLayout),
+          isTiled);
       if (layout.has_value()) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
@@ -355,8 +393,6 @@ public:
     }
     return modified ? success() : failure();
   }
-
-private:
 };
 
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {

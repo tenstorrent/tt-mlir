@@ -88,11 +88,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let assemblyFormat = "`<` params `>`";
 
   let extraClassDeclaration = [{
-    ::llvm::ArrayRef<int64_t> getShardShapeArray() const
-    {
-      return this->getShardSpec().getShardShape().getShape();
-    }
-
+    llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
     MemoryConfigAttr withBufferType(::mlir::MLIRContext *context, BufferType bufferType);
     MemoryConfigAttr withMemoryLayout(::mlir::MLIRContext *context, TensorMemoryLayout memLayout);
   }];

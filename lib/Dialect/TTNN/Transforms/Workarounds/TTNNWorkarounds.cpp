@@ -410,6 +410,57 @@ public:
   }
 };
 
+// ttnn::FullOp does not support 1D tilized tensors
+// If the output of full is a 1D tensor and is tiled
+// we need to convert it to row major layout then tilize separately
+class TTNNFullOpWorkaround : public OpRewritePattern<ttnn::FullOp> {
+public:
+  using OpRewritePattern<ttnn::FullOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::FullOp op,
+                                PatternRewriter &rewriter) const override {
+    Value device = op.getDevice();
+    ::mlir::FloatAttr fillValueAttr = op.getFillValueAttr();
+    auto outputType = mlir::cast<RankedTensorType>(op.getType());
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+    // If the output is not a 1D tensor or the element type is not tilized
+    // we don't need to apply the workaround
+    if (outputType.getRank() > 1 ||
+        !mlir::isa<TileType>(layoutAttr.getElementType())) {
+      return failure();
+    }
+
+    // Can't use withElementType because the shard shape would be wrong
+    ttnn::TTNNLayoutAttr rowMajorLayoutAttr = ttnn::TTNNLayoutAttr::get(
+        rewriter.getContext(), outputType.getShape(),
+        layoutAttr.getScalarElementType(), layoutAttr.getBufferType(),
+        layoutAttr.getGrid(), layoutAttr.getMemLayout());
+
+    auto fullOpOutputType = RankedTensorType::get(
+        outputType.getShape(), outputType.getElementType(), rowMajorLayoutAttr);
+    auto fullOp = rewriter.create<ttnn::FullOp>(op.getLoc(), fullOpOutputType,
+                                                device, fillValueAttr);
+
+    // Tilize the fullOp output separately
+    ttnn::MemoryConfigAttr memConfigAttr =
+        rewriter.getAttr<ttnn::MemoryConfigAttr>(
+            rewriter.getAttr<ttnn::BufferTypeAttr>(layoutAttr.getBufferType()),
+            rewriter.getAttr<ttnn::ShardSpecAttr>(
+                rewriter.getAttr<ttnn::ShapeAttr>(layoutAttr.getShardShape())),
+            layoutAttr.getMemLayout());
+
+    bool isOutputOnHost =
+        (layoutAttr.getBufferType() == ttnn::BufferType::SystemMemory);
+
+    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+        op, op.getType(), fullOp, ttnn::Layout::Tile,
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType()),
+        memConfigAttr, isOutputOnHost ? nullptr : device);
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -418,7 +469,7 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNAllReduceWorkarounds,
+      patterns.add<TTNNAllReduceWorkarounds, TTNNFullOpWorkaround,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::SumOp>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
@@ -435,7 +486,7 @@ public:
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
-    if (layouotWorkaroundsEnabled) {
+    if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 

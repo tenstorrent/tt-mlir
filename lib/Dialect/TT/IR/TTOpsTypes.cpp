@@ -128,9 +128,9 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
 mlir::tt::SystemDescAttr
 mlir::tt::SystemDescAttr::getFromPath(MLIRContext *context, std::string &path) {
   // Check if file exists
-  assert(!path.empty() && "cluster desc path must not be empty!");
+  assert(!path.empty() && "system desc path must not be empty!");
   std::ifstream fbb(path, std::ios::binary | std::ios::ate);
-  assert(fbb.good() && "cluster desc does not exist!");
+  assert(fbb.good() && "system desc does not exist!");
   std::streampos size = fbb.tellg();
   fbb.seekg(0, std::ios::beg);
   auto buffer = std::shared_ptr<void>(std::malloc(size), std::free);
