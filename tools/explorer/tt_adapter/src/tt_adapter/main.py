@@ -6,16 +6,16 @@ import model_explorer
 from . import runner, utils, mlir
 import dataclasses
 import enum
+from ttmlir import optimizer_overrides
 
+OPTIMIZER_DISABLED_POLICY = "Optimizer Disabled"
 
-class OptimizationPolicy(enum.Enum):
-    DFSharding = "DF Sharding"
-    GreedyL1Interleaved = "Greedy L1 Interleaved"
-    BFInterleaved = "BF Interleaved"
-    OptimizerDisabled = "Optimizer Disabled"
-
-
-OPTIMIZATION_POLICIES = [member.value for member in OptimizationPolicy]
+OPTIMIZATION_POLICIES = {
+    "DF Sharding": optimizer_overrides.MemoryLayoutAnalysisPolicyType.DFSharding,
+    "Greedy L1 Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved,
+    "BF Interleaved": optimizer_overrides.MemoryLayoutAnalysisPolicyType.BFInterleaved,
+    OPTIMIZER_DISABLED_POLICY: False,
+}
 
 
 @dataclasses.dataclass
@@ -31,7 +31,7 @@ class TTAdapter(model_explorer.Adapter):
         source_repo="https://github.com/tenstorrent/tt-mlir/tree/main/tools/explorer/tt_adapter",
         fileExts=["mlir", "ttir"],
         settings={
-            "optimizationPolicies": OPTIMIZATION_POLICIES,
+            "optimizationPolicies": list(OPTIMIZATION_POLICIES.keys()),
         },
     )
     model_runner = None
@@ -44,27 +44,43 @@ class TTAdapter(model_explorer.Adapter):
     def convert(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
-        perf_trace = None
-        if optimized_model_path := self.model_runner.get_optimized_model_path():
+        if optimized_model_path := self.model_runner.get_optimized_model_path(
+            model_path
+        ):
             print(f"Using optimized model: {optimized_model_path}")
-            model_path = optimized_model_path
-
             # Get performance results.
-            perf_trace = self.model_runner.get_perf_trace()
+            perf_trace = self.model_runner.get_perf_trace(model_path)
 
-        module = utils.parse_mlir_file(model_path)
+            module = utils.parse_mlir_file(optimized_model_path)
 
-        # Convert TTIR to Model Explorer Graphs and Display/Return
-        graph, perf_data = mlir.build_graph(module, perf_trace)
-        if perf_data:
-            graph = utils.add_to_dataclass(graph, "perf_data", perf_data.graphsData)
+            # Convert TTIR to Model Explorer Graphs and Display/Return
+            graph, perf_data = mlir.build_graph(module, perf_trace)
+            if perf_data:
+                # TODO(odjuricic) We can probably edit the actual graph response or create our own instead of just adding to dataclass.s
+                graph = utils.add_to_dataclass(
+                    graph, "overlays", {"Performance Trace": perf_data.graphsData}
+                )
+
+            if overrides := self.model_runner.get_overrides(model_path):
+                graph = utils.add_to_dataclass(graph, "overrides", overrides)
+        else:
+            module = utils.parse_mlir_file(model_path)
+
+            # Convert TTIR to Model Explorer Graphs and Display/Return
+            graph, _ = mlir.build_graph(module)
+
         return {"graphs": [graph]}
 
     def execute(
         self, model_path: str, settings: Dict
     ) -> model_explorer.ModelExplorerGraphs:
-        # TODO(odjuricic, #1178) settings need to be parsed.
-        # Waiting on override class for this.
+
+        print("SETTINGS: ", settings)
+
+        override_handler = optimizer_overrides.OptimizerOverridesHandler()
+        override_handler.set_system_desc_path(
+            f"{self.model_runner.get_artifacts_dir()}/system_desc.ttsys"
+        )
 
         # Parse optimization policy from settings.
         optimization_policy = settings.get("optimizationPolicy")
@@ -72,17 +88,18 @@ class TTAdapter(model_explorer.Adapter):
             raise ValueError(
                 f"Invalid optimization policy selected: {optimization_policy}"
             )
-        optimization_policy = OptimizationPolicy(optimization_policy)
 
-        memory_layout_analysis_enabled = True
-        memory_layout_analysis_policy = optimization_policy.name
-
-        if optimization_policy == OptimizationPolicy.OptimizerDisabled:
-            memory_layout_analysis_enabled = False
-            memory_layout_analysis_policy = None
+        if optimization_policy == OPTIMIZER_DISABLED_POLICY:
+            override_handler.set_enable_optimizer(False)
+        else:
+            override_handler.set_enable_optimizer(True)
+            override_handler.set_enable_memory_layout_analysis(True)
+            override_handler.set_memory_layout_analysis_policy(
+                OPTIMIZATION_POLICIES[optimization_policy]
+            )
 
         self.model_runner.run(
-            model_path, memory_layout_analysis_enabled, memory_layout_analysis_policy
+            model_path, override_handler.to_string(), settings.get("overrides", None)
         )
 
         return {"graphs": []}

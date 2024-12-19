@@ -164,6 +164,10 @@ void populateTTNNModule(py::module &m) {
                                }
                                return static_cast<uint32_t>(
                                    self.getMemLayout().getValue());
-                             });
+                             })
+      .def_property_readonly("is_tiled", &tt::ttnn::TTNNLayoutAttr::isTiled)
+      // TODO fix
+      .def_property_readonly("data_type",
+                             &tt::ttnn::TTNNLayoutAttr::getDataType);
 }
 } // namespace mlir::ttmlir::python
