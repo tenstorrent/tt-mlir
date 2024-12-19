@@ -596,6 +596,8 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};}
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
