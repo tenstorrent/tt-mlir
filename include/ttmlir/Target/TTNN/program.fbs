@@ -358,6 +358,7 @@ union OpType {
   UpdateCacheOp,
   FillCacheOp,
   PermuteOp,
+  RepeatOp,
 }
 
 table Operation {

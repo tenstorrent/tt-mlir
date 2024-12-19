@@ -18,15 +18,15 @@ module {
 }
 
 module {
-  func.func @main(%arg0: tensor<1x10xi32>, %arg1: tensor<10x1xi32>) -> tensor<10x10xi32> {
+  func.func @main(%arg0: tensor<1x10xf32>, %arg1: tensor<10x1xf32>) -> tensor<10x10xf32> {
     // CHECK: [[VAL0:%[0-9]+]] = "ttnn.to_device"(%{{[0-9]+}}, %{{[0-9]+}})
     // CHECK: %{{[0-9]+}} = "ttnn.repeat"([[VAL0]])
-    %0 = tensor.empty() : tensor<10x10xi32>
-    %1 = "ttir.broadcast"(%arg0, %0) <{dimension = [0, 1]}> : (tensor<1x10xi32>, tensor<10x10xi32>) -> tensor<10x10xi32>
-    %2 = tensor.empty() : tensor<10x10xi32>
-    %3 = "ttir.broadcast"(%arg1, %2) <{dimension = [0, 1]}> : (tensor<10x1xi32>, tensor<10x10xi32>) -> tensor<10x10xi32>
-    %4 = tensor.empty() : tensor<10x10xi32>
-    %5 = "ttir.subtract"(%1, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<10x10xi32>, tensor<10x10xi32>, tensor<10x10xi32>) -> tensor<10x10xi32>
-    return %5 : tensor<10x10xi32>
+    %0 = tensor.empty() : tensor<10x10xf32>
+    %1 = "ttir.broadcast"(%arg0, %0) <{dimension = [0, 1]}> : (tensor<1x10xf32>, tensor<10x10xf32>) -> tensor<10x10xf32>
+    %2 = tensor.empty() : tensor<10x10xf32>
+    %3 = "ttir.broadcast"(%arg1, %2) <{dimension = [0, 1]}> : (tensor<10x1xf32>, tensor<10x10xf32>) -> tensor<10x10xf32>
+    %4 = tensor.empty() : tensor<10x10xf32>
+    %5 = "ttir.subtract"(%1, %3, %4) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<10x10xf32>, tensor<10x10xf32>, tensor<10x10xf32>) -> tensor<10x10xf32>
+    return %5 : tensor<10x10xf32>
   }
 }
