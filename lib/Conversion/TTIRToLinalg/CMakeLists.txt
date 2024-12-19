@@ -1,6 +1,6 @@
-add_mlir_library(TTMLIRTTIRToLinAlg
-  TTIRToLinAlg.cpp
-  TTIRToLinAlgPass.cpp
+add_mlir_library(TTMLIRTTIRToLinalg
+  TTIRToLinalg.cpp
+  TTIRToLinalgPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToLinalg
