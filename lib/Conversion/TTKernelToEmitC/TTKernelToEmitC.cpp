@@ -551,7 +551,7 @@ LogicalResult convertTTKernelRegionToEmitC(
 }
 
 LogicalResult
-emitDispatchOpRegionAsCpp(Region *region, std::string &regionCpp,
+emitOpRegionAsCpp(Region *region, std::string &regionCpp,
                           const ttkernel::KernelConfigInterface &kernelConfig) {
   OpBuilder builder(region->getContext());
 
