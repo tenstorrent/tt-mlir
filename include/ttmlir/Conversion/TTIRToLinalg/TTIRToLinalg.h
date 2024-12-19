@@ -5,12 +5,11 @@
 #ifndef TTMLIR_CONVERSION_TTIRTOLINALG_TTIRTOLINALG_H
 #define TTMLIR_CONVERSION_TTIRTOLINALG_TTIRTOLINALG_H
 
-#include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
-
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir::tt {
 
