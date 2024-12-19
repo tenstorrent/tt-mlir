@@ -103,10 +103,10 @@ TEST_F(OpModelBase, ReluInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1Usage = l1.value();
-      EXPECT_GT(std::get<0>(l1Usage), 0);
-      EXPECT_GT(std::get<1>(l1Usage), 0);
-      EXPECT_GT(std::get<2>(l1Usage), 0);
+      const auto &[cb_size, peak_size, output_size] = l1.value();
+      EXPECT_EQ(cb_size, 8192);
+      EXPECT_EQ(peak_size, 4096);
+      EXPECT_EQ(output_size, 4096);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -137,10 +137,10 @@ TEST_F(OpModelBase, SoftmaxInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1Usage = l1.value();
-      EXPECT_GT(std::get<0>(l1Usage), 0);
-      EXPECT_GT(std::get<1>(l1Usage), 0);
-      EXPECT_GT(std::get<2>(l1Usage), 0);
+      const auto &[cb_size, peak_size, output_size] = l1.value();
+      EXPECT_EQ(cb_size, 137216);
+      EXPECT_EQ(peak_size, 4096);
+      EXPECT_EQ(output_size, 4096);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -175,10 +175,10 @@ TEST_F(OpModelBase, AddInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1Usage = l1.value();
-      EXPECT_GT(std::get<0>(l1Usage), 0);
-      EXPECT_GT(std::get<1>(l1Usage), 0);
-      EXPECT_GT(std::get<2>(l1Usage), 0);
+      const auto &[cb_size, peak_size, output_size] = l1.value();
+      EXPECT_EQ(cb_size, 12288);
+      EXPECT_EQ(peak_size, 4096);
+      EXPECT_EQ(output_size, 4096);
     } else {
       FAIL() << "Missing L1 constraints";
     }
@@ -219,10 +219,10 @@ TEST_F(OpModelBase, MatmulInterface) {
     EXPECT_EQ(std::get<bool>(constraints), true);
     auto l1 = std::get<1>(constraints);
     if (l1.has_value()) {
-      auto l1Usage = l1.value();
-      EXPECT_GT(std::get<0>(l1Usage), 0);
-      EXPECT_GT(std::get<1>(l1Usage), 0);
-      EXPECT_GT(std::get<2>(l1Usage), 0);
+      const auto &[cb_size, peak_size, output_size] = l1.value();
+      EXPECT_EQ(cb_size, 786432);
+      EXPECT_EQ(peak_size, 151552);
+      EXPECT_EQ(output_size, 151552);
     } else {
       FAIL() << "Missing L1 constraints";
     }
