@@ -761,9 +761,9 @@ createEmbeddingOp(FlatbufferObjectCache &cache, EmbeddingOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto in1 = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getWeight()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, output);
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+  return ::tt::target::ttnn::CreateEmbeddingOp(*cache.fbb, in0, in1, out);
 }
 
 template <typename EmbeddingBackwardOp>
