@@ -57,8 +57,8 @@ def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::func::FuncOp">
 }
 
 def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
-  let summary = "Convert TTIR dialect to LinAlg dialect.";
-  let constructor = "createConvertTTIRToLinAlgPass()";
+  let summary = "Convert TTIR dialect to Linalg dialect.";
+  let constructor = "createConvertTTIRToLinalgPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
 }
 
