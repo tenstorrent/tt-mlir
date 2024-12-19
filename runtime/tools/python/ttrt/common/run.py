@@ -6,7 +6,7 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.golden import get_golden_fn, GoldenRuntimeConfig
+from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
 
 
 class Run:
@@ -148,11 +148,11 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--golden",
+            name="--disable-golden",
             type=bool,
-            default=True,
+            default=False,
             choices=[True, False],
-            help="run golden comparison for intermediate and output tensors",
+            help="disable golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="--save-golden-tensors",
@@ -160,6 +160,20 @@ class Run:
             default=False,
             choices=[True, False],
             help="save golden and device tensors that are compared during callback runtime",
+        )
+        Run.register_arg(
+            name="--debugger",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="run step debugger after every op execution",
+        )
+        Run.register_arg(
+            name="--memory",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump memory reports after every op execution (use in conjunction with --save-artifacts)",
         )
         Run.register_arg(
             name="binary",
@@ -390,9 +404,12 @@ class Run:
                             golden_inputs = []
 
                             for i in range(len(program.program["inputs"])):
-                                golden_tensor = bin.fbb.get_debug_info_golden(
-                                    f"input_{i}"
-                                )
+                                golden_tensor = None
+
+                                if not self["--disable-golden"]:
+                                    golden_tensor = bin.fbb.get_debug_info_golden(
+                                        f"input_{i}"
+                                    )
 
                                 if golden_tensor is not None:
 
@@ -448,20 +465,28 @@ class Run:
                                 total_outputs.append(outputs)
 
                             event = None
-                            golden_results_data = {}
-                            if self["--golden"]:
-                                callback_env = ttrt.runtime.DebugHooks.get(
-                                    get_golden_fn(
-                                        GoldenRuntimeConfig(
-                                            self["--atol"],
-                                            self["--rtol"],
-                                            self["--pcc"],
-                                            f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}",
-                                            self["--save-golden-tensors"],
-                                        ),
-                                        golden_results_data,
+                            golden_report = {}
+                            memory_report = []
+
+                            callback_env = ttrt.runtime.DebugHooks.get(
+                                get_callback_fn(
+                                    CallbackRuntimeConfig(
+                                        device,
+                                        f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}",
+                                        self["--pcc"],
+                                        self["--atol"],
+                                        self["--rtol"],
+                                        self["--save-golden-tensors"],
+                                        self.logging,
+                                        not self["--disable-golden"],
+                                        self["--memory"],
+                                        self["--debugger"],
+                                        golden_report,
+                                        memory_report,
                                     )
                                 )
+                            )
+
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -543,18 +568,16 @@ class Run:
                             device.deallocate_buffers()
 
                             # if golden comparison is enabled, check golden results json file to see if test passed
-                            if self["--golden"]:
+                            if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
                                     golden_results_file_path = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
 
                                     with open(
                                         golden_results_file_path, "w"
                                     ) as json_file:
-                                        json.dump(
-                                            golden_results_data, json_file, indent=4
-                                        )
+                                        json.dump(golden_report, json_file, indent=4)
 
-                                for loc, golden_data in golden_results_data.items():
+                                for loc, golden_data in golden_report.items():
                                     if (
                                         golden_data["actual_pcc"]
                                         < golden_data["expected_pcc"]
@@ -562,6 +585,12 @@ class Run:
                                         raise Exception(
                                             f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
                                         )
+
+                            if self["--memory"]:
+                                memory_results_file_path = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
+
+                                with open(memory_results_file_path, "w") as json_file:
+                                    json.dump(memory_report, json_file, indent=4)
 
                     except Exception as e:
                         test_result = {
