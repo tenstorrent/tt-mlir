@@ -278,6 +278,19 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     }];
 }
 
+def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not"> {
+    let summary = "Eltwise bitwise NOT.";
+    let description = [{
+        Performs element-wise NOT of tensor `operand` and produces a `result` tensor.
+
+        Example:
+            // Bitwise operation with with integer tensors
+            // %operand: [[1, 2], [3, 4]]
+            %result = "ttir.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[-2, -3], [-4, -5]]
+    }];
+}
+
 def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate op.";
     let description = [{
@@ -511,6 +524,48 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     let summary = "Eltwise logical xor.";
     let description = [{
       Eltwise logical xor operation.
+    }];
+}
+
+def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and"> {
+    let summary = "Eltwise bitwise AND.";
+    let description = [{
+        Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttir.bitwise_and"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[1, 2], [3, 0]]
+    }];
+}
+
+def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or"> {
+    let summary = "Eltwise bitwise OR.";
+    let description = [{
+        Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttir.bitwise_or"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[5, 6], [7, 12]]
+    }];
+}
+
+def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
+    let summary = "Eltwise bitwise XOR.";
+    let description = [{
+        Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+          // %lhs: [[1, 2], [3, 4]]
+          // %rhs: [[5, 6], [7, 8]]
+          %result = "ttir.bitwise_xor"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+          // %result: [[4, 4], [4, 12]]
     }];
 }
 
