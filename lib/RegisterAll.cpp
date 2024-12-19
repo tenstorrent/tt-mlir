@@ -59,7 +59,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 
 void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   // Both the inliner for TTIRDialect and FuncDialect must be registered
-  // since we use a combination of TTIRDialect and FuncDialect in the IR
+  // since we use a combination of TTIRDialect and FuncDialect in the IR.
   mlir::func::registerInlinerExtension(registry);
 }
 
@@ -76,7 +76,7 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerPasses();
   mlir::tt::ttmetal::registerPasses();
 
-  // Pipeline registration
+  // Register pipelines.
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
   mlir::tt::ttmetal::registerTTMetalPipelines();
