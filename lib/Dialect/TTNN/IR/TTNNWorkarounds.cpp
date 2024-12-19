@@ -57,6 +57,12 @@ WorkaroundResult applyWorkarounds(const TTNNOperandWorkarounds &workaround,
       result.targetTensorMemoryLayoutResult.first !=
       inputLayoutAttr.getMemLayoutOpt();
 
+  result.targetTensorDataTypeResult.first =
+      workaround.tensorDataTypeWorkaround.value_or(
+          inputLayoutAttr.getDataType());
+  result.targetTensorDataTypeResult.second =
+      result.targetTensorDataTypeResult.first != inputLayoutAttr.getDataType();
+
   return result;
 }
 
@@ -70,5 +76,26 @@ TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(Operation *op) {
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(
       tensorInputs, tensorResults);
+}
+
+// Factory method to create a set of workarounds for embedding operation
+// operands. The embedding operation expects the input to be in row-major layout
+// and the weight operand to use the bf16 data type. Since the output of the
+// embedding operation follows the same format as the weight operand, the same
+// workaround is applied to the output operand. Metal issue for input operand
+// workaround: https://github.com/tenstorrent/tt-metal/issues/14915 Metal issue
+// for weight operand workaround: to be added
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
+  // Create input and weight workarounds.
+  TTNNOperandWorkarounds inputWorkaround =
+      TTNNOperandWorkarounds(Layout::RowMajor);
+  TTNNOperandWorkarounds weightWorkaround =
+      TTNNOperandWorkarounds(DataType::BFloat16);
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
+      .addInputOperandWorkaround(inputWorkaround)
+      .addInputOperandWorkaround(weightWorkaround)
+      .addInputOperandWorkaround(weightWorkaround)
+      .addOutputOperandWorkaround(weightWorkaround);
 }
 } // namespace mlir::tt::ttnn::wa

@@ -179,13 +179,6 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds tileLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::Tile);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(tileLayoutWorkaround)
-        .addInputOperandWorkaround(tileLayoutWorkaround)
-        .addOutputOperandWorkaround(tileLayoutWorkaround);
-      }
     }];
 }
 
@@ -574,6 +567,9 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds();
+      }
     }];
 
     let hasVerifier = 1;
@@ -857,14 +853,6 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
                          OptionalAttr<TTNN_LayoutAttr>:$layout,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
-      }
-    }];
 
     let hasVerifier = 1;
 }
