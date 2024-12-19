@@ -103,6 +103,16 @@ void deallocateBuffers(Device deviceHandle) {
   }
 }
 
+void dumpMemoryReport(Device deviceHandle) {
+  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  for (::tt::tt_metal::Device *device : meshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
+  }
+}
+
 void wait(Event event) {
   Events events = event.as<Events>(DeviceRuntime::TTMetal);
   for (auto e : events) {

@@ -6,7 +6,7 @@ import os
 
 from ttrt.common.util import *
 from ttrt.common.query import Query
-from ttrt.common.golden import get_golden_fn, GoldenRuntimeConfig
+from ttrt.common.callback import get_callback_fn, CallbackRuntimeConfig
 
 
 class Run:
@@ -148,11 +148,11 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--golden",
+            name="--disable-golden",
             type=bool,
-            default=True,
+            default=False,
             choices=[True, False],
-            help="run golden comparison for intermediate and output tensors",
+            help="disable golden comparison for intermediate and output tensors",
         )
         Run.register_arg(
             name="--save-golden-tensors",
@@ -160,6 +160,27 @@ class Run:
             default=False,
             choices=[True, False],
             help="save golden and device tensors that are compared during callback runtime",
+        )
+        Run.register_arg(
+            name="--debugger",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="run step debugger after every op execution",
+        )
+        Run.register_arg(
+            name="--memory",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="dump memory reports after every op execution (use in conjunction with --save-artifacts)",
+        )
+        Run.register_arg(
+            name="--check-memory-leak",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="check for memory leaks (use in conjunction with --memory)",
         )
         Run.register_arg(
             name="binary",
@@ -367,6 +388,23 @@ class Run:
             self.logging.debug(f"opening devices={self.query.device_ids}")
             device = ttrt.runtime.open_device(self.query.device_ids)
 
+            callback_runtime_config = CallbackRuntimeConfig(
+                device,
+                "",
+                self["--pcc"],
+                self["--atol"],
+                self["--rtol"],
+                self["--save-golden-tensors"],
+                self.logging,
+                not self["--disable-golden"],
+                self["--memory"],
+                self["--debugger"],
+            )
+
+            callback_env = ttrt.runtime.DebugHooks.get(
+                get_callback_fn(callback_runtime_config)
+            )
+
             try:
                 for bin in binaries:
                     try:
@@ -386,13 +424,20 @@ class Run:
                                 f"evaluating program={program_index} for binary={bin.file_path}"
                             )
 
+                            callback_runtime_config.start_new_callback(
+                                f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                            )
+
                             program = bin.get_program(program_index)
                             golden_inputs = []
 
                             for i in range(len(program.program["inputs"])):
-                                golden_tensor = bin.fbb.get_debug_info_golden(
-                                    f"input_{i}"
-                                )
+                                golden_tensor = None
+
+                                if not self["--disable-golden"]:
+                                    golden_tensor = bin.fbb.get_debug_info_golden(
+                                        f"input_{i}"
+                                    )
 
                                 if golden_tensor is not None:
 
@@ -448,20 +493,7 @@ class Run:
                                 total_outputs.append(outputs)
 
                             event = None
-                            golden_results_data = {}
-                            if self["--golden"]:
-                                callback_env = ttrt.runtime.DebugHooks.get(
-                                    get_golden_fn(
-                                        GoldenRuntimeConfig(
-                                            self["--atol"],
-                                            self["--rtol"],
-                                            self["--pcc"],
-                                            f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}",
-                                            self["--save-golden-tensors"],
-                                        ),
-                                        golden_results_data,
-                                    )
-                                )
+
                             for loop in range(self["--loops"]):
                                 self.logging.debug(
                                     f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
@@ -543,18 +575,16 @@ class Run:
                             device.deallocate_buffers()
 
                             # if golden comparison is enabled, check golden results json file to see if test passed
-                            if self["--golden"]:
+                            if not self["--disable-golden"]:
                                 if self["--save-artifacts"]:
-                                    golden_results_file_path = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
+                                    callback_runtime_config.save_golden_report(
+                                        f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
+                                    )
 
-                                    with open(
-                                        golden_results_file_path, "w"
-                                    ) as json_file:
-                                        json.dump(
-                                            golden_results_data, json_file, indent=4
-                                        )
-
-                                for loc, golden_data in golden_results_data.items():
+                                for (
+                                    loc,
+                                    golden_data,
+                                ) in callback_runtime_config.golden_report.items():
                                     if (
                                         golden_data["actual_pcc"]
                                         < golden_data["expected_pcc"]
@@ -562,6 +592,65 @@ class Run:
                                         raise Exception(
                                             f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
                                         )
+
+                            if self["--memory"]:
+                                if self["--save-artifacts"]:
+                                    callback_runtime_config.save_memory_report(
+                                        f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/memory_results.json"
+                                    )
+
+                                if self["--check-memory-leak"]:
+                                    num_items = 0
+                                    for (
+                                        key,
+                                        value,
+                                    ) in callback_runtime_config.memory_report.items():
+                                        num_items += 1
+
+                                    if num_items == 0:
+                                        self.logging.warning(f"No memory data found")
+                                    else:
+                                        # query initial memory usage
+                                        dram_initial_size = callback_runtime_config.memory_report[
+                                            0
+                                        ][
+                                            "dram"
+                                        ][
+                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
+                                        ]
+                                        l1_initlal_size = callback_runtime_config.memory_report[
+                                            0
+                                        ][
+                                            "l1"
+                                        ][
+                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
+                                        ]
+
+                                        # query final memory usage and ensure no memory leaks
+                                        dram_final_size = callback_runtime_config.memory_report[
+                                            num_items - 1
+                                        ][
+                                            "dram"
+                                        ][
+                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
+                                        ]
+                                        l1_final_size = callback_runtime_config.memory_report[
+                                            num_items - 1
+                                        ][
+                                            "l1"
+                                        ][
+                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
+                                        ]
+
+                                        if dram_final_size > dram_initial_size:
+                                            raise Exception(
+                                                "Memory leak detected in DRAM"
+                                            )
+
+                                        if l1_final_size > l1_initlal_size:
+                                            raise Exception(
+                                                "Memory leak detected in L1 cache"
+                                            )
 
                     except Exception as e:
                         test_result = {
