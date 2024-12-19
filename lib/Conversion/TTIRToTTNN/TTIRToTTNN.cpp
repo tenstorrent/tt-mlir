@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -13,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -243,7 +243,8 @@ private:
     // EmbeddingBackwardOp supports row major layout for the first and second
     // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
+      if (isa<mlir::func::ReturnOp>(user) || isa<ttir::Conv2dOp>(user) ||
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
            (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
