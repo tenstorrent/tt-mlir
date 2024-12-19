@@ -92,7 +92,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
-
     mlir::MLIRContext *context = sourceModule.getContext();
 
     // Gather operand and result types.
@@ -149,30 +148,24 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       opToHoist->getLoc(), localFunc, opToHoist->getOperands());
 
   // Replace all results of the original operation with the call results.
-  for (auto result : llvm::zip(opToHoist->getResults(), callOp.getResults())) {
-    std::get<0>(result).replaceAllUsesWith(std::get<1>(result));
-  }
+  opToHoist->replaceAllUsesWith(callOp);
 
   // Erase the original operation.
   opToHoist->erase();
 }
 
-// An analysis class which relies on manual input locations to mark ops to be
-// hoisted, useful for testing.
-class TTIRHoistAnalyzeManual {
+// An analysis class which currently relies on manually tagging ops with a
+// `should_hoist` attribute, but in the future will also tag fall-back ops, etc.
+class TTIRHoistAnalyze {
 public:
   using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
 
-  TTIRHoistAnalyzeManual(mlir::ModuleOp moduleOp,
-                         const llvm::SmallSet<llvm::StringRef, 4> &targetLocs) {
-
+  TTIRHoistAnalyze(mlir::ModuleOp moduleOp) {
     moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (const auto nameLoc = dyn_cast<NameLoc>(nestedOp->getLoc())) {
-        if (targetLocs.contains(nameLoc.getName().getValue())) {
-          llvm::SmallSet<mlir::Operation *, 4> opSet;
-          opSet.insert(nestedOp);
-          hoistedOps.push_back(opSet);
-        }
+      if (nestedOp->hasAttr("should_hoist")) {
+        llvm::SmallSet<mlir::Operation *, 4> opSet;
+        opSet.insert(nestedOp);
+        hoistedOps.push_back(opSet);
       }
     });
   }
@@ -198,20 +191,8 @@ public:
 
     auto loc = moduleOp->getLoc();
 
-    // TODO (#1629): Add logic for automatic vs manual flag here when we
-    // have automatic analysis pass.
-
-    // Only create cpu-module etc. if we actually have ops to hoist.
-    if (!hoistLocs.hasValue()) {
-      return;
-    }
-    const auto targetLocs = getLocations();
-    if (targetLocs.empty()) {
-      return;
-    }
-
-    TTIRHoistAnalyzeManual analysisPass(moduleOp, targetLocs);
-    const auto &hoistOpSets = analysisPass.getResults();
+    TTIRHoistAnalyze analysisPass(moduleOp);
+    const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
     // Check if a "cpu_module" already exists.
     mlir::ModuleOp cpuModule;
@@ -241,15 +222,6 @@ public:
              "currently don't support hoisting multiple instructions at once!");
       hoistOperationToFunction(*opSet.begin(), moduleOp, cpuModule);
     }
-  }
-
-protected:
-  llvm::SmallSet<llvm::StringRef, 4> getLocations() {
-    llvm::SmallSet<llvm::StringRef, 4> locs;
-    for (const auto &loc : hoistLocs) {
-      locs.insert(loc);
-    }
-    return locs;
   }
 };
 
