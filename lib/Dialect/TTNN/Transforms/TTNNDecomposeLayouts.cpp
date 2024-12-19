@@ -42,6 +42,7 @@ private:
     ttnn::Layout layoutEnum;
     DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
+    GridAttr shardGrid;
     llvm::SmallVector<int64_t> shardShape;
 
     ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
@@ -51,7 +52,9 @@ private:
                                    ttnn::ShapeAttr::get(context, shardShape)),
           tensorMemoryLayout);
     }
-
+    bool isL1Sharded() const {
+      return isShardedMemoryLayout(tensorMemoryLayout.getValue());
+    }
     bool isOnHost() const {
       return bufferType == ttnn::BufferType::SystemMemory;
     }
@@ -115,6 +118,9 @@ private:
     auto inputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
 
+    auto outputLayoutAttr =
+        mlir::cast<TTNNLayoutAttr>(op.getResult().getType().getEncoding());
+
     assert(op.getMemoryConfig().has_value());
     MemoryConfigAttr outputMemoryConfig = op.getMemoryConfig().value();
 
@@ -131,9 +137,12 @@ private:
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
     output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
 
+    input.shardGrid = inputLayoutAttr.getGrid();
+    output.shardGrid = outputLayoutAttr.getGrid();
+
     input.shardShape = inputLayoutAttr.getShardShape();
-    output.shardShape =
-        llvm::SmallVector<int64_t>{outputMemoryConfig.getShardShapeArray()};
+    output.shardShape = outputLayoutAttr.getShardShape();
+
     return {input, output};
   }
 
@@ -168,8 +177,10 @@ private:
            output.bufferType == ttnn::BufferType::L1) or
           (input.bufferType == ttnn::BufferType::L1 and
            output.bufferType == ttnn::BufferType::DRAM);
+      // If shard grids don't match we need to reshard
       opsToCreate.createToMemoryConfigOp |=
-          (input.shardShape != output.shardShape);
+          (input.isL1Sharded() and output.isL1Sharded() and
+           input.shardGrid != output.shardGrid);
     }
     return opsToCreate;
   }

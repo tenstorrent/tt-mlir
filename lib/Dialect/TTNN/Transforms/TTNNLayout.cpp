@@ -20,9 +20,6 @@ namespace mlir::tt::ttnn {
 static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
     {{{0, -1}}};
 
-// Default memory space for tensors on host
-static const BufferType g_defaultMemorySpaceHost = BufferType::SystemMemory;
-
 // Default memory space for tesnors on device
 static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 
@@ -55,7 +52,7 @@ inline Location appendInputSuffix(Location loc, int64_t operandIndex) {
 //
 // Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
 // where ttnn_layout<...> is constructed with default values
-// SystemMemory, MemoryLayout::None, Grid<1x1>
+// Dram, MemoryLayout::Interleaved, Grid<1x1>
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
   TTNNLayoutTensorTypeConverter(MLIRContext *ctx, GridAttr deviceGrid) {
@@ -75,8 +72,10 @@ public:
           g_defaultCollapseDims);
 
       TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
-          ctx, type.getShape(), type.getElementType(), g_defaultMemorySpaceHost,
-          tensorGrid, nullptr /* memLayoutAttr */, collapseDimsRef);
+          ctx, type.getShape(), type.getElementType(),
+          g_defaultMemorySpaceDevice, tensorGrid,
+          TensorMemoryLayoutAttr::get(ctx, g_defaultMemoryLayout),
+          collapseDimsRef);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -306,12 +305,15 @@ public:
 
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
+
+      bool isTiled = !shouldForceRowMajor(op, operand.getOperandNumber());
+
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
           TensorMemoryLayoutAttr::get(rewriter.getContext(),
                                       g_defaultMemoryLayout),
-          true /* isTiled */);
+          isTiled);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -327,6 +329,24 @@ public:
     }
 
     return modified ? success() : failure();
+  }
+
+private:
+  bool shouldForceRowMajor(DestinationStyleOpInterface dpsOp,
+                           int64_t operandNumber) const {
+    // Check if the operand belongs to an op that only supports row major.
+    //
+    // EmbeddingBackwardOp supports row major layout for the first and second
+    // operands.
+    auto operation = dpsOp.getOperation();
+    if (mlir::isa<ttir::Conv2dOp>(operation) ||
+        mlir::isa<ttir::SliceOp>(operation) ||
+        mlir::isa<ttir::EmbeddingOp>(operation) ||
+        (mlir::isa<ttir::EmbeddingBackwardOp>(operation) &&
+         operandNumber < 2)) {
+      return true;
+    }
+    return false;
   }
 };
 
@@ -345,8 +365,10 @@ public:
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       std::optional<Value> layout = createToLayoutOp(
-          rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+          rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
+          TensorMemoryLayoutAttr::get(rewriter.getContext(),
+                                      g_defaultMemoryLayout),
+          false /* tiled */);
       if (layout.has_value()) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });

@@ -133,19 +133,20 @@ def test_create_tensor_memcpy(helper: Helper, shape, dtype, request):
 
 
 def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
-    binary_path = f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/runtime_stitching/Output/eltwise_binary_op_chain.mlir.tmp.ttnn"
+    binary_path = f"{TT_MLIR_HOME}/build/test/ttmlir/Silicon/TTNN/runtime_stitching/Output/eltwise_binary_op_chain.mlir.tmp.ttnn"
     helper.initialize(request.node.name, binary_path)
     helper.check_constraints()
+
     first_program: Binary.Program = helper.binary.get_program(0)
     assert first_program.num_inputs() == 2
     inputs_torch = []
     inputs_runtime = []
     input_layouts = []
-    for i in first_program.program["inputs"]:
+    for i, program_input in enumerate(first_program.program["inputs"]):
         torch_tensor = torch.randn(
-            i["desc"]["shape"],
+            program_input["desc"]["shape"],
             dtype=Binary.Program.from_data_type(
-                i["desc"]["layout"]["memory_desc"]["data_type"]
+                program_input["desc"]["layout"]["memory_desc"]["data_type"]
             ),
         )
         runtime_dtype = Binary.Program.to_data_type(torch_tensor.dtype)
@@ -159,26 +160,12 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
         )
         inputs_runtime.append(runtime_tensor)
         input_layouts.append(
-            ttrt.runtime.testing.get_dram_interleaved_row_major_layout(runtime_dtype)
+            ttrt.runtime.get_layout(
+                executable=helper.binary.fbb, program_index=0, input_index=i
+            )
         )
 
-    activations, weights = inputs_runtime
-    activations_layout, weights_layout = input_layouts
-    with DeviceContext([helper.query.device_ids[0]]) as device:
-        activations = ttrt.runtime.to_layout(activations, device, activations_layout)
-        weights = ttrt.runtime.to_layout(weights, device, weights_layout)
-        program_indices = list(range(helper.binary.get_num_programs()))
-        for program_index in program_indices:
-            program = helper.binary.get_program(program_index)
-            assert program.num_inputs() == 2 and program.num_outputs() == 1
-            outputs = ttrt.runtime.submit(
-                device, helper.binary.fbb, program_index, [activations, weights]
-            )
-            activations = ttrt.runtime.to_layout(outputs[0], device, activations_layout)
-            ttrt.runtime.deallocate_tensor(outputs[0], force=True)
-        activations = ttrt.runtime.to_host(activations, untilize=True)
-        ttrt.runtime.deallocate_tensor(weights, force=True)
-
+    program_indices = list(range(helper.binary.get_num_programs()))
     last_program: Binary.Program = helper.binary.get_program(program_indices[-1])
     torch_result_tensor = torch.randn(
         last_program.program["outputs"][0]["desc"]["shape"],
@@ -188,7 +175,24 @@ def test_runtime_stitching_eltwise_binary_op_chain(helper: Helper, request):
             ]
         ),
     )
-    ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), activations)
+
+    activations, weights = inputs_runtime
+    activations_layout, weights_layout = input_layouts
+    with DeviceContext([helper.query.device_ids[0]]) as device:
+        activations = ttrt.runtime.to_layout(activations, device, activations_layout)
+        weights = ttrt.runtime.to_layout(weights, device, weights_layout)
+        for program_index in program_indices:
+            program = helper.binary.get_program(program_index)
+            assert program.num_inputs() == 2 and program.num_outputs() == 1
+            outputs = ttrt.runtime.submit(
+                device, helper.binary.fbb, program_index, [activations, weights]
+            )
+            activations = ttrt.runtime.to_layout(outputs[0], device, activations_layout)
+            ttrt.runtime.deallocate_tensor(outputs[0])
+        ttrt.runtime.memcpy(torch_result_tensor.data_ptr(), activations)
+        ttrt.runtime.deallocate_tensor(activations, force=True)
+        ttrt.runtime.deallocate_tensor(weights, force=True)
+
     golden = (
         (inputs_torch[0] + inputs_torch[1]).mul(inputs_torch[1]).sub(inputs_torch[1])
     )

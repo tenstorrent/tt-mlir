@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
-
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -13,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -170,6 +170,13 @@ public:
       rewriter.eraseOp(emptyOp);
     }
 
+    assert(mlir::isa<mlir::RankedTensorType>(adaptor.getInput().getType()) &&
+           "Expected RankedTensorType for ToLayoutOp input");
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(adaptor.getInput().getType());
+    auto inputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+
     auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
@@ -186,32 +193,6 @@ public:
     bool isOutputOnHost = (outputBufferType == ttnn::BufferType::SystemMemory);
 
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType());
-    if (!isOutputOnHost) {
-      // TODO(bug #665):
-      // Binary ops fail with row major layout in ttnn, defaulting to and
-      // assuming tile layout for all device tensors...
-      // Note: mlir doesn't know about this, so tensors may still appear as row
-      // major in the generated mlir
-      // TODO(bug #875):
-      // Remove the following code block once constraints modelling is
-      // implemented on dialect level
-      //
-      // Default to Tile layout unless op supports only RowMajor layout
-      //
-      ttnn::Layout newOutputLayoutEnum =
-          shouldForceRowMajor(op) ? ttnn::Layout::RowMajor : ttnn::Layout::Tile;
-
-      // If the layout of the output tensor changed as a result of forcing the
-      // layout update the tensor type
-      if (outputLayoutEnum != newOutputLayoutEnum) {
-        result =
-            getLayoutForcedResultTensor(rewriter, result, newOutputLayoutEnum);
-        op.getResult().setType(result);
-        outputLayoutAttr =
-            mlir::cast<ttnn::TTNNLayoutAttr>(result.getEncoding());
-        outputLayoutEnum = newOutputLayoutEnum;
-      }
-    }
 
     ttnn::LayoutAttr outputLayout =
         ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
@@ -225,6 +206,14 @@ public:
             op.getContext(),
             ttnn::ShapeAttr::get(rewriter.getContext(), outputShardShape)),
         outputLayoutAttr.getMemLayout());
+
+    // after forcing row major, it's possible that the input/output layouts will
+    // be identical in that case, we can just replace the op with the input
+    // tensor
+    if (layoutsIdentical(inputLayoutAttr, outputLayoutAttr)) {
+      rewriter.replaceOp(op, adaptor.getInput());
+      return success();
+    }
 
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
@@ -243,13 +232,13 @@ private:
     // EmbeddingBackwardOp supports row major layout for the first and second
     // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
+      if (isa<mlir::func::ReturnOp>(user) || isa<ttir::Conv2dOp>(user) ||
+          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
            (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
       }
     }
-
     return false;
   }
 
@@ -296,6 +285,25 @@ private:
     }
 
     llvm_unreachable("Unreachable code path. Unexpected output layout enum");
+  }
+
+  bool layoutsIdentical(const ttnn::TTNNLayoutAttr &lhs,
+                        const ttnn::TTNNLayoutAttr &rhs) const {
+    bool identical = true;
+    // check if the data types match
+    identical &= lhs.getDataType() == rhs.getDataType();
+    // check if the buffer types match (system, dram, l1)
+    identical &= lhs.getBufferType() == rhs.getBufferType();
+    // check if the layouts match (row_major vs tile)
+    identical &= lhs.getLayout() == rhs.getLayout();
+    // check if the tensor memory layouts match (sharded, dram interleaved)
+    identical &= lhs.getMemLayout() == rhs.getMemLayout();
+    if (mlir::tt::ttnn::isShardedMemoryLayout(lhs.getMemLayout().getValue()) &&
+        mlir::tt::ttnn::isShardedMemoryLayout(rhs.getMemLayout().getValue())) {
+      // check if the shard shapes match, if not we need to reshard
+      identical &= lhs.getGrid() == rhs.getGrid();
+    }
+    return identical;
   }
 };
 
