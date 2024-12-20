@@ -13,14 +13,6 @@
 namespace mlir::tt::op_model::ttnn {
 
 //===----------------------------------------------------------------------===//
-// Test MLIR<->METAL Conversion functionality; TODO(mbezulj): remove this
-//===----------------------------------------------------------------------===//
-namespace conversion {
-void debug(const ::llvm::ArrayRef<int64_t> shape,
-           const mlir::tt::ttnn::TTNNLayoutAttr &layout);
-}; // namespace conversion
-
-//===----------------------------------------------------------------------===//
 // ReluOp
 //===----------------------------------------------------------------------===//
 
@@ -30,7 +22,8 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
 getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
                  const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+                 const mlir::tt::GridAttr &workerGrid);
 }; // namespace ReluOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -45,7 +38,8 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
                  const llvm::ArrayRef<int64_t> &inputShape_b,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
                  const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+                 const mlir::tt::GridAttr &workerGrid);
 }; // namespace AddOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -58,7 +52,8 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
 getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
                  const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
+                 const mlir::tt::GridAttr &workerGrid);
 }; // namespace SoftmaxOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -74,7 +69,8 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
                  const llvm::ArrayRef<int64_t> &outputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-                 bool transpose_a = false, bool transpose_b = false);
+                 bool transpose_a, bool transpose_b,
+                 const mlir::tt::GridAttr &workerGrid);
 }; // namespace MatmulOpInterface
 
 } // namespace mlir::tt::op_model::ttnn

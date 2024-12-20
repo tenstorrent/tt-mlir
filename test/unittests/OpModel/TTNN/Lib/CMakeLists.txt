@@ -9,6 +9,7 @@ TestOpModelLib.cpp
 target_include_directories(TestOpModelLib
     PUBLIC
     ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/
+    ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
 )
 
 target_link_libraries(TestOpModelLib

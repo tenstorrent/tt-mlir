@@ -2,45 +2,32 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "OpModelFixture.h"
 #include "gtest/gtest.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/MLIRContext.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/IR/BuiltinAttributeInterfaces.h>
-#include <mlir/IR/BuiltinTypes.h>
 
 namespace mlir::tt::op_model::ttnn {
 
-class OpModelBase : public ::testing::Test {
+class OpModelBase : public OpModelFixture {
 public:
-  mlir::MLIRContext context;
-  mlir::OpBuilder builder = mlir::OpBuilder(&context);
-
-  void SetUp() override { context.loadDialect<mlir::tt::ttnn::TTNNDialect>(); }
-  void TearDown() override {}
-
   mlir::tt::ttnn::TTNNLayoutAttr
   CreateLayout(llvm::ArrayRef<int64_t> tensorShape,
                mlir::tt::ttnn::BufferType bufferType,
                mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
-               ArrayRef<int64_t> gridShape = {8, 8}) {
+               ArrayRef<int64_t> virtualGrid = {8, 8}) {
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape, TileType::get(&context, builder.getBF16Type()),
-        bufferType, GridAttr::get(&context, gridShape),
+        bufferType, GridAttr::get(&context, virtualGrid),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                     tensorMemoryLayout));
   }
 };
 
 TEST_F(OpModelBase, ReluInterleaved) {
-
   llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
+  auto workerGrid =
+      CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
@@ -60,7 +47,7 @@ TEST_F(OpModelBase, ReluInterleaved) {
   size_t output_size = 0;
 
   opConstraint = ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram);
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -71,7 +58,7 @@ TEST_F(OpModelBase, ReluInterleaved) {
   EXPECT_EQ(peak_size, 0);
 
   opConstraint = ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1);
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -82,7 +69,7 @@ TEST_F(OpModelBase, ReluInterleaved) {
   EXPECT_EQ(peak_size, 4096);
 
   opConstraint = ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, tensorShape, inputLayout_dram);
+      tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -92,8 +79,8 @@ TEST_F(OpModelBase, ReluInterleaved) {
   EXPECT_EQ(output_size, 0);
   EXPECT_EQ(peak_size, 0);
 
-  opConstraint = ReluOpInterface::getOpConstraints(tensorShape, inputLayout_l1,
-                                                   tensorShape, inputLayout_l1);
+  opConstraint = ReluOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -106,10 +93,14 @@ TEST_F(OpModelBase, ReluInterleaved) {
 
 TEST_F(OpModelBase, ReluSharded) {
   llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
+  auto workerGrid = CreateWorkerGrid(
+      mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
+  auto virtualGrid = GetVirtualGridShape(
+      tensorShape, mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
 
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
-      CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                   mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
+  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs = CreateLayout(
+      tensorShape, mlir::tt::ttnn::BufferType::L1,
+      mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, virtualGrid);
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
@@ -125,7 +116,8 @@ TEST_F(OpModelBase, ReluSharded) {
   size_t output_size = 0;
 
   opConstraint = ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_hs,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -136,17 +128,21 @@ TEST_F(OpModelBase, ReluSharded) {
   EXPECT_EQ(peak_size, tensorShape[0] * tensorShape[1] * 2 / 64);
 
   legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_i));
+      tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_l1_i,
+      workerGrid));
   // Unary operation requires Input and Output memory layout to match.
   EXPECT_EQ(legal, false);
   legal = std::get<0>(ReluOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_i, tensorShape, inputLayout_l1_hs));
+      tensorShape, inputLayout_l1_i, tensorShape, inputLayout_l1_hs,
+      workerGrid));
   // Unary operation requires Input and Output memory layout to match.
   EXPECT_EQ(legal, false);
 }
 
 TEST_F(OpModelBase, SoftmaxInterleaved) {
   llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
+  auto workerGrid =
+      CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
@@ -166,7 +162,8 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
   size_t output_size = 0;
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
   EXPECT_TRUE(l1Usage.has_value());
@@ -177,7 +174,8 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
   EXPECT_EQ(peak_size, 0);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1);
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_l1,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
   EXPECT_TRUE(l1Usage.has_value());
@@ -188,7 +186,8 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
   EXPECT_EQ(peak_size, 4096);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram);
+      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_dram,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
   EXPECT_TRUE(l1Usage.has_value());
@@ -199,7 +198,7 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
   EXPECT_EQ(peak_size, 0);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1);
+      tensorShape, inputLayout_l1, -1, tensorShape, inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_EQ(legal, true);
   EXPECT_TRUE(l1Usage.has_value());
@@ -210,7 +209,8 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
   EXPECT_EQ(peak_size, 4096);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram);
+      tensorShape, inputLayout_dram, -1, tensorShape, inputLayout_dram,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -223,10 +223,15 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
 
 TEST_F(OpModelBase, SoftmaxSharded) {
   llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
+  auto workerGrid = CreateWorkerGrid(
+      mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
 
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
-      CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
-                   mlir::tt::ttnn::TensorMemoryLayout::HeightSharded);
+  auto virtualGrid = GetVirtualGridShape(
+      tensorShape, mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
+
+  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs = CreateLayout(
+      tensorShape, mlir::tt::ttnn::BufferType::L1,
+      mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, virtualGrid);
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
@@ -242,7 +247,8 @@ TEST_F(OpModelBase, SoftmaxSharded) {
   size_t output_size = 0;
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -253,7 +259,8 @@ TEST_F(OpModelBase, SoftmaxSharded) {
   EXPECT_EQ(peak_size, 32768);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i);
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_i,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -264,7 +271,8 @@ TEST_F(OpModelBase, SoftmaxSharded) {
   EXPECT_EQ(peak_size, 38912);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_i, -2, tensorShape, inputLayout_l1_hs,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -275,7 +283,8 @@ TEST_F(OpModelBase, SoftmaxSharded) {
   EXPECT_EQ(peak_size, 32768);
 
   opConstraint = SoftmaxOpInterface::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_hs, -2, tensorShape, inputLayout_l1_hs,
+      workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -288,6 +297,8 @@ TEST_F(OpModelBase, SoftmaxSharded) {
 
 TEST_F(OpModelBase, AddInterleaved) {
   llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
+  auto workerGrid =
+      CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
@@ -308,7 +319,7 @@ TEST_F(OpModelBase, AddInterleaved) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -318,9 +329,9 @@ TEST_F(OpModelBase, AddInterleaved) {
   EXPECT_EQ(peak_size, 0);
   EXPECT_EQ(output_size, 0);
 
-  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_dram,
-                                                  tensorShape, inputLayout_dram,
-                                                  tensorShape, inputLayout_l1);
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
+      inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -332,7 +343,7 @@ TEST_F(OpModelBase, AddInterleaved) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -342,9 +353,9 @@ TEST_F(OpModelBase, AddInterleaved) {
   EXPECT_EQ(peak_size, 0);
   EXPECT_EQ(output_size, 0);
 
-  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_dram,
-                                                  tensorShape, inputLayout_l1,
-                                                  tensorShape, inputLayout_l1);
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
+      inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -356,7 +367,7 @@ TEST_F(OpModelBase, AddInterleaved) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -366,9 +377,9 @@ TEST_F(OpModelBase, AddInterleaved) {
   EXPECT_EQ(peak_size, 0);
   EXPECT_EQ(output_size, 0);
 
-  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_l1,
-                                                  tensorShape, inputLayout_dram,
-                                                  tensorShape, inputLayout_l1);
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
+      inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -380,7 +391,7 @@ TEST_F(OpModelBase, AddInterleaved) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -390,9 +401,9 @@ TEST_F(OpModelBase, AddInterleaved) {
   EXPECT_EQ(peak_size, 0);
   EXPECT_EQ(output_size, 0);
 
-  opConstraint = AddOpInterface::getOpConstraints(tensorShape, inputLayout_l1,
-                                                  tensorShape, inputLayout_l1,
-                                                  tensorShape, inputLayout_l1);
+  opConstraint = AddOpInterface::getOpConstraints(
+      tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
+      inputLayout_l1, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -404,7 +415,7 @@ TEST_F(OpModelBase, AddInterleaved) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -417,6 +428,8 @@ TEST_F(OpModelBase, AddInterleaved) {
 
 TEST_F(OpModelBase, AddSharded) {
   llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
+  auto workerGrid = CreateWorkerGrid(
+      mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
@@ -424,10 +437,6 @@ TEST_F(OpModelBase, AddSharded) {
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-
-  conversion::debug(tensorShape, inputLayout_l1_hs);
-
-  conversion::debug(tensorShape, inputLayout_dram);
 
   std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
              std::optional<std::string>>
@@ -441,7 +450,7 @@ TEST_F(OpModelBase, AddSharded) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
-      tensorShape, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_hs, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -453,7 +462,7 @@ TEST_F(OpModelBase, AddSharded) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1_hs, tensorShape, inputLayout_dram,
-      tensorShape, inputLayout_dram);
+      tensorShape, inputLayout_dram, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -465,7 +474,7 @@ TEST_F(OpModelBase, AddSharded) {
 
   opConstraint = AddOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1_hs);
+      inputLayout_l1_hs, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -478,6 +487,8 @@ TEST_F(OpModelBase, AddSharded) {
 
 TEST_F(OpModelBase, MatmulInterleaved) {
   llvm::ArrayRef<int64_t> tensorShape = {2048, 2048};
+  auto workerGrid =
+      CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
 
   mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
@@ -498,7 +509,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -510,7 +521,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1);
+      inputLayout_l1, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -522,7 +533,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -534,7 +545,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_dram, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_l1);
+      inputLayout_l1, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -546,7 +557,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -558,7 +569,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_dram, tensorShape,
-      inputLayout_l1);
+      inputLayout_l1, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -570,7 +581,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_dram);
+      inputLayout_dram, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -582,7 +593,7 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 
   opConstraint = MatmulOpInterface::getOpConstraints(
       tensorShape, inputLayout_l1, tensorShape, inputLayout_l1, tensorShape,
-      inputLayout_l1);
+      inputLayout_l1, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -596,6 +607,8 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 TEST_F(OpModelBase, MatmulSharded) {
   const llvm::ArrayRef<int64_t> tensorShape = {1024, 1024};
   const SmallVector<int64_t> gridShape = {4, 4};
+  auto workerGrid = CreateWorkerGrid(
+      mlir::tt::ttnn::TensorMemoryLayout::BlockSharded, gridShape);
 
   mlir::tt::ttnn::TTNNLayoutAttr layout_l1_hs =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
@@ -615,9 +628,9 @@ TEST_F(OpModelBase, MatmulSharded) {
   size_t peak_size = 0;
   size_t output_size = 0;
 
-  opConstraint = MatmulOpInterface::getOpConstraints(tensorShape, layout_l1_hs,
-                                                     tensorShape, layout_dram,
-                                                     tensorShape, layout_l1_hs);
+  opConstraint = MatmulOpInterface::getOpConstraints(
+      tensorShape, layout_l1_hs, tensorShape, layout_dram, tensorShape,
+      layout_l1_hs, false, false, workerGrid);
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -629,7 +642,7 @@ TEST_F(OpModelBase, MatmulSharded) {
 
   opConstraint = (MatmulOpInterface::getOpConstraints(
       tensorShape, layout_l1_hs, tensorShape, layout_dram, tensorShape,
-      layout_dram));
+      layout_dram, false, false, workerGrid));
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
@@ -641,7 +654,7 @@ TEST_F(OpModelBase, MatmulSharded) {
 
   opConstraint = (MatmulOpInterface::getOpConstraints(
       tensorShape, layout_dram, tensorShape, layout_dram, tensorShape,
-      layout_l1_hs));
+      layout_l1_hs, false, false, workerGrid));
   std::tie(legal, l1Usage, errorMsg) = opConstraint;
   EXPECT_TRUE(legal);
   EXPECT_TRUE(l1Usage.has_value());
