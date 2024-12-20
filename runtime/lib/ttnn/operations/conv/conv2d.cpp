@@ -9,6 +9,7 @@
 #include "tt/runtime/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/types.hpp"
+#include <ttnn/operations/core/compute_kernel/compute_kernel_config.hpp>
 
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
@@ -26,7 +27,8 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   config.weights_dtype = utils::getDataType(op->weight());
 
   // Use defaults for now, until compiler drives this.
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig =
+      ::ttnn::WormholeComputeKernelConfig();
 
   ::ttnn::MemoryConfig outMemConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
