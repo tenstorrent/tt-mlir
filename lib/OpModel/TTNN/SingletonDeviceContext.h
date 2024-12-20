@@ -4,6 +4,7 @@
 
 #ifndef TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 #define TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
+#ifdef TTMLIR_ENABLE_OPMODEL
 
 #include <cstddef>
 
@@ -41,4 +42,5 @@ private:
 };
 } // namespace mlir::tt::op_model::ttnn
 
+#endif // TTMLIR_ENABLE_OPMODEL
 #endif // TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
