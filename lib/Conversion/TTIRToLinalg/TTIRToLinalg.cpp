@@ -30,7 +30,7 @@ static LogicalResult computeBroadcastedShape(SmallVector<Value, 3> inputs,
                                              TensorRanks &broadcastedShape) {
   broadcastedShape.clear();
 
-  // First find the maximum rank
+  // Find the maximum rank of all inputs.
   int64_t maxRank = 0;
   for (Value input : inputs) {
     auto type = dyn_cast<RankedTensorType>(input.getType());
@@ -40,7 +40,7 @@ static LogicalResult computeBroadcastedShape(SmallVector<Value, 3> inputs,
     maxRank = std::max(maxRank, type.getRank());
   }
 
-  // Initialize broadcastedShape to the right size, one-filled.
+  // Initialize broadcastedShape to the correct size, one-filled.
   broadcastedShape = TensorRanks(maxRank, 1);
 
   // From right-to-left, replace target dim with any non-1 values we encounter
@@ -50,7 +50,6 @@ static LogicalResult computeBroadcastedShape(SmallVector<Value, 3> inputs,
     const ArrayRef<int64_t> shape = type.getShape();
 
     for (int64_t i = 0; i < maxRank; ++i) {
-      // Work from right to left
       size_t rightIdx = maxRank - 1 - i;
       size_t inputRightIdx = shape.size() - 1 - i;
 
@@ -76,36 +75,28 @@ static void getDimsToBroadcastAndCollapse(
   broadcastDims.clear();
   reassocIndices.clear();
 
-  // Identify what needs broadcasting, aligning from right
+  // Right to left, find all dimensions we want to broadcast along.
   int targetIdx = targetShape.size() - 1;
   int inputIdx = inputShape.size() - 1;
-
   while (targetIdx >= 0) {
     if (inputIdx >= 0) {
-      llvm::outs() << inputShape[inputIdx] << " vs " << targetShape[targetIdx]
-                   << "\n";
       // This should be impossible since we verify input while computing
       // targetShape.
       assert(
           (inputShape[inputIdx] == targetShape[targetIdx] ||
            inputShape[inputIdx] == 1) &&
           "attempting to broadcast shape which does not broadcast to target!");
+      // If input has rank=1 and target has rank != 1, we should broadcast.
       if (inputShape[inputIdx] == 1 && targetShape[targetIdx] != 1) {
         broadcastDims.push_back(inputIdx);
       }
       inputIdx--;
     } else {
-      // Input exhausted, we need to broadcast remaining dimensions.
+      // If input has lower rank than target, we unsqueeze until ranks align.
       broadcastDims.push_back(targetIdx);
     }
     targetIdx--;
   }
-
-  llvm::outs() << "Found dims to broadcast: ";
-  for (const auto dim : broadcastDims) {
-    llvm::outs() << dim << " ";
-  }
-  llvm::outs() << "\n";
 
   // Group non-broadcast dimensions together for collapse.
   TensorRanks currentGroup;
@@ -125,7 +116,6 @@ static void getDimsToBroadcastAndCollapse(
     }
     currentGroup.push_back(i);
   }
-
   // Add any remaining dimensions in the current group.
   if (!currentGroup.empty()) {
     reassocIndices.push_back(currentGroup);
@@ -145,17 +135,10 @@ public:
 
     // First, compute broadcasted shape from operands.
     SmallVector<Value, 3> inputs = adaptor.getInputs();
-    llvm::outs() << "wtf\n";
     TensorRanks broadcastedShape;
     if (failed(computeBroadcastedShape(inputs, broadcastedShape))) {
       return rewriter.notifyMatchFailure(op, "Operands are not broadcastable");
     }
-
-    llvm::outs() << "target rank = [";
-    for (const auto rank : broadcastedShape) {
-      llvm::outs() << rank << " ";
-    }
-    llvm::outs() << "]\n";
 
     // Replace any inputs which aren't in target shape with broadcast results
     // which are.
