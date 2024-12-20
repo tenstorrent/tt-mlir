@@ -6,6 +6,7 @@
 #include "OpModelFixture.h"
 
 #include "gtest/gtest.h"
+#include <llvm/ADT/SmallVector.h>
 
 class MlirToTtnnConversion : public OpModelFixture {};
 
@@ -140,17 +141,17 @@ INSTANTIATE_TEST_SUITE_P(
 // getPageLayout
 //================================================================================
 TEST_F(MlirToTtnnConversion, PageLayout) {
-  llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
+  llvm::SmallVector<int64_t> tensorShape = {16 * 64 * 32, 32};
 
   mlir::tt::ttnn::TTNNLayoutAttr tiledLayout =
-      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+      CreateTiledLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
   EXPECT_EQ(mlir::tt::op_model::ttnn::conversion::getPageLayout(tiledLayout),
             ::tt::tt_metal::Layout::TILE);
 
   mlir::tt::ttnn::TTNNLayoutAttr rowLayout =
-      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
+      CreateRowMajorLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                            mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
   EXPECT_EQ(mlir::tt::op_model::ttnn::conversion::getPageLayout(rowLayout),
             ::tt::tt_metal::Layout::ROW_MAJOR);
@@ -455,7 +456,7 @@ INSTANTIATE_TEST_SUITE_P(
 // getTensorLayout
 //================================================================================
 TEST_F(MlirToTtnnConversion, TensorLayout) {
-  const llvm::ArrayRef<int64_t> tensorShape = {4096, 2048};
+  const llvm::SmallVector<int64_t> tensorShape = {4096, 2048};
   // test tilized layout
   {
     const auto layout =
@@ -492,7 +493,7 @@ TEST_F(MlirToTtnnConversion, TensorLayout) {
 // getTensorSpec
 //================================================================================
 TEST_F(MlirToTtnnConversion, TensorSpec) {
-  const llvm::ArrayRef<int64_t> tensorShape = {4096, 2048};
+  const llvm::SmallVector<int64_t> tensorShape = {4096, 2048};
   // test tilized layout
   {
     const auto layout =

@@ -86,7 +86,7 @@ public:
 
 TEST_F(OpModelBase, ReluInterface) {
   // create ReluOp
-  llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorType =
       RankedTensorType::get(tensorShape, elementType);
@@ -122,7 +122,7 @@ TEST_F(OpModelBase, ReluInterface) {
 }
 TEST_F(OpModelBase, SoftmaxInterface) {
   // create SoftmaxOp
-  llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorType =
       RankedTensorType::get(tensorShape, elementType);
@@ -159,7 +159,7 @@ TEST_F(OpModelBase, SoftmaxInterface) {
 
 TEST_F(OpModelBase, AddInterface) {
   // create AddOp
-  llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorType =
       RankedTensorType::get(tensorShape, elementType);
@@ -199,9 +199,9 @@ TEST_F(OpModelBase, AddInterface) {
 
 TEST_F(OpModelBase, MatmulInterface) {
   // create MatmulOp
-  llvm::ArrayRef<int64_t> tensorShapeA = {2048, 1024};
-  llvm::ArrayRef<int64_t> tensorShapeB = {1024, 2048};
-  llvm::ArrayRef<int64_t> tensorShapeO = {2048, 2048};
+  llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
+  llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
+  llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorTypeA =
       RankedTensorType::get(tensorShapeA, elementType);
