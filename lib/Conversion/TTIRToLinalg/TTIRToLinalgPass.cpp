@@ -39,14 +39,12 @@ struct ConvertTTIRToLinalgPass
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     TypeConverter typeConverter;
-    // All types map 1:1.
+    // All types should map 1:1.
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
 
-    // Apply full conversion
-    //
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
