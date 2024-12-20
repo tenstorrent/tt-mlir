@@ -10,6 +10,8 @@
 
 namespace mlir::tt::ttnn_to_emitc::utils {
 
+// Returns the closest parent module of the given operation
+//
 mlir::ModuleOp getParentModule(mlir::Operation *op) {
   while (op) {
     if (auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op)) {
@@ -20,6 +22,9 @@ mlir::ModuleOp getParentModule(mlir::Operation *op) {
   return nullptr;
 }
 
+// The func::FuncOp is inserted by creating an emitc::VerbatimOp with the
+// function definition and inserting it at the start of the module.
+//
 bool insertVecCreateFnIfNotExists(PatternRewriter &rewriter, Operation *op) {
   ModuleOp moduleOp = getParentModule(op);
   assert(op && "Could not find top-level module");
