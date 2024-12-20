@@ -31,8 +31,8 @@ bool insertVecCreateFnIfNotExists(PatternRewriter &rewriter, Operation *op) {
 
   static constexpr const char *vecCreateFnAsStr = R"(
 template <typename... T>
-std::vector<ttnn::Tensor> utilCreateVec(const T &&...t) {
-  return std::vector<ttnn::Tensor>{std::forward(t)...};
+std::vector<ttnn::Tensor> utilCreateVec(T &&...t) {
+  return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
 }
 )";
 
