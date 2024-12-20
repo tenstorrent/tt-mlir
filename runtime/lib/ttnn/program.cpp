@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/mesh_shard.h"
+#include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/creation/arange.h"
@@ -227,6 +229,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::ReduceScatterOp: {
+    return operations::ccl::run(op->type_as_ReduceScatterOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::MeshShardOp: {
+    return operations::ccl::run(op->type_as_MeshShardOp(), context);
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), context);

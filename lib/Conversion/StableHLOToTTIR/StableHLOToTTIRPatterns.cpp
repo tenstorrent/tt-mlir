@@ -1058,16 +1058,16 @@ public:
       }
     }
 
-    // Algorithm here is to search for the first non-one working dimension
+    // Algorithm: search for first non-one working dimension from back
     auto replicaGroupsShape = adaptor.getReplicaGroups().getType().getShape();
-    size_t dim = 0;
-    for (auto s : replicaGroupsShape) {
-      if (s != 1) {
+    size_t dim = replicaGroupsShape.size() - 1;
+    for (auto s = replicaGroupsShape.rbegin(); s != replicaGroupsShape.rend();
+         ++s, --dim) {
+      if (*s != 1) {
         break;
       }
-      ++dim;
     }
-    if (dim > replicaGroupsShape.size()) {
+    if (dim < 0) {
       // all one shape, then select the fastest dim
       dim = replicaGroupsShape.size();
     }
