@@ -392,6 +392,81 @@ public:
   }
 };
 
+//
+// Introduce a workaround to add Typecast instructions for some operations
+// that only support certain data types. Two Typecast instructions are added,
+// one before and one after the target operation to convert to and from
+// FLOAT32 data type.
+class TTNNTypecastWorkarounds : public RewritePattern {
+public:
+  TTNNTypecastWorkarounds(MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+
+    // Added support for ReshapeOp only, the list will be expanded to several
+    // ops.
+    if (!isa<ttnn::ReshapeOp>(op)) {
+      return failure();
+    }
+
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+
+    // Skip if the inputs are already in a supported type.
+    if (inputType.getElementType().isBF16() ||
+        inputType.getElementType().isF32()) {
+      return failure();
+    }
+
+    ttnn::ReshapeOp origReshape = dyn_cast<ttnn::ReshapeOp>(op);
+
+    // The remainder of the types require a typecastOp before and after the
+    // actual operation
+    DataTypeAttr toDtypeAttr =
+        DataTypeAttr::get(op->getContext(), DataType::Float32);
+
+    auto origType = origReshape.getType();
+    auto origElementType = origReshape.getInput().getType().getElementType();
+
+    // Get the input operand type.
+    auto layoutOp =
+        dyn_cast<ttnn::ToLayoutOp>(origReshape.getInput().getDefiningOp());
+    auto toEncoding = RankedTensorType::get(layoutOp.getType().getShape(),
+                                            Float32Type::get(op->getContext()),
+                                            layoutOp.getType().getEncoding());
+
+    rewriter.setInsertionPoint(op);
+    ttnn::TypecastOp toType = rewriter.create<ttnn::TypecastOp>(
+        op->getLoc(), toEncoding, op->getOperand(0), toDtypeAttr);
+
+    auto resultType = RankedTensorType::get(
+        origReshape.getType().getShape(), Float32Type::get(op->getContext()),
+        origReshape.getType().getEncoding());
+
+    ttnn::ReshapeOp reshape = rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, resultType, toType.getResult(), origReshape.getShape());
+
+    DataTypeAttr fromDtypeAttr = DataTypeAttr::get(
+        reshape->getContext(), elementTypeToDataType(origElementType));
+
+    rewriter.setInsertionPointAfter(reshape);
+    ttnn::TypecastOp fromType = rewriter.create<ttnn::TypecastOp>(
+        reshape->getLoc(), origType, reshape->getResult(0), fromDtypeAttr);
+
+    auto replaceIfFn = [&](OpOperand &use) {
+      if (use.getOwner() == fromType) {
+        return false;
+      }
+      return true;
+    };
+
+    rewriter.replaceOpUsesWithIf(reshape, fromType.getResult(), replaceIfFn);
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -400,13 +475,16 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       // Placeholder for workaround decomposition patterns.
-      RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNAllReduceWorkarounds>(&getContext());
 
-      FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;
-      config.maxIterations = GreedyRewriteConfig::kNoLimit;
+      config.maxIterations = 1;
+
+      RewritePatternSet patterns(&getContext());
+      patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      patterns.add<TTNNTypecastWorkarounds>(&getContext());
+
+      FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
                                               config))) {
         signalPassFailure();
