@@ -27,6 +27,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <cstdint>
+#include <vector>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -321,8 +322,42 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, adaptor.getInputs(),
-                                          adaptor.getOutputs());
+    if (mlir::isa<ttir::DivOp>(op)) {
+      ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(op.getInputs()[1].getType())
+              .getEncoding());
+      auto shapeAttr = ttnn::ShapeAttr::get(
+          rewriter.getContext(),
+          mlir::cast<RankedTensorType>(adaptor.getInputs()[1].getType())
+              .getShape());
+
+      DataTypeAttr dTypeAttr =
+          DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+      auto ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      if (layoutAttr.isTiled()) {
+        ttnnLayoutEnum = ttnn::Layout::Tile;
+      } else {
+        ttnnLayoutEnum = ttnn::Layout::RowMajor;
+      }
+
+      ttnn::LayoutAttr tensorLayoutAttr =
+          ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+      auto recipDPS = rewriter.create<ttnn::EmptyOp>(
+          op.getLoc(), adaptor.getInputs()[1].getType(), nullptr, shapeAttr,
+          dTypeAttr, tensorLayoutAttr, nullptr);
+      auto recip = rewriter.create<ttnn::ReciprocalOp>(
+          op.getLoc(), adaptor.getInputs()[1].getType(), adaptor.getInputs()[1],
+          recipDPS.getResult());
+
+      std::vector<Value> inputs = {adaptor.getInputs()[0], recip.getResult(0)};
+      rewriter.replaceOpWithNewOp<ttnn::MultiplyOp>(
+          op, resultTypes, ValueRange(ArrayRef(inputs)), adaptor.getOutputs());
+    } else {
+      rewriter.replaceOpWithNewOp<TTNNOpTy>(
+          op, resultTypes, adaptor.getInputs(), adaptor.getOutputs());
+    }
+
     return success();
   }
 };
