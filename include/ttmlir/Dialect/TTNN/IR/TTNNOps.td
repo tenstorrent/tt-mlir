@@ -581,6 +581,8 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_SumOp : TTNN_ReductionOp<"sum"> {

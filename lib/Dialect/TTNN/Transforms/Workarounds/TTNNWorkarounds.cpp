@@ -401,40 +401,50 @@ public:
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<
-          TTNNAllReduceWorkarounds,
-          workarounds::decomposition::ReduceOpsRewritePattern<ttnn::SumOp>,
-          workarounds::decomposition::ReduceOpsRewritePattern<ttnn::MaxOp>,
-          workarounds::decomposition::ReduceOpsRewritePattern<ttnn::MeanOp>>(
-          &getContext());
+      patterns.add<TTNNAllReduceWorkarounds,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::SumOp>,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::MaxOp>,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::MeanOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::SumOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::MaxOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::MeanOp>>(&getContext());
 
-      runRewritePatterns(std::move(patterns));
+      runRewritePatterns(std::move(patterns),
+                         GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
     if (layouotWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 
-      runRewritePatterns(std::move(patterns));
+      // All layout workarounds should be applied during the first iteration. If
+      // the workarounds are not applied in the first iteration, it indicates a
+      // bug in the workarounds implementation. Although the workarounds are
+      // applied in the first iteration, the rewriter must iterate through the
+      // IR once more to confirm that the fixpoint is reached. If the fixpoint
+      // is not reached in the second iteration, it indicates a bug in the
+      // workarounds implementation.
+      const int64_t maxIterations = 2;
+      runRewritePatterns(std::move(patterns), maxIterations);
     }
   }
 
 private:
-  void runRewritePatterns(RewritePatternSet &&patterns) {
+  // Runs rewrite patterns with specified maximum number of iterations the
+  // rewriter will perform on the IR. The rewriter will iterate through the IR
+  // until a fixpoint is reached.
+  void runRewritePatterns(RewritePatternSet &&patterns, int64_t maxIterations) {
     FrozenRewritePatternSet patternSet(std::move(patterns));
     GreedyRewriteConfig config = GreedyRewriteConfig();
+    config.maxIterations = maxIterations;
     // This configuration specifies that the rewriter should traverse the IR
     // in a top-down order.
     config.useTopDownTraversal = true;
-    // This configuration specifies the maximum number of iterations the
-    // rewriter will perform on the IR. The rewriter will iterate through the
-    // IR until a fixpoint is reached. All workarounds should be applied
-    // during the first iteration. If the workarounds are not applied in the
-    // first iteration, it indicates a bug in the workarounds implementation.
-    // Although the workarounds are applied in the first iteration, the
-    // rewriter must iterate through the IR once more to confirm that the
-    // fixpoint is reached. If the fixpoint is not reached in the second
-    // iteration, it indicates a bug in the workarounds implementation.
-    config.maxIterations = 2;
     if (failed(
             applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
       signalPassFailure();

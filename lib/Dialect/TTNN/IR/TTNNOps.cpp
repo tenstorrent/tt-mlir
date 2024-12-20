@@ -1310,4 +1310,52 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// Reduction ops
+//===----------------------------------------------------------------------===//
+
+// Common verifier for all Reduction ops.
+static mlir::LogicalResult
+verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
+               const std::optional<mlir::ArrayAttr> &reduceDims) {
+  int64_t inputTensorRank = inputType.getRank();
+
+  // TODO(mrakita): Only last two dimensions can be reduced, check for that
+  // too.
+  if (reduceDims && reduceDims->size() > 2 &&
+      static_cast<int64_t>(reduceDims->size()) != inputTensorRank) {
+    return reduceOp->emitOpError("Reduce on more than two dimensions is not "
+                                 "currently supported by TTNN");
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// MaxOp
+//===----------------------------------------------------------------------===//
+
+// MaxOp verification.
+::mlir::LogicalResult MaxOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// MeanOp
+//===----------------------------------------------------------------------===//
+
+// MeanOp verification.
+::mlir::LogicalResult MeanOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// SumOp
+//===----------------------------------------------------------------------===//
+
+// SumOp verification.
+::mlir::LogicalResult SumOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
 } // namespace mlir::tt::ttnn

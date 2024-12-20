@@ -35,15 +35,14 @@ mlir::ArrayAttr
 createNewReduceDimArg(RankedTensorType inputType,
                       const std::optional<mlir::ArrayAttr> &dimArg);
 
-// This workaround addresses next two Metal issues:
-// - https://github.com/tenstorrent/tt-metal/issues/13361
-// - https://github.com/tenstorrent/tt-metal/issues/16118
+// This workaround addresses the next Metal issue:
+// https://github.com/tenstorrent/tt-metal/issues/13361
 //
 // TODO(mrakita): Remove this workaround once these Metal issues are fixed
 // (tracked by https://github.com/tenstorrent/tt-mlir/issues/1624).
 //
 template <typename ReduceOp>
-class ReduceOpsRewritePattern : public OpRewritePattern<ReduceOp> {
+class ReduceOpsKeepDimRewritePattern : public OpRewritePattern<ReduceOp> {
 public:
   using OpRewritePattern<ReduceOp>::OpRewritePattern;
 
@@ -81,8 +80,12 @@ private:
     llvm::SmallVector<int64_t> outputShapeVec =
         calculateNewReduceShape(inputType, srcOp.getDimArg());
 
+    TTNNLayoutAttr newOutputLayoutAttr =
+        mlir::cast<TTNNLayoutAttr>(outputType.getEncoding())
+            .withTensorShape(rewriter.getContext(), outputShapeVec);
+
     RankedTensorType newOutputType = RankedTensorType::get(
-        outputShapeVec, inputType.getElementType(), inputType.getEncoding());
+        outputShapeVec, outputType.getElementType(), newOutputLayoutAttr);
 
     return rewriter.create<ReduceOp>(
         srcOp.getLoc(), newOutputType, srcOp.getInput(), true /*keep_dim*/,
@@ -97,6 +100,32 @@ private:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
         srcOp, outputType, newReduceOp, shapeAttr);
+  }
+};
+
+// This workaround addresses the next Metal issue:
+// https://github.com/tenstorrent/tt-metal/issues/16118
+//
+// TODO(mrakita): Remove this workaround once these Metal issues are fixed
+// (tracked by https://github.com/tenstorrent/tt-mlir/issues/1624).
+//
+template <typename ReduceOp>
+class ReduceOpsAllDimsRewritePattern : public OpRewritePattern<ReduceOp> {
+public:
+  using OpRewritePattern<ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ReduceOp srcOp,
+                                PatternRewriter &rewriter) const override {
+    if (!srcOp.getDimArg() || srcOp.getDimArg()->empty()) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ReduceOp>(
+        srcOp, srcOp.getResult().getType(), srcOp.getInput(),
+        srcOp.getKeepDim(),
+        createNewReduceDimArg(srcOp.getInput().getType(), srcOp.getDimArg()));
+
+    return success();
   }
 };
 
