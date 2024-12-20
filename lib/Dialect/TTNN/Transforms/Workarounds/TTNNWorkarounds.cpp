@@ -418,7 +418,7 @@ public:
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
-    if (layouotWorkaroundsEnabled) {
+    if (layoutWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 

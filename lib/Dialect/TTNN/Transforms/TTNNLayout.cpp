@@ -275,7 +275,8 @@ public:
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
     // To layout op is a special case, we don't want to rewrite it
-    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation())) {
+    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation()) ||
+        mlir::isa<ttir::MeshShardOp>(op.getOperation())) {
       return failure();
     }
 
@@ -330,15 +331,15 @@ public:
   }
 };
 
-// Updates the layout of the operands of a func::ReturnOp.
-// The intent is to move the result to host.
-class TTNNLayoutFuncReturnRewriter
-    : public OpRewritePattern<mlir::func::ReturnOp> {
+// Updates the layout of the operands of the SrcOp such that
+// the operands reside in host memory.
+template <typename SrcOp>
+class TTNNLayoutForceSystemMemory : public OpRewritePattern<SrcOp> {
 public:
-  TTNNLayoutFuncReturnRewriter(MLIRContext *ctx)
-      : OpRewritePattern<mlir::func::ReturnOp>(ctx) {}
+  TTNNLayoutForceSystemMemory(MLIRContext *ctx)
+      : OpRewritePattern<SrcOp>(ctx) {}
 
-  LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
+  LogicalResult matchAndRewrite(SrcOp op,
                                 PatternRewriter &rewriter) const final {
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
@@ -355,8 +356,6 @@ public:
     }
     return modified ? success() : failure();
   }
-
-private:
 };
 
 class TTNNLayout : public impl::TTNNLayoutBase<TTNNLayout> {
@@ -389,7 +388,10 @@ public:
       patterns.add<TTNNLayoutDPSOperandsRewriter>(&getContext());
       // Takes func::Return op and sets layout which will
       // move it's operands to host
-      patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
+      patterns.add<TTNNLayoutForceSystemMemory<ttir::MeshShardOp>>(
+          &getContext());
+      patterns.add<TTNNLayoutForceSystemMemory<mlir::func::ReturnOp>>(
+          &getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       GreedyRewriteConfig config = GreedyRewriteConfig();
       config.useTopDownTraversal = true;

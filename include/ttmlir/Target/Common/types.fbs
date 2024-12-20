@@ -74,6 +74,18 @@ enum BufferType: ushort {
   Trace,
 }
 
+enum MeshShardDirection: uint32 {
+  FullToShardShape,
+  ShardToFullShape,
+}
+
+enum MeshShardType: uint32 {
+  Manual,
+  Replicate,
+  Maximal,
+  Devices,
+}
+
 // TODO (#620): Add other fields like core_ranges, shard orientation etc.
 table ShardSpec {
   shard_shape: [int64];
