@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "permute.h"
+#include "operations/data_movement/permute.h"
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
