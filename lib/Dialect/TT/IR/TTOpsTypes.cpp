@@ -71,10 +71,10 @@ mlir::tt::SystemDescAttr::getDefault(MLIRContext *context) {
   // populate a placeholder for supported tile sizes
   SmallVector<tt::TileSizeAttr> supported_tile_sizes;
   supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 4, 16));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 16));
-  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 16));
   supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 4, 32));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 16));
   supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 16, 32));
+  supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 16));
   supported_tile_sizes.push_back(tt::TileSizeAttr::get(context, 32, 32));
 
   SmallVector<CoreCoordAttr> workerCores;

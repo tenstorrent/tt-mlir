@@ -1386,6 +1386,24 @@ def TTIR_PackOp : TTIR_Op<"pack", []> {
     //let results = (outs AnyVector:$result);
 }
 
+def TTIR_TileMaximumOp : TTIR_Op<"tile_maximum", []> {
+    let summary = "Tile Maximum.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyType:$a, AnyType:$b);
+    let results = (outs AnyType:$result);
+}
+
+def TTIR_TileMaxOp : TTIR_Op<"tile_max", []> {
+    let summary = "Tile Max.";
+    let description = [{
+    }];
+
+    let arguments = (ins AnyType:$a);
+    let results = (outs AnyType:$result);
+}
+
 def TTIR_YieldOp : TTIR_Op<"yield", [Pure, ReturnLike, Terminator]> {
     let summary = "Yield op.";
     let description = [{

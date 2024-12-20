@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
@@ -1597,15 +1598,25 @@ static void buildGenericEltwiseBinaryRegion(::mlir::Location loc,
   auto lhs = block->getArgument(0);
   auto rhs = block->getArgument(1);
   auto out = block->getArgument(2);
-  lhs.dump();
-  assert(mlir::isa<mlir::MemRefType>(lhs.getType()) &&
-         "Binary op block expects memref arguments.");
-  assert(mlir::isa<mlir::MemRefType>(rhs.getType()) &&
-         "Binary op block expects memref arguments.");
-  assert(mlir::isa<mlir::MemRefType>(out.getType()) &&
-         "Binary op block expects memref arguments.");
-  auto result = opBuilder.create<OpTy>(loc, lhs, rhs);
-  opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
+
+  using IteratorType = mlir::utils::IteratorType;
+  auto parallel = IteratorType::parallel;
+  auto parMap =
+      mlir::AffineMap::getMultiDimIdentityMap(2, opBuilder.getContext());
+  mlir::SmallVector<IteratorType> genericIterators = {parallel, parallel};
+  mlir::SmallVector<mlir::AffineMap> parMaps = {parMap, parMap, parMap};
+  auto linalgGeneric = opBuilder.create<mlir::linalg::GenericOp>(
+      loc, out.getType(), mlir::ValueRange({lhs, rhs}), mlir::ValueRange({out}),
+      parMaps, genericIterators,
+      [&](mlir::OpBuilder &nestedBuilder, mlir::Location nestedLoc,
+          mlir::ValueRange args) {
+        mlir::Value result = nestedBuilder.create<OpTy>(loc, args[0].getType(),
+                                                        args[0], args[1]);
+        nestedBuilder.create<mlir::linalg::YieldOp>(nestedLoc, result);
+      });
+  linalgGeneric.dump();
+  opBuilder.create<mlir::tt::ttir::YieldOp>(
+      loc, mlir::ValueRange({linalgGeneric->getResult(0)}));
 }
 
 // Build a generic region for a unary elementwise operation.
@@ -1624,13 +1635,14 @@ static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
 // AddOp generic region builder
 void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
+  buildGenericEltwiseBinaryRegion<ttir::TileMaximumOp>(getLoc(), opBuilder,
+                                                       block);
 }
 
 // MultiplyOp generic region builder
 void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
     ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
+  buildGenericEltwiseBinaryRegion<ttir::TileMaximumOp>(getLoc(), opBuilder, block);
 }
 
 // ExpOp generic region builder
@@ -1642,15 +1654,15 @@ void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // DivOp generic region builder
 void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
-  return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
+  return buildGenericEltwiseBinaryRegion<ttir::TileMaximumOp>(getLoc(), opBuilder,
                                                         block);
 }
 
 // MaximumOp generic region builder
 void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                    ::mlir::Block *block) {
-  buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
-                                                     block);
+  buildGenericEltwiseBinaryRegion<ttir::TileMaximumOp>(getLoc(), opBuilder,
+                                                       block);
 }
 
 //===----------------------------------------------------------------------===//
