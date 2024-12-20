@@ -26,12 +26,26 @@ LogicalResult convertTTKernelRegionToEmitC(
 // Converts given region to EmitC dialect and translates it to C++ code.
 LogicalResult
 emitOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::KernelConfigInterface &kernelConfig);
+                          const ttkernel::ThreadType &threadType);
+
+LogicalResult
+emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
+                          const ttkernel::ThreadType &threadType);
 
 // Converts dispatch op's regions to C++ code.
 LogicalResult
 emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
                            llvm::SmallVector<std::string> &cppStrings);
+
+
+LogicalResult
+emitNocKernelAsCpp( mlir::ModuleOp op, llvm::raw_ostream &os);
+
+LogicalResult
+emitTensixKernelAsCpp( mlir::ModuleOp op, llvm::raw_ostream &os);
+
+LogicalResult
+emitKernelAsCpp( mlir::ModuleOp op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType);
 
 } // namespace mlir::tt
 
