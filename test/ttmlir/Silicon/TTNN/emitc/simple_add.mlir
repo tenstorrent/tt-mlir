@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// RUN: ttmlir-opt --convert-ttnn-to-emitc %t.mlir > %emitc.mlir
+// RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %emitc.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %emitc.mlir --allow-unregistered-dialect > %emitted.cpp
 // RUN: cat %emitted.cpp >| /localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/ttnn-dylib.cpp
 // RUN: ttrt run %t.ttnn --emitc-dylib /localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/build/libttnn-dylib.so --init ones
