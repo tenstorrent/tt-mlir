@@ -39,10 +39,15 @@ toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);
 
-// Helper method to create a RankedTensorType with the given encoding
+// Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
 createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
                                    ttnn::TTNNLayoutAttr encoding);
+
+// Helper method to create a RankedTensorType with the given element type.
+RankedTensorType
+createRankedTensorTypeWithElementType(RankedTensorType tensorType,
+                                      Type elementType);
 
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies.
