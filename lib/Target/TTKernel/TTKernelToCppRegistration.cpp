@@ -10,7 +10,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 using namespace mlir;
 
 namespace mlir::tt::ttkernel {
@@ -24,7 +24,7 @@ void registerTTKernelToCpp() {
       [](DialectRegistry &registry) {
         registry.insert<mlir::scf::SCFDialect,
                         mlir::tt::ttkernel::TTKernelDialect, mlir::arith::ArithDialect,
-                        mlir::emitc::EmitCDialect, mlir::func::FuncDialect, mlir::tt::TTDialect>();
+                        mlir::emitc::EmitCDialect, mlir::func::FuncDialect, mlir::tt::TTDialect, mlir::memref::MemRefDialect>();
       });
 }
 

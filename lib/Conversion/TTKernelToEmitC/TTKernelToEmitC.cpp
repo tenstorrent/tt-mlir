@@ -460,16 +460,16 @@ std::unique_ptr<::mlir::Pass> createConvertTTKernelToEmitC() {
 class ThreadConfigHelper {
 public:
   ThreadConfigHelper(OpBuilder *builder, Location loc,
-                     ttkernel::KernelConfigInterface kernelConfig)
-      : builder(builder), loc(loc), kernelConfig(kernelConfig) {
+                     ttkernel::ThreadType threadType)
+      : builder(builder), loc(loc), threadType(threadType) {
     builder->create<emitc::IncludeOp>(loc, "cstdint",
                                       /*isStandard=*/true);
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Noc) {
+    if (threadType == ttkernel::ThreadType::Noc) {
 
       builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
                                         /*isStandard=*/false);
     }
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
+    if (threadType == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
@@ -510,11 +510,11 @@ public:
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
-    }
+    }  
   }
 
   ~ThreadConfigHelper() {
-    if (kernelConfig.getThreadType() == ttkernel::ThreadType::Tensix) {
+    if (threadType == ttkernel::ThreadType::Tensix) {
       builder->create<emitc::VerbatimOp>(loc, "void MAIN { kernel_main(); }");
       builder->create<emitc::VerbatimOp>(loc,
                                          "}"); // close namespace NAMESPACE
@@ -522,16 +522,18 @@ public:
   }
 
 private:
+
   OpBuilder *builder;
   Location loc;
   ttkernel::KernelConfigInterface kernelConfig;
+  ttkernel::ThreadType threadType;
 };
 
 LogicalResult convertTTKernelRegionToEmitC(
     OpBuilder &builder, Region *region,
-    const ttkernel::KernelConfigInterface &kernelConfig) {
+    const ttkernel::ThreadType &threadType) {
   ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(),
-                                        kernelConfig);
+                                        threadType);
 
   auto funcOp = builder.create<func::FuncOp>(
       region->getLoc(), "kernel_main",
@@ -552,20 +554,33 @@ LogicalResult convertTTKernelRegionToEmitC(
 
 LogicalResult
 emitOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::KernelConfigInterface &kernelConfig) {
-  OpBuilder builder(region->getContext());
+                          const ttkernel::ThreadType &threadType) {
 
+  llvm::raw_string_ostream os(regionCpp);
+  return emitOpRegionAsCpp(region, os, threadType);
+}
+
+LogicalResult
+emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
+                          const ttkernel::ThreadType &threadType) {
+
+  // We must load the EmitC dialect before we can emit any EmitC code. This
+  // dialect won't be loaded by MLIR until pass manager starts a pass that
+  // depends on it. Because we want to emit EmitC code before that, we need to
+  // load it here.
+  region->getContext()->getOrLoadDialect<emitc::EmitCDialect>();
+
+  OpBuilder builder(region->getContext());
   // We will wrap everything in a module op so that we can run the
   // translation.
   auto moduleWrapper =
       builder.create<mlir::ModuleOp>(region->getLoc(), "module_wrapper");
   builder.setInsertionPointToStart(moduleWrapper.getBody());
 
-  if (convertTTKernelRegionToEmitC(builder, region, kernelConfig).failed()) {
+  if (convertTTKernelRegionToEmitC(builder, region, threadType).failed()) {
     return failure();
   }
 
-  llvm::raw_string_ostream os(regionCpp);
   if (emitc::translateToCpp(moduleWrapper, os).failed()) {
     return failure();
   }
@@ -579,23 +594,56 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
   assert(cppStrings.size() == dispatchOp.getNumRegions() &&
          "cppStrings size must match number of regions");
 
-  // We must load the EmitC dialect before we can emit any EmitC code. This
-  // dialect won't be loaded by MLIR until pass manager starts a pass that
-  // depends on it. Because we want to emit EmitC code before that, we need to
-  // load it here.
-  dispatchOp.getContext()->getOrLoadDialect<emitc::EmitCDialect>();
+
 
   for (auto &reg : dispatchOp->getRegions()) {
     auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
         dispatchOp.getKernelConfigs()[reg.getRegionNumber()]);
-    if (emitDispatchOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                                  kernelConfig)
+    if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
+                                  kernelConfig.getThreadType())
             .failed()) {
       return llvm::failure();
     }
   }
 
   return success();
+}
+
+LogicalResult
+emitNocKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os)
+{
+  return emitKernelAsCpp(op, os, ttkernel::ThreadType::Noc);
+}
+
+LogicalResult
+emitTensixKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os)
+{
+  return emitKernelAsCpp(op, os, ttkernel::ThreadType::Tensix);
+}
+
+LogicalResult
+emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType )
+{
+  std::vector<Operation*> ops;
+  op->walk([&](func::FuncOp entry) {
+    ops.push_back(entry);
+  });
+
+  // PassManager pm(ops[0]->getContext());
+  // pm.addPass(createConvertTTKernelToEmitC());
+
+  // if (pm.run(ops[0]).failed()) {
+  //   return failure();
+  // }
+
+  for (auto &reg : ops[0]->getRegions()) {
+    if (emitOpRegionAsCpp(&reg, os,
+                            threadType)
+      .failed()) {
+      return llvm::failure();
+    }
+  }
+  return llvm::success();
 }
 
 } // namespace mlir::tt
