@@ -1308,6 +1308,33 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
 
+def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
+    let summary = "Permute operation.";
+    let description = [{
+      Permute input tensor dimensions.
+
+      Attributes:
+        - `permutation` array<i64>: The permutation of the input tensor dimensions.
+
+      Example:
+      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %output = tensor.empty() : () -> tensor<3x4x2xi32>
+      %0 = "ttir.permute"(%a, %output) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>, tensor<3x4x2xi32>) -> tensor<3x4x2xi32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$permutation);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
 //===----------------------------------------------------------------------===//

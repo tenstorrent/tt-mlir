@@ -9,6 +9,7 @@
 #include "distributed/mesh_device.hpp"
 #include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
+#include "tt_metal/detail/reports/memory_reporter.hpp"
 #include "tt_metal/detail/tt_metal.hpp"
 #include "tt_metal/host_api.hpp"
 
@@ -39,6 +40,8 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
 void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
+
+void dumpMemoryReport(Device device);
 
 void wait(Event event);
 

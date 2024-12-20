@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+
 #include <cstdint>
 
 using namespace mlir;
@@ -1120,6 +1121,23 @@ public:
     return success();
   }
 };
+
+class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
+public:
+  using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getPermutationAttr(),
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -1201,7 +1219,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern
+           ScatterOpConversionPattern,
+           PermuteOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

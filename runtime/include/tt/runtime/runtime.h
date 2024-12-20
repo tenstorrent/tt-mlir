@@ -19,6 +19,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
 namespace detail {
 void deallocateBuffers(Device device);
+void dumpMemoryReport(Device device);
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime();
