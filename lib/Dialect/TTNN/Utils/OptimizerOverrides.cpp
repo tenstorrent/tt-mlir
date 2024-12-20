@@ -22,6 +22,7 @@ void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
 }
 void OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy(
     MemoryLayoutAnalysisPolicyType value) {
+  enableMemoryLayoutAnalysisPolicy = true;
   memoryLayoutAnalysisPolicy = value;
 }
 

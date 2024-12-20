@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include <pybind11/pytypes.h>
+#include <variant>
 
 namespace mlir::ttmlir::python {
 
@@ -17,25 +19,26 @@ void populateUtilModule(py::module &m) {
     return source;
   });
 
-  m.def("get_loc_name", [](MlirLocation _loc) -> std::string {
-    mlir::Location loc = unwrap(_loc);
-    if (mlir::isa<mlir::NameLoc>(loc)) {
-      mlir::NameLoc nameLoc = mlir::cast<mlir::NameLoc>(loc);
-      return nameLoc.getName().str();
-    }
-    return "-";
-  });
+  m.def("get_loc_name",
+        [](MlirLocation _loc) -> std::variant<std::string, py::object> {
+          mlir::Location loc = unwrap(_loc);
+          if (mlir::isa<mlir::NameLoc>(loc)) {
+            mlir::NameLoc nameLoc = mlir::cast<mlir::NameLoc>(loc);
+            return nameLoc.getName().str();
+          }
+          return py::none();
+        });
 
-  m.def("get_loc_full", [](MlirLocation _loc) -> std::string {
-    mlir::Location loc = unwrap(_loc);
-    if (mlir::isa<mlir::FileLineColLoc>(loc)) {
-      mlir::FileLineColLoc fileLoc = mlir::cast<mlir::FileLineColLoc>(loc);
-      return fileLoc.getFilename().str() + ":" +
-             std::to_string(fileLoc.getLine()) + ":" +
-             std::to_string(fileLoc.getColumn());
-    }
-    return "-";
-  });
+  m.def("get_loc_full",
+        [](MlirLocation _loc) -> std::variant<std::string, py::object> {
+          mlir::Location loc = unwrap(_loc);
+
+          std::string locationStr;
+          llvm::raw_string_ostream output(locationStr);
+          loc.print(output);
+
+          return locationStr;
+        });
 }
 
 } // namespace mlir::ttmlir::python
