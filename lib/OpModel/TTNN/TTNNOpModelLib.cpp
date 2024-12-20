@@ -27,6 +27,8 @@
 #endif // TTMLIR_ENABLE_OPMODEL
 
 namespace mlir::tt::op_model::ttnn {
+
+#ifdef TTMLIR_ENABLE_OPMODEL
 namespace operation {
 
 template <class Callable>
@@ -47,8 +49,9 @@ getOpConstraints(const std::string_view &name, Callable &callable,
     // TODO(mbezulj): remove this debug print
     llvm::errs() << "FAILED " << name << ": "
                  << query.error_message.value_or("<error message not set>");
-    return make_tuple(false, std::nullopt,
-                      query.error_message.value_or("<error message not set>"));
+    return std::make_tuple(
+        false, std::nullopt,
+        query.error_message.value_or("<error message not set>"));
   }
 
   return std::make_tuple(
@@ -59,6 +62,7 @@ getOpConstraints(const std::string_view &name, Callable &callable,
       std::nullopt);
 }
 } // namespace operation
+#endif // TTMLIR_ENABLE_OPMODEL
 
 //===----------------------------------------------------------------------===//
 // ReluOp
@@ -97,7 +101,7 @@ ReluOpInterface::getOpConstraints(
                                      inputLayout, outputShape, outputLayout,
                                      workerGrid);
 #else
-  return std::make_tuple(true, make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -144,7 +148,7 @@ AddOpInterface::getOpConstraints(
                                      inputLayout_a, inputShape_b, inputLayout_b,
                                      outputShape, outputLayout, workerGrid);
 #else
-  return std::make_tuple(true, make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -186,7 +190,7 @@ SoftmaxOpInterface::getOpConstraints(
                                      inputShape, inputLayout, dim_arg,
                                      outputShape, outputLayout, workerGrid);
 #else
-  return std::make_tuple(true, make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -237,7 +241,7 @@ MatmulOpInterface::getOpConstraints(
                                      inputLayout_b, outputShape, outputLayout,
                                      transpose_a, transpose_b, workerGrid);
 #else
-  return std::make_tuple(true, make_tuple(0, 0, 0), std::nullopt);
+  return std::make_tuple(true, std::make_tuple(0, 0, 0), std::nullopt);
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
