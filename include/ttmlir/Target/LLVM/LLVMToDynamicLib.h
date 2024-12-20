@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TARGET_LINALG_LINALGTODYNAMICLIBRARY_H
-#define TTMLIR_TARGET_LINALG_LINALGTODYNAMICLIBRARY_H
+#ifndef TTMLIR_TARGET_LLVM_LLVMTODYNAMICLIB_H
+#define TTMLIR_TARGET_LLVM_LLVMTODYNAMICLIB_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
@@ -18,7 +18,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::llvm_to_cpu {
-// Convert a linalg operation to a dylib
+// Convert an LLVM operation to a dylib
 LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os);
 } // namespace mlir::tt::llvm_to_cpu
 
