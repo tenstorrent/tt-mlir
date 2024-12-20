@@ -6,7 +6,6 @@
 
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/ttnn/operations/utils.h"
-#include "ttnn/common/constants.hpp"
 
 #include <vector>
 
@@ -25,13 +24,7 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
                           : std::nullopt;
   float padValue = op->pad_value();
 
-  // Has to called with the verbose invoke, since calling it with composite=true
-  // results in an error with the message "Only 4D tensor are supported for
-  // permute."
-  ::ttnn::Tensor out =
-      ::ttnn::permute(/*queue_id=*/::ttnn::DefaultQueueId, /*input_tensor=*/in,
-                      /*dims=*/permutation, /*memory_config=*/memoryConfig,
-                      /*composite=*/false, /*pad_value=*/padValue);
+  ::ttnn::Tensor out = ::ttnn::permute(in, permutation, memoryConfig, padValue);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
