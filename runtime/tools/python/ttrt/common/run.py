@@ -554,7 +554,7 @@ class Run:
                             if emitc_dylib_path is not None:
                                 emitc_outs = ttrt.runtime.run_so_program(
                                     emitc_dylib_handle,
-                                    "_Z7forwardSt6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE",
+                                    "_Z3addSt6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE",
                                     inputs,
                                     device,
                                 )
