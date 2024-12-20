@@ -499,11 +499,31 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
   auto device = getOperandThroughDPSOps(op.getDevice());
+  const mlir::tt::MeshShardDirection shardDirection = op.getShardDirection();
+  const mlir::tt::MeshShardType shardType = op.getShardType();
   llvm::ArrayRef<int64_t> shardShape = op.getShardShape().getShape();
+
+  ::tt::target::MeshShardDirection meshShardDirection;
+  if (shardDirection == mlir::tt::MeshShardDirection::FullToShard) {
+    meshShardDirection = ::tt::target::MeshShardDirection::FullToShardShape;
+  } else if (shardDirection == mlir::tt::MeshShardDirection::ShardToFull) {
+    meshShardDirection = ::tt::target::MeshShardDirection::ShardToFullShape;
+  } else {
+    llvm_unreachable("unhandled mesh_shard direction");
+  }
+
+  ::tt::target::MeshShardType meshShardType;
+  if (shardType == mlir::tt::MeshShardType::Replicate) {
+    meshShardType = ::tt::target::MeshShardType::Replicate;
+  } else if (shardType == mlir::tt::MeshShardType::Devices) {
+    meshShardType = ::tt::target::MeshShardType::Devices;
+  } else {
+    llvm_unreachable("unhandled mesh_shard type");
+  }
+
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      static_cast<uint32_t>(op.getShardDirection()),
-      static_cast<uint32_t>(op.getShardType()),
+      meshShardDirection, meshShardType,
       cache.fbb->CreateVector<int64_t>(shardShape));
 }
 
