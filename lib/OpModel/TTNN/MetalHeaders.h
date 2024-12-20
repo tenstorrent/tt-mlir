@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_OPMODEL_TTNN_TTNNOPMODELLIB_IMPL_H
-#define TTMLIR_OPMODEL_TTNN_TTNNOPMODELLIB_IMPL_H
+#ifndef TTMLIR_OPMODEL_TTNN_METALHEADERS_H
+#define TTMLIR_OPMODEL_TTNN_METALHEADERS_H
 
 // This header resolves tt-metal warnings that would otherwise be treated as
 // errors in the MLIR build. Ensure that this is the only place where tt-metal
@@ -47,14 +47,27 @@
 #pragma clang diagnostic ignored "-Wc++11-narrowing"
 #pragma clang diagnostic ignored "-Wzero-length-array"
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#pragma clang diagnostic ignored "-Werror,-Wctad-maybe-unsupported"
 
 #define FMT_HEADER_ONLY
 
+#include "host_api.hpp"
+#include "impl/buffers/buffer_constants.hpp"
 #include "tt_metal/common/core_coord.hpp"
 #include "tt_metal/impl/buffers/buffer.hpp"
+#include "tt_metal/impl/device/device.hpp"
+#include "ttnn/graph/graph_processor.hpp"
+#include "ttnn/graph/graph_query_op_constraints.hpp"
+#include "ttnn/graph/graph_trace_utils.hpp"
+#include "ttnn/operations/eltwise/binary/binary.hpp"
+#include "ttnn/operations/eltwise/unary/unary.hpp"
+#include "ttnn/operations/matmul/matmul.hpp"
+#include "ttnn/operations/normalization/softmax/softmax.hpp"
+#include "ttnn/tensor/shape/small_vector.hpp"
 #include "ttnn/tensor/tensor.hpp"
+#include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"
 
 #pragma clang diagnostic pop
 
-#endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODELLIB_IMPL_H
+#endif // TTMLIR_OPMODEL_TTNN_METALHEADERS_H
