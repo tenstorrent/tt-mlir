@@ -9,8 +9,8 @@
 module @jit_transpose attributes {} {
   func.func public @test_transpose(%arg0: tensor<64x128xf32>) -> tensor<128x64xf32> {
     // CHECK-LABEL: func.func public @test_transpose
-    // CHECK: ttnn.transpose
-    // CHECK-SAME: {dim0 = 1 : si32, dim1 = 0 : si32}
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 1, 0>
     // CHECK-SAME: tensor<64x128xf32,
     // CHECK-SAME: -> tensor<128x64xf32,
     %0 = stablehlo.transpose %arg0, dims = [1,0] : (tensor<64x128xf32>) -> tensor<128x64xf32>

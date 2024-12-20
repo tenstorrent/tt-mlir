@@ -2,9 +2,11 @@
 module @jit_convolution {
   func.func public @test_NCHW_IOHW_to_NHWC_OIHW_conv2d(%arg0: tensor<1x3x100x100xbf16>, %arg1: tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16> {
     %0 = tensor.empty() : tensor<1x7x100x100xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttnn.conv2d"[[C:.*]]
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
+    // CHECK: "ttnn.conv2d"
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
     %1 = "ttir.convolution"(%arg0, %arg1, %0) <{
       batch_group_count = 1 : i64,
       convolution_layout = #ttir<convolution_layout
@@ -25,8 +27,6 @@ module @jit_convolution {
       window_reversal = array<i1: false, false>,
       window_strides = array<i64: 1, 1>
     }> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>, tensor<1x7x100x100xbf16>) -> tensor<1x7x100x100xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
-    // CHECK: %[[C:.*]] = "ttnn.transpose"[[C:.*]]
     return %1 : tensor<1x7x100x100xbf16>
   }
 }

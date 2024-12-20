@@ -34,7 +34,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
-#include <fstream>
 #include <optional>
 
 namespace mlir::tt {
@@ -515,6 +514,24 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
       static_cast<uint32_t>(op.getShardDirection()),
       static_cast<uint32_t>(op.getShardType()),
       cache.fbb->CreateVector<int64_t>(shardShape));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
+createOp(FlatbufferObjectCache &cache, PermuteOp op) {
+  flatbuffers::Offset<::tt::target::TensorRef> input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation =
+      toFlatbuffer(cache, op.getPermutation());
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  float padValue = op.getPadValue().convertToFloat();
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreatePermuteOp(
+      *cache.fbb, input, permutation,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0,
+      padValue, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -1168,6 +1185,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
     return createOperation(cache, createOp(cache, fillCacheOp), debugString,
+                           locInfo);
+  }
+  if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
+    return createOperation(cache, createOp(cache, permuteOp), debugString,
                            locInfo);
   }
 
