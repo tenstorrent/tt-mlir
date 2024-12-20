@@ -11,6 +11,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
@@ -25,15 +26,6 @@ getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg);
 llvm::SmallVector<int64_t>
 calculateNewReduceShape(RankedTensorType inputType,
                         const std::optional<mlir::ArrayAttr> &dimArg);
-
-// Creates the dimArg attribute of the new Reduce op created in the workaround.
-// In case when reduce is done over all dimensions of the input nullptr is
-// returned, because Metal supports reduce over all dimensions for any tensor
-// rank when reduce dimensions are not specified, but it doesn't support reduce
-// for tensors with rank larger than 2 when reduce dimensions are specified.
-mlir::ArrayAttr
-createNewReduceDimArg(RankedTensorType inputType,
-                      const std::optional<mlir::ArrayAttr> &dimArg);
 
 // This workaround addresses the next Metal issue:
 // https://github.com/tenstorrent/tt-metal/issues/13361
@@ -87,9 +79,9 @@ private:
     RankedTensorType newOutputType = RankedTensorType::get(
         outputShapeVec, outputType.getElementType(), newOutputLayoutAttr);
 
-    return rewriter.create<ReduceOp>(
-        srcOp.getLoc(), newOutputType, srcOp.getInput(), true /*keep_dim*/,
-        createNewReduceDimArg(inputType, srcOp.getDimArg()));
+    return rewriter.create<ReduceOp>(srcOp.getLoc(), newOutputType,
+                                     srcOp.getInput(), true /*keep_dim*/,
+                                     srcOp.getDimArg().value_or(nullptr));
   }
 
   void replaceOpWithReshapeOp(ReduceOp srcOp, ReduceOp newReduceOp,
@@ -120,10 +112,24 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<ReduceOp>(
-        srcOp, srcOp.getResult().getType(), srcOp.getInput(),
-        srcOp.getKeepDim(),
-        createNewReduceDimArg(srcOp.getInput().getType(), srcOp.getDimArg()));
+    llvm::SmallVector<int64_t> reduceDims = getReduceDims(srcOp.getDimArg());
+    llvm::SmallSet<int64_t, 4> uniqueReduceDims(reduceDims.begin(),
+                                                reduceDims.end());
+
+    // Check if reduce is done over all dimensions of the input tensor.
+    if (uniqueReduceDims.size() !=
+        srcOp.getInput().getType().getShape().size()) {
+      return failure();
+    }
+
+    // In case when reduce is done over all dimensions of the input we need to
+    // unset the dimensions attribute, because Metal supports reduce over all
+    // dimensions for any tensor rank when reduce dimensions are not specified,
+    // but it doesn't support reduce for tensors with rank larger than 2 when
+    // reduce dimensions are specified.
+    rewriter.replaceOpWithNewOp<ReduceOp>(srcOp, srcOp.getResult().getType(),
+                                          srcOp.getInput(), srcOp.getKeepDim(),
+                                          nullptr);
 
     return success();
   }

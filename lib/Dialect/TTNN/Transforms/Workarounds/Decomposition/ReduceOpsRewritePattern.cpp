@@ -4,15 +4,13 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 
-#include "llvm/ADT/SmallSet.h"
-
 #include <algorithm>
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 llvm::SmallVector<int64_t>
 getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg) {
-  llvm::SmallVector<int64_t> reduceDims;
+  llvm::SmallVector<int64_t, 4> reduceDims;
   if (!dimArg) {
     return reduceDims;
   }
@@ -47,28 +45,6 @@ calculateNewReduceShape(RankedTensorType inputType,
   }
 
   return outputShapeVec;
-}
-
-mlir::ArrayAttr
-createNewReduceDimArg(RankedTensorType inputType,
-                      const std::optional<mlir::ArrayAttr> &dimArg) {
-  llvm::SmallVector<int64_t> reduceDims = getReduceDims(dimArg);
-  if (reduceDims.empty()) {
-    return nullptr;
-  }
-
-  llvm::SmallSet<int64_t, 4> uniqueReduceDims(reduceDims.begin(),
-                                              reduceDims.end());
-  if (uniqueReduceDims.size() == inputType.getShape().size()) {
-    // In case when reduce is done over all dimensions of the input nullptr is
-    // returned, because Metal supports reduce over all dimensions for any
-    // tensor rank when reduce dimensions are not specified, but it doesn't
-    // support reduce for tensors with rank larger than 2 when reduce
-    // dimensions are specified.
-    return nullptr;
-  }
-
-  return *dimArg;
 }
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition
