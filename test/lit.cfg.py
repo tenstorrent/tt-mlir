@@ -26,6 +26,9 @@ def set_system_desc_features(system_desc):
     config.available_features.add(system_desc["chip_descs"][0]["arch"])
     if len(system_desc["chip_desc_indices"]) > 1:
         config.available_features.add("multi-chip")
+    config.available_features.add(
+        "multi-chip-x" + str(len(system_desc["chip_desc_indices"]))
+    )
 
 
 # name: The name of this test suite.

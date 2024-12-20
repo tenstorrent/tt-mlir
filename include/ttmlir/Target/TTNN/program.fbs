@@ -322,8 +322,8 @@ table MeshShardOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
   device: tt.target.DeviceRef;
-  shard_direction: uint32;
-  shard_type: uint32;
+  shard_direction: tt.target.MeshShardDirection;
+  shard_type: tt.target.MeshShardType;
   shard_shape: [int64];
 }
 
