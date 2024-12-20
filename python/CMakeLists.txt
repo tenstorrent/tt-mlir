@@ -112,6 +112,12 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     ${translation_libs}
     TTMLIRStatic
     ${extension_libs}
+    MLIRLinalgTransforms
+    MLIRArithTransforms
+    MLIRSCFTransforms
+    MLIRFuncTransforms
+    MLIRTensorTransforms
+    MLIRVectorTransforms
 )
 
 set(TTMLIR_PYTHON_SOURCES
