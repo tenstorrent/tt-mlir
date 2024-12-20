@@ -14,9 +14,9 @@ namespace mlir::tt {
 using locsize2d = std::tuple<std::array<int32_t, 2>,  //  {{locX, locY},
                              std::array<int32_t, 2>>; // {sizeX, sizeY}}
 
-inline std::vector<locsize2d> toCoreRangeSet(GridAttr tensorGrid,
+inline std::vector<locsize2d> toCoreRangeSet(GridAttr virtualGrid,
                                              GridAttr deviceGrid) {
-  llvm::SmallVector<std::int64_t> tensorGridShape(tensorGrid.getShape());
+  llvm::SmallVector<std::int64_t> tensorGridShape(virtualGrid.getShape());
   std::vector<locsize2d> coreRangeSet;
   AffineMap mapping = deviceGrid.getMapping();
   ::ttmlir::utils::sample(

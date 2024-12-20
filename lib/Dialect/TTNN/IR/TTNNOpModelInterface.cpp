@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
+#include "mlir/IR/Operation.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpModelInterface.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -31,8 +32,12 @@ ReluOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto output_shape =
       mlir::cast<RankedTensorType>(getResults().front().getType()).getShape();
 
+  auto deviceAttr = mlir::tt::getCurrentScopeDevice(getOperation());
+  assert(deviceAttr);
+  auto workerGrid = deviceAttr.getWorkerGrid();
+
   return op_model::ttnn::ReluOpInterface::getOpConstraints(
-      input_shape, inputs[0], output_shape, output);
+      input_shape, inputs[0], output_shape, output, workerGrid);
 }
 
 //===----------------------------------------------------------------------===//
@@ -53,8 +58,13 @@ AddOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto output_shape =
       mlir::cast<RankedTensorType>(getResult(0).getType()).getShape();
 
+  auto deviceAttr = mlir::tt::getCurrentScopeDevice(getOperation());
+  assert(deviceAttr);
+  auto workerGrid = deviceAttr.getWorkerGrid();
+
   return op_model::ttnn::AddOpInterface::getOpConstraints(
-      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output);
+      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output,
+      workerGrid);
 }
 
 //===----------------------------------------------------------------------===//
@@ -73,8 +83,12 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto output_shape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
+  auto deviceAttr = mlir::tt::getCurrentScopeDevice(getOperation());
+  assert(deviceAttr);
+  auto workerGrid = deviceAttr.getWorkerGrid();
+
   return op_model::ttnn::SoftmaxOpInterface::getOpConstraints(
-      input_shape, inputs[0], getDimension(), output_shape, output);
+      input_shape, inputs[0], getDimension(), output_shape, output, workerGrid);
 }
 
 //===----------------------------------------------------------------------===//
@@ -95,8 +109,13 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto output_shape =
       mlir::cast<RankedTensorType>(getResult().getType()).getShape();
 
+  auto deviceAttr = mlir::tt::getCurrentScopeDevice(getOperation());
+  assert(deviceAttr);
+  auto workerGrid = deviceAttr.getWorkerGrid();
+
   return op_model::ttnn::MatmulOpInterface::getOpConstraints(
-      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output);
+      input_shape_a, inputs[0], input_shape_b, inputs[1], output_shape, output,
+      false, false, workerGrid);
 }
 
 } // namespace mlir::tt::ttnn

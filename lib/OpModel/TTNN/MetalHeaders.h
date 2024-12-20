@@ -51,6 +51,7 @@
 
 #define FMT_HEADER_ONLY
 
+#include "common/core_coord.hpp"
 #include "host_api.hpp"
 #include "impl/buffers/buffer_constants.hpp"
 #include "tt_metal/common/core_coord.hpp"
@@ -61,6 +62,7 @@
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
+#include "ttnn/tensor/shape/small_vector.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"

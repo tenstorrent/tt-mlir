@@ -22,10 +22,12 @@ getShardShape(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
 ::tt::tt_metal::CoreRangeSet
-getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
+                const mlir::tt::GridAttr &workerGrid);
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
+             const mlir::tt::GridAttr &workerGrid);
 
 ::tt::tt_metal::BufferType getBufferType(const mlir::MemRefType &memref);
 
@@ -33,13 +35,16 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 getTensorMemoryLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
 
 ::tt::tt_metal::MemoryConfig
-getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
+                const mlir::tt::GridAttr &workerGrid);
 
 ::tt::tt_metal::TensorLayout
-getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
+                const mlir::tt::GridAttr &workerGrid);
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const mlir::tt::ttnn::TTNNLayoutAttr &layout);
+                                 const mlir::tt::ttnn::TTNNLayoutAttr &layout,
+                                 const mlir::tt::GridAttr &workerGrid);
 
 } // namespace conversion
 } // namespace mlir::tt::op_model::ttnn

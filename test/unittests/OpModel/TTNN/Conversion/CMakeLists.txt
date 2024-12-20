@@ -10,6 +10,7 @@ add_executable(TestConversion
 target_include_directories(TestConversion
     PUBLIC
     ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/
+    ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
 )
 
 target_link_libraries(TestConversion

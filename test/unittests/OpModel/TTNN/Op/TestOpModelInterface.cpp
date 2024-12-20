@@ -2,48 +2,37 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "OpModelFixture.h"
 #include "gtest/gtest.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+// #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+
+// #include "gtest/gtest.h"
+
+// #include "mlir/IR/Builders.h"
+// #include "mlir/IR/BuiltinOps.h"
+// #include "mlir/IR/MLIRContext.h"
+// #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "mlir/IR/AffineExpr.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-#include <cstddef>
-#include <llvm-gtest/gtest/gtest.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Dialect/XeGPU/IR/XeGPU.h>
-#include <mlir/IR/BuiltinAttributeInterfaces.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/IR/Visitors.h>
+// #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+// #include <cstddef>
+// #include <llvm-gtest/gtest/gtest.h>
+// #include <llvm/ADT/ArrayRef.h>
+// #include <llvm/Support/raw_ostream.h>
+// #include <mlir/Dialect/XeGPU/IR/XeGPU.h>
+// #include <mlir/IR/BuiltinAttributeInterfaces.h>
+// #include <mlir/IR/BuiltinTypes.h>
+// #include <mlir/IR/Visitors.h>
 #include <optional>
-#include <string>
+// #include <string>
 
 namespace mlir::tt::ttnn {
 
-class OpModelBase : public ::testing::Test {
+class OpModelBase : public OpModelFixture {
 public:
-  mlir::MLIRContext context;
-  mlir::OpBuilder builder = mlir::OpBuilder(&context);
-
-  void SetUp() override { context.loadDialect<TTNNDialect>(); }
-  void TearDown() override {}
-
-  // helper function to create layout
-  TTNNLayoutAttr CreateLayout(llvm::ArrayRef<int64_t> tensorShape,
-                              BufferType bufferType,
-                              TensorMemoryLayout tensorMemoryLayout,
-                              ArrayRef<int64_t> gridShape = {8, 8}) {
-    return TTNNLayoutAttr::get(
-        &context, tensorShape, TileType::get(&context, builder.getBF16Type()),
-        bufferType, GridAttr::get(&context, gridShape),
-        TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout));
-  }
-
   // helper function to extract op data and call into get op constraints
   std::optional<
       std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
@@ -59,8 +48,8 @@ public:
       auto operand = op->getOperand(i);
       auto inputShape =
           mlir::cast<RankedTensorType>(operand.getType()).getShape();
-      auto inputLayout = CreateLayout(inputShape, BufferType::L1,
-                                      TensorMemoryLayout::Interleaved);
+      auto inputLayout = CreateTiledLayout(inputShape, BufferType::L1,
+                                           TensorMemoryLayout::Interleaved);
       inputs.push_back(inputLayout);
     }
 
@@ -68,8 +57,8 @@ public:
     auto output = op->getResult(0);
     auto outputShape =
         mlir::cast<RankedTensorType>(output.getType()).getShape();
-    auto outputLayout = CreateLayout(outputShape, BufferType::L1,
-                                     TensorMemoryLayout::Interleaved);
+    auto outputLayout = CreateTiledLayout(outputShape, BufferType::L1,
+                                          TensorMemoryLayout::Interleaved);
 
     // call op model interface - getOpConstraints()
     if (OpModel backend = dyn_cast<OpModel>(op)) {
@@ -77,6 +66,21 @@ public:
       return constraints;
     }
     return std::nullopt;
+  }
+
+  auto getFakeDeviceAttr() {
+    auto deviceIdx = mlir::getAffineConstantExpr(0, &context);
+    auto shardOffset = mlir::getAffineConstantExpr(0, &context);
+    auto d0 = mlir::getAffineDimExpr(0, &context); // d0
+    auto d1 = mlir::getAffineDimExpr(1, &context); // d1
+    auto map3 = mlir::AffineMap::get(
+        /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1}, &context);
+    auto map4 = mlir::AffineMap::get(
+        /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1, shardOffset},
+        &context);
+    auto workerGrid = GridAttr::get(&context, {8, 8}, map3);
+
+    return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
   }
 };
 
@@ -96,6 +100,8 @@ TEST_F(OpModelBase, ReluInterface) {
 
   auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), output.getType(),
                                      ::mlir::ValueRange{input, output});
+  relu->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
   // test ReluOp interface
   auto value = getOpConstraints(relu.getOperation());
   if (value.has_value()) {
@@ -130,6 +136,8 @@ TEST_F(OpModelBase, SoftmaxInterface) {
 
   auto softmax = builder.create<SoftmaxOp>(builder.getUnknownLoc(),
                                            output.getType(), input, -1);
+  softmax->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
   // test SoftmaxOp interface
   auto value = getOpConstraints(softmax.getOperation());
   if (value.has_value()) {
@@ -168,6 +176,8 @@ TEST_F(OpModelBase, AddInterface) {
 
   auto add = builder.create<AddOp>(builder.getUnknownLoc(), output.getType(),
                                    ::mlir::ValueRange{input1, input2, output});
+  add->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
   // test AddOp interface
   auto value = getOpConstraints(add.getOperation());
   if (value.has_value()) {
@@ -212,6 +222,8 @@ TEST_F(OpModelBase, MatmulInterface) {
   auto matmul =
       builder.create<MatmulOp>(builder.getUnknownLoc(), output.getType(),
                                ::mlir::ValueRange{inputA, inputB, output});
+  matmul->setAttr(DeviceAttr::name, getFakeDeviceAttr());
+
   // test MatmulOp interface
   auto value = getOpConstraints(matmul.getOperation());
   if (value.has_value()) {
