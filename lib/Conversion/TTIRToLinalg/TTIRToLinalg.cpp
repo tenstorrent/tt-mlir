@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/Dialect/Traits.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -19,53 +20,14 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <cstdint>
+
 using namespace mlir;
 using namespace mlir::tt;
 
 namespace {
 
 using TensorRanks = SmallVector<int64_t, 2>;
-
-static LogicalResult computeBroadcastedShape(SmallVector<Value, 3> inputs,
-                                             TensorRanks &broadcastedShape) {
-  broadcastedShape.clear();
-
-  // First find the maximum rank
-  int64_t maxRank = 0;
-  for (Value input : inputs) {
-    auto type = dyn_cast<RankedTensorType>(input.getType());
-    if (!type) {
-      return failure();
-    }
-    maxRank = std::max(maxRank, type.getRank());
-  }
-
-  // Initialize broadcastedShape to the right size, one-filled.
-  broadcastedShape = TensorRanks(maxRank, 1);
-
-  // From right-to-left, replace target dim with any non-1 values we encounter
-  // in inputs, returning failure if we find incompatible ranks.
-  for (Value input : inputs) {
-    auto type = dyn_cast<RankedTensorType>(input.getType());
-    const ArrayRef<int64_t> shape = type.getShape();
-
-    for (int64_t i = 0; i < maxRank; ++i) {
-      // Work from right to left
-      size_t rightIdx = maxRank - 1 - i;
-      size_t inputRightIdx = shape.size() - 1 - i;
-
-      int64_t targetDim = broadcastedShape[rightIdx];
-      int64_t inputDim =
-          inputRightIdx < shape.size() ? shape[inputRightIdx] : 1;
-
-      if (targetDim != inputDim && targetDim != 1 && inputDim != 1) {
-        return failure();
-      }
-      broadcastedShape[rightIdx] = std::max(targetDim, inputDim);
-    }
-  }
-  return success();
-}
 
 // Helper func to check which dims need to be broadcast and which need to be
 // collapsed.  Assumes that inputShape is broadcast-able to targetShape.
@@ -82,8 +44,6 @@ static void getDimsToBroadcastAndCollapse(
 
   while (targetIdx >= 0) {
     if (inputIdx >= 0) {
-      llvm::outs() << inputShape[inputIdx] << " vs " << targetShape[targetIdx]
-                   << "\n";
       // This should be impossible since we verify input while computing
       // targetShape.
       assert(
@@ -100,12 +60,6 @@ static void getDimsToBroadcastAndCollapse(
     }
     targetIdx--;
   }
-
-  llvm::outs() << "Found dims to broadcast: ";
-  for (const auto dim : broadcastDims) {
-    llvm::outs() << dim << " ";
-  }
-  llvm::outs() << "\n";
 
   // Group non-broadcast dimensions together for collapse.
   TensorRanks currentGroup;
@@ -132,9 +86,10 @@ static void getDimsToBroadcastAndCollapse(
   }
 }
 
+// Conversion pattern of operations which have exactly 2 input and 1 output operands.
 template <typename TTIROpTy, typename LinalgOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
-class ElementwiseOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+class ElementwiseBinaryOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
   using OpConversionPattern<TTIROpTy>::OpConversionPattern;
 
@@ -145,17 +100,14 @@ public:
 
     // First, compute broadcasted shape from operands.
     SmallVector<Value, 3> inputs = adaptor.getInputs();
-    llvm::outs() << "wtf\n";
-    TensorRanks broadcastedShape;
-    if (failed(computeBroadcastedShape(inputs, broadcastedShape))) {
-      return rewriter.notifyMatchFailure(op, "Operands are not broadcastable");
-    }
+    assert(inputs.size() == 2 && "binary element-wise operations must have 2 inputs!");
+    ArrayRef<int64_t> input0Shape = dyn_cast<RankedTensorType>(inputs[0].getType()).getShape();
+    ArrayRef<int64_t> input1Shape = dyn_cast<RankedTensorType>(inputs[1].getType()).getShape();
 
-    llvm::outs() << "target rank = [";
-    for (const auto rank : broadcastedShape) {
-      llvm::outs() << rank << " ";
+    SmallVector<int64_t, 4> broadcastedShape;
+    if (!OpTrait::util::getBroadcastedShape(input0Shape, input1Shape, broadcastedShape)) {
+      return rewriter.notifyMatchFailure(op, "Operands are not broadcastable--this should be impossible!");
     }
-    llvm::outs() << "]\n";
 
     // Replace any inputs which aren't in target shape with broadcast results
     // which are.
@@ -214,9 +166,9 @@ namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
-  patterns.add<ElementwiseOpConversionPattern<ttir::AddOp, linalg::AddOp>,
-               ElementwiseOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-               ElementwiseOpConversionPattern<ttir::SubtractOp, linalg::SubOp>>(
+  patterns.add<ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
+               ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
+               ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>>(
       typeConverter, ctx);
 }
 
