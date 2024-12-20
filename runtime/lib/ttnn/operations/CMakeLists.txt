@@ -10,6 +10,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/ones.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/slice.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/transpose.cpp
@@ -44,6 +45,9 @@ add_library(TTRuntimeTTNNOps
 
 set_property(TARGET TTRuntimeTTNNOps PROPERTY CXX_STANDARD 20)
 target_compile_options(TTRuntimeTTNNOps PUBLIC -mavx -mavx2 -fsized-deallocation)
+target_include_directories(TTRuntimeTTNNOps PRIVATE
+  ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn
+)
 target_include_directories(TTRuntimeTTNNOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/include
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn/include

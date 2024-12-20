@@ -136,7 +136,7 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
   std::shared_ptr<::ttnn::Tensor> tensor = std::make_shared<::ttnn::Tensor>(
-      ::ttnn::distributed::api::create_multi_device_tensor(
+      ::ttnn::distributed::create_multi_device_tensor(
           tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST,
           distributionStrategy));
   return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
@@ -211,6 +211,14 @@ void deallocateBuffers(Device deviceHandle) {
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
   for (::ttnn::Device *device : meshDevice.get_devices()) {
     device->deallocate_buffers();
+  }
+}
+
+void dumpMemoryReport(Device deviceHandle) {
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  for (::ttnn::Device *device : meshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
   }
 }
 
@@ -327,6 +335,9 @@ void memcpy(Tensor dst, Tensor src) {
 
 void deallocateTensor(Tensor &tensor, bool force) {
   ::ttnn::Tensor &ttnnTensor = tensor.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+  if (ttnnTensor.storage_type() == ::tt::tt_metal::StorageType::BORROWED) {
+    return;
+  }
   ::ttnn::deallocate(ttnnTensor, force);
 }
 
@@ -485,34 +496,6 @@ std::vector<float> getTensorData(Tensor tensor) {
   return std::vector<float>(static_cast<float *>(dataPtr),
                             static_cast<float *>(dataPtr) + nnTensor->volume());
 }
-
-namespace legacy {
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex,
-             std::vector<Tensor> const &inputHandles,
-             std::vector<Tensor> const &outputHandles) {
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  std::vector<::ttnn::Tensor *> inputs;
-  inputs.reserve(inputHandles.size());
-  for (auto &input : inputHandles) {
-    LOG_ASSERT(input.matchesRuntime(DeviceRuntime::TTNN));
-    inputs.push_back(static_cast<::ttnn::Tensor *>(input.handle.get()));
-  }
-
-  std::vector<::ttnn::Tensor *> outputs;
-  outputs.reserve(outputHandles.size());
-  for (auto &output : outputHandles) {
-    LOG_ASSERT(output.matchesRuntime(DeviceRuntime::TTNN));
-    outputs.push_back(static_cast<::ttnn::Tensor *>(output.handle.get()));
-  }
-
-  tt::runtime::ttnn::legacy::runProgram(meshDevice, executableHandle,
-                                        programIndex, inputs, outputs);
-  return Event(nullptr, DeviceRuntime::TTNN);
-}
-} // namespace legacy
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

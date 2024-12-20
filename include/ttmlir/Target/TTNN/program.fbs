@@ -116,7 +116,12 @@ enum EltwiseOpType: uint32 {
   GreaterThan,
   LogicalAnd,
   LogicalOr,
+  LogicalXor,
   LogicalNot,
+  BitwiseAnd,
+  BitwiseOr,
+  BitwiseXor,
+  BitwiseNot,
   Cbrt,
   Minimum,
   Ceil,
@@ -131,7 +136,6 @@ enum EltwiseOpType: uint32 {
   Floor,
   Where,
   Gelu,
-  LogicalXor,
   Clamp,
   LeakyRelu,
   Scatter,
@@ -291,6 +295,14 @@ table AllGatherOp {
   num_links: uint32;
 }
 
+table PermuteOp {
+  in: tt.target.TensorRef;
+  permutation: [int64];
+  memory_config: MemoryConfigDesc;
+  pad_value: float;
+  out: tt.target.TensorRef;
+}
+
 table ReduceScatterOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -339,6 +351,7 @@ union OpType {
   ArangeOp,
   UpdateCacheOp,
   FillCacheOp,
+  PermuteOp,
 }
 
 table Operation {

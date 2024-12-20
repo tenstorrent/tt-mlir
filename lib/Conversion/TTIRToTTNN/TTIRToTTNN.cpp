@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+
 #include <cstdint>
 
 using namespace mlir;
@@ -135,7 +136,8 @@ public:
     // Device only exists if memLayout is *not* null
     //
     auto device =
-        memLayout ? ::ttnn::utils::getOrInsertDevice(rewriter, op) : nullptr;
+        memLayout ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+                  : nullptr;
 
     // MemoryConfigAttr only exists if memLayout is *not* null
     //
@@ -234,8 +236,9 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
         outputLayout, outputDataType, outputMemConfigAttr,
-        isOutputOnHost ? nullptr
-                       : ::ttnn::utils::getOrInsertDevice(rewriter, op));
+        isOutputOnHost
+            ? nullptr
+            : mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op)));
 
     return success();
   }
@@ -247,8 +250,8 @@ private:
     // EmbeddingBackwardOp supports row major layout for the first and second
     // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::MaxPool2dOp>(user) ||
-          isa<ttir::SliceOp>(user) || isa<ttir::EmbeddingOp>(user) ||
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
+          isa<ttir::EmbeddingOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
            (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
@@ -352,7 +355,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getOutput(), adaptor.getWeight());
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getOutput());
 
     return success();
   }
@@ -662,6 +665,10 @@ public:
         newShape.push_back(1);
       }
       newShape.push_back(inputShape[i]);
+    }
+
+    if (inputType.getRank() == dim) {
+      newShape.push_back(1);
     }
 
     // Create the new shape attribute
@@ -1114,6 +1121,23 @@ public:
     return success();
   }
 };
+
+class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
+public:
+  using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getPermutationAttr(),
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -1135,6 +1159,10 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::LogicalOrOp, ttnn::LogicalOrOp>,
            ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
            ElementwiseOpConversionPattern<ttir::LogicalXorOp, ttnn::LogicalXorOp>,
+           ElementwiseOpConversionPattern<ttir::BitwiseAndOp, ttnn::BitwiseAndOp>,
+           ElementwiseOpConversionPattern<ttir::BitwiseOrOp, ttnn::BitwiseOrOp>,
+           ElementwiseOpConversionPattern<ttir::BitwiseXorOp, ttnn::BitwiseXorOp>,
+           ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
            ElementwiseOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
            ElementwiseOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
            ElementwiseOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
@@ -1167,7 +1195,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::SumOp, ttnn::SumOp>,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
-	   ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
+           ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,
@@ -1191,7 +1219,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern
+           ScatterOpConversionPattern,
+           PermuteOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "full.h"
+#include "operations/creation/full.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/detail/workarounds.h"
@@ -64,7 +64,7 @@ createFullOnMultiDevice(ProgramContext &context, FullTensorConfig &config,
                     return ::ttnn::full(config.shape, config.fillValue,
                                         config.dtype, config.layout);
                   });
-  ::ttnn::Tensor out = ::ttnn::distributed::api::create_multi_device_tensor(
+  ::ttnn::Tensor out = ::ttnn::distributed::create_multi_device_tensor(
       tensorShards, ::tt::tt_metal::StorageType::MULTI_DEVICE_HOST, strategy);
   if (deviceRef) {
     ::ttnn::MeshDevice &meshDevice = context.getSubMesh(deviceRef->global_id());

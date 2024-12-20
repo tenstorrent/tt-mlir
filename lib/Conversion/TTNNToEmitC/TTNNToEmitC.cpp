@@ -613,6 +613,31 @@ public:
   }
 };
 
+class TupleOpConversionPattern : public OpConversionPattern<tt::TupleOp> {
+
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tt::TupleOp tupleOp, tt::TupleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // EmitC doesn't offer a way to create a vector from a list of values, so we
+    // need to create a utility function that does this. This is achieved by
+    // using EmitC's VerbatimOp.
+
+    // Try to find if utility vec creation function is already defined in the
+    // module. If not, insert it.
+    //
+    ttnn_to_emitc::utils::insertVecCreateFnIfNotExists(rewriter, tupleOp);
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        tupleOp, this->getTypeConverter()->convertType(tupleOp.getType()),
+        ttnn_to_emitc::utils::kCreateVectorFunctionName, nullptr, nullptr,
+        adaptor.getOperands());
+    return success();
+  }
+};
+
 // Module Op conversion pattern
 //
 // This conversion pattern removes attributes from the ModuleOp. Previously,
@@ -681,6 +706,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::FloorOp>,
                DefaultOpConversionPattern<ttnn::IsFiniteOp>,
                DefaultOpConversionPattern<ttnn::LogicalNotOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseNotOp>,
                DefaultOpConversionPattern<ttnn::NegOp>,
                DefaultOpConversionPattern<ttnn::ReluOp>,
                DefaultOpConversionPattern<ttnn::LeakyReluOp>,
@@ -703,11 +729,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Eltwise binary ops
   //
   patterns.add<EltwiseBinaryOpConversionPattern<ttnn::AddOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::SubtractOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::MultiplyOp>,
                EltwiseBinaryOpConversionPattern<ttnn::LogicalAndOp>,
                EltwiseBinaryOpConversionPattern<ttnn::LogicalOrOp>,
                EltwiseBinaryOpConversionPattern<ttnn::LogicalXorOp>,
-               EltwiseBinaryOpConversionPattern<ttnn::SubtractOp>,
-               EltwiseBinaryOpConversionPattern<ttnn::MultiplyOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseAndOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseOrOp>,
+               DefaultOpConversionPattern<ttnn::BitwiseXorOp>,
                DefaultOpConversionPattern<ttnn::EqualOp>,
                DefaultOpConversionPattern<ttnn::NotEqualOp>,
                DefaultOpConversionPattern<ttnn::GreaterEqualOp>,
@@ -726,7 +755,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::TransposeOp>,
                DefaultOpConversionPattern<ttnn::ConcatOp>,
                DefaultOpConversionPattern<ttnn::ReshapeOp>,
-               DefaultOpConversionPattern<ttnn::SliceOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::SliceOp>,
+               DefaultOpConversionPattern<ttnn::PermuteOp>>(typeConverter, ctx);
 
   // Matmul ops
   //
@@ -772,13 +802,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<ArithConstantOpConversionPattern>(typeConverter, ctx);
 
-  // Module op
-  //
-  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
-
   // Tuple ops
   //
   patterns.add<GetTupleElementOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TupleOpConversionPattern>(typeConverter, ctx);
+
+  // Module op
+  //
+  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
