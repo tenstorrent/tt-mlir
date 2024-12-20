@@ -410,6 +410,59 @@ public:
   }
 };
 
+// The TTNN division operation does not support implicit broadcasting on its
+// operands. Since the TTNN multiply op does, we can work around this by taking
+// the reciprocal of the RHS and then multiplying the LHS with the reciprocal of
+// the RHS.
+class TTNNDivisionWithBroadcastedOperandWorkaround
+    : public OpRewritePattern<ttnn::DivOp> {
+public:
+  using OpRewritePattern<ttnn::DivOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::DivOp op,
+                                PatternRewriter &rewriter) const override {
+    auto lhsType = mlir::cast<RankedTensorType>(op.getInputs()[0].getType());
+    auto rhsType = mlir::cast<RankedTensorType>(op.getInputs()[1].getType());
+
+    // If the operand shapes are the same we don't need to do anything.
+    if (lhsType.getShape() == rhsType.getShape()) {
+      return failure();
+    }
+
+    // If the shapes of the operands are different, we need to take the
+    // reciprocal of the right hand side operand and multiply it with the left
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(rhsType.getEncoding());
+    auto shapeAttr =
+        ttnn::ShapeAttr::get(rewriter.getContext(), rhsType.getShape());
+
+    DataTypeAttr dTypeAttr =
+        DataTypeAttr::get(rewriter.getContext(), layoutAttr.getDataType());
+    auto ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    if (layoutAttr.isTiled()) {
+      ttnnLayoutEnum = ttnn::Layout::Tile;
+    } else {
+      ttnnLayoutEnum = ttnn::Layout::RowMajor;
+    }
+
+    ttnn::LayoutAttr tensorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
+
+    auto recipDPS =
+        rewriter.create<ttnn::EmptyOp>(op.getLoc(), rhsType, nullptr, shapeAttr,
+                                       dTypeAttr, tensorLayoutAttr, nullptr);
+    auto recip = rewriter.create<ttnn::ReciprocalOp>(
+        op.getLoc(), rhsType, op.getInputs()[1], recipDPS.getResult());
+
+    std::vector<Value> inputs = {op.getInputs()[0], recip.getResult(0)};
+    rewriter.replaceOpWithNewOp<ttnn::MultiplyOp>(op, op->getResultTypes(),
+                                                  ValueRange(ArrayRef(inputs)),
+                                                  op.getOutputs());
+
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -431,6 +484,7 @@ public:
                        ttnn::MaxOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::MeanOp>>(&getContext());
+      patterns.add<TTNNDivisionWithBroadcastedOperandWorkaround>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
