@@ -1,4 +1,4 @@
-// RUN: not ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="system-desc-path=ttrt-artifacts/system_desc.ttsys" %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --split-input-file --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s 2>&1 | FileCheck %s
 // Negative tests for Max op.
 module {
   func.func @forward(%arg0: tensor<128x32x10x4xbf16>) -> tensor<128x1x1x1xbf16> {
