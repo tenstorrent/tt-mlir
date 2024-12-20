@@ -25,14 +25,13 @@ public:
 };
 
 TEST_F(OpModelBase, ReluInterleaved) {
-  llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
-  auto workerGrid =
+  const llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  const auto workerGrid =
       CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
-
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -92,16 +91,15 @@ TEST_F(OpModelBase, ReluInterleaved) {
 }
 
 TEST_F(OpModelBase, ReluSharded) {
-  llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
-  auto workerGrid = CreateWorkerGrid(
+  const llvm::SmallVector<int64_t> tensorShape = {16 * 64 * 32, 32};
+  const auto workerGrid = CreateWorkerGrid(
       mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
-  auto virtualGrid = GetVirtualGridShape(
+  const auto virtualGrid = GetVirtualGridShape(
       tensorShape, mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
-
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs = CreateLayout(
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs = CreateLayout(
       tensorShape, mlir::tt::ttnn::BufferType::L1,
       mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, virtualGrid);
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -140,14 +138,13 @@ TEST_F(OpModelBase, ReluSharded) {
 }
 
 TEST_F(OpModelBase, SoftmaxInterleaved) {
-  llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
-  auto workerGrid =
+  const llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  const auto workerGrid =
       CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
-
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -222,17 +219,16 @@ TEST_F(OpModelBase, SoftmaxInterleaved) {
 }
 
 TEST_F(OpModelBase, SoftmaxSharded) {
-  llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
-  auto workerGrid = CreateWorkerGrid(
+  const llvm::SmallVector<int64_t> tensorShape = {16 * 64 * 32, 32};
+  const auto workerGrid = CreateWorkerGrid(
       mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
-
-  auto virtualGrid = GetVirtualGridShape(
+  const auto virtualGrid = GetVirtualGridShape(
       tensorShape, mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
 
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs = CreateLayout(
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs = CreateLayout(
       tensorShape, mlir::tt::ttnn::BufferType::L1,
       mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, virtualGrid);
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_i =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -296,14 +292,13 @@ TEST_F(OpModelBase, SoftmaxSharded) {
 }
 
 TEST_F(OpModelBase, AddInterleaved) {
-  llvm::ArrayRef<int64_t> tensorShape = {64, 1024};
-  auto workerGrid =
+  const llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  const auto workerGrid =
       CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
-
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -427,14 +422,13 @@ TEST_F(OpModelBase, AddInterleaved) {
 }
 
 TEST_F(OpModelBase, AddSharded) {
-  llvm::ArrayRef<int64_t> tensorShape = {16 * 64 * 32, 32};
-  auto workerGrid = CreateWorkerGrid(
+  const llvm::SmallVector<int64_t> tensorShape = {16 * 64 * 32, 32};
+  const auto workerGrid = CreateWorkerGrid(
       mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 8});
-
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1_hs =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::HeightSharded, {8, 1});
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -486,14 +480,13 @@ TEST_F(OpModelBase, AddSharded) {
 }
 
 TEST_F(OpModelBase, MatmulInterleaved) {
-  llvm::ArrayRef<int64_t> tensorShape = {2048, 2048};
-  auto workerGrid =
+  const llvm::SmallVector<int64_t> tensorShape = {2048, 2048};
+  const auto workerGrid =
       CreateWorkerGrid(mlir::tt::ttnn::TensorMemoryLayout::Interleaved, {8, 8});
-
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
+  const mlir::tt::ttnn::TTNNLayoutAttr inputLayout_l1 =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
 
@@ -605,15 +598,14 @@ TEST_F(OpModelBase, MatmulInterleaved) {
 }
 
 TEST_F(OpModelBase, MatmulSharded) {
-  const llvm::ArrayRef<int64_t> tensorShape = {1024, 1024};
+  const llvm::SmallVector<int64_t> tensorShape = {1024, 1024};
   const SmallVector<int64_t> gridShape = {4, 4};
-  auto workerGrid = CreateWorkerGrid(
+  const auto workerGrid = CreateWorkerGrid(
       mlir::tt::ttnn::TensorMemoryLayout::BlockSharded, gridShape);
-
-  mlir::tt::ttnn::TTNNLayoutAttr layout_l1_hs =
+  const mlir::tt::ttnn::TTNNLayoutAttr layout_l1_hs =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::L1,
                    mlir::tt::ttnn::TensorMemoryLayout::BlockSharded, gridShape);
-  mlir::tt::ttnn::TTNNLayoutAttr layout_dram =
+  const mlir::tt::ttnn::TTNNLayoutAttr layout_dram =
       CreateLayout(tensorShape, mlir::tt::ttnn::BufferType::DRAM,
                    mlir::tt::ttnn::TensorMemoryLayout::Interleaved, gridShape);
 
