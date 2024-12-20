@@ -73,8 +73,7 @@ public:
     coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
         llvm::ArrayRef<int64_t>{0, 0},
         llvm::ArrayRef<int64_t>{gridShape[0], gridShape[1]}));
-    kernelConfigs.push_back(rewriter.getAttr<ttkernel::TensixConfigAttr>(
-        ttkernel::MathFidelity::HiFi4, false, false));
+    kernelConfigs.push_back(rewriter.getAttr<ttkernel::TensixConfigAttr>());
 
     // in0 senders
     coreRanges.push_back(rewriter.getAttr<ttmetal::CoreRangeAttr>(
@@ -124,13 +123,13 @@ public:
 
     // kernel here
     RankedTensorType in0Type = mlir::cast<RankedTensorType>(in0.getType());
-    LayoutAttr in0Encoding = mlir::cast<LayoutAttr>(in0Type.getEncoding());
+    MetalLayoutAttr in0Encoding = mlir::cast<MetalLayoutAttr>(in0Type.getEncoding());
 
     RankedTensorType in1Type = mlir::cast<RankedTensorType>(in1.getType());
-    LayoutAttr in1Encoding = mlir::cast<LayoutAttr>(in1Type.getEncoding());
+    MetalLayoutAttr in1Encoding = mlir::cast<MetalLayoutAttr>(in1Type.getEncoding());
 
     RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
-    LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
+    MetalLayoutAttr out0Encoding = mlir::cast<MetalLayoutAttr>(out0Type.getEncoding());
 
     auto in0_block_k = computeBuilder.create<arith::ConstantOp>(
         metalDispatch.getLoc(), computeBuilder.getIntegerType(32),
@@ -220,10 +219,10 @@ public:
                                       : "DPRINT << \"in0\" << ENDL();");
 
     RankedTensorType inType = mlir::cast<RankedTensorType>(in.getType());
-    LayoutAttr inEncoding = mlir::cast<LayoutAttr>(inType.getEncoding());
+    MetalLayoutAttr inEncoding = mlir::cast<MetalLayoutAttr>(inType.getEncoding());
 
     RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
-    LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
+    MetalLayoutAttr out0Encoding = mlir::cast<MetalLayoutAttr>(out0Type.getEncoding());
 
     // Working CB Initialization
     auto workingCb = readerBuilder.getBlock()->getArgument(isIn1);
@@ -584,10 +583,10 @@ public:
         metalDispatch.getLoc(), i32(rt_args.size(), writerBuilder));
 
     RankedTensorType inType = mlir::cast<RankedTensorType>(in.getType());
-    LayoutAttr inEncoding = mlir::cast<LayoutAttr>(inType.getEncoding());
+    MetalLayoutAttr inEncoding = mlir::cast<MetalLayoutAttr>(inType.getEncoding());
 
     RankedTensorType out0Type = mlir::cast<RankedTensorType>(out0.getType());
-    LayoutAttr out0Encoding = mlir::cast<LayoutAttr>(out0Type.getEncoding());
+    MetalLayoutAttr out0Encoding = mlir::cast<MetalLayoutAttr>(out0Type.getEncoding());
 
     // Working In CB Initialization
     auto workingInCb = writerBuilder.getBlock()->getArgument(isIn1);
@@ -705,8 +704,8 @@ public:
                       SystemDescAttr sysDesc) const {
     RankedTensorType outputTensor =
         mlir::cast<RankedTensorType>(metalDispatch.getOutputs()[0].getType());
-    LayoutAttr out0Encoding =
-        mlir::cast<LayoutAttr>(outputTensor.getEncoding());
+    MetalLayoutAttr out0Encoding =
+        mlir::cast<MetalLayoutAttr>(outputTensor.getEncoding());
     auto shape_max = isIn1 ? out0Encoding.getGrid().getShape().back()
                            : out0Encoding.getGrid().getShape().front();
     SmallVector<uint32_t> core_ids;
@@ -822,9 +821,9 @@ public:
 
     llvm::errs() << "MatmulOp matched\n";
 
-    auto in0TensorLayout = mlir::cast<LayoutAttr>(tensorA.getEncoding());
-    auto in1TensorLayout = mlir::cast<LayoutAttr>(tensorB.getEncoding());
-    auto out0TensorLayout = mlir::cast<LayoutAttr>(outputTensor.getEncoding());
+    auto in0TensorLayout = mlir::cast<MetalLayoutAttr>(tensorA.getEncoding());
+    auto in1TensorLayout = mlir::cast<MetalLayoutAttr>(tensorB.getEncoding());
+    auto out0TensorLayout = mlir::cast<MetalLayoutAttr>(outputTensor.getEncoding());
     auto outputTensorGrid = out0TensorLayout.getGrid().getShape();
 
     auto [coreRanges, kernelConfigs] =

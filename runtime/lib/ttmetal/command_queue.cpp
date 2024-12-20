@@ -389,12 +389,10 @@ static ::tt::tt_metal::CircularBufferConfig createCircularBufferConfig(
       .size = cbRef->desc()->memory_desc()->size()*64,
       .page_size = cbRef->desc()->page_size(),
       .buffer_type = BufferType::L1,
-      .allocate = false
     };
 
     std::shared_ptr<::tt::tt_metal::Buffer> l1_buffer =
-        ::tt::tt_metal::CreateBuffer(l1_config);
-    l1_buffer->set_address(cbRef->address());
+        ::tt::tt_metal::CreateBuffer(l1_config, cbRef->address());
 
     return CircularBufferConfig(totalSize,
                                 {{cbRef->desc()->port(), dataFormat}}, *l1_buffer)

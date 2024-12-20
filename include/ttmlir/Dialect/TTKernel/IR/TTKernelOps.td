@@ -800,26 +800,6 @@ def TTKernel_MemZerosSizeOp : TTKernel_Op<"mem_zeros_size"> {
     let results = (outs I32:$result);
 }
 
-def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
-    let summary = "GetWritePtr";
-    let description = [{
-      GetWritePtr operation
-    }];
-
-    let arguments = (ins TTKernel_CB:$cb);
-    let results = (outs I32:$writePtr);
-}
-
-def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
-    let summary = "CastToL1Ptr";
-    let description = [{
-      Cast specified addr to L1 pointer.
-    }];
-
-    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
-
-    let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
-}
 
 def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
     let summary = "StoreToL1";
