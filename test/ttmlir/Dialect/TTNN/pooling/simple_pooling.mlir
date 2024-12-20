@@ -2,7 +2,11 @@
 module attributes {} {
   func.func @forward(%arg0: tensor<1x32x128x128xbf16>) -> tensor<1x32x64x64xbf16> {
     %0 = tensor.empty() : tensor<1x32x64x64xbf16>
-    // CHECK: %[[C:.*]] = "ttnn.max_pool2d"[[C:.*]]
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
+    // CHECK: "ttnn.max_pool2d"
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
     %1 = "ttir.pooling"(%arg0, %0) <{
         operandSegmentSizes = array<i32: 1, 1>,
         pooling_method = #ttir<pooling_method Max>,
