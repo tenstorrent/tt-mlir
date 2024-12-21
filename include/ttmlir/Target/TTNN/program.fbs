@@ -140,12 +140,17 @@ enum EltwiseOpType: uint32 {
   LeakyRelu,
   Scatter,
   Tan,
-  Tanh
+  Tanh,
+  Round
 }
 
 table ClampOpParams {
   min: float;
   max: float;
+}
+
+table RoundOpParams {
+  decimals: int32;
 }
 
 table EltwiseOpWithFloatParams {
@@ -155,6 +160,7 @@ table EltwiseOpWithFloatParams {
 union EltwiseOpParams {
   ClampOpParams,
   EltwiseOpWithFloatParams,
+  RoundOpParams,
 }
 
 table EltwiseOp {
