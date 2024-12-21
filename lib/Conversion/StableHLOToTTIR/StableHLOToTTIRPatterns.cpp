@@ -749,17 +749,70 @@ public:
       return legalityResult;
     }
 
+    auto inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOperand().getType()));
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg =
-        rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
+    if (inputType.getRank() == outputType.getRank()) {
+      // unsqueeze is not needed, proceed to converting to broadcast
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        Value(adaptor.getOperand()), Value(outputTensor), dimArg);
+      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+      mlir::ArrayAttr dimArg =
+          rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
+
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
+          srcOp, getTypeConverter()->convertType(outputTensor.getType()),
+          Value(adaptor.getOperand()), Value(outputTensor), dimArg);
+    } else {
+
+      std::vector<int64_t> UnsqueezeShape;
+      for (unsigned int i = 0; i < inputType.getRank(); i++) {
+        UnsqueezeShape.push_back(inputType.getDimSize(i));
+      }
+
+      for (unsigned int i = inputType.getRank(); i < outputType.getRank();
+           i++) {
+        UnsqueezeShape.insert(UnsqueezeShape.begin(), 1);
+        if ((unsigned)UnsqueezeShape.size() == (unsigned)outputType.getRank()) {
+          break;
+        }
+      }
+
+      RankedTensorType unsqueezeOutputType =
+          RankedTensorType::get(UnsqueezeShape, outputType.getElementType());
+
+      tensor::EmptyOp reshapeOutputTensor = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), unsqueezeOutputType.getShape(),
+          unsqueezeOutputType.getElementType());
+
+      std::vector<int32_t> new_shape_i32;
+      for (int64_t dim : UnsqueezeShape) {
+        new_shape_i32.push_back(static_cast<int32_t>(dim));
+      }
+
+      auto reshapeDim = rewriter.getI32ArrayAttr(new_shape_i32);
+
+      mlir::tt::ttir::ReshapeOp reshape =
+          rewriter.create<mlir::tt::ttir::ReshapeOp>(
+              srcOp.getLoc(),
+              getTypeConverter()->convertType(unsqueezeOutputType),
+              adaptor.getOperand(), reshapeOutputTensor, reshapeDim);
+
+      tensor::EmptyOp broadcastOutputTensor = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+      mlir::ArrayAttr dimArg =
+          rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
+
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
+          srcOp,
+          getTypeConverter()->convertType(broadcastOutputTensor.getType()),
+          Value(reshape.getResult()), Value(broadcastOutputTensor), dimArg);
+    }
 
     return success();
   }

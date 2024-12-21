@@ -112,19 +112,6 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
-def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
-  let summary = "Broadcast operation is folded to all the consumers.";
-  let description = [{
-    This pass walks through the graph and folds all broadcast instructions since broadcast is supported implicitly by backend ops.
-    Example:
-      %1 = "ttir.broadcast"(%arg0) (tensor<1xf32>) -> tensor<512xf32>
-      %2 = "ttir.maximum"(%1, %arg1) (tensor<512xf32>, tensor<512xf32>) -> tensor<512xf32>
-
-      This above broadcast is folded as:
-      %1 = "ttir.maximum"(%arg0, %arg1) (tensor<1xf32>, tensor<512xf32>) -> tensor<512xf32>
-  }];
-}
-
 def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
 {
   let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";

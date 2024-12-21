@@ -635,6 +635,40 @@ public:
   }
 };
 
+class BroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::BroadcastOp> {
+  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    // Extract input tensor type
+    ::llvm::ArrayRef<int64_t> inputShape =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType())
+            .getShape();
+
+    ::llvm::ArrayRef<int64_t> outputShape =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getOutput().getType())
+            .getShape();
+
+    SmallVector<int64_t, 4> repeatShape;
+    for (unsigned int i = 0; i < outputShape.size(); i++) {
+      int d = outputShape[i] / inputShape[i];
+      repeatShape.push_back(d);
+    }
+
+    auto shapeAttr = rewriter.getI64ArrayAttr(repeatShape);
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), shapeAttr);
+
+    return success();
+  }
+};
+
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -1196,6 +1230,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
+           BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,

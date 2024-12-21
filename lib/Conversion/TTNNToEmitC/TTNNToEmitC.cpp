@@ -755,6 +755,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<DefaultOpConversionPattern<ttnn::TransposeOp>,
                DefaultOpConversionPattern<ttnn::ConcatOp>,
                DefaultOpConversionPattern<ttnn::ReshapeOp>,
+               DefaultOpConversionPattern<ttnn::RepeatOp>,
                DefaultOpConversionPattern<ttnn::SliceOp>,
                DefaultOpConversionPattern<ttnn::PermuteOp>>(typeConverter, ctx);
 

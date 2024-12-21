@@ -290,6 +290,23 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 // ReshapeOp verification
+::mlir::LogicalResult mlir::tt::ttnn::RepeatOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Check that the shape size matches the rank of the output tensor
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input tensor rank should match output tensor rank");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ReshapeOp
+//===----------------------------------------------------------------------===//
+
+// ReshapeOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::ReshapeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
