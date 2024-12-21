@@ -7,8 +7,10 @@
 
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 
@@ -181,6 +183,29 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
     inversePermutation[permutation[i]] = i;
   }
   return inversePermutation;
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 mlir::RankedTensorType outputType, mlir::Value input,
+                 AttributeTy &&...attrs) {
+  auto DPSOutput = rewriter.create<mlir::tensor::EmptyOp>(
+      loc, outputType.getShape(), outputType.getElementType(),
+      outputType.getEncoding());
+
+  return rewriter.create<OpTy>(loc, outputType, input, DPSOutput,
+                               std::forward<AttributeTy>(attrs)...);
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::Type outputElementType, mlir::Attribute encoding,
+                 mlir::Value input, AttributeTy &&...attrs) {
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, outputElementType, encoding);
+  return createDPSOp<OpTy>(rewriter, loc, outputType, input,
+                           std::forward<AttributeTy>(attrs)...);
 }
 
 } // namespace ttmlir::utils
