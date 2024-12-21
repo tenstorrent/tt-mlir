@@ -16,6 +16,7 @@
 #include "llvm/Support/Error.h"
 
 #include <cstdint>
+#include <utility>
 
 namespace ttmlir::utils {
 template <typename T>
@@ -270,6 +271,54 @@ OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
   auto outputType =
       mlir::RankedTensorType::get(outputShape, outputElementType, encoding);
   return createDPSOp<OpTy>(rewriter, loc, outputType, input,
+                           std::forward<AttributeTy>(attrs)...);
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 mlir::RankedTensorType outputType, mlir::Value lhs,
+                 mlir::Value rhs, AttributeTy &&...attrs) {
+  auto DPSOutput = rewriter.create<mlir::tensor::EmptyOp>(
+      loc, outputType.getShape(), outputType.getElementType(),
+      outputType.getEncoding());
+
+  return rewriter.create<OpTy>(loc, outputType, lhs, rhs, DPSOutput,
+                               std::forward<AttributeTy>(attrs)...);
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::Type outputElementType, mlir::Attribute encoding,
+                 mlir::Value lhs, mlir::Value rhs, AttributeTy &&...attrs) {
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, outputElementType, encoding);
+  return createDPSOp<OpTy>(rewriter, loc, outputType, lhs, rhs,
+                           std::forward<AttributeTy>(attrs)...);
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 mlir::RankedTensorType outputType, mlir::Value first,
+                 mlir::Value second, mlir::Value third,
+                 AttributeTy &&...attrs) {
+  auto DPSOutput = rewriter.create<mlir::tensor::EmptyOp>(
+      loc, outputType.getShape(), outputType.getElementType(),
+      outputType.getEncoding());
+
+  return rewriter.create<OpTy>(loc, outputType, first, second, third, DPSOutput,
+                               std::forward<AttributeTy>(attrs)...);
+}
+
+template <typename OpTy, typename... AttributeTy>
+OpTy createDPSOp(mlir::PatternRewriter &rewriter, mlir::Location loc,
+                 llvm::ArrayRef<int64_t> outputShape,
+                 mlir::Type outputElementType, mlir::Attribute encoding,
+                 mlir::Value first, mlir::Value second, mlir::Value third,
+                 AttributeTy &&...attrs) {
+  auto outputType =
+      mlir::RankedTensorType::get(outputShape, outputElementType, encoding);
+  return createDPSOp<OpTy>(rewriter, loc, outputType, first, second, third,
                            std::forward<AttributeTy>(attrs)...);
 }
 
