@@ -624,23 +624,18 @@ emitTensixKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os)
 LogicalResult
 emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType )
 {
-  std::vector<Operation*> ops;
+  std::vector<func::FuncOp> ops;
   op->walk([&](func::FuncOp entry) {
     ops.push_back(entry);
   });
 
-  // PassManager pm(ops[0]->getContext());
-  // pm.addPass(createConvertTTKernelToEmitC());
-
-  // if (pm.run(ops[0]).failed()) {
-  //   return failure();
-  // }
-
-  for (auto &reg : ops[0]->getRegions()) {
-    if (emitOpRegionAsCpp(&reg, os,
-                            threadType)
-      .failed()) {
-      return llvm::failure();
+  for (const auto &op : ops){
+    for (auto &reg : op->getRegions()) {
+      if (emitOpRegionAsCpp(&reg, os,
+                              threadType)
+        .failed()) {
+        return llvm::failure();
+      }
     }
   }
   return llvm::success();
