@@ -277,8 +277,8 @@ public:
 
     auto new2dConvolutionOp = ttmlir::utils::createDPSOp<ttir::ConvolutionOp>(
         rewriter, op.getLoc(), conv2dOutputShape, outputType.getElementType(),
-        outputType.getEncoding(), Value(reshapeInput), Value(reshapeWeight),
-        Value(), conv2dOpWindowsStridesAttr, conv2dOpPaddingAttr,
+        outputType.getEncoding(), reshapeInput, reshapeWeight, nullptr,
+        conv2dOpWindowsStridesAttr, conv2dOpPaddingAttr,
         conv2dOpInputDilationAttr, conv2dOpWeightDilationAttr,
         conv2dOpWindowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
