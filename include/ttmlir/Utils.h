@@ -263,9 +263,11 @@ struct count_consecutive<> {
 
 template <typename First, typename... Rest>
 struct count_consecutive<First, Rest...> {
-  static constexpr size_t value = std::is_convertible_v<First, mlir::Value>
-                                      ? 1 + count_consecutive_v<Rest...>
-                                      : 0;
+  static constexpr size_t value =
+      std::is_convertible_v<First, mlir::Value> ||
+              std::is_convertible_v<First, mlir::ValueRange>
+          ? 1 + count_consecutive_v<Rest...>
+          : 0;
 };
 
 template <typename OpTy, typename IndexSeqFirst, typename IndexSeqRest>
