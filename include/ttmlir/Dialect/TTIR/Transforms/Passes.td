@@ -6,6 +6,8 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRPASSES_TD
 
 include "mlir/Pass/PassBase.td"
+include "mlir/Dialect/PDL/IR/PDLDialect.td"
+include "mlir/Dialect/PDLInterp/IR/PDLInterpOps.td"
 
 def TTIRImplicitDevice: Pass<"ttir-implicit-device", "::mlir::ModuleOp"> {
   let summary = "Create an implicit device";
@@ -162,6 +164,24 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
     ListOption<"hoistLocs", "hoist-locations", "std::string",
                "comma-separated list of NameLoc's from input.">,
   ];
+}
+
+def TTIROpFusion : Pass<"ttir-fusion", "::mlir::ModuleOp"> {
+  let summary = "Fuse patterns of ops into a smaller pattern of ops";
+  let description = [{
+    This pass applies a set of patterns to the graph which fuse large patterns
+    of ops into smaller patterns of ops where the math is identical.
+
+    For example, softmax(x) = exp(x) / sum(exp(x)). So if the graph has the
+    following pattern:
+      %0 = "ttir.exp"(%arg0, %dps0) : (tensor<10xf32>) -> tensor<10xf32>
+      %1 = "ttir.sum"(%0, %dps1) : (tensor<1xf32>) -> tensor<1xf32>
+      %2 = "ttir.broadcast"(%1, %dps2) : (tensor<1xf32>) -> tensor<10xf32>
+      %3 = "ttir.div"(%0, %2, %dps3) : (tensor<10xf32>, tensor<10xf32>) -> tensor<10xf32>
+
+    The pattern can be replaced with:
+      %0 = "ttir.softmax"(%arg0, %dps3) : (tensor<10xf32>) -> tensor<10xf32>
+  }];
 }
 
 #endif
