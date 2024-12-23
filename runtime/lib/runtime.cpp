@@ -11,6 +11,8 @@
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
+
+#include <dlfcn.h>
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -486,4 +488,56 @@ Event submit(Device deviceHandle, Binary executableHandle,
 #endif
   LOG_FATAL("runtime is not enabled");
 }
+
+void *openSo(std::string path) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    void *handle = dlopen(path.c_str(), RTLD_LAZY);
+    if (!handle) {
+      std::cerr << "Failed to load shared object: " << dlerror() << std::endl;
+      throw std::runtime_error("Failed to load shared object");
+    }
+
+    dlerror();
+    return handle;
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+std::vector<Tensor> runSoProgram(void *so, std::string name,
+                                 std::vector<Tensor> inputs, Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  return ::tt::runtime::ttnn::runSoProgram(so, name, inputs, device);
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
+bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::compareOuts(lhs, rhs);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
+}
+
 } // namespace tt::runtime

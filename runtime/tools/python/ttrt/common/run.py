@@ -155,6 +155,13 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
+            name="--emitc",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="toggles emitc testing",
+        )
+        Run.register_arg(
             name="--disable-golden",
             type=bool,
             default=False,
@@ -421,6 +428,14 @@ class Run:
                         if self["--save-artifacts"]:
                             self.artifacts.create_binary_artifacts_folder(bin)
 
+                        if self["--emitc"]:
+                            # .so are compiled such that they have the same name as flatbuffers, so we rename here
+                            emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
+
+                            # Open the dylib
+                            emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
+                            self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
+
                         program_indices = []
                         if self["--program-index"] == "all":
                             program_indices.extend(range(bin.get_num_programs()))
@@ -543,6 +558,39 @@ class Run:
 
                             if event is not None:
                                 ttrt.runtime.wait(event)
+
+                            # Compare to EmitC
+                            if self["--emitc"]:
+                                # Create symbol string to read from dylib
+                                fwd_func_name = program.program["name"]
+                                fwd_func_name_len = len(fwd_func_name)
+                                fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE"
+
+                                for loop in range(self["--loops"]):
+                                    emitc_outs = ttrt.runtime.run_so_program(
+                                        emitc_dylib_handle,
+                                        fwd_func_sym,
+                                        total_inputs[loop],
+                                        device,
+                                    )
+                                    self.logging.debug(
+                                        f"got emitc outputs for program_index={program_index}, loop={loop}"
+                                    )
+
+                                    all_tensors_match = ttrt.runtime.compare_outs(
+                                        total_outputs[0], emitc_outs
+                                    )
+
+                                    if not all_tensors_match:
+                                        self.logging.error(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.error(
+                                            total_outputs[loop], emitc_outs
+                                        )
+                                        raise Exception(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
 
                             if self["--identity"]:
                                 self.logging.debug(
