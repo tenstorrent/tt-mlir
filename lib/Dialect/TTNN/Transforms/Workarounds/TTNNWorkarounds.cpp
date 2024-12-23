@@ -416,6 +416,7 @@ public:
   using impl::TTNNWorkaroundsBase<TTNNWorkarounds>::TTNNWorkaroundsBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNWorkarounds::rOO\n";
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds,
@@ -467,6 +468,7 @@ private:
       signalPassFailure();
       return;
     }
+    llvm::outs() << "e TTNNWorkarounds::rOO\n";
   }
 };
 } // namespace mlir::tt::ttnn
