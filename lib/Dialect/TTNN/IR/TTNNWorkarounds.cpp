@@ -83,14 +83,17 @@ TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(Operation *op) {
 // tile layout, but the output of the operation is strictly in row-major layout.
 // In order to keep the output consistent with the input, the row-major
 // workaround is applied to both the input and output operands.
+// The input and output operands are expected to use the bf16 data type, so the
+// bf16 workaround is applied to both the input and output operands.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround =
-      wa::TTNNOperandWorkarounds(Layout::RowMajor);
+  wa::TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorLayoutWorkaround)
-      .addInputOperandWorkaround(rowMajorLayoutWorkaround)
-      .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
 // Factory method to create a set of workarounds for embedding operation
@@ -107,12 +110,13 @@ TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds() {
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   // Create input and weight workarounds.
-  TTNNOperandWorkarounds inputWorkaround =
-      TTNNOperandWorkarounds(Layout::RowMajor);
+  TTNNOperandWorkarounds inputRowMajorInt32Workaround;
+  inputRowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputRowMajorInt32Workaround.tensorDataTypeWorkaround = DataType::UInt32;
   TTNNOperandWorkarounds weightWorkaround =
       TTNNOperandWorkarounds(DataType::BFloat16);
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
-      .addInputOperandWorkaround(inputWorkaround)
+      .addInputOperandWorkaround(inputRowMajorInt32Workaround)
       .addInputOperandWorkaround(weightWorkaround)
       .addInputOperandWorkaround(weightWorkaround)
       .addOutputOperandWorkaround(weightWorkaround);

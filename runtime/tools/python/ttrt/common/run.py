@@ -141,6 +141,13 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
+            name="--disable-to-dtype-on-host",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="disable to_dtype on host workaround",
+        )
+        Run.register_arg(
             name="--result-file",
             type=str,
             default="run_results.json",
@@ -379,6 +386,7 @@ class Run:
                 not self["--disable-maxpool2d-preshard"],
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
+                not self["--disable-to-dtype-on-host"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
             self.logging.debug(f"setting torch manual seed={self['--seed']}")
