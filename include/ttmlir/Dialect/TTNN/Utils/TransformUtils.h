@@ -23,7 +23,8 @@ createToLayoutOp(mlir::Operation *op,
                  mlir::TypedValue<RankedTensorType> inputValue,
                  PatternRewriter &rewriter, Layout targetTensorLayout,
                  BufferType targetTensorBufferType,
-                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout);
+                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
+                 DataType targetTensorDataType);
 } // namespace mlir::tt::ttnn::utils
 
 #endif

@@ -112,12 +112,20 @@ Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context, DataType dtype) {
   }
 }
 
-// Helper method to create a RankedTensorType with the given encoding
+// Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
 createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
                                    ttnn::TTNNLayoutAttr encoding) {
   return RankedTensorType::get(tensorType.getShape(),
                                tensorType.getElementType(), encoding);
+}
+
+// Helper method to create a RankedTensorType with the given element type.
+RankedTensorType
+createRankedTensorTypeWithElementType(RankedTensorType tensorType,
+                                      Type elementType) {
+  return RankedTensorType::get(tensorType.getShape(), elementType,
+                               tensorType.getEncoding());
 }
 
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
