@@ -175,6 +175,15 @@ PYBIND11_MODULE(_C, m) {
       "Copy the data from src tensor to dst tensor");
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, py::arg("tensor"),
         py::arg("force") = false, "Deallocate the tensor memory");
+
+  m.def("open_so", &tt::runtime::openSo, py::arg("path"),
+        "Open a shared object file");
+  m.def("run_so_program", &tt::runtime::runSoProgram, py::arg("so"),
+        py::arg("name"), py::arg("inputs"), py::arg("device"),
+        "Run a program from a shared object file");
+  m.def("compare_outs", &tt::runtime::compareOuts, py::arg("lhs"),
+        py::arg("rhs"));
+
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
