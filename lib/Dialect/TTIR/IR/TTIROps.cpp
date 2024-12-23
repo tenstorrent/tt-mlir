@@ -1581,7 +1581,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 //===----------------------------------------------------------------------===//
 
 // UpsampleOp verification
-::mlir::LogicalResult mlir::tt::ttir::UpsampleOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::Upsample2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 

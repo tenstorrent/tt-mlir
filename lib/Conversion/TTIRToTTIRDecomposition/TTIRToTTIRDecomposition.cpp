@@ -1366,12 +1366,12 @@ public:
 //   %4 = "ttir.permute"(%3, %dst) {permutation = array<i64: 0, 3, 1, 2>}:
 //          (tensor<NxH'xW'xC>, tensor<NxCxH'xW'>) -> tensor<NxCxH'xW'>
 class UpsampleToUpsampleConversionPattern
-    : public OpConversionPattern<ttir::UpsampleOp> {
+    : public OpConversionPattern<ttir::Upsample2dOp> {
 public:
-  using OpConversionPattern<ttir::UpsampleOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::UpsampleOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (adaptor.getChannelLast()) {
       return success();
@@ -1416,10 +1416,11 @@ public:
         op.getLoc(), channelLastOutputShape, outputElementType);
     // %3 = "ttir.upsample"(%1, %2) {channel_last = true}: (tensor<NxHxWxC>,
     // tensor<NxH'xW'xC>) -> tensor<NxH'xW'xC>
-    ttir::UpsampleOp channelLastUpsample = rewriter.create<ttir::UpsampleOp>(
-        op.getLoc(), channelLastOutputType, channelLastInput,
-        upsampleDestination, adaptor.getScaleFactor(), adaptor.getMode(),
-        /*channel_last=*/true);
+    ttir::Upsample2dOp channelLastUpsample =
+        rewriter.create<ttir::Upsample2dOp>(
+            op.getLoc(), channelLastOutputType, channelLastInput,
+            upsampleDestination, adaptor.getScaleFactor(), adaptor.getMode(),
+            /*channel_last=*/true);
 
     // Defines permutation for N(0)H'(1)W'(2)C(3) -> N(0)C(3)H'(1)W'(2)
     // transformation.
