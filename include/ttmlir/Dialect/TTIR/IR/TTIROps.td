@@ -383,7 +383,6 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     }];
 }
 
-// TODO (azecevic): FOLDABLE
 def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let summary = "Eltwise cast op.";
     let description = [{
@@ -545,7 +544,7 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
-def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and"> {
+def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise bitwise AND.";
     let description = [{
         Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
@@ -559,7 +558,7 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and"> {
     }];
 }
 
-def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or"> {
+def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise bitwise OR.";
     let description = [{
         Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
@@ -587,7 +586,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     }];
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -1245,6 +1244,8 @@ def TTIR_ReverseOp : TTIR_DPSOp<"reverse", [AllShapesMatch<["input", "result"]>]
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,

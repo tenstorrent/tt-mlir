@@ -1652,6 +1652,7 @@ bool matchSimpleBlock(mlir::Region &region) {
 // ReverseOp
 //===----------------------------------------------------------------------===//
 
+// ReverseOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ReverseOp::verify() {
   llvm::ArrayRef<int64_t> dimensions = getDimensions();
 
@@ -1680,6 +1681,49 @@ bool matchSimpleBlock(mlir::Region &region) {
   }
 
   return success();
+}
+
+// ReverseOp canonicalization
+void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Reverse dimensions of two consecutive ReverseOps can be folded into a
+  // single ReverseOp where the dimensions are the symmetric difference of the
+  // two sets of dimensions.
+  patterns.add(+[](mlir::tt::ttir::ReverseOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp = op.getInput().getDefiningOp<ttir::ReverseOp>();
+    if (!producerOp) {
+      return mlir::failure();
+    }
+
+    llvm::SmallBitVector reverseDimensions(op.getInput().getType().getRank());
+    std::for_each(
+        op.getDimensions().begin(), op.getDimensions().end(),
+        [&reverseDimensions](int64_t dim) { reverseDimensions.flip(dim); });
+    std::for_each(
+        producerOp.getDimensions().begin(), producerOp.getDimensions().end(),
+        [&reverseDimensions](int64_t dim) { reverseDimensions.flip(dim); });
+
+    llvm::SmallVector<int64_t> setIndices;
+    llvm::copy_if(llvm::seq<int64_t>(reverseDimensions.size()),
+                  std::back_inserter(setIndices),
+                  [&](int64_t i) { return reverseDimensions.test(i); });
+
+    rewriter.replaceOpWithNewOp<ttir::ReverseOp>(
+        op, op.getType(), producerOp.getInput(), op.getOutput(), setIndices);
+    return success();
+  });
+
+  // ReverseOp with empty reverse dimensions is a no-op.
+  patterns.add(
+      +[](mlir::tt::ttir::ReverseOp op, mlir::PatternRewriter &rewriter) {
+        if (!op.getDimensions().empty()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceAllOpUsesWith(op, op.getInput());
+        return mlir::success();
+      });
 }
 
 //===----------------------------------------------------------------------===//
