@@ -28,6 +28,7 @@
 #include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
+#include <limits>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -1152,9 +1153,37 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode());
+        adaptor.getInput(), convertScaleFactor(adaptor.getScaleFactor()),
+        adaptor.getMode());
 
     return success();
+  }
+
+private:
+  mlir::Attribute convertScaleFactor(mlir::Attribute scaleFactor) const {
+    if (auto uniformFactor = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+      if (!(std::numeric_limits<int32_t>::min() <= uniformFactor.getSInt() &&
+            uniformFactor.getSInt() <= std::numeric_limits<int32_t>::max())) {
+        assert(false);
+      }
+      return mlir::IntegerAttr::get(
+          mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signed),
+          uniformFactor.getSInt());
+    }
+    if (auto nonuniformFactor =
+            mlir::dyn_cast<mlir::DenseI64ArrayAttr>(scaleFactor)) {
+      llvm::SmallVector<int32_t, 2> scaleFactors;
+      for (auto factor : nonuniformFactor.asArrayRef()) {
+        if (!(std::numeric_limits<int32_t>::min() <= factor &&
+              factor <= std::numeric_limits<int32_t>::max())) {
+          assert(false);
+        }
+        scaleFactors.push_back(factor);
+      }
+
+      return mlir::DenseI32ArrayAttr::get(getContext(), scaleFactors);
+    }
+    return {};
   }
 };
 

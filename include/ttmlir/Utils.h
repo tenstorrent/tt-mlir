@@ -183,12 +183,18 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
 }
 
 template <typename T>
-inline llvm::Expected<std::pair<T, T>> getScaleFactor(mlir::Attribute attr) {
-  T scaleH = 1, scaleW = 1;
+inline llvm::Expected<std::pair<int64_t, int64_t>>
+getScaleFactor(mlir::Attribute attr) {
+  int64_t scaleH = 1, scaleW = 1;
   // If scale factor is an integer, it's interpreted as a uniform scale factor.
   if (auto scale = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-    scaleH = scale.getSInt();
-    scaleW = scale.getSInt();
+    if (scale.getType().isUnsignedInteger()) {
+      scaleH = scale.getValue().getZExtValue();
+      scaleW = scale.getValue().getZExtValue();
+    } else {
+      scaleH = scale.getValue().getSExtValue();
+      scaleW = scale.getValue().getSExtValue();
+    }
     // If scale factor is a pair of integers, it's interpreted as a non-uniform
     // scale factors for H and W resprectively.
   } else if (auto scales =

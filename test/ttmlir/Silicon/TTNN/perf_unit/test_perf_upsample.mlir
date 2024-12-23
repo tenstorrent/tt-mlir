@@ -8,7 +8,7 @@ module {
     // CHECK: "ttnn.upsample"
     // CHECK-SAME: tensor<4x32x64x3xbf16
     // CHECK-SAME: tensor<4x64x128x3xbf16
-    %1 = "ttir.upsample2d"(%arg0, %0) <{scale_factor = 2 : si32}> : (tensor<4x32x64x3xbf16>, tensor<4x64x128x3xbf16>) -> tensor<4x64x128x3xbf16>
+    %1 = "ttir.upsample2d"(%arg0, %0) <{scale_factor = 2 : si64}> : (tensor<4x32x64x3xbf16>, tensor<4x64x128x3xbf16>) -> tensor<4x64x128x3xbf16>
     return %1 : tensor<4x64x128x3xbf16>
   }
 }

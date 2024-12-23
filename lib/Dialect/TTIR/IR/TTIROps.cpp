@@ -1269,12 +1269,12 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
                        std::to_string(outputType.getRank()));
   }
 
-  auto scaleFactor = ttmlir::utils::getScaleFactor<int32_t>(getScaleFactor());
+  auto scaleFactor = ttmlir::utils::getScaleFactor<int64_t>(getScaleFactor());
   if (auto error = scaleFactor.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
-  int32_t scaleH = scaleFactor->first;
-  int32_t scaleW = scaleFactor->second;
+  int64_t scaleH = scaleFactor->first;
+  int64_t scaleW = scaleFactor->second;
 
   if (scaleH <= 0 || scaleW <= 0) {
     return emitOpError("Scale factors H = ")

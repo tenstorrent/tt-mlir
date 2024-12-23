@@ -1357,7 +1357,7 @@ def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
+                         AnyAttrOf<[SI64Attr, DenseI64ArrayAttr]>:$scale_factor,
                          DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode,
                          DefaultValuedAttr<BoolAttr, "true">:$channel_last);
 
