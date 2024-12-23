@@ -532,6 +532,8 @@ bool ShardSolver::checkShardCompatible(
     uint32_t numOperands = consumerOp->getNumOperands();
     // some ops have multiple operands; and some ops have output also an
     // operand. TBD if there is a more robust way to get real number of inputs
+
+    // cast to DPSop?  //
     numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
     std::vector<TTNNLayoutAttr> inputLayouts;
 
@@ -567,18 +569,19 @@ bool ShardSolver::checkShardCompatible(
     auto [legal, l1Usage, errorMsg] =
         backend.getOpConstraints(inputLayouts, consumerLayout);
 
+    constexpr bool debug = false;
     if (false == legal) {
       // early exit
-
-      // TODO(mbezulj): remove debug prints
-      llvm::errs() << "OpModel constraints failed: ";
-      llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
-                   << " :: " << errorMsg.value() << "\n";
-      producerLayout.dump();
-      consumerLayout.dump();
+      if (debug) {
+        llvm::errs() << "OpModel constraints failed: ";
+        llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
+                     << " :: " << errorMsg.value() << "\n";
+        producerLayout.dump();
+        consumerLayout.dump();
+      }
       return false;
-    } else {
-      // TODO(mbezulj): remove debug prints
+    }
+    if (debug) {
       llvm::errs() << "OpModel constraints valid. ";
       llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
                    << "\n";
