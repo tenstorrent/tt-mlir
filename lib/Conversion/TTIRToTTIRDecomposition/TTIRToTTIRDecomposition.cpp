@@ -72,7 +72,7 @@ struct IndexToSliceConversionPattern
   }
 };
 
-struct DotGeneralToMatmulConversionPattern
+struct DotGeneralToMatmulConversionPatter
     : public OpConversionPattern<ttir::DotGeneralOp> {
 
   using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
@@ -142,11 +142,139 @@ struct DotGeneralToMatmulConversionPattern
       return err;
     }
 
-    // permute + reshape + permute
-    // then matmul
+  Value lhs = op.getA();
+  Value rhs = op.getB();
 
+  // Get the dimensions
+  auto lhsType = lhs.getType().cast<RankedTensorType>();
+  int64_t lhsRank = lhsType.getRank();
+
+  auto rhsType = rhs.getType().cast<RankedTensorType>();
+  int64_t rhsRank = rhsType.getRank();
+
+  auto lhsBatchDims = op.getBatchdimsA();
+  auto lhsContractDims = op.getContractdimsA();
+
+  auto rhsBatchDims = op.getBatchdimsB();
+  auto rhsContractDims = op.getContractdimsB();
+
+  // Create a set of all dimensions for lhs
+  llvm::SmallDenseSet<int64_t> lhsAllDims;
+  for (int64_t i = 0; i < lhsRank; ++i) {
+    lhsAllDims.insert(i);
   }
 
+  // Remove batch and contract dimensions from lhs
+  for (auto dim : lhsBatchDims) {
+    lhsAllDims.erase(dim);
+  }
+  for (auto dim : lhsContractDims) {
+    lhsAllDims.erase(dim);
+  }
+
+  // The remaining dimensions are the result dimensions for lhs
+  SmallVector<int64_t, 4> lhsResultDims(lhsAllDims.begin(), lhsAllDims.end());
+
+  // Create a set of all dimensions for rhs
+  llvm::SmallDenseSet<int64_t> rhsAllDims;
+  for (int64_t i = 0; i < rhsRank; ++i) {
+    rhsAllDims.insert(i);
+  }
+
+  // Remove batch and contract dimensions from rhs
+  for (auto dim : rhsBatchDims) {
+    rhsAllDims.erase(dim);
+  }
+  for (auto dim : rhsContractDims) {
+    rhsAllDims.erase(dim);
+  }
+
+  // The remaining dimensions are the result dimensions for rhs
+  SmallVector<int64_t, 4> rhsResultDims(rhsAllDims.begin(), rhsAllDims.end());
+
+  // Create permutations
+  SmallVector<int64_t, 8> lhs_operand_perm;
+  lhs_operand_perm.append(lhsBatchDims.begin(), lhsBatchDims.end());
+  lhs_operand_perm.append(lhsResultDims.begin(), lhsResultDims.end());
+  lhs_operand_perm.append(lhsContractDims.begin(), lhsContractDims.end());
+
+  SmallVector<int64_t, 8> rhs_operand_perm;
+  rhs_operand_perm.append(rhsBatchDims.begin(), rhsBatchDims.end());
+  rhs_operand_perm.append(rhsContractDims.begin(), rhsContractDims.end());
+  rhs_operand_perm.append(rhsResultDims.begin(), rhsResultDims.end());
+
+  // Permute the lhs tensor using the custom ttir::PermuteOp
+  auto lhsPermuted = rewriter.create<ttir::PermuteOp>(op.getLoc(), lhs, lhs_operand_perm);
+
+  // Permute the rhs tensor using the custom ttir::PermuteOp
+  auto rhsPermuted = rewriter.create<ttir::PermuteOp>(op.getLoc(), rhs, rhs_operand_perm);
+
+  // Calculate the product of all lhsResultDims and lhsContractDims
+  int64_t lhsResultProduct = 1;
+  for (auto dim : lhsResultDims) {
+    lhsResultProduct *= lhsType.getDimSize(dim);
+  }
+
+  int64_t lhsContractProduct = 1;
+  for (auto dim : lhsContractDims) {
+    lhsContractProduct *= lhsType.getDimSize(dim);
+  }
+
+  // Calculate the product of all rhsContractDims and rhsResultDims
+  int64_t rhsContractProduct = 1;
+  for (auto dim : rhsContractDims) {
+    rhsContractProduct *= rhsType.getDimSize(dim);
+  }
+
+  int64_t rhsResultProduct = 1;
+  for (auto dim : rhsResultDims) {
+    rhsResultProduct *= rhsType.getDimSize(dim);
+  }
+
+  // Create the new shape for the reshaped lhs tensor
+  SmallVector<int64_t, 4> lhsNewShape;
+  for (auto dim : lhsBatchDims) {
+    lhsNewShape.push_back(lhsType.getDimSize(dim));
+  }
+  lhsNewShape.push_back(lhsResultProduct);
+  lhsNewShape.push_back(lhsContractProduct);
+
+  // Create the new shape for the reshaped rhs tensor
+  SmallVector<int64_t, 4> rhsNewShape;
+  for (auto dim : rhsBatchDims) {
+    rhsNewShape.push_back(rhsType.getDimSize(dim));
+  }
+  rhsNewShape.push_back(rhsContractProduct);
+  rhsNewShape.push_back(rhsResultProduct);
+
+  // Reshape the lhsPermuted tensor
+  auto lhsReshaped = rewriter.create<ttir::ReshapeOp>(op.getLoc(), lhsPermuted, lhsNewShape);
+
+  // Reshape the rhsPermuted tensor
+  auto rhsReshaped = rewriter.create<ttir::ReshapeOp>(op.getLoc(), rhsPermuted, rhsNewShape);
+
+  // Multiply the reshaped tensors using the custom ttir::MatMulOp
+  auto matmulResult = rewriter.create<ttir::MatMulOp>(op.getLoc(), lhsReshaped, rhsReshaped);
+
+  // Create the new shape for the final result
+  SmallVector<int64_t, 4> finalShape;
+  for (auto dim : lhsBatchDims) {
+    finalShape.push_back(lhsType.getDimSize(dim));
+  }
+  for (auto dim : lhsResultDims) {
+    finalShape.push_back(lhsType.getDimSize(dim));
+  }
+  for (auto dim : rhsResultDims) {
+    finalShape.push_back(rhsType.getDimSize(dim));
+  }
+
+  // Reshape the matmulResult to the final shape
+  auto finalResult = rewriter.create<ttir::ReshapeOp>(op.getLoc(), matmulResult, finalShape);
+
+  // Replace the original op with the final result
+  rewriter.replaceOp(op, finalResult.getResult());
+
+  return success();
 };
 
 // ANCHOR_END: decomposing_an_op_index_ttir_decompose_pattern
