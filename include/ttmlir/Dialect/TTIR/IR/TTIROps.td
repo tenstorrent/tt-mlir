@@ -1351,7 +1351,7 @@ def TTIR_UpsampleOp : TTIR_DPSOp<"upsample"> {
       Example:
         %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
         %output = tensor.empty() : () -> tensor<10x128x128x3xbf16>
-        %0 = "ttir.upsample"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128xbf16>
+        %0 = "ttir.upsample"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16>) -> tensor<10x64x128x3xbf16>
 
     }];
 
