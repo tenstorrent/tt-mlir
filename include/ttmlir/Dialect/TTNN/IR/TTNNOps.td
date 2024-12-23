@@ -755,6 +755,8 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
                          I64ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {

@@ -847,6 +847,8 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
