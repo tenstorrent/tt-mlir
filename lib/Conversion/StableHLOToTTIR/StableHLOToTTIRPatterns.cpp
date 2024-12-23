@@ -203,17 +203,6 @@ public:
     }
 };
 
-
-
-
-
-
-
-
-
-
-
-
 class StableHLOToTTIRDotGeneralOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
   using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
@@ -1826,8 +1815,6 @@ void addReduceOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
-<<<<<<< HEAD
-=======
 void addTransposeOpsConversionPatterns(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
@@ -1842,7 +1829,6 @@ void addDotGeneralOpsConversionPatterns(MLIRContext *ctx,
                                                              ctx);
 }
 
->>>>>>> a2584b10 (Added DotGeneral Op to populateStableHLOToTTIRPatterns)
 void addMatmulOpsConversionPatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns,
                                     TypeConverter &typeConverter) {
@@ -1984,11 +1970,8 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
-<<<<<<< HEAD
-=======
   addTransposeOpsConversionPatterns(ctx, patterns, typeConverter);
   addDotGeneralOpsConversionPatterns(ctx, patterns, typeConverter);
->>>>>>> a2584b10 (Added DotGeneral Op to populateStableHLOToTTIRPatterns)
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addGetDimensionSizeOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
