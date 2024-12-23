@@ -5,8 +5,9 @@
 #include "Conversion.hpp"
 #include "OpModelFixture.h"
 
-#include "gtest/gtest.h"
 #include <llvm/ADT/SmallVector.h>
+
+#include "gtest/gtest.h"
 
 class MlirToTtnnConversion : public OpModelFixture {};
 

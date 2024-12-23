@@ -98,3 +98,16 @@ llvm_config.with_environment(
     ],
     append_path=True,
 )
+
+if "TT_METAL_HOME" in os.environ:
+    print(f"{os.environ['TT_METAL_HOME']}")
+    llvm_config.with_environment("TT_METAL_HOME", os.environ["TT_METAL_HOME"])
+else:
+    print("Error: TT_METAL_HOME not set")
+
+if "ARCH_NAME" in os.environ:
+    print(f"ARCH_NAME={os.environ['ARCH_NAME']}")
+    llvm_config.with_environment("ARCH_NAME", os.environ["ARCH_NAME"])
+else:
+    print("ARCH_NAME not set. Defaulting to wormhole")
+    llvm_config.with_environment("ARCH_NAME", "wormhole_b0")

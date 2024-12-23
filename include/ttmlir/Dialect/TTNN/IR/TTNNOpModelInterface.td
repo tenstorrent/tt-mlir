@@ -25,7 +25,7 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
         >,
         InterfaceMethod<
             /*desc=*/[{
-                Returns a tuple of two values:**
+                Returns a tuple of three values:**
                 1. A boolean indicating if the op is legal for the given input/output layouts.
                 2. If the op is legal, a tuple of three values representing the op memory L1 usage estimate in bytes.
                    - The first value is the CB L1 peak allocation in bytes.

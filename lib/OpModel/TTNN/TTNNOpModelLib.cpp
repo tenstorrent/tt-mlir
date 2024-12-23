@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "TTNNOpModel.h"
+
+#include <llvm/ADT/ArrayRef.h>
+
 #include <cstdint>
 #include <iostream>
-#include <llvm/ADT/ArrayRef.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "MetalHeaders.h"

@@ -80,7 +80,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME=ON \
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OP_MODEL=ON \
+        -DTTMLIR_ENABLE_OPMODEL=ON \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Lint
@@ -159,7 +159,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=ON \
-        -DTTMLIR_ENABLE_OP_MODEL=${{ matrix.build.enable_op_model }} \
+        -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build
@@ -193,20 +193,36 @@ jobs:
         suggestions_per_comment: 10
         python_path: "python3"
 
-    - name: Run Op Model Test
+    - name: Run Op Model Tests
       shell: bash
       if: matrix.build.enable_op_model == 'ON'
       run: |
         source env/activate
+
         export TT_METAL_HOME=$(pwd)/third_party/tt-metal/src/tt-metal
-        ./build/test/unittests/OpModel/TTNN/Conversion/TestConversion
-        ./build/test/unittests/OpModel/TTNN/Op/TestOpModelInterface 
-        ./build/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+        echo TT_METAL_HOME=$TT_METAL_HOME
+        export ARCH_NAME=wormhole_b0
+        echo ARCH_NAME=$ARCH_NAME
+        ls $TT_METAL_HOME/tt_metal/soc_descriptors/
+
+        echo "TestConversion"
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+
+        echo "TestOpModelLib"
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+
+        echo "TestOpModelInterface"
+        ${{ steps.strings.outputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 
     - name: Run Test
       shell: bash
       run: |
         source env/activate
+        export TT_METAL_HOME=$(pwd)/third_party/tt-metal/src/tt-metal
+        echo TT_METAL_HOME=$TT_METAL_HOME
+        export ARCH_NAME=wormhole_b0
+        echo ARCH_NAME=$ARCH_NAME
+
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ steps.strings.outputs.test_report_path }}
 
@@ -683,7 +699,7 @@ jobs:
         -DTTMLIR_ENABLE_RUNTIME_TESTS=OFF \
         -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
         -DTTMLIR_ENABLE_STABLEHLO=OFF \
-        -DTTMLIR_ENABLE_OP_MODEL=${{ matrix.build.enable_op_model }} \
+        -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
         -S ${{ steps.strings.outputs.work-dir }}
 
     - name: Build tt-explorer
