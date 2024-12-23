@@ -321,10 +321,22 @@ table MeshShardOp {
   shard_shape: [int64];
 }
 
+table UniformScale2D {
+  scale: int32;
+}
+
+table NonUniformScale2D {
+  scale: [int32];
+}
+
+union Scale2D {
+  UniformScale2D,
+  NonUniformScale2D,
+}
+
 table UpsampleOp {
   in: tt.target.TensorRef;
-  // TODO (azecevic): #1385
-  scale_factor: [int32];
+  scale_factor: Scale2D;
   mode: string;
   out: tt.target.TensorRef;
 }
