@@ -207,6 +207,24 @@ public:
     llvm::SmallVector<Value, 2> operands;
     operands.append({adaptor.getA(), adaptor.getB()});
 
+    // Erase DPS operand
+    //
+    // TODO (#1661): Once matmul op is not mismodelled as DPS, this can be
+    // removed
+    //
+    if (adaptor.getOutput()) {
+      assert(mlir::isa<ttnn::EmptyOp>(matmulOp.getOutput().getDefiningOp()) &&
+             "Expected output to be a ttnn::EmptyOp");
+      ttnn::EmptyOp emptyOp =
+          mlir::cast<ttnn::EmptyOp>(matmulOp.getOutput().getDefiningOp());
+      mlir::Operation *firstUser = (*emptyOp->getResult(0).getUsers().begin());
+      assert(mlir::isa<ttnn::DeallocateOp>(firstUser) &&
+             "Expected first user of ttnn::EmptyOp to be a ttnn::DeallocateOp");
+
+      rewriter.eraseOp(firstUser);
+      // rewriter.eraseOp(emptyOp);  // Can't erase due to MemCfg beforehand
+    }
+
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
         this->convertOpName(matmulOp), nullptr, nullptr, operands);
@@ -466,17 +484,15 @@ public:
     emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
 
-    llvm::SmallVector<Value, 3> operands{
-        shapeExpressionOp->getResult(0),
-    };
-
-    Value device = getDeviceOp.getResult();
-    operands.append(1, device);
+    // Create operands vector
+    //
+    llvm::SmallVector<Value, 3> operands{shapeExpressionOp->getResult(0),
+                                         adaptor.getDevice()};
 
     // Create MemoryConfig object first, then pass it to the op
     //
     emitc::CallOpaqueOp memCfgOp = ttnn_to_emitc::utils::createMemoryConfigOp(
-        rewriter, srcOp.getMemoryConfig().value(), srcOp.getLoc());
+        rewriter, srcOp.getMemoryConfig(), srcOp.getLoc());
 
     // Concat operands and MemoryConfig object
     //

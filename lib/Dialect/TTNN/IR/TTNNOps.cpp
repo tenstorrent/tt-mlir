@@ -174,9 +174,6 @@ namespace mlir::tt::ttnn {
 
 // EmptyOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::EmptyOp::verify() {
-  // ==============================
-  // === CHECK ATTRIBUTES START ===
-  // ==============================
   // Check that the attributes of the op match the attributes of the output
   // tensor type.
   //
@@ -192,50 +189,17 @@ namespace mlir::tt::ttnn {
 
   // DataType and Layout
   //
-  if (getLayout().has_value()) {
-    ttnn::Layout ttnnLayoutEnum = layoutAttr.getLayout();
-    assert(ttnnLayoutEnum == getLayoutAttr().getValue());
-  }
-  if (getDtype().has_value()) {
-    tt::DataType dtype = layoutAttr.getDataType();
-    assert(dtype == getDtype());
-  }
+  assert(getLayout() == layoutAttr.getLayout());
+  assert(getDtype() == layoutAttr.getDataType());
 
   // MemoryConfig
-  // Check that op has MemoryConfigAttr set on itself, then compare internal
-  // attrs with output tensor attrs.
+  // Compare internal attrs with output tensor attrs.
   //
-  if (getMemoryConfig().has_value()) {
-    ttnn::BufferType bufferType = layoutAttr.getBufferType();
-    ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
-        layoutAttr.getMemLayout();
-    assert(bufferType == getMemoryConfig()->getBufferType().getValue());
-    assert(tensorMemoryLayoutAttr ==
-           getMemoryConfig()->getTensorMemoryLayout());
-  }
-  //
-  // ==============================
-  // ==== CHECK ATTRIBUTES END ====
-  // ==============================
+  assert(getMemoryConfig().getBufferType().getValue() ==
+         layoutAttr.getBufferType());
+  assert(getMemoryConfig().getTensorMemoryLayout() ==
+         layoutAttr.getMemLayout());
 
-  // ==============================
-  // === CHECK SIGNATURES START ===
-  // ==============================
-  // Check that call-site uses the correct signature. We only allow 2 for now:
-  // 1. none, Shape, DataType, Layout, none
-  // 2. Device, Shape, DataType, Layout, MemoryConfig
-  //
-  assert(
-      // 1.
-      (!getDevice() && getDtype().has_value() && getLayout().has_value() &&
-       !getMemoryConfig().has_value()) ||
-      // 2.
-      (getDevice() && getDtype().has_value() && getLayout().has_value() &&
-       getMemoryConfig().has_value()));
-  //
-  // ==============================
-  // ==== CHECK SIGNATURES END ====
-  // ==============================
   return success();
 }
 
