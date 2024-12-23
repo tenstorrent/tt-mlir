@@ -1337,7 +1337,7 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     let hasVerifier = 1;
 }
 
-def TTIR_UpsampleOp : TTIR_DPSOp<"upsample"> {
+def TTIR_Upsample2dOp : TTIR_DPSOp<"upsample2d"> {
     let summary = "Upsample 2D operation.";
 
     let description = [{
