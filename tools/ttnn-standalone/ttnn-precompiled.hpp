@@ -13,6 +13,7 @@
 #include "operations/eltwise/binary/binary.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/matmul/matmul.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
 #include "types.hpp"
