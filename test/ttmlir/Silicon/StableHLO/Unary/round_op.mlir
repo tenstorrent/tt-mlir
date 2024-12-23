@@ -24,7 +24,7 @@ module @jit_gather attributes {} {
         // CHECK-SAME: tensor<4xbf16>
         // CHECK-SAME: tensor<4xbf16>
         // CHECK-SAME: tensor<4xbf16>
-        %0 = stablehlo.test_roundnearesteven %arg0 : tensor<4xbf16>
+        %0 = stablehlo.round_nearest_even %arg0 : tensor<4xbf16>
         return %0 : tensor<4xbf16>
   }
 }
