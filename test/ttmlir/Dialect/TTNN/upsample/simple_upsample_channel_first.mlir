@@ -7,7 +7,7 @@ module {
     // CHECK: "ttnn.upsample"
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
-    %1 = "ttir.upsample"(%arg0, %0) <{scale_factor = array<i32: 4, 2>, channel_last = false}> : (tensor<5x3x32x32xf32>, tensor<5x3x128x64xf32>) -> tensor<5x3x128x64xf32>
+    %1 = "ttir.upsample2d"(%arg0, %0) <{scale_factor = array<i32: 4, 2>, channel_last = false}> : (tensor<5x3x32x32xf32>, tensor<5x3x128x64xf32>) -> tensor<5x3x128x64xf32>
     return %1 : tensor<5x3x128x64xf32>
   }
 }

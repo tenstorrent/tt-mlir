@@ -253,7 +253,7 @@ private:
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
            (user->getOperand(0) == op || user->getOperand(1) == op)) ||
-          isa<ttir::UpsampleOp>(user)) {
+          isa<ttir::Upsample2dOp>(user)) {
         return true;
       }
     }
@@ -1139,12 +1139,12 @@ public:
 };
 
 class UpsampleOpConversionPattern
-    : public OpConversionPattern<ttir::UpsampleOp> {
+    : public OpConversionPattern<ttir::Upsample2dOp> {
 public:
-  using OpConversionPattern<ttir::UpsampleOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::UpsampleOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::Upsample2dOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (!op.getChannelLast()) {
       op.emitOpError("TTNN only supports NHWC format for UpsampleOp");
