@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <mlir/Support/LLVM.h>
 #include <unordered_set>
@@ -518,6 +519,74 @@ bool ShardSolver::checkShardCompatible(
 
   // TEMP : Dummy mock implementation, will be replaced.
   //
+
+  if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
+
+    auto deviceAttr = mlir::tt::getCurrentScopeDevice(producerOp);
+    assert(deviceAttr);
+    auto workerGrid = deviceAttr.getWorkerGrid();
+
+    // map consumer operands to DRAM interleave or provided producerLayout
+    // only one operand can be mapped to producerLayout, it's picked as first
+    // operand matching producerOp output shape.
+
+    uint32_t numOperands = consumerOp->getNumOperands();
+    // some ops have multiple operands; and some ops have output also an
+    // operand. TBD if there is a more robust way to get real number of inputs
+    numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
+    std::vector<TTNNLayoutAttr> inputLayouts;
+
+    auto inputUnderCheck =
+        mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+    bool inputUnderCheckFound = false;
+
+    for (uint32_t i = 0; i < numOperands; i++) {
+      auto operand = consumerOp->getOperand(i);
+      auto input = mlir::cast<RankedTensorType>(operand.getType());
+
+      if ((inputUnderCheckFound == false) &&
+          (inputUnderCheck.getShape() == input.getShape())) {
+        // this is the input we are checking compatibility for
+        inputUnderCheckFound = true;
+        inputLayouts.push_back(producerLayout);
+      } else {
+        // this is the other input that we DRAM interleave
+
+        // what if it is tilized already?
+        auto elementType =
+            TileType::get(consumerOp->getContext(), input.getElementType());
+
+        auto layout = TTNNLayoutAttr::get(
+            consumerOp->getContext(), input.getShape(), elementType,
+            BufferType::DRAM, workerGrid,
+            TensorMemoryLayoutAttr::get(consumerOp->getContext(),
+                                        TensorMemoryLayout::Interleaved));
+        inputLayouts.push_back(layout);
+      }
+    }
+
+    auto [legal, l1Usage, errorMsg] =
+        backend.getOpConstraints(inputLayouts, consumerLayout);
+
+    if (false == legal) {
+      // early exit
+
+      // TODO(mbezulj): remove debug prints
+      llvm::errs() << "OpModel constraints failed: ";
+      llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
+                   << " :: " << errorMsg.value() << "\n";
+      producerLayout.dump();
+      consumerLayout.dump();
+      return false;
+    } else {
+      // TODO(mbezulj): remove debug prints
+      llvm::errs() << "OpModel constraints valid. ";
+      llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
+                   << "\n";
+      producerLayout.dump();
+      consumerLayout.dump();
+    }
+  }
 
   // May need to fetch other inputs for consumerOp(weights/join node).
   //
