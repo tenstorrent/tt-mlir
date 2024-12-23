@@ -148,6 +148,10 @@ public:
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
     updated |= convertFuncType(op, rewriter);
+    if (updated) {
+      llvm::outs() << "TTNNLayoutTensorTypeRewriter::mAR succeeded on op:\n";
+      op->dump();
+    }
     return updated ? success() : failure();
   }
 
@@ -279,8 +283,12 @@ public:
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
+    llvm::outs() << "s TTNNLayoutDPSOperandsRewriter::mAR\n";
+    op.dump();
+
     // To layout op is a special case, we don't want to rewrite it
     if (mlir::isa<ttir::ToLayoutOp>(op.getOperation())) {
+      llvm::outs() << "e -- f TTNNLayoutDPSOperandsRewriter::mAR\n";
       return failure();
     }
 
@@ -330,6 +338,8 @@ public:
         });
       }
     }
+    llvm::outs() << "e -- " << (modified ? "s" : "f")
+                 << " TTNNLayoutDPSOperandsRewriter::mAR\n";
 
     return modified ? success() : failure();
   }
@@ -341,61 +351,73 @@ public:
   TTNNLayoutHoistedFuncCallRewriter(MLIRContext *ctx)
       : OpRewritePattern<func::CallOp>(ctx) {}
 
-  // Match and rewrite the CallOp
+  // Match and rewrite the CallOp.
   LogicalResult matchAndRewrite(func::CallOp callOp,
                                 PatternRewriter &rewriter) const override {
+    llvm::outs() << "s TTNNLayoutHoistedFuncCallRewriter::mAR\n";
+
     auto device = utils::getOrInsertDevice(rewriter, callOp);
     llvm::outs() << "0\n";
 
     llvm::outs() << callOp->getName() << "\n";
     if (!callOp->hasAttr("hoisted_call")) {
+      llvm::outs() << "e -- f TTNNLayoutHoistedFuncCallRewriter::mAR\n";
       return failure();
     }
 
     llvm::outs() << "1\n";
 
-    // Create a FromDevice operation for each operand
+    // Create a FromDevice operation for each operand.
     SmallVector<Value, 4> fromDeviceOperands;
+    size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {
-      // Insert FromDevice op before the operand and collect the new operands
+      // Insert FromDevice op before the operand and collect the new operands.
       auto fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
           callOp.getLoc(), operand.getType(), operand);
       fromDeviceOp.dump();
-      fromDeviceOperands.push_back(fromDeviceOp.getResult());
+      Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
+      std::optional<Value> maybeLayoutOp = createToLayoutOp(
+          rewriter, newLoc, operand, BufferType::SystemMemory,
+          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+      Value hostOpValue = maybeLayoutOp.has_value() ? maybeLayoutOp.value()
+                                                    : fromDeviceOp.getResult();
+      fromDeviceOperands.push_back(hostOpValue);
     }
 
     llvm::outs() << "2\n";
 
-    // Create the original CallOp with the new operands (FromDevice'd)
-    rewriter.create<func::CallOp>(callOp.getLoc(), callOp.getCallee(),
-                                  callOp.getResultTypes(), fromDeviceOperands);
+    // Create the original CallOp with the new operands (FromDevice'd).
+    auto newCallOp = rewriter.create<func::CallOp>(
+        callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
+        fromDeviceOperands);
 
     llvm::outs() << "3\n";
 
     // Now, insert ToDevice ops for the results of the CallOp
     SmallVector<Value, 4> toDeviceResults;
-    for (auto result : callOp.getResults()) {
+    for (auto result : newCallOp.getResults()) {
       // Insert ToDevice op after the result
       auto toDeviceOp = rewriter.create<ttnn::ToDeviceOp>(
           callOp.getLoc(), result.getType(), result, device,
           ttnn::MemoryConfigAttr{});
-      toDeviceResults.push_back(toDeviceOp.getResult());
+      Location newLoc =
+          appendInputSuffix(callOp.getLoc(), result.getResultNumber() + locIdx);
+      std::optional<Value> maybeLayoutOp = createToLayoutOp(
+          rewriter, newLoc, result, BufferType::SystemMemory,
+          nullptr /* tensorMemoryLayoutAttr */, true /* tiled */);
+      Value deviceResultValue = maybeLayoutOp.has_value()
+                                    ? maybeLayoutOp.value()
+                                    : toDeviceOp.getResult();
+      toDeviceResults.push_back(deviceResultValue);
     }
     llvm::outs() << "4\n";
 
-    // Replace the original call with a dummy op (since it has been rewritten)
+    // Replace the original call with the new ToDevice results.
     rewriter.replaceOp(callOp, toDeviceResults);
 
     llvm::outs() << "5\n";
 
-    // Replace the original operands with the FromDevice'd operands
-    for (size_t i = 0; i < callOp.getOperands().size(); ++i) {
-      // Replace the uses of the original operand with the new FromDevice
-      // operand
-      callOp.getOperand(i).replaceAllUsesWith(fromDeviceOperands[i]);
-    }
-
-    llvm::outs() << "6\n";
+    llvm::outs() << "e -- s TTNNLayoutHoistedFuncCallRewriter::mAR\n";
 
     return success();
   }
@@ -411,6 +433,8 @@ public:
 
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
+    llvm::outs() << "s TTNNLayoutFuncReturnRewriter::mAR\n";
+
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       Location newLoc =
@@ -424,6 +448,15 @@ public:
         modified = true;
       }
     }
+    llvm::outs() << "e -- ";
+    if (modified) {
+      llvm::outs() << "s";
+      op.dump();
+    } else {
+      llvm::outs() << "f";
+    }
+    llvm::outs() << " TTNNLayoutFuncReturnRewriter::mAR\n";
+
     return modified ? success() : failure();
   }
 
@@ -472,6 +505,9 @@ public:
         signalPassFailure();
         return;
       }
+      llvm::outs() << "IR dump:\n";
+      getOperation()->dump();
+      llvm::outs() << "e TTNNLayout::rOO\n";
     }
   }
 

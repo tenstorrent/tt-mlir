@@ -146,6 +146,8 @@ class TTNNOptimizer : public impl::TTNNOptimizerBase<TTNNOptimizer> {
 public:
   using impl::TTNNOptimizerBase<TTNNOptimizer>::TTNNOptimizerBase;
   void runOnOperation() final {
+    llvm::outs() << "s TTNNOptimizer::rOO\n";
+
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
     // Perform final configuration analysis.
@@ -338,6 +340,7 @@ public:
           func.getContext(), funcType.getInputs(), funcResultTypes);
       func.setType(newFuncType);
     });
+    llvm::outs() << "e TTNNOptimizer::rOO\n";
   }
 
 private:

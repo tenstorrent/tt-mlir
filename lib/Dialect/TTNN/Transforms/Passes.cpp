@@ -64,6 +64,7 @@ public:
   }
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNDeallocate::rOO\n";
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
@@ -115,6 +116,7 @@ public:
         }
       });
     });
+    llvm::outs() << "e TTNNDeallocate::rOO\n";
   }
 };
 
@@ -126,6 +128,8 @@ public:
       TTNNDecomposeLayouts>::TTNNDecomposeLayoutsBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNDecomposeLayouts::rOO\n";
+
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
     llvm::SmallVector<Operation *> opsToReplace;
@@ -147,6 +151,7 @@ public:
                                       rewriter);
       rewriter.eraseOp(op);
     }
+    llvm::outs() << "e TTNNDecomposeLayouts::rOO\n";
   }
 
 private:
@@ -906,6 +911,8 @@ public:
       TTNNCreateInputGenerators>::TTNNCreateInputGeneratorsBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNCreateInputGenerators::rOO\n";
+
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
@@ -1074,6 +1081,8 @@ public:
           rewriter.getI32IntegerAttr(0));
       rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
     }
+
+    llvm::outs() << "e TTNNCreateInputGenerators::rOO\n";
   }
 };
 
@@ -1086,6 +1095,8 @@ public:
       TTNNModifySignaturesForDylib>::TTNNModifySignaturesForDylibBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNModifySignaturesForDylib::rOO\n";
+
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
@@ -1166,6 +1177,7 @@ public:
       //
       entryBlock.eraseArguments(1, originalFuncType.getInputs().size());
     }
+    llvm::outs() << "e TTNNModifySignaturesForDylib::rOO\n";
   }
 };
 
