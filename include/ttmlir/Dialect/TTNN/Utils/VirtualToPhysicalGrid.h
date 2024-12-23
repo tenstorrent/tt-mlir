@@ -10,6 +10,24 @@
 #include "mlir/IR/AffineExpr.h"
 
 namespace mlir::tt::ttnn::utils {
+
+/// Creates an affine map that translates a virtual grid layout to a physical
+/// grid layout for a single device based on the specified tensor memory layout.
+///
+/// This function supports three types of tensor memory layouts:
+/// - WidthSharded: Maps a width-sharded virtual grid (1xN) to a physical grid
+///   with the specified shape.
+/// - HeightSharded: Maps a height-sharded virtual grid (Mx1) to a physical grid
+///   with the specified shape.
+/// - BlockSharded: Maps a block-sharded virtual grid (MxN) directly to a
+///   physical grid with the specified shape.
+///
+/// \param context The MLIR context.
+/// \param tensorMemoryLayout The tensor memory layout type.
+/// \param physicalGridShape The shape of the physical grid, defaults to {8, 8}.
+///
+/// \return An affine map that translates the virtual grid layout to the
+/// physical grid layout based on the specified tensor memory layout.
 auto SingleDeviceCreateVirtualToPhysicalLayoutMap(
     MLIRContext *context,
     const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
@@ -50,7 +68,6 @@ auto SingleDeviceCreateVirtualToPhysicalLayoutMap(
     auto d1 = mlir::getAffineDimExpr(1, context); // d1
     auto blockMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0, {workerDeviceIdx, d0, d1}, context);
-    blockMap.dump();
     return blockMap;
   }
   }

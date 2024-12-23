@@ -5,29 +5,12 @@
 #include "OpModelFixture.h"
 #include "gtest/gtest.h"
 
-// #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-
-// #include "gtest/gtest.h"
-
-// #include "mlir/IR/Builders.h"
-// #include "mlir/IR/BuiltinOps.h"
-// #include "mlir/IR/MLIRContext.h"
-// #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "mlir/IR/AffineExpr.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-// #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
-// #include <cstddef>
-// #include <llvm-gtest/gtest/gtest.h>
-// #include <llvm/ADT/ArrayRef.h>
-// #include <llvm/Support/raw_ostream.h>
-// #include <mlir/Dialect/XeGPU/IR/XeGPU.h>
-// #include <mlir/IR/BuiltinAttributeInterfaces.h>
-// #include <mlir/IR/BuiltinTypes.h>
-// #include <mlir/IR/Visitors.h>
+
 #include <optional>
-// #include <string>
 
 namespace mlir::tt::ttnn {
 

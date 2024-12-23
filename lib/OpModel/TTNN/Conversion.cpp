@@ -70,7 +70,8 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
                 const mlir::tt::GridAttr &workerGrid) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  for (const auto &[loc, size] : toCoreRangeSet(layout.getGrid(), workerGrid)) {
+  for (const auto &[loc, size] :
+       utils::toCoreRangeSet(layout.getGrid(), workerGrid)) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
         CoreCoord(loc[0], loc[1]),
         CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));

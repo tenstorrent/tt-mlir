@@ -46,9 +46,6 @@ getOpConstraints(const std::string_view &name, Callable &callable,
 
   // check if query was successful
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
-    // TODO(mbezulj): remove this debug print
-    llvm::errs() << "FAILED " << name << ": "
-                 << query.error_message.value_or("<error message not set>");
     return std::make_tuple(
         false, std::nullopt,
         query.error_message.value_or("<error message not set>"));
