@@ -1315,74 +1315,63 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 
 // UpsampleOp verification
 ::mlir::LogicalResult UpsampleOp::verify() {
-  //   // Due to inconsistent interface of upsample op in the TTNN, current
-  //   interface
-  //   // is restricted to scale_factor of 4 elements where the first and last
-  //   // elements are 1 and the second and third elements are the scale factor
-  //   for
-  //   // height and width, respectively.
-  //   // TODO (azecevic): Revise the interface restrictions once the
-  //   // #1385 is addressed.
-  //   enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
-  //   auto scaleFactor{getScaleFactor()};
-  //   if (scaleFactor.size() != 4) {
-  //     return emitOpError("Scale factor must have 4 elements, got " +
-  //                        std::to_string(scaleFactor.size()) + " elements");
-  //   }
-  //   if (scaleFactor[DIM_N] != 1) {
-  //     return emitOpError(
-  //         "Scale factor must be 1 in the batch (N) dimension, got " +
-  //         std::to_string(scaleFactor[DIM_N]));
-  //   }
-  //   if (scaleFactor[DIM_C] != 1) {
-  //     return emitOpError(
-  //         "Scale factor must be 1 in the channel (C) dimension, got " +
-  //         std::to_string(scaleFactor[DIM_C]));
-  //   }
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
 
-  //   // Verify that scale factors are positive.
-  //   if (!llvm::all_of(scaleFactor, [](auto scale) { return scale > 0; })) {
-  //     return emitOpError("Scale factors must be positive integers, got (" +
-  //                        ttmlir::utils::join(scaleFactor, ", ") + ")");
-  //   }
+  // Input tensor is assumed to be 4D tensor.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
 
-  //   // Verify that input and output tensors are 4D tensors.
-  //   auto inputShape = getInput().getType().getShape();
-  //   if (inputShape.size() != 4) {
-  //     return emitOpError("Expected rank of input tensor is 4, got rank " +
-  //                        std::to_string(inputShape.size()));
-  //   }
-  //   auto outputShape = getResult().getType().getShape();
-  //   if (outputShape.size() != 4) {
-  //     return emitOpError("Expected rank of output tensor is 4, got rank " +
-  //                        std::to_string(outputShape.size()));
-  //   }
+  auto scaleFactor = ttmlir::utils::getScaleFactor<int32_t>(getScaleFactor());
+  if (auto error = scaleFactor.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+  int32_t scaleH = scaleFactor->first;
+  int32_t scaleW = scaleFactor->second;
 
-  //   // Verify that the output shape is the same as the input shape scaled by
-  //   the
-  //   // scale factor.
-  //   llvm::SmallVector<int64_t> expectedOutputShape{
-  //       llvm::map_range(llvm::zip(inputShape, scaleFactor), [](auto pair) {
-  //         return std::get<0>(pair) * std::get<1>(pair);
-  //       })};
-  //   if (!llvm::equal(outputShape, expectedOutputShape)) {
-  //     return emitOpError("Expected output shape is (" +
-  //                        ttmlir::utils::join(expectedOutputShape, ", ") +
-  //                        "), got (" + ttmlir::utils::join(outputShape, ", ")
-  //                        +
-  //                        ")");
-  //   }
+  if (scaleH <= 0 || scaleW <= 0) {
+    return emitOpError("Scale factors H = ")
+           << scaleH << " and W = " << scaleW << " must be positive integers";
+  }
 
-  //   // Verify that the mode attribute is one of the legal modes. These two
-  //   modes
-  //   // are currently only supported modes in TTNN.
-  //   llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
-  //   if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
-  //       legalModes.end()) {
-  //     return emitOpError("Expected modes are (" +
-  //                        ttmlir::utils::join(legalModes, ", ") + "), got \""
-  //                        + getMode() + "\"");
-  //   }
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  // Input tensor is assumed to be in NHWC or NCHW format depending on
+  // channel_last attribute. Enum `Dimensions` assumes NCHW format.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  if (inputShape[DIM_H] * scaleH != outputShape[DIM_H]) {
+    return emitOpError("Expected output H dimension to be input H dimension * "
+                       "scaleH = ")
+           << (inputShape[DIM_H] * scaleH) << ", got " << outputShape[DIM_H];
+  }
+  if (inputShape[DIM_W] * scaleW != outputShape[DIM_W]) {
+    return emitOpError("Expected output W dimension to be input W dimension * "
+                       "scaleW = ")
+           << (inputShape[DIM_W] * scaleW) << ", got " << outputShape[DIM_W];
+  }
+  if (inputShape[DIM_N] != outputShape[DIM_N]) {
+    return emitOpError("Expected output N dimension to be ")
+           << inputShape[DIM_N] << ", got " << outputShape[DIM_N];
+  }
+  if (inputShape[DIM_C] != outputShape[DIM_C]) {
+    return emitOpError("Expected output C dimension to be ")
+           << inputShape[DIM_C] << ", got " << outputShape[DIM_C];
+  }
+
+  // Verify that the mode attribute is one of the legal modes. These two modes
+  // are currently only supported modes in TTNN.
+  llvm::SmallVector<llvm::StringRef> legalModes = {"nearest", "bilinear"};
+  if (std::find(legalModes.begin(), legalModes.end(), getMode()) ==
+      legalModes.end()) {
+    return emitOpError("Expected modes are (")
+           << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
 
   return success();
 }
