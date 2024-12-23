@@ -31,11 +31,11 @@ module {
   }
 }
 
-// Verify that the scale factor is either int or pair of ints
+// Verify that the scale factor is either integer or pair of integers
 // -----
 module {
   func.func @upsample_scale_factor_triplet(%arg0: tensor<3x16x16x4xbf16>) -> tensor<3x16x16x4xbf16> {
-    // CHECK: error: 'ttir.upsample' op Expected int or pair of ints, got tuple of size 3
+    // CHECK: error: 'ttir.upsample' op Expected integer or pair of integers, got tuple of size 3
     %0 = tensor.empty() : tensor<3x16x16x4xbf16>
     %1 = "ttir.upsample"(%arg0, %0) <{scale_factor = array<i32: 1, 1, 1>}> : (tensor<3x16x16x4xbf16>, tensor<3x16x16x4xbf16>) -> tensor<3x16x16x4xbf16>
     return %1 : tensor<3x16x16x4xbf16>
