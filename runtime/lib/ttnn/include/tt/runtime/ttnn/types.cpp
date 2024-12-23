@@ -8,6 +8,10 @@
 
 namespace tt::runtime::ttnn {
 
+static bool canTilizeDataTypeOnDevice(::ttnn::DataType dataType) {
+  return dataType == ::ttnn::DataType::BFLOAT16 or
+         dataType == ::ttnn::DataType::FLOAT32;
+}
 //
 // LayoutConverter APIs
 //
@@ -103,14 +107,14 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and canTilizeDataTypeOnDevice(outputDesc.dataType)) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
     return out;
   }
 
-  if (shouldTilize and outputDesc.dataType != ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and canTilizeDataTypeOnDevice(outputDesc.dataType)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toMemoryConfigIfNeeded(out);
@@ -147,7 +151,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and canTilizeDataTypeOnDevice(inputDesc.dataType)) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = typecastIfNeeded(out);
@@ -155,7 +159,7 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and outputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and canTilizeDataTypeOnDevice(outputDesc.dataType)) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toLayoutIfNeeded(input);
@@ -163,8 +167,8 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
-      outputDesc.dataType != ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and not canTilizeDataTypeOnDevice(inputDesc.dataType) and
+      not canTilizeDataTypeOnDevice(outputDesc.dataType)) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(out);
     out = toDeviceIfNeeded(out, targetDevice);
@@ -217,25 +221,26 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  /* If we should tilize and the input data type is bfloat16, tilize on device
+  /* If we should tilize and the input data type can be tilized on device,
+   * tilize on device
    */
-  if (shouldTilize and inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and canTilizeDataTypeOnDevice(inputDesc.dataType)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
     out = fromDeviceIfNeeded(out);
     return out;
   }
 
-  /* If we should tilize and the input data type is not bfloat16, tilize on
-   * host */
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  /* If we should tilize and the input data type cannot be tilized on device,
+   * tilize on host */
+  if (shouldTilize and not canTilizeDataTypeOnDevice(inputDesc.dataType) and
       shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  if (shouldTilize and not canTilizeDataTypeOnDevice(inputDesc.dataType) and
       not shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device tilize.");
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
@@ -287,7 +292,7 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType == ::ttnn::DataType::BFLOAT16) {
+  if (shouldTilize and canTilizeDataTypeOnDevice(inputDesc.dataType)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = typecastIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
@@ -295,7 +300,7 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  if (shouldTilize and not canTilizeDataTypeOnDevice(inputDesc.dataType) and
       shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
@@ -303,7 +308,7 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize and inputDesc.dataType != ::ttnn::DataType::BFLOAT16 and
+  if (shouldTilize and not canTilizeDataTypeOnDevice(inputDesc.dataType) and
       not shouldFromDevice) {
     LOG_WARNING("Currently no constraint checking for on-device tilize.");
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
