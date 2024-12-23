@@ -32,6 +32,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <mlir/IR/BuiltinAttributes.h>
 
 namespace mlir::tt {
 
@@ -595,12 +596,34 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
 createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
   auto input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto scaleFactor = toFlatbuffer(cache, op.getScaleFactor());
   auto mode = toFlatbuffer(cache, op.getMode());
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  return ::tt::target::ttnn::CreateUpsampleOp(*cache.fbb, input, scaleFactor,
-                                              mode, output);
+  if (auto uniformScaleFactor =
+          mlir::dyn_cast<IntegerAttr>(op.getScaleFactor())) {
+    ::flatbuffers::Offset<void> scaleFactor =
+        ::tt::target::ttnn::CreateUniformScale2D(*cache.fbb,
+                                                 uniformScaleFactor.getSInt())
+            .Union();
+    return ::tt::target::ttnn::CreateUpsampleOp(
+        *cache.fbb, input, ::tt::target::ttnn::Scale2D::UniformScale2D,
+        scaleFactor, mode, output);
+  }
+  if (auto nonUniformScaleFactor =
+          mlir::dyn_cast<DenseI32ArrayAttr>(op.getScaleFactor())) {
+    ::flatbuffers::Offset<void> scaleFactor =
+        ::tt::target::ttnn::CreateNonUniformScale2D(
+            *cache.fbb, toFlatbuffer(cache, nonUniformScaleFactor.asArrayRef()))
+            .Union();
+    return ::tt::target::ttnn::CreateUpsampleOp(
+        *cache.fbb, input, ::tt::target::ttnn::Scale2D::NonUniformScale2D,
+        scaleFactor, mode, output);
+  }
+  assert(false && "Unhandled scale factor type");
+
+  // auto scaleFactor = toFlatbuffer(cache, op.getScaleFactor());
+  // return ::tt::target::ttnn::CreateUpsampleOp(*cache.fbb, input, scaleFactor,
+  //                                             mode, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -1331,10 +1354,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
-    return createOperation(cache, createOp(cache, permuteOp), debugString, locInfo);
+    return createOperation(cache, createOp(cache, permuteOp), debugString,
+                           locInfo);
   }
   if (auto upsampleOp = dyn_cast<UpsampleOp>(op); upsampleOp) {
-    return createOperation(cache, createOp(cache, upsampleOp), debugString, locInfo);
+    return createOperation(cache, createOp(cache, upsampleOp), debugString,
+                           locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");

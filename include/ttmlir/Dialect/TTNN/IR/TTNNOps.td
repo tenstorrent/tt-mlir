@@ -1279,22 +1279,20 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
 def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let summary = "Upsample 2D op.";
 
-    // TODO (azecevic): #1385 for change of scale_factor
     let description = [{
       Upsample 2D operation. Input tensor is assumed to be in NHWC format.
 
       Attributes:
-      - `scale_factor` (array<i32>): The scale factor in the format of (1, scale_h, scale_w, 1).
+      - `scale_factor` (si32 | array<i32>): The scale factor for upsampling in H and W dimensions respectively.
       - `mode` (str): The upsampling algorithm. Currently only "nearest" and "bilinear" are supported. Default is "nearest".
 
       Example:
-        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
-        %0 = "ttir.upsample"(%a) <{scale_factor = array<i32: 1, 2, 4, 1>}> : (tensor<10x64x32xbf16>) -> tensor<10x64x128xbf16>
+        // %a: tensor<10x64x32xbf16>
+        %0 = "ttnn.upsample"(%a) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>) -> tensor<10x128x128x3xbf16>
     }];
 
-    // TODO (azecevic): Waiting for #1385 for change of scale_factor
     let arguments = (ins AnyRankedTensor:$input,
-                         DenseI32ArrayAttr:$scale_factor,
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
                          DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
 
     let results = (outs AnyRankedTensor:$result);

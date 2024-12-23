@@ -8,7 +8,7 @@ module {
     // CHECK: "ttnn.upsample"
     // CHECK-SAME: tensor<4x32x64x3xbf16
     // CHECK-SAME: tensor<4x64x128x3xbf16
-    %1 = "ttir.upsample"(%arg0, %0) <{scale_factor = 2 : si32, operand_constraints = [#any_device, #any_device]}> : (tensor<4x32x64x3xbf16>, tensor<4x64x128x3xbf16>) -> tensor<4x64x128x3xbf16>
+    %1 = "ttir.upsample"(%arg0, %0) <{scale_factor = 2 : si32}> : (tensor<4x32x64x3xbf16>, tensor<4x64x128x3xbf16>) -> tensor<4x64x128x3xbf16>
     return %1 : tensor<4x64x128x3xbf16>
   }
 
@@ -17,7 +17,7 @@ module {
     // CHECK: "ttnn.upsample"
     // CHECK-SAME: tensor<4x32x64x3xbf16
     // CHECK-SAME: tensor<4x64x64x3xbf16
-    %1 = "ttir.upsample"(%arg0, %0) <{scale_factor = array<i32: 2, 1>, operand_constraints = [#any_device, #any_device]}> : (tensor<4x32x64x3xbf16>, tensor<4x64x64x3xbf16>) -> tensor<4x64x64x3xbf16>
+    %1 = "ttir.upsample"(%arg0, %0) <{scale_factor = array<i32: 2, 1>}> : (tensor<4x32x64x3xbf16>, tensor<4x64x64x3xbf16>) -> tensor<4x64x64x3xbf16>
     return %1 : tensor<4x64x64x3xbf16>
   }
 }

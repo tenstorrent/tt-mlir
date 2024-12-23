@@ -13,12 +13,22 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(input.is_allocated());
 
-  std::array<uint32_t, 4> scaleFactor;
-  std::copy(op->scale_factor()->begin(), op->scale_factor()->end(),
-            scaleFactor.begin());
+  std::variant<int32_t, std::array<uint32_t, 2>> scaleFactor;
+  if (op->scale_factor_type() ==
+      ::tt::target::ttnn::Scale2D::NonUniformScale2D) {
+    scaleFactor = op->scale_factor_as_UniformScale2D()->scale();
+  } else if (op->scale_factor_type() ==
+             ::tt::target::ttnn::Scale2D::UniformScale2D) {
+    std::array<uint32_t, 2> scale;
+    auto fbScale = op->scale_factor_as_NonUniformScale2D()->scale();
+    std::copy(fbScale->begin(), fbScale->end(), scale.begin());
+  } else {
+    DEBUG_ASSERT(false);
+  }
+
   std::string mode = op->mode()->str();
-  // TODO (azecevic): Temporary for forcing it to build.
-  ::ttnn::Tensor output = ::ttnn::upsample(input, 1, mode);
+
+  ::ttnn::Tensor output = ::ttnn::upsample(input, scaleFactor, mode);
 
   tensorPool.insert_or_assign(op->out()->global_id(), std::move(output));
 }
