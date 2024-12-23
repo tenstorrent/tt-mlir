@@ -398,6 +398,7 @@ public:
   using impl::TTNNWorkaroundsBase<TTNNWorkarounds>::TTNNWorkaroundsBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNWorkarounds::rOO\n";
     if (decompositionWorkaroundsEnabled) {
       // Placeholder for workaround decomposition patterns.
       RewritePatternSet patterns(&getContext());
@@ -438,6 +439,7 @@ public:
         return;
       }
     }
+    llvm::outs() << "e TTNNWorkarounds::rOO\n";
   }
 };
 } // namespace mlir::tt::ttnn
