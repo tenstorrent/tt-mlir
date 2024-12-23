@@ -265,10 +265,11 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, emitc: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: ON, emitc: OFF, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, emitc: ON, name: "run", ttrt_flags: "--emitc"},
+          {runs-on: n300, enable_perf: OFF, emitc: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: ON, emitc: OFF, name: "perf"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
 
@@ -373,6 +374,13 @@ jobs:
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
         cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
+
+    - name: Run emitc tests
+      shell: bash
+      if: matrix.build.emitc == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/emitc
 
     - name: Upload ttrt test report json
       if: always()

@@ -49,6 +49,13 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
+# Add `TT_METAL_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_METAL_HOME_ORIGINAL",
+    os.getenv("TT_METAL_HOME"),
+    append_path=False,
+)
+
 if config.system_desc_path:
     try:
         import ttrt
@@ -97,4 +104,34 @@ llvm_config.with_environment(
         os.path.join(config.mlir_obj_dir, "python_packages"),
     ],
     append_path=True,
+)
+
+# Add `tools/ttnn-standalone` to PATH.
+llvm_config.with_environment(
+    "PATH",
+    [
+        os.path.join(os.getenv("TT_MLIR_HOME"), "tools/ttnn-standalone"),
+    ],
+    append_path=True,
+)
+
+# Add `TT_MLIR_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_MLIR_HOME",
+    os.getenv("TT_MLIR_HOME"),
+    append_path=False,
+)
+
+# Add `ARCH_NAME` to the lit environment.
+llvm_config.with_environment(
+    "ARCH_NAME",
+    os.getenv("ARCH_NAME"),
+    append_path=False,
+)
+
+# Add `TT_METAL_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_METAL_HOME",
+    os.getenv("TT_METAL_HOME"),
+    append_path=False,
 )
