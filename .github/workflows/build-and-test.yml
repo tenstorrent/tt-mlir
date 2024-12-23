@@ -164,12 +164,13 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, emitc: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: ON, emitc: OFF, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, emitc: ON, name: "run", ttrt_flags: "--emitc"},
+          {runs-on: n300, enable_perf: OFF, emitc: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: ON, emitc: OFF, name: "perf"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.emitc }}, ${{ matrix.build.name }})"
 
     runs-on:
       - in-service
@@ -194,7 +195,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.emitc }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -256,11 +257,13 @@ jobs:
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        mkdir -p ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal
+        ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/ ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Run functional tests
       shell: bash
-      if: matrix.build.enable_perf == 'OFF'
+      if: matrix.build.enable_perf == 'OFF' && matrix.build.emitc == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
@@ -273,11 +276,18 @@ jobs:
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/perf_unit
         cp ttrt_report.xml ${{ steps.strings.outputs.test_report_path }}
 
+    - name: Run emitc tests
+      shell: bash
+      if: matrix.build.emitc == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC
+
     - name: Upload ttrt test report json
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.emitc }}_${{ matrix.build.name }}_results.json
         path: ${{ matrix.build.name }}_results.json
 
     - name: Upload Test Report xml
@@ -393,7 +403,7 @@ jobs:
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test --filter-out 'ttmlir/EmitC/TTNN/.*'
 
     - name: ttrt read tests
       shell: bash
@@ -504,7 +514,7 @@ jobs:
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test --filter-out 'ttmlir/EmitC/TTNN/.*'
 
     - name: ttnn api tests
       shell: bash
