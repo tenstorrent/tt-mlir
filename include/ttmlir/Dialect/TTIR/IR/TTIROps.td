@@ -152,17 +152,12 @@ def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         DenseI64ArrayAttr:$batchdims_a
-                         DenseI64ArrayAttr:$contractdims_a
-                         DenseI64ArrayAttr:$batchdims_b
-                         DenseI64ArrayAttr:$contractdims_b
-                         AnyRankedTensor:$output);
+                         DenseI64ArrayAttr:$batchdims_a,
+                         DenseI64ArrayAttr:$contractdims_a,
+                         DenseI64ArrayAttr:$batchdims_b,
+                         DenseI64ArrayAttr:$contractdims_b);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 }
 
 def TTIR_AllocOp : TTIR_Op<"alloc"> {

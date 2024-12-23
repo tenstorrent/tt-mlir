@@ -71,6 +71,84 @@ struct IndexToSliceConversionPattern
     return success();
   }
 };
+
+struct DotGeneralToMatmulConversionPattern
+    : public OpConversionPattern<ttir::DotGeneralOp> {
+
+  using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
+
+  LogicalResult checkBasicLegality(ttir::DotGeneral op, PatternRewriter &rewriter) const {
+
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto shape = outputType.getShape();
+
+    auto lhs = op.getA();
+    auto rhs = op.getB();
+    auto lhs_batch_dim = op.getBatchdimsA();
+    auto rhs_batch_dim = op.getBatchdimsB();
+    auto lhs_contract_dim = op.getContractdimsA();
+    auto rhs_contract_dim = op.getContractdimsB();
+
+    // do we really need all this checks?
+
+    if(lhs_batch_dim.size() != rhs_batch_dim.size()) {
+      return rewriter.notifyMatchFailure(op, "Batch dimensions must be the same size");
+    }
+
+    if(lhs_contract_dim.size() != rhs_contract_dim.size()) {
+      return rewriter.notifyMatchFailure(op, "Contract dimensions must be the same size");
+    }
+
+    for (auto batch_dim : lhs_batch_dim) {
+      for (auto contract_dim : lhs_contract_dim) {
+        if (batch_dim == contract_dim) {
+          return rewriter.notifyMatchFailure(op, "Batch dimensions and contract dimensions must be disjunct");
+        }
+      }
+    }
+
+    for (auto batch_dim : rhs_batch_dim) {
+      for (auto contract_dim : rhs_contract_dim) {
+        if (batch_dim == contract_dim) {
+          return rewriter.notifyMatchFailure(op, "Batch dimensions and contract dimensions must be disjunct");
+        }
+      }
+    }
+
+    for (size_t i = 0; i < lhs_batch_dim.size(); ++i) {
+      if (lhs[lhs_batch_dim[i]] != rhs[rhs_batch_dim[i]]) {
+        return rewriter.notifyMatchFailure(op, "Values at batch dimensions must be the same");
+      }
+    }
+
+    for (size_t i = 0; i < lhs_contract_dim.size(); ++i) {
+      if (lhs[lhs_contract_dim[i]] != rhs[rhs_contract_dim[i]]) {
+        return rewriter.notifyMatchFailure(op, "Values at contract dimensions must be the same");
+      }
+    }
+
+    // end of checks
+
+    return success();
+  }
+
+  // this is place for any helper ops
+
+  LogicalResult matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    
+    LogicalResult err = checkBasicLegality(op, rewriter);
+    if(not err.succeeded()) {
+      return err;
+    }
+
+    // permute + reshape + permute
+    // then matmul
+
+  }
+
+};
+
 // ANCHOR_END: decomposing_an_op_index_ttir_decompose_pattern
 
 //===----------------------------------------------------------------------===//

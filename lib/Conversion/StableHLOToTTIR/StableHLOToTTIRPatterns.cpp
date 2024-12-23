@@ -185,7 +185,7 @@ public:
                   mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     
-    // don't need the legality check in this pass (?)
+    // don't need the legality check in this pass
 
     auto outputType = mlir::cast<RankedTensorType>(
       getTypeConverter()->convertType(srcOp.getResult().getType()));
@@ -197,11 +197,11 @@ public:
       srcOp, getTypeConverter()->convertType(outputTensor.getType()),
       adaptor.getLhs(), adaptor.getRhs(), adaptor.getLhsBatchingDimensions(),
       adaptor.getRhsBatchingDimensions(), adaptor.getLhsContractingDimensions(),
-      adaptor.getRhsContractingDimensions(), Value(outputTensor),
+      adaptor.getRhsContractingDimensions()
     )
     return success();
     }
-    }
+};
 
 
 
