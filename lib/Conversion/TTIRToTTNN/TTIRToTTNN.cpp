@@ -252,7 +252,8 @@ private:
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
-           (user->getOperand(0) == op || user->getOperand(1) == op)) || isa<ttir::UpsampleOp>(user)) {
+           (user->getOperand(0) == op || user->getOperand(1) == op)) ||
+          isa<ttir::UpsampleOp>(user)) {
         return true;
       }
     }
@@ -1149,23 +1150,9 @@ public:
       op.emitOpError("TTNN only supports NHWC format for UpsampleOp");
     }
 
-    int32_t scaleH = 1, scaleW = 1;
-    if (const auto scale =
-            mlir::dyn_cast_if_present<IntegerAttr>(adaptor.getScaleFactor())) {
-      scaleH = scale.getSInt();
-      scaleW = scale.getSInt();
-    } else if (const auto scales = mlir::dyn_cast<::mlir::DenseI32ArrayAttr>(
-                   op.getScaleFactor());
-               scales.size() == 2) {
-      scaleH = scales[0];
-      scaleW = scales[1];
-    }
-
-    // TODO (azecevic): Waiting for #1385
-    llvm::SmallVector<int32_t, 4> scaleFactor = {1, scaleH, scaleW, 1};
     rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), scaleFactor, adaptor.getMode());
+        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode());
 
     return success();
   }
