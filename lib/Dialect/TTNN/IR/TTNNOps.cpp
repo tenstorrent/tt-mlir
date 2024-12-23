@@ -243,6 +243,41 @@ namespace mlir::tt::ttnn {
 }
 
 //===----------------------------------------------------------------------===//
+// RepeatOp
+//===----------------------------------------------------------------------===//
+
+// RepeatOp verification
+::mlir::LogicalResult mlir::tt::ttnn::RepeatOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Check that the input rank matches the rank of the output tensor
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input tensor rank should match output tensor rank.");
+  }
+
+  auto shape = getShape();
+
+  // Check that the shape size matches the rank of the output tensor
+  if (static_cast<int64_t>(shape.size()) != outputType.getRank()) {
+    return emitOpError("Input tensor rank should match output tensor rank.");
+  }
+
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  size_t shape_size = shape.size();
+  for (size_t i = 0; i < shape_size; i++) {
+    int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
+    if (inputShape[i] * dim_value != outputShape[i]) {
+      return emitOpError("Input shape does not repeat to output shape.");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
 
@@ -250,6 +285,7 @@ namespace mlir::tt::ttnn {
 ::mlir::LogicalResult mlir::tt::ttnn::ReshapeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
+
   auto shape = getShape();
   int64_t shape_size = static_cast<int64_t>(shape.size());
 
