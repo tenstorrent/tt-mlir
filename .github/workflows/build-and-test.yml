@@ -99,7 +99,7 @@ jobs:
         build: [
           {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, name: "run", ttrt_flags: ""},
           {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, name: "perf", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: ON, name: "op_model" , ttrt_flags: ""}
+          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, name: "op_model" , ttrt_flags: ""}
         ]
 
     name: Build tt-mlir
@@ -192,6 +192,16 @@ jobs:
         # pull requests
         suggestions_per_comment: 10
         python_path: "python3"
+
+    - name: Run Op Model Test
+      shell: bash
+      if: matrix.build.enable_op_model == 'ON'
+      run: |
+        source env/activate
+        export TT_METAL_HOME=$(pwd)/third_party/tt-metal/src/tt-metal
+        ./build/test/unittests/OpModel/TTNN/Conversion/TestConversion
+        ./build/test/unittests/OpModel/TTNN/Op/TestOpModelInterface 
+        ./build/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
 
     - name: Run Test
       shell: bash
