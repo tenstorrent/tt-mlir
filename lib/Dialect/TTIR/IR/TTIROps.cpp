@@ -31,6 +31,39 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
 
 //===----------------------------------------------------------------------===//
+// BitwiseXorOp
+//===----------------------------------------------------------------------===//
+
+// BitwiseXorOp canonicalization
+void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // x ^ x == 0
+  patterns.add(
+      +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
+        if (op.getInputs()[0] != op.getInputs()[1]) {
+          return mlir::failure();
+        }
+
+        mlir::RankedTensorType tensorType =
+            mlir::cast<mlir::RankedTensorType>(op.getInputs()[0].getType());
+        auto elementType = tensorType.getElementType();
+        Attribute zeroAttr;
+        if (mlir::isa<mlir::FloatType>(elementType)) {
+          zeroAttr = mlir::FloatAttr::get(elementType, 0.0);
+        } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+          zeroAttr = mlir::IntegerAttr::get(elementType, 0);
+        } else {
+          return mlir::failure();
+        }
+        auto resultType = mlir::SplatElementsAttr::get(tensorType, zeroAttr);
+
+        rewriter.replaceOpWithNewOp<ttir::ConstantOp>(
+            op, op->getOperand(0).getType(), resultType);
+        return mlir::success();
+      });
+}
+
+//===----------------------------------------------------------------------===//
 // ClampOp
 //===----------------------------------------------------------------------===//
 

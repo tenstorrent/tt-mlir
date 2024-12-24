@@ -281,13 +281,15 @@ def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
   }];
 }
 
-def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite", [TTIR_Idempotence]> {
+def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
     let summary = "Eltwise isfinite op.";
     let description = [{
       Eltwise isfinite operation.
     }];
 }
 
+// TODO (azecevic): Semantics of LOGICAL_NOT and INVOLUTION are not clear.
+// logical_not(5) = 0, logical_not(0) = 1???
 def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not", [TTIR_Involution]> {
     let summary = "Eltwise logical not op.";
     let description = [{
@@ -329,6 +331,9 @@ def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
     }];
 }
 
+// TODO (azecevic): What should we do with 0.0 case?
+// 1/0.0 = inf, 1/inf = 0.0, but TTNN isn't IEEE754 compliant.
+// https://github.com/tenstorrent/tt-metal/blob/main/tech_reports/Handling_Special_Value/special_values.md
 def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [TTIR_Involution]> {
     let summary = "Eltwise reciprocal.";
     let description = [{
@@ -584,6 +589,8 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
           %result = "ttir.bitwise_xor"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
           // %result: [[4, 4], [4, 12]]
     }];
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
