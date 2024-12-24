@@ -1,0 +1,110 @@
+name: "Build tt-mlir"
+description: "Composite action for building, testing, and uploading artifacts for tt-mlir."
+inputs:
+  enable-perf:
+    description: "Enable performance tracing"
+    required: true
+  enable-op-model:
+    description: "Enable op model interface tests"
+    required: true
+  build-name:
+    description: "A unique name for this build (e.g., 'run' or 'perf')"
+    required: true
+  build-output-dir:
+    description: "Build folder location"
+    required: true
+  install-output-dir:
+    description: "Install folder location"
+    required: true
+  work-dir:
+    description: "tt-mlir root"
+    required: true
+  test_report_path:
+    description: "Path to test report"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        source env/activate
+        cmake -G Ninja \
+          -B ${{ inputs.build-output-dir }} \
+          -DCMAKE_CXX_COMPILER=clang++-17 \
+          -DCMAKE_C_COMPILER=clang-17 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=${{ inputs.install-output-dir }} \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DTTMLIR_ENABLE_RUNTIME=ON \
+          -DTTMLIR_ENABLE_RUNTIME_TESTS=ON \
+          -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ inputs.enable-perf }} \
+          -DTTMLIR_ENABLE_STABLEHLO=ON \
+          -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
+          -S ${{ inputs.work-dir }}
+
+    - name: Build and Install
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }}
+        cmake --install ${{ inputs.build-output-dir }} --component Test
+
+    - name: Run tt-mlir tests
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- check-ttmlir
+        cp build/test/report.xml ${{ inputs.test_report_path }}
+
+    - name: Run OpModelInterface Tests
+      shell: bash
+      if: inputs.enable_op_model == 'ON'
+      run: |
+        source env/activate
+        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
+        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
+        ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
+
+    - name: Upload Test Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}
+        path: ${{ inputs.test_report_path }}
+
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- ttrt
+
+    - name: Upload ttrt .whl
+      uses: actions/upload-artifact@v4
+      with:
+        name: ttrt-whl-${{ inputs.build-name }}
+        path: build/runtime/tools/python/build/ttrt*.whl
+
+    - name: Archive Install Directory
+      shell: bash
+      working-directory: ${{ inputs.install-output-dir }}
+      run: tar cvf artifact.tar .
+
+    - name: Upload Install Folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: install-artifacts-${{ inputs.build-name }}
+        path: ${{ inputs.install-output-dir }}/artifact.tar
+
+    - name: Get Latest Tag and Version
+      shell: bash
+      run: |
+        latest_tag=$(git describe --tags --abbrev=0)
+        latest_tag=${latest_tag#v}
+        echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+        commit_count=$(git rev-list ${{ env.latest_tag }}..HEAD --count)
+        echo "commit_count=$commit_count" >> $GITHUB_ENV
+        version="${{ env.latest_tag }}.${{ env.commit_count }}"
+        echo "version=$version" >> $GITHUB_ENV
+        echo $version
