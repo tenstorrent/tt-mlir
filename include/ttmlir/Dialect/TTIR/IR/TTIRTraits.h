@@ -6,12 +6,21 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTRAITS_H
 
 #include "mlir/IR/OpDefinition.h"
-#include "llvm/ADT/STLExtras.h"
+#include <mlir/Support/LLVM.h>
 
 namespace mlir {
 namespace tt {
 namespace ttir {
 namespace OpTrait {
+
+namespace impl {
+bool verifyInvolution(mlir::Operation *op);
+bool verifyIdempotence(mlir::Operation *op);
+bool verifyBinaryIdempotence(mlir::Operation *op);
+mlir::OpFoldResult foldInvolution(mlir::Operation *op);
+mlir::OpFoldResult foldIdempotence(mlir::Operation *op);
+mlir::OpFoldResult foldBinaryIdempotence(mlir::Operation *op);
+} // namespace impl
 
 template <typename ConcreteType>
 class TTIRInvolution
@@ -19,33 +28,12 @@ class TTIRInvolution
 public:
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
-    if (isFoldableOperation(op)) {
-      results.push_back(op->getOperand(0).getDefiningOp()->getOperand(0));
-      return mlir::success();
+    if (!impl::verifyInvolution(op)) {
+      return mlir::failure();
     }
-    return mlir::failure();
-  }
 
-private:
-  // Op is foldable iff:
-  // 1. argment and result types are the same.
-  // 2. argument is defined by the same op.
-  // 3. 1) is true for the producing op of the argument.
-  // op(op(T a, T r0), T r1)
-  static bool isFoldableOperation(mlir::Operation *op) {
-    // Dependant trait of TTIRInvolution is DestionationStyleOpInterface, hence
-    // operands include the result.
-    auto operandAndResultSameType = [](Operation *op) {
-      return llvm::all_equal(op->getOperandTypes());
-    };
-    if (!operandAndResultSameType(op)) {
-      return false;
-    }
-    Operation *producerOp = op->getOperand(0).getDefiningOp();
-    if (!producerOp || producerOp->getName() != op->getName()) {
-      return false;
-    }
-    return operandAndResultSameType(producerOp);
+    results.push_back(impl::foldInvolution(op));
+    return mlir::success();
   }
 };
 
@@ -55,33 +43,12 @@ class TTIRIdempotence
 public:
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
-    if (isFoldableOperation(op)) {
-      results.push_back(op->getOperand(0));
-      return mlir::success();
+    if (!impl::verifyIdempotence(op)) {
+      return mlir::failure();
     }
-    return mlir::failure();
-  }
 
-private:
-  // Op is foldable iff:
-  // 1. argment and result types are the same.
-  // 2. argument is defined by the same op.
-  // 3. 1) is true for the producing op of the argument.
-  // op(op(T a, T r0), T r1)
-  static bool isFoldableOperation(mlir::Operation *op) {
-    // Dependant trait of TTIRIdempotence is DestionationStyleOpInterface, hence
-    // operands include the result.
-    auto operandAndResultSameType = [](mlir::Operation *op) {
-      return llvm::all_equal(op->getOperandTypes());
-    };
-    if (!operandAndResultSameType(op)) {
-      return false;
-    }
-    mlir::Operation *producerOp = op->getOperand(0).getDefiningOp();
-    if (!producerOp || producerOp->getName() != op->getName()) {
-      return false;
-    }
-    return operandAndResultSameType(producerOp);
+    results.push_back(impl::foldIdempotence(op));
+    return mlir::success();
   }
 };
 
@@ -91,23 +58,12 @@ class TTIRBinaryIdempotence
 public:
   static mlir::LogicalResult foldTrait(mlir::Operation *op, ArrayRef<Attribute>,
                                        SmallVectorImpl<OpFoldResult> &results) {
-    if (isFoldableOperation(op)) {
-      results.push_back(op->getOperand(0));
-      return mlir::success();
-    }
-    return mlir::failure();
-  }
-
-private:
-  // Op is foldable iff:
-  // 1. Both inputs are the same.
-  // 2. Inputs and result types are the same.
-  static bool isFoldableOperation(mlir::Operation *op) {
-    if (op->getOperand(0) != op->getOperand(1)) {
-      return false;
+    if (!impl::verifyBinaryIdempotence(op)) {
+      return mlir::failure();
     }
 
-    return op->getResult(0).getType() == op->getOperand(0).getType();
+    results.push_back(impl::foldBinaryIdempotence(op));
+    return mlir::success();
   }
 };
 
