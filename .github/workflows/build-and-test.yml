@@ -166,6 +166,12 @@ jobs:
       shell: bash
       run: |
         source env/activate
+
+        export TT_METAL_HOME=$(pwd)/third_party/tt-metal/src/tt-metal
+        echo TT_METAL_HOME=$TT_METAL_HOME
+        export ARCH_NAME=wormhole_b0
+        echo ARCH_NAME=$ARCH_NAME
+
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
 
@@ -199,9 +205,9 @@ jobs:
       run: |
         source env/activate
 
-        export TT_METAL_HOME=$(pwd)/third_party/tt-metal/src/tt-metal
+        # export TT_METAL_HOME=$(pwd)/third_party/tt-metal/src/tt-metal
         echo TT_METAL_HOME=$TT_METAL_HOME
-        export ARCH_NAME=wormhole_b0
+        # export ARCH_NAME=wormhole_b0
         echo ARCH_NAME=$ARCH_NAME
         ls $TT_METAL_HOME/tt_metal/soc_descriptors/
 
