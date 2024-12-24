@@ -38,7 +38,7 @@ private:
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
-  ::tt::tt_metal::v0::Device *m_device;
+  ::tt::tt_metal::Device *m_device;
 };
 } // namespace mlir::tt::op_model::ttnn
 

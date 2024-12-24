@@ -184,8 +184,6 @@ TEST_P(ShardedCoreRangeSet, ShardedCoreRangeSet) {
       mlir::tt::op_model::ttnn::conversion::getCoreRangeSet(
           layout, CreateWorkerGrid(tensorMemoryLayout, {8, 8}));
 
-  std::cout << coreRangeSet.str() << std::endl;
-
   EXPECT_EQ(coreRangeSet.size(), expectedCoreRangeSet.size());
   for (const auto &[v, r] :
        llvm::zip(coreRangeSet.ranges(), expectedCoreRangeSet.ranges())) {
@@ -290,8 +288,7 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   EXPECT_EQ(shardSpec->shape[0], expected_shard_shape[0]);
   EXPECT_EQ(shardSpec->shape[1], expected_shard_shape[1]);
   EXPECT_EQ(shardSpec->grid.size(), 1);
-  std::cout << shardSpec->grid.ranges()[0].start_coord.str() << std::endl;
-  std::cout << shardSpec->grid.ranges()[0].end_coord.str() << std::endl;
+
   EXPECT_EQ(shardSpec->grid.ranges()[0].start_coord, CoreCoord(0, 0));
   EXPECT_EQ(shardSpec->grid.ranges()[0].end_coord,
             CoreCoord(phyGridShape[0] - 1, phyGridShape[1] - 1));

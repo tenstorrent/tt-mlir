@@ -10,11 +10,11 @@
 namespace mlir::tt::op_model::ttnn {
 
 SingletonDeviceContext::SingletonDeviceContext() {
-  m_device = ::tt::tt_metal::v0::CreateDevice(0);
+  m_device = ::tt::tt_metal::CreateDevice(0);
 }
 
 SingletonDeviceContext::~SingletonDeviceContext() {
-  ::tt::tt_metal::v0::CloseDevice(m_device);
+  ::tt::tt_metal::CloseDevice(m_device);
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
