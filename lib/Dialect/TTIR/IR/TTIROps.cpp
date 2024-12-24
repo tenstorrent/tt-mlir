@@ -64,6 +64,19 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// BroadcastOp
+//===----------------------------------------------------------------------===//
+
+// BroadcastOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
+  // If the input is a constant, we can fold the operation.
+  if (getInput().getType() == getResult().getType()) {
+    return getInput();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
 // ClampOp
 //===----------------------------------------------------------------------===//
 
@@ -438,7 +451,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   // Verify that inputShape can be legally broadcasted to outputShape.
   llvm::SmallVector<int64_t> broadcastedShape;
-  if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
+  if (!mlir::OpTrait::util::getBroadcastedShape(inputShape, outputShape,
                                           broadcastedShape)) {
     return emitOpError() << "Input tensor shape ("
                          << ttmlir::utils::join(inputShape, ",")
@@ -1793,6 +1806,46 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+// PermuteOp canonicalization
+void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Permute dimensions of two consecutive PermuteOps can be folded into a
+  // single PermuteOp where the permutation is the composition of the two
+  // permutations.
+  patterns.add(+[](mlir::tt::ttir::PermuteOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp = op.getInput().getDefiningOp<ttir::PermuteOp>();
+    if (!producerOp) {
+      return mlir::failure();
+    }
+
+    llvm::ArrayRef<int64_t> secondPermutation = op.getPermutation();
+    llvm::ArrayRef<int64_t> firstPermutation = producerOp.getPermutation();
+
+    // i -> firstPermutation[i] -> secondPermutation[firstPermutation[i]]
+    llvm::SmallVector<int64_t> composedPermutation;
+    llvm::transform(llvm::seq<int64_t>(firstPermutation.size()),
+                    std::back_inserter(composedPermutation), [&](int64_t i) {
+                      return secondPermutation[firstPermutation[i]];
+                    });
+
+    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
+        producerOp, op.getType(), producerOp.getInput(), op.getOutput(),
+        composedPermutation);
+    return mlir::success();
+  });
+
+  // PermuteOp with identity permutation is a no-op.
+  patterns.add(
+      +[](mlir::tt::ttir::PermuteOp op, mlir::PatternRewriter &rewriter) {
+        if (llvm::is_sorted(op.getPermutation())) {
+          rewriter.replaceAllOpUsesWith(op, op.getInput());
+          return mlir::success();
+        }
+        return mlir::failure();
+      });
 }
 
 //===----------------------------------------------------------------------===//

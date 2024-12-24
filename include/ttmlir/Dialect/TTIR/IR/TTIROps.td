@@ -288,9 +288,7 @@ def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
     }];
 }
 
-// TODO (azecevic): Semantics of LOGICAL_NOT and INVOLUTION are not clear.
-// logical_not(5) = 0, logical_not(0) = 1???
-def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not", [TTIR_Involution]> {
+def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
@@ -486,6 +484,7 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.
 def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
     let summary = "Eltwise equal to.";
     let description = [{
@@ -493,6 +492,7 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise ne(x, x) == 0.
 def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
     let summary = "Eltwise not equal to.";
     let description = [{
@@ -500,6 +500,7 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise ge(x, x) == 1.
 def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
     let summary = "Eltwise greater than or equal to.";
     let description = [{
@@ -507,6 +508,7 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise gt(x, x) == 0.
 def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
     let summary = "Eltwise greater than.";
     let description = [{
@@ -514,6 +516,7 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise le(x, x) == 1.
 def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
     let summary = "Eltwise less than or equal to.";
     let description = [{
@@ -521,6 +524,7 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
     }];
 }
 
+// TODO (azecevic): NaN != NaN, otherwise lt(x, x) == 0.
 def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
     let summary = "Eltwise less than.";
     let description = [{
@@ -860,6 +864,8 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
@@ -1370,6 +1376,8 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
