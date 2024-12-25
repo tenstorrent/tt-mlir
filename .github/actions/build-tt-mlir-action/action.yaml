@@ -61,7 +61,7 @@ runs:
 
     - name: Run OpModelInterface Tests
       shell: bash
-      if: inputs.enable_op_model == 'ON'
+      if: inputs.enable-op-model == 'ON'
       run: |
         source env/activate
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
