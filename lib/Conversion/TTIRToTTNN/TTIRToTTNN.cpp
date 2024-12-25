@@ -75,10 +75,9 @@ public:
     ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
         op.getContext(),
         ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
-    ttnn::TensorMemoryLayoutAttr memLayout =
-        layoutAttr.getMemLayout() ? layoutAttr.getMemLayout() : nullptr;
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), bufferTypeAttr, shardSpecAttr, memLayout);
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
+                                    shardSpecAttr, layoutAttr.getMemLayout());
 
     // Replace op
     //
