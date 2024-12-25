@@ -169,6 +169,7 @@ public:
   LogicalResult
   matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
     // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
     // an ArrayAttr object holding IndexTypes is created to denote this
     //
@@ -204,30 +205,30 @@ public:
   matchAndRewrite(ttnn::MatmulOp matmulOp, ttnn::MatmulOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    llvm::SmallVector<Value, 2> operands;
-    operands.append({adaptor.getA(), adaptor.getB()});
-
-    // Erase DPS operand
+    // emitc::CallOpaqueOp needs to know positions of operands vs attributes, so
+    // an ArrayAttr object holding IndexTypes is created to denote this
     //
-    // TODO (#1661): Once matmul op is not mismodelled as DPS, this can be
-    // removed
-    //
-    if (adaptor.getOutput()) {
-      assert(mlir::isa<ttnn::EmptyOp>(matmulOp.getOutput().getDefiningOp()) &&
-             "Expected output to be a ttnn::EmptyOp");
-      ttnn::EmptyOp emptyOp =
-          mlir::cast<ttnn::EmptyOp>(matmulOp.getOutput().getDefiningOp());
-      mlir::Operation *firstUser = (*emptyOp->getResult(0).getUsers().begin());
-      assert(mlir::isa<ttnn::DeallocateOp>(firstUser) &&
-             "Expected first user of ttnn::EmptyOp to be a ttnn::DeallocateOp");
-
-      rewriter.eraseOp(firstUser);
-      // rewriter.eraseOp(emptyOp);  // Can't erase due to MemCfg beforehand
-    }
+    ArrayAttr arrayAttrs = rewriter.getArrayAttr({
+        mlir::IntegerAttr::get(rewriter.getIndexType(), 0),
+        mlir::IntegerAttr::get(rewriter.getIndexType(), 1),
+        ttnn_to_emitc::utils::convertBoolAttr(
+            rewriter, BoolAttr::get(rewriter.getContext(), false)),
+        ttnn_to_emitc::utils::convertBoolAttr(
+            rewriter, BoolAttr::get(rewriter.getContext(), false)),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        ttnn_to_emitc::utils::createStdNullopt(rewriter),
+        mlir::IntegerAttr::get(rewriter.getIndexType(), 2),
+    });
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         matmulOp, this->getTypeConverter()->convertType(matmulOp.getType()),
-        this->convertOpName(matmulOp), nullptr, nullptr, operands);
+        this->convertOpName(matmulOp), arrayAttrs, nullptr,
+        adaptor.getOperands());
 
     return success();
   }
