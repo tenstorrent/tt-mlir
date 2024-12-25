@@ -903,11 +903,12 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
       Tensor empty operation
     }];
 
-    let arguments = (ins Optional<TT_Device>:$device,
-                         TTNN_ShapeAttr:$shape,
-                         OptionalAttr<TT_DataTypeAttr>:$dtype,
-                         OptionalAttr<TTNN_LayoutAttr>:$layout,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let arguments = (ins TTNN_ShapeAttr:$shape,
+                         TT_DataTypeAttr:$dtype,
+                         TTNN_LayoutAttr:$layout,
+                         TT_Device:$device,
+                         TTNN_MemoryConfigAttr:$memory_config);
+
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;

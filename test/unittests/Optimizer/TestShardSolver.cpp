@@ -47,9 +47,9 @@ public:
 
   mlir::Value createEmptyTensor() {
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
-    return builder.create<EmptyOp>(builder.getUnknownLoc(),
-                                   getTensorRankedType(), nullptr, shapeAttr,
-                                   nullptr, nullptr, nullptr);
+    return builder.create<OnesOp>(builder.getUnknownLoc(),
+                                  getTensorRankedType(), shapeAttr, nullptr,
+                                  nullptr, nullptr, nullptr);
   }
 
   mlir::func::FuncOp createFuncOp() {

@@ -1003,12 +1003,9 @@ public:
 
         // Create a new tensor
         //
-        // TODO(svuckovic): Move from ttnn::EmptyOp to ttnn::OnesOp once #1476
-        // lands
-        //
-        mlir::Value tensorValue = rewriter.create<ttnn::EmptyOp>(
-            forwardFuncOp->getLoc(), tensorType, nullptr, shapeAttr, dTypeAttr,
-            tensorLayoutAttr, nullptr);
+        mlir::Value tensorValue = rewriter.create<ttnn::OnesOp>(
+            forwardFuncOp->getLoc(), tensorType, shapeAttr, dTypeAttr,
+            tensorLayoutAttr, nullptr, nullptr);
 
         generatedTensors.push_back(tensorValue);
       }

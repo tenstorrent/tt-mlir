@@ -64,33 +64,26 @@ public:
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
-    // If the tensor is not going to device, we can create the op without
-    // device-specific attributes
+    // Device
     //
-    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
-    if (!memLayout) {
-      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), nullptr,
-          shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
-
-      return success();
-    }
-
-    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     // Create MemoryConfigAttr
     //
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    llvm::SmallVector<int64_t> shardShape = layoutAttr.getShardShape();
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-        ttnn::ShardSpecAttr::get(
-            op.getContext(), ttnn::ShapeAttr::get(op.getContext(), shardShape)),
-        memLayout);
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
+        op.getContext(),
+        ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
+                                    shardSpecAttr, layoutAttr.getMemLayout());
 
+    // Replace op
+    //
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), device,
-        shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
 
     return success();
   }
