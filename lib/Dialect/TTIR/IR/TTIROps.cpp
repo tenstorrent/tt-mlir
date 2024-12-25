@@ -1266,6 +1266,20 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   return success();
 }
 
+// LinearOp canonicalize method
+::mlir::LogicalResult
+mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
+                                       mlir::PatternRewriter &rewriter) {
+  if (op.getBias()) {
+    llvm::errs() << "No bias\n";
+    return mlir::failure();
+  }
+  llvm::errs() << "With bias\n";
+  rewriter.replaceOpWithNewOp<ttir::MatmulOp>(op, op.getType(), op.getA(),
+                                              op.getB(), op.getOutput());
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//

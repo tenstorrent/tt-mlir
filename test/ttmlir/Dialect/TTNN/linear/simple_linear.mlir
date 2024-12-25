@@ -5,7 +5,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<64x64xbf16
     %0 = tensor.empty() : tensor<64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
     // CHECK-SAME: tensor<64x64xbf16
