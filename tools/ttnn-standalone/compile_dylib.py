@@ -1,8 +1,9 @@
 #!/opt/ttmlir-toolchain/venv/bin/python
+# -*- coding: utf-8 -*-
+#
 # SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-# -*- coding: utf-8 -*-
 
 import sys
 import os
