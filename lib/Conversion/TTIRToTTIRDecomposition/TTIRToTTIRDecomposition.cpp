@@ -18,6 +18,9 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/SmallVector.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -622,6 +625,173 @@ struct GatherToEmbeddingConversionPattern
   }
 };
 
+struct DotGeneralToMatmulConversionPattern : public OpConversionPattern<ttir::DotGeneralOp>{
+  using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+                      
+      Value lhs = adaptor.getA();
+      auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+      int64_t lhsRank = lhsType.getRank();
+
+      auto lhsBatchDims = op.getBatchdimsA();
+      auto lhsContractDims = op.getContractdimsA();
+
+      llvm::SmallDenseSet<int64_t> lhsAllDims;
+      for (int64_t i = 0; i < lhsRank; i++) {
+        lhsAllDims.insert(i);
+      }
+
+      for(auto dim: lhsBatchDims){
+        lhsAllDims.erase(dim);
+      }
+
+      for(auto dim: lhsContractDims){
+        lhsAllDims.erase(dim);
+      }
+
+      SmallVector<int64_t> lhsResultDims(lhsAllDims.begin(), lhsAllDims.end());
+
+      Value rhs = adaptor.getB();
+      auto rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+      int64_t rhsRank = rhsType.getRank();
+
+      auto rhsBatchDims = op.getBatchdimsB();
+      auto rhsContractDims = op.getContractdimsB();
+
+      llvm::SmallDenseSet<int64_t> rhsAllDims;
+      for(int64_t i = 0; i < rhsRank; i++){
+        rhsAllDims.insert(i);
+      }
+
+      for(auto dim: rhsBatchDims){
+        rhsAllDims.erase(dim);
+      }
+
+      for(auto dim: rhsContractDims){
+        rhsAllDims.erase(dim);
+      }
+
+      SmallVector<int64_t> rhsResultDims(rhsAllDims.begin(), rhsAllDims.end());
+
+      SmallVector<int64_t> lhs_permutation;
+      lhs_permutation.append(lhsBatchDims.begin(), lhsBatchDims.end());
+      lhs_permutation.append(lhsResultDims.begin(), lhsResultDims.end());
+      lhs_permutation.append(lhsContractDims.begin(), lhsContractDims.end());
+
+      SmallVector<int64_t> rhs_permutation;
+      rhs_permutation.append(rhsBatchDims.begin(), rhsBatchDims.end());
+      rhs_permutation.append(rhsContractDims.begin(), rhsContractDims.end());
+      rhs_permutation.append(rhsResultDims.begin(), rhsResultDims.end());
+
+      SmallVector<int64_t> lhs_destination_shape;
+      for(auto dim: lhs_permutation){
+        lhs_destination_shape.push_back(lhsType.getShape()[dim]);
+      }
+
+      auto lhs_destination = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), lhs_destination_shape, lhsType.getElementType());
+      
+      auto lhs_permute = rewriter.create<ttir::PermuteOp>(
+          op.getLoc(), lhs_destination.getType(), lhs, lhs_destination, lhs_permutation);
+
+      SmallVector<int64_t> rhs_destination_shape;
+      for(auto dim: rhs_permutation){
+        rhs_destination_shape.push_back(rhsType.getShape()[dim]);
+      }
+
+      auto rhs_destination = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), rhs_destination_shape, rhsType.getElementType());
+      
+      auto rhs_permute = rewriter.create<ttir::PermuteOp>(
+          op.getLoc(), rhs_destination.getType(), rhs, rhs_destination, rhs_permutation);
+
+      SmallVector<int64_t> lhs_final_shape;
+      for(auto dim: lhsBatchDims){
+        lhs_final_shape.push_back(lhsType.getShape()[dim]);
+      }
+
+      int64_t lhsContractProduct = 1;
+      for (auto dim : lhsContractDims) {
+          lhsContractProduct *= lhsType.getShape()[dim];
+      }   
+      int64_t lhsResultProduct = 1;
+      for (auto dim : lhsResultDims) {
+          lhsResultProduct *= lhsType.getShape()[dim];
+      }
+      lhs_final_shape.push_back(lhsResultProduct);
+      lhs_final_shape.push_back(lhsContractProduct);
+
+      SmallVector<int64_t> rhs_final_shape;
+      for(auto dim: rhsBatchDims){
+        rhs_final_shape.push_back(rhsType.getShape()[dim]);
+      }
+
+      int64_t rhsContractProduct = 1;
+      for (auto dim : rhsContractDims) {
+          rhsContractProduct *= rhsType.getShape()[dim];
+      }
+      int64_t rhsResultProduct = 1;
+      for (auto dim : rhsResultDims) {
+          rhsResultProduct *= rhsType.getShape()[dim];
+      }
+      rhs_final_shape.push_back(rhsContractProduct);
+      rhs_final_shape.push_back(rhsResultProduct);
+
+      auto lhs_final_destination = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), lhs_final_shape, lhsType.getElementType());
+
+      auto lhs_final = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), mlir::RankedTensorType::get(lhs_final_shape, lhsType.getElementType()),
+          lhs_permute, lhs_final_destination, lhs_final_shape);
+      
+      auto rhs_final_destination = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), rhs_final_shape, rhsType.getElementType());
+      
+      auto rhs_final = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), mlir::RankedTensorType::get(rhs_final_shape, rhsType.getElementType()),
+          rhs_permute, rhs_final_destination, rhs_final_shape);
+      
+      SmallVector<int64_t> matmul_destination_shape;
+      for(auto dim: lhsBatchDims){
+        matmul_destination_shape.push_back(lhsType.getShape()[dim]);
+      }
+      matmul_destination_shape.push_back(lhsResultProduct);
+      matmul_destination_shape.push_back(rhsResultProduct);
+
+      auto matmul_destination = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), matmul_destination_shape, lhsType.getElementType());
+
+      auto matmul = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(), mlir::RankedTensorType::get(matmul_destination_shape, lhsType.getElementType()),
+          lhs_final, rhs_final, matmul_destination);
+      
+      SmallVector<int64_t> result_shape;
+      for(auto dim: lhsBatchDims){
+        result_shape.push_back(lhsType.getShape()[dim]);
+      }
+      for(auto dim: lhsResultDims){
+        result_shape.push_back(lhsType.getShape()[dim]);
+      }
+      for(auto dim: rhsResultDims){
+        result_shape.push_back(rhsType.getShape()[dim]);
+      }
+
+      auto result_destination = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), result_shape, lhsType.getElementType());
+      
+      ttir::ReshapeOp reshape_result = rewriter.create<ttir::ReshapeOp>(
+          op.getLoc(), mlir::RankedTensorType::get(result_shape, lhsType.getElementType()),
+          matmul, result_destination, result_shape);
+
+      rewriter.replaceOp(op, reshape_result);
+
+      return success();
+  }
+};
+
+
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
@@ -1095,6 +1265,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
+  patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
