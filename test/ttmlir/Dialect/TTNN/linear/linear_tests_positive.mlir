@@ -4,7 +4,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<1xbf16
     %0 = tensor.empty() : tensor<1xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<1xbf16
@@ -45,7 +45,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<64xbf16
     %0 = tensor.empty() : tensor<64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<64xbf16
@@ -58,7 +58,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<64x64xbf16
     %0 = tensor.empty() : tensor<64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
     // CHECK-SAME: tensor<64x64xbf16
@@ -85,7 +85,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<12x7x64xbf16
     %0 = tensor.empty() : tensor<12x7x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<12x7x128x64xbf16
     // CHECK-SAME: tensor<12x7x64xbf16
@@ -98,7 +98,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<12x7x128xbf16
     %0 = tensor.empty() : tensor<12x7x128xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<12x7x128x64xbf16
     // CHECK-SAME: tensor<64xbf16
     // CHECK-SAME: tensor<12x7x128xbf16
@@ -111,7 +111,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<12x7x64x64xbf16
     %0 = tensor.empty() : tensor<12x7x64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<12x7x128x64xbf16
     // CHECK-SAME: tensor<12x7x64x64xbf16
@@ -124,7 +124,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<12x7x128x128xbf16
     %0 = tensor.empty() : tensor<12x7x128x128xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<12x7x128x64xbf16
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<12x7x128x128xbf16
@@ -138,7 +138,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<7x64x64xbf16
     %0 = tensor.empty() : tensor<7x64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<7x64x128xbf16
     // CHECK-SAME: tensor<7x128x64xbf16
     // CHECK-SAME: tensor<7x64x64xbf16
@@ -151,7 +151,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<7x64x64xbf16
     %0 = tensor.empty() : tensor<7x64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<7x64x128xbf16
     // CHECK-SAME: tensor<1x128x64xbf16
     // CHECK-SAME: tensor<7x64x64xbf16
@@ -164,7 +164,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<7x7x64x64xbf16
     %0 = tensor.empty() : tensor<7x7x64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<1x7x64x128xbf16
     // CHECK-SAME: tensor<7x1x128x64xbf16
     // CHECK-SAME: tensor<7x7x64x64xbf16
@@ -177,7 +177,7 @@ module {
     // CHECK: "ttnn.empty"
     // CHECK-SAME: tensor<12x7x7x64x64xbf16
     %0 = tensor.empty() : tensor<12x7x7x64x64xbf16>
-    // CHECK: "ttnn.linear"
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<12x1x7x64x128xbf16
     // CHECK-SAME: tensor<7x1x128x64xbf16
     // CHECK-SAME: tensor<12x7x7x64x64xbf16

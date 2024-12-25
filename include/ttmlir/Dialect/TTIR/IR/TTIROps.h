@@ -5,18 +5,18 @@
 #ifndef TTMLIR_DIALECT_TTIR_IR_TTIROPS_H
 #define TTMLIR_DIALECT_TTIR_IR_TTIROPS_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIRTraits.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-
-#include "TTIROpsInterfaces.h"
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsEnums.h.inc"
 
