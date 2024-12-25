@@ -533,7 +533,7 @@ bool ShardSolver::checkShardCompatible(
     // some ops have multiple operands; and some ops have output also an
     // operand. TBD if there is a more robust way to get real number of inputs
 
-    // cast to DPSop?  //
+    // TODO(odjuricic): cast to DPSop?
     numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
     std::vector<TTNNLayoutAttr> inputLayouts;
 
@@ -627,12 +627,6 @@ bool ShardSolver::checkShardCompatible(
     if (!l1UsageValid) {
       return false;
     }
-  }
-
-  // Shard compat assumption. Try to keep same shard layout.
-  //
-  if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
-    return false;
   }
 
   return true;

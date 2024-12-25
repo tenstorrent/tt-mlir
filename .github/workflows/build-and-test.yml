@@ -101,7 +101,7 @@ jobs:
           {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, name: "perf", ttrt_flags: ""},
         ]
 
-    name: Build tt-mlir
+    name: Build and test tt-mlir (compute machine)
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
@@ -599,7 +599,7 @@ jobs:
           {runs-on: n300, enable_perf: OFF, enable_op_model: ON, name: "op_model" , ttrt_flags: ""}
         ]
 
-    name: Build tt-mlir
+    name: Run build and test tt-mlir (TT machine)
     runs-on: ${{ matrix.build.runs-on }}
 
     container:
