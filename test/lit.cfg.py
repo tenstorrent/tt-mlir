@@ -98,3 +98,33 @@ llvm_config.with_environment(
     ],
     append_path=True,
 )
+
+# Add `tools/ttnn-standalone` to PATH.
+llvm_config.with_environment(
+    "PATH",
+    [
+        os.path.join(os.getenv("TT_MLIR_HOME"), "tools/ttnn-standalone"),
+    ],
+    append_path=True,
+)
+
+# Add `TT_MLIR_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_MLIR_HOME",
+    os.getenv("TT_MLIR_HOME"),
+    append_path=False,
+)
+
+# Add `ARCH_NAME` to the lit environment.
+llvm_config.with_environment(
+    "ARCH_NAME",
+    os.getenv("ARCH_NAME"),
+    append_path=False,
+)
+
+# Add `TT_METAL_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_METAL_HOME",
+    os.getenv("TT_METAL_HOME"),
+    append_path=False,
+)

@@ -413,6 +413,7 @@ class Run:
             callback_env = ttrt.runtime.DebugHooks.get(
                 get_callback_fn(callback_runtime_config)
             )
+
             if emitc_dylib_path is not None:
                 emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
                 self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
