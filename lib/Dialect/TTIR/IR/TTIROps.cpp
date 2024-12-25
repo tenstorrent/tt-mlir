@@ -262,6 +262,70 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// DotGeneralOp
+//===----------------------------------------------------------------------===//
+
+// DotGeneralOp verification
+
+::mlir::LogicalResult mlir::tt::ttir::DotGeneralOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+
+  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
+
+  auto batchdims_a = getBatchdimsA();
+  auto contractdims_a = getContractdimsA();
+
+  auto batchdims_b = getBatchdimsB();
+  auto contractdims_b = getContractdimsB();
+
+  // 1. Check that no element x appears in both batchdims_a and contractdims_a
+  for (int64_t dim_a : batchdims_a) {
+    for (int64_t dim_c : contractdims_a) {
+      if (dim_a == dim_c) {
+        return emitOpError() << "Batch and contract dimension must be distinct";
+      }
+    }
+  }
+
+  // 2. Check that no element x appears in both batchdims_b and contractdims_b
+  for (int64_t dim_b : batchdims_b) {
+    for (int64_t dim_c : contractdims_b) {
+      if (dim_b == dim_c) {
+        return emitOpError() << "Batch and contract dimension must be distinct";
+      }
+    }
+  }
+
+  // 3. Check that the batch vector size of A and B are the same
+  if (batchdims_a.size() != batchdims_b.size()) {
+    return emitOpError() << "Batch vector size of A and B must be the same";
+  }
+
+  // 4. Check that the contract vector size of A and B are the same
+  if (contractdims_a.size() != contractdims_b.size()) {
+    return emitOpError() << "Contract vector size of A and B must be the same";
+  }
+
+  // 5. Check that the all batch dimensions of A and B are the same
+  for(size_t i = 0; i < batchdims_a.size(); i++) {
+    if (inputAShape[batchdims_a[i]] != inputBShape[batchdims_b[i]]) {
+      return emitOpError() << "Batch dimensions of A and B must be the same";
+    }
+  }
+
+  // 6. Check that the all contract dimensions of A and B are the same
+  for(size_t i = 0; i < contractdims_a.size(); i++) {
+    if (inputAShape[contractdims_a[i]] != inputBShape[contractdims_b[i]]) {
+      return emitOpError() << "Contract dimensions of A and B must be the same";
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
 
