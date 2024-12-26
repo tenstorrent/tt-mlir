@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTRAITS_H
-#define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTRAITS_H
+#ifndef TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H
+#define TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H
 
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Support/LLVM.h"
@@ -72,4 +72,4 @@ public:
 } // namespace tt
 } // namespace mlir
 
-#endif // TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTRAITS_H
+#endif // TTMLIR_DIALECT_TTIR_IR_TTIRTRAITS_H
