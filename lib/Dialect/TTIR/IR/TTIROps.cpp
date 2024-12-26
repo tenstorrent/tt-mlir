@@ -3,11 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -1271,10 +1269,9 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
 mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
                                        mlir::PatternRewriter &rewriter) {
   if (op.getBias()) {
-    llvm::errs() << "No bias\n";
     return mlir::failure();
   }
-  llvm::errs() << "With bias\n";
+
   rewriter.replaceOpWithNewOp<ttir::MatmulOp>(op, op.getType(), op.getA(),
                                               op.getB(), op.getOutput());
   return mlir::success();
