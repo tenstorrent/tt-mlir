@@ -1846,7 +1846,7 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
                     });
 
     rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-        producerOp, op.getType(), producerOp.getInput(), op.getOutput(),
+        op, op.getType(), producerOp.getInput(), op.getOutput(),
         composedPermutation);
     return mlir::success();
   });
