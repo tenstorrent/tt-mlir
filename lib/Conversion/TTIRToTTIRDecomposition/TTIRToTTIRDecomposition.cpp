@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/Attributes.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -707,9 +708,9 @@ struct DotGeneralToMatmulConversionPattern : public OpConversionPattern<ttir::Do
       auto rhs_permute = rewriter.create<ttir::PermuteOp>(
           op.getLoc(), rhs_destination.getType(), rhs, rhs_destination, rhs_permutation);
 
-      SmallVector<int64_t> lhs_final_shape;
+      SmallVector<mlir::Attribute> lhs_final_shape;
       for(auto dim: lhsBatchDims){
-        lhs_final_shape.push_back(lhsType.getShape()[dim]);
+        lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
       }
 
       int64_t lhsContractProduct = 1;
@@ -720,12 +721,14 @@ struct DotGeneralToMatmulConversionPattern : public OpConversionPattern<ttir::Do
       for (auto dim : lhsResultDims) {
           lhsResultProduct *= lhsType.getShape()[dim];
       }
-      lhs_final_shape.push_back(lhsResultProduct);
-      lhs_final_shape.push_back(lhsContractProduct);
+      lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsResultProduct));
+      lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsContractProduct));
 
-      SmallVector<int64_t> rhs_final_shape;
+      
+
+      SmallVector<mlir::Attribute> rhs_final_shape;
       for(auto dim: rhsBatchDims){
-        rhs_final_shape.push_back(rhsType.getShape()[dim]);
+        rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsType.getShape()[dim]));
       }
 
       int64_t rhsContractProduct = 1;
@@ -736,22 +739,33 @@ struct DotGeneralToMatmulConversionPattern : public OpConversionPattern<ttir::Do
       for (auto dim : rhsResultDims) {
           rhsResultProduct *= rhsType.getShape()[dim];
       }
-      rhs_final_shape.push_back(rhsContractProduct);
-      rhs_final_shape.push_back(rhsResultProduct);
+      rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsContractProduct));
+      rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsResultProduct));
+
+      SmallVector<int64_t> lhs_final_shape_i64;
+      for(auto dim: lhs_final_shape){
+        lhs_final_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
+      }
 
       auto lhs_final_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), lhs_final_shape, lhsType.getElementType());
+          op.getLoc(), lhs_final_shape_i64, lhsType.getElementType());
 
-      auto lhs_final = rewriter.create<ttir::ReshapeOp>(
-          op.getLoc(), mlir::RankedTensorType::get(lhs_final_shape, lhsType.getElementType()),
-          lhs_permute, lhs_final_destination, lhs_final_shape);
+
+      auto lhs_final = rewriter.create<ttir::ReshapeOp>( 
+          op.getLoc(), mlir::RankedTensorType::get(lhs_final_shape_i64, lhsType.getElementType()),
+          lhs_permute, lhs_final_destination, rewriter.getArrayAttr(lhs_final_shape));
+
+      SmallVector<int64_t> rhs_final_shape_i64;
+      for(auto dim: rhs_final_shape){
+        rhs_final_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
+      }
       
       auto rhs_final_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), rhs_final_shape, rhsType.getElementType());
+          op.getLoc(), rhs_final_shape_i64, rhsType.getElementType());
       
       auto rhs_final = rewriter.create<ttir::ReshapeOp>(
-          op.getLoc(), mlir::RankedTensorType::get(rhs_final_shape, rhsType.getElementType()),
-          rhs_permute, rhs_final_destination, rhs_final_shape);
+          op.getLoc(), mlir::RankedTensorType::get(rhs_final_shape_i64, rhsType.getElementType()),
+          rhs_permute, rhs_final_destination, rewriter.getArrayAttr(rhs_final_shape));
       
       SmallVector<int64_t> matmul_destination_shape;
       for(auto dim: lhsBatchDims){
@@ -767,23 +781,28 @@ struct DotGeneralToMatmulConversionPattern : public OpConversionPattern<ttir::Do
           op.getLoc(), mlir::RankedTensorType::get(matmul_destination_shape, lhsType.getElementType()),
           lhs_final, rhs_final, matmul_destination);
       
-      SmallVector<int64_t> result_shape;
+      SmallVector<mlir::Attribute> result_shape;
       for(auto dim: lhsBatchDims){
-        result_shape.push_back(lhsType.getShape()[dim]);
+        result_shape.push_back(rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
       }
       for(auto dim: lhsResultDims){
-        result_shape.push_back(lhsType.getShape()[dim]);
+        result_shape.push_back(rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
       }
       for(auto dim: rhsResultDims){
-        result_shape.push_back(rhsType.getShape()[dim]);
+        result_shape.push_back(rewriter.getI64IntegerAttr(rhsType.getShape()[dim]));
+      }
+
+      SmallVector<int64_t> result_shape_i64;
+      for(auto dim: result_shape){
+        result_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
       }
 
       auto result_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), result_shape, lhsType.getElementType());
+          op.getLoc(), result_shape_i64, lhsType.getElementType());
       
       ttir::ReshapeOp reshape_result = rewriter.create<ttir::ReshapeOp>(
-          op.getLoc(), mlir::RankedTensorType::get(result_shape, lhsType.getElementType()),
-          matmul, result_destination, result_shape);
+          op.getLoc(), mlir::RankedTensorType::get(result_shape_i64, lhsType.getElementType()),
+          matmul, result_destination, rewriter.getArrayAttr(result_shape));
 
       rewriter.replaceOp(op, reshape_result);
 
