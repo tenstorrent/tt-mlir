@@ -1757,11 +1757,11 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
     }
 
     llvm::SmallBitVector reverseDimensions(op.getInput().getType().getRank());
-    std::for_each(
-        op.getDimensions().begin(), op.getDimensions().end(),
-        [&reverseDimensions](int64_t dim) { reverseDimensions.flip(dim); });
-    std::for_each(
-        producerOp.getDimensions().begin(), producerOp.getDimensions().end(),
+    llvm::for_each(op.getDimensions(), [&reverseDimensions](int64_t dim) {
+      reverseDimensions.flip(dim);
+    });
+    llvm::for_each(
+        producerOp.getDimensions(),
         [&reverseDimensions](int64_t dim) { reverseDimensions.flip(dim); });
 
     llvm::SmallVector<int64_t> setIndices;
@@ -1828,28 +1828,28 @@ void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
   // Permute dimensions of two consecutive PermuteOps can be folded into a
   // single PermuteOp where the permutation is the composition of the two
   // permutations.
-  patterns.add(+[](mlir::tt::ttir::PermuteOp op,
-                   mlir::PatternRewriter &rewriter) {
-    auto producerOp = op.getInput().getDefiningOp<ttir::PermuteOp>();
-    if (!producerOp) {
-      return mlir::failure();
-    }
+  patterns.add(
+      +[](mlir::tt::ttir::PermuteOp op, mlir::PatternRewriter &rewriter) {
+        auto producerOp = op.getInput().getDefiningOp<ttir::PermuteOp>();
+        if (!producerOp) {
+          return mlir::failure();
+        }
 
-    llvm::ArrayRef<int64_t> secondPermutation = op.getPermutation();
-    llvm::ArrayRef<int64_t> firstPermutation = producerOp.getPermutation();
+        // I: identity permutation
+        // P1: permutation of producerOp
+        // P2: permutation of op
+        // P: permutation of the composed PermuteOp
+        // P = applyPermutation(applyPermutation(I, P1), P2) =
+        // applyPermutation(P1, P2)
+        llvm::SmallVector<int64_t> composedPermutation =
+            ttmlir::utils::applyPermutation(producerOp.getPermutation(),
+                                            op.getPermutation());
 
-    // i -> firstPermutation[i] -> secondPermutation[firstPermutation[i]]
-    llvm::SmallVector<int64_t> composedPermutation;
-    llvm::transform(llvm::seq<int64_t>(firstPermutation.size()),
-                    std::back_inserter(composedPermutation), [&](int64_t i) {
-                      return secondPermutation[firstPermutation[i]];
-                    });
-
-    rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
-        op, op.getType(), producerOp.getInput(), op.getOutput(),
-        composedPermutation);
-    return mlir::success();
-  });
+        rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
+            op, op.getType(), producerOp.getInput(), op.getOutput(),
+            composedPermutation);
+        return mlir::success();
+      });
 
   // PermuteOp with identity permutation is a no-op.
   patterns.add(
