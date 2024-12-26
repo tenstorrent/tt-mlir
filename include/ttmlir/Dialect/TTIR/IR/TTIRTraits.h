@@ -6,7 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRTRAITS_H
 
 #include "mlir/IR/OpDefinition.h"
-#include <mlir/Support/LLVM.h>
+#include "mlir/Support/LLVM.h"
 
 namespace mlir {
 namespace tt {
