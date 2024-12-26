@@ -48,6 +48,16 @@ if("$ENV{ARCH_NAME}" STREQUAL "")
     message(FATAL_ERROR "ARCH_NAME is not set")
 endif()
 
+# Check if TT_METAL_HOME_ORIGINAL is set
+if(DEFINED ENV{TT_METAL_HOME_ORIGINAL})
+    # Save the current value of TT_METAL_HOME
+    set(ORIGINAL_TT_METAL_HOME $ENV{TT_METAL_HOME})
+
+    # Swap TT_METAL_HOME with TT_METAL_HOME_ORIGINAL
+    set(ENV{TT_METAL_HOME} $ENV{TT_METAL_HOME_ORIGINAL})
+    message(STATUS "Swapped TT_METAL_HOME with TT_METAL_HOME_ORIGINAL.")
+endif()
+
 message($ENV{TT_METAL_HOME}/tt_metal/third_party/src/firmware/riscv/$ENV{ARCH_NAME})
 
 # Directories to search for headers

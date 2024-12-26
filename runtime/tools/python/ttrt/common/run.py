@@ -148,11 +148,11 @@ class Run:
             help="test file to save results to",
         )
         Run.register_arg(
-            name="--emitc-dylib",
-            type=str,
-            default=None,
-            choices=None,
-            help="path to the dylib",
+            name="--emitc",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="toggles emitc testing",
         )
         Run.register_arg(
             name="--disable-golden",
@@ -378,8 +378,6 @@ class Run:
                 self.logging.warning(f"no binaries found to run - returning early")
                 return
 
-            emitc_dylib_path = self["--emitc-dylib"]
-
             debug_env = ttrt.runtime.DebugEnv.get(
                 self["--load-kernels-from-disk"], self["--enable-async-ttnn"]
             )
@@ -414,12 +412,7 @@ class Run:
                 get_callback_fn(callback_runtime_config)
             )
 
-            if emitc_dylib_path is not None:
-                emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
-                self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
-            # so_path = "/localdev/svuckovic/_workspace/repos/tt-mlir/tools/ttnn-standalone/build/libttnn-dylib.so"
-            # so_handle = ttrt.runtime.open_so(so_path)
-            # print(f"opened so handle")
+            is_emitc_testing_requested = self["--emitc"]
 
             try:
                 for bin in binaries:
@@ -428,6 +421,11 @@ class Run:
 
                         if self["--save-artifacts"]:
                             self.artifacts.create_binary_artifacts_folder(bin)
+
+                        if is_emitc_testing_requested:
+                            emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
+                            emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
+                            self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                         program_indices = []
                         if self["--program-index"] == "all":
@@ -552,10 +550,13 @@ class Run:
                             if event is not None:
                                 ttrt.runtime.wait(event)
 
-                            if emitc_dylib_path is not None:
+                            if is_emitc_testing_requested:
+                                fwd_func_name = program.program["name"]
+                                fwd_func_name_len = len(fwd_func_name)
+                                fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE"
                                 emitc_outs = ttrt.runtime.run_so_program(
                                     emitc_dylib_handle,
-                                    "_Z3addSt6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE",
+                                    fwd_func_sym,
                                     inputs,
                                     device,
                                 )

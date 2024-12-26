@@ -49,6 +49,13 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
+# Add `TT_METAL_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_METAL_HOME_ORIGINAL",
+    os.getenv("TT_METAL_HOME"),
+    append_path=False,
+)
+
 if config.system_desc_path:
     try:
         import ttrt
@@ -128,3 +135,6 @@ llvm_config.with_environment(
     os.getenv("TT_METAL_HOME"),
     append_path=False,
 )
+
+for name, value in os.environ.items():
+    print("{0}: {1}".format(name, value))
