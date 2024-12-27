@@ -45,16 +45,16 @@ if "TT_MLIR_HOME" in os.environ:
     print(f"{os.environ['TT_MLIR_HOME']}")
     config.environment["TT_MLIR_HOME"] = os.environ["TT_MLIR_HOME"]
 else:
-    raise EnvironmentError("TT_MLIR_HOME environment variable is not set")
+    raise OSError("TT_MLIR_HOME environment variable is not set")
 
 if "TT_METAL_HOME" in os.environ:
     print(f"{os.environ['TT_METAL_HOME']}")
     config.environment["TT_METAL_HOME"] = os.environ["TT_METAL_HOME"]
 else:
-    raise EnvironmentError("TT_METAL_HOME environment variable is not set")
+    raise OSError("TT_METAL_HOME environment variable is not set")
 
 if "ARCH_NAME" in os.environ:
     print(f"ARCH_NAME={os.environ['ARCH_NAME']}")
     config.environment["ARCH_NAME"] = os.environ["ARCH_NAME"]
 else:
-    raise EnvironmentError("ARCH_NAME environment variable is not set")
+    raise OSError("ARCH_NAME environment variable is not set")
