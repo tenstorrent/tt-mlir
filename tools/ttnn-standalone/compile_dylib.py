@@ -16,9 +16,6 @@ def main():
         print("Usage: script.py <path-to-cpp-file> <path-to-output-dir>")
         sys.exit(1)
 
-    for name, value in os.environ.items():
-        print("{0}: {1}".format(name, value))
-
     cpp_file_path = sys.argv[1]
     output_dir = sys.argv[2]
 
@@ -32,50 +29,63 @@ def main():
         print(f"Error: Directory '{output_dir}' does not exist.")
         sys.exit(1)
 
-    # Define the path to the target file
+    # Define the path to the target
     tt_mlir_home = os.environ.get("TT_MLIR_HOME")
     if not tt_mlir_home:
         print("Error: TT_MLIR_HOME environment variable is not set.")
         sys.exit(1)
 
-    target_file_path = os.path.join(
-        tt_mlir_home, "tools/ttnn-standalone/ttnn-dylib.cpp"
+    # Create unique source and build directories
+    cpp_base_name = os.path.basename(cpp_file_path).split(".")[0]
+    temp_source_dir = os.path.join(
+        tt_mlir_home, f"tools/ttnn-standalone/temp_source_{cpp_base_name}"
+    )
+    temp_build_dir = os.path.join(
+        tt_mlir_home, f"tools/ttnn-standalone/temp_build_{cpp_base_name}"
     )
 
     try:
-        # Read contents of the input file
-        with open(cpp_file_path, "r") as source_file:
-            cpp_content = source_file.read()
-
-        # Overwrite the target file
-        with open(target_file_path, "w") as target_file:
-            target_file.write(cpp_content)
-
-        print(
-            f"Successfully updated {target_file_path} with contents from {cpp_file_path}."
+        # Create the temporary source directory and copy necessary files
+        os.makedirs(temp_source_dir, exist_ok=True)
+        shutil.copy2(
+            os.path.join(tt_mlir_home, "tools/ttnn-standalone/CMakeLists.txt"),
+            temp_source_dir,
         )
-    except Exception as e:
-        print(f"Error while handling files: {e}")
-        sys.exit(1)
+        shutil.copy2(
+            os.path.join(tt_mlir_home, "tools/ttnn-standalone/ttnn-precompiled.hpp"),
+            temp_source_dir,
+        )
+        shutil.copy2(
+            os.path.join(tt_mlir_home, "tools/ttnn-standalone/ttnn-dylib.hpp"),
+            temp_source_dir,
+        )
+        shutil.copy2(
+            os.path.join(tt_mlir_home, "tools/ttnn-standalone/ttnn-standalone.cpp"),
+            temp_source_dir,
+        )  # TODO(svuckovic): remove the need for this
 
-    # Define the commands to be executed
-    build_dir = os.path.join(tt_mlir_home, "tools/ttnn-standalone/build")
-    cmake_command = [
-        "cmake",
-        "-G",
-        "Ninja",
-        "-B",
-        build_dir,
-        "-S",
-        os.path.join(tt_mlir_home, "tools/ttnn-standalone"),
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++",
-    ]
+        # Copy the input .cpp file to the temporary source directory
+        temp_cpp_path = os.path.join(temp_source_dir, "ttnn-dylib.cpp")
+        shutil.copy2(cpp_file_path, temp_cpp_path)
 
-    build_command = ["cmake", "--build", build_dir, "--", "ttnn-dylib"]
+        print(f"Temporary source directory created: {temp_source_dir}")
 
-    try:
+        # Define the commands to be executed
+        cmake_command = [
+            "cmake",
+            "-G",
+            "Ninja",
+            "-B",
+            temp_build_dir,
+            "-S",
+            temp_source_dir,
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_C_COMPILER=clang",
+            "-DCMAKE_CXX_COMPILER=clang++",
+        ]
+
+        build_command = ["cmake", "--build", temp_build_dir, "--", "ttnn-dylib"]
+
         # Run the cmake command
         print("Running cmake command...")
         subprocess.run(cmake_command, check=True, cwd=tt_mlir_home)
@@ -87,14 +97,13 @@ def main():
         print("Build completed successfully.")
 
         # Determine the output .so file
-        compiled_so_path = os.path.join(build_dir, "libttnn-dylib.so")
+        compiled_so_path = os.path.join(temp_build_dir, "libttnn-dylib.so")
         if not os.path.isfile(compiled_so_path):
             print(f"Error: Compiled file '{compiled_so_path}' not found.")
             sys.exit(1)
 
         # Define the destination path with renamed file
-        output_file_name = os.path.basename(cpp_file_path)
-        output_file_name = os.path.splitext(output_file_name)[0] + ".so"
+        output_file_name = cpp_base_name + ".so"
         destination_path = os.path.join(output_dir, output_file_name)
 
         # Copy and rename the .so file
@@ -106,6 +115,13 @@ def main():
     except Exception as e:
         print(f"Error during file operations: {e}")
         sys.exit(1)
+    finally:
+        # Cleanup temporary directories
+        shutil.rmtree(temp_source_dir, ignore_errors=True)
+        shutil.rmtree(temp_build_dir, ignore_errors=True)
+        print(
+            f"Cleaned up temporary directories: {temp_source_dir} and {temp_build_dir}"
+        )
 
 
 if __name__ == "__main__":

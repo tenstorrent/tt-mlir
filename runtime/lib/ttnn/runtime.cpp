@@ -561,7 +561,8 @@ std::vector<Tensor> do_stuff(void *so, std::string func_name,
   using ForwardFunction = std::vector<::ttnn::Tensor> (*)(
       std::vector<::ttnn::Tensor>, ::ttnn::Device *);
   std::cout << "before" << std::endl;
-  ForwardFunction forwardFunc = (ForwardFunction)dlsym(so, func_name.c_str());
+  ForwardFunction forwardFunc =
+      reinterpret_cast<ForwardFunction>(dlsym(so, func_name.c_str()));
   std::cout << "after" << std::endl;
 
   const char *dlsym_error = dlerror();
@@ -643,16 +644,16 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
 
   LOG_ASSERT(lhsTensors.size() == rhsTensors.size());
   for (size_t i = 0; i < lhsTensors.size(); i++) {
-    auto lhsTensor = lhsTensors[i];
-    auto rhsTensor = rhsTensors[i];
-    std::cout << "Dtype: " << (int)lhsTensor->get_dtype() << ", "
-              << (int)rhsTensor->get_dtype() << std::endl;
+    auto *lhsTensor = lhsTensors[i];
+    auto *rhsTensor = rhsTensors[i];
+    std::cout << "Dtype: " << static_cast<int>(lhsTensor->get_dtype()) << ", "
+              << static_cast<int>(rhsTensor->get_dtype()) << std::endl;
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype());
     std::cout << "Shape: " << lhsTensor->get_shape() << ", "
               << rhsTensor->get_shape() << std::endl;
     LOG_ASSERT(lhsTensor->get_shape() == rhsTensor->get_shape());
-    std::cout << "Layout: " << (int)lhsTensor->get_layout() << ", "
-              << (int)rhsTensor->get_layout() << std::endl;
+    std::cout << "Layout: " << static_cast<int>(lhsTensor->get_layout()) << ", "
+              << static_cast<int>(rhsTensor->get_layout()) << std::endl;
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout());
     std::cout << "Logical shape: " << lhsTensor->get_logical_shape() << ", "
               << rhsTensor->get_logical_shape() << std::endl;
@@ -681,8 +682,9 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     for (size_t i = 0; i < lhsTensor->volume() * lhsTensor->element_size();
          i++) {
       if (lhsData[i] != rhsData[i]) {
-        std::cout << "Mismatch at byte number: " << i << ": " << (int)lhsData[i]
-                  << " != " << (int)rhsData[i] << std::endl;
+        std::cout << "Mismatch at byte number: " << i << ": "
+                  << static_cast<int>(lhsData[i])
+                  << " != " << static_cast<int>(rhsData[i]) << std::endl;
         return false;
       }
     }
