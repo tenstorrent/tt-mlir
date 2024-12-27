@@ -558,32 +558,37 @@ class Run:
                             if event is not None:
                                 ttrt.runtime.wait(event)
 
+                            # Compare to EmitC
                             if is_emitc_testing_requested:
                                 fwd_func_name = program.program["name"]
                                 fwd_func_name_len = len(fwd_func_name)
                                 fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE"
-                                emitc_outs = ttrt.runtime.run_so_program(
-                                    emitc_dylib_handle,
-                                    fwd_func_sym,
-                                    inputs,
-                                    device,
-                                )
-                                self.logging.debug(
-                                    f"got emitc outputs for program={program_index}"
-                                )
 
-                                all_tensors_match = ttrt.runtime.compare_outs(
-                                    total_outputs[0], emitc_outs
-                                )
+                                for loop in range(self["--loops"]):
+                                    emitc_outs = ttrt.runtime.run_so_program(
+                                        emitc_dylib_handle,
+                                        fwd_func_sym,
+                                        total_inputs[loop],
+                                        device,
+                                    )
+                                    self.logging.debug(
+                                        f"got emitc outputs for program_index={program_index}, loop={loop}"
+                                    )
 
-                                if not all_tensors_match:
-                                    self.logging.error(
-                                        "Failed: TTRT and EmitC outputs do not match!"
+                                    all_tensors_match = ttrt.runtime.compare_outs(
+                                        total_outputs[0], emitc_outs
                                     )
-                                    self.logging.error(total_outputs[0], emitc_outs)
-                                    raise Exception(
-                                        "Failed: TTRT and EmitC outputs do not match!"
-                                    )
+
+                                    if not all_tensors_match:
+                                        self.logging.error(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
+                                        self.logging.error(
+                                            total_outputs[loop], emitc_outs
+                                        )
+                                        raise Exception(
+                                            "Failed: TTRT and EmitC outputs do not match! program_index={program_index}, loop={loop}"
+                                        )
 
                             if self["--identity"]:
                                 self.logging.debug(
