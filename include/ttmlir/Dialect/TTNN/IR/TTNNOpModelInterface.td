@@ -7,6 +7,7 @@
 
 include "mlir/IR/OpBase.td"
 
+// TODO(odjuricic): support ops with multiple outputs
 def TTNN_OpModelInterface : OpInterface<"OpModel"> {
     let description = [{
         Interface to access TTNN op model methods.

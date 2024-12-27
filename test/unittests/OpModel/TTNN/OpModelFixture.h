@@ -2,19 +2,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "gtest/gtest.h"
+#ifndef UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
+#define UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/MLIRContext.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalGrid.h"
+#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
 #include "ttmlir/Utils.h"
-#include <llvm-gtest/gtest/gtest.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/SmallVector.h>
-#include <mlir/IR/BuiltinTypes.h>
+
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "gtest/gtest.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -34,12 +36,17 @@ public:
             ttmlir::utils::alignUp(tensorShape[1], 32L)};
   }
 
+  static llvm::SmallVector<int64_t> GetPhysicalGridSize() {
+    llvm::SmallVector<int64_t> grid = {gridShapeHwN300[0], gridShapeHwN300[1]};
+    return grid;
+  }
+
   // helper function to get virtual grid shape based on tensor shape and
   // memory
   llvm::SmallVector<int64_t> GetVirtualGridShape(
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-      const llvm::ArrayRef<int64_t> &gridPhyCores = {8, 8}) {
+      const llvm::ArrayRef<int64_t> &gridPhyCores = GetPhysicalGridSize()) {
 
     llvm::SmallVector<int64_t> tensorShapeTiles =
         GetTensorShapeInTiles(tensorShape);
@@ -66,8 +73,8 @@ public:
       const mlir::tt::ttnn::BufferType &bufferType,
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
       const std::optional<llvm::SmallVector<int64_t>> &virtualGrid =
-          std::nullopt) {
-
+          std::nullopt,
+      const llvm::SmallVector<int64_t> physicalGrid = GetPhysicalGridSize()) {
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
@@ -76,7 +83,8 @@ public:
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape,
         mlir::tt::TileType::get(&context, builder.getBF16Type()), bufferType,
-        mlir::tt::GridAttr::get(&context, virtualGridSelected),
+        CreateGrid(&context, tensorMemoryLayout, virtualGridSelected,
+                   physicalGrid),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                     tensorMemoryLayout));
   }
@@ -85,20 +93,36 @@ public:
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::BufferType &bufferType,
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-      const llvm::ArrayRef<int64_t> &gridShape = {8, 8}) {
+      const llvm::ArrayRef<int64_t> &gridShape = GetPhysicalGridSize()) {
     return mlir::tt::ttnn::TTNNLayoutAttr::get(
         &context, tensorShape, builder.getBF16Type(), bufferType,
-        mlir::tt::GridAttr::get(&context, gridShape),
+        CreateGrid(&context, tensorMemoryLayout,
+                   GetVirtualGridShape(tensorShape, tensorMemoryLayout),
+                   GetPhysicalGridSize()),
         mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
                                                     tensorMemoryLayout));
   }
 
   mlir::tt::GridAttr
-  CreateWorkerGrid(const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
-                   const llvm::ArrayRef<int64_t> gridShapeHw = {8, 8}) {
+  CreateGrid(::mlir::MLIRContext *context,
+             const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
+             const llvm::ArrayRef<int64_t> virtualGridSize,
+             const llvm::ArrayRef<int64_t> physicalGridSize) {
+
     auto affineMap =
-        mlir::tt::ttnn::utils::SingleDeviceCreateVirtualToPhysicalLayoutMap(
-            &context, tensorMemoryLayout, gridShapeHw);
-    return mlir::tt::GridAttr::get(&context, gridShapeHw, affineMap);
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+            context, tensorMemoryLayout, physicalGridSize);
+
+    return mlir::tt::GridAttr::get(context, virtualGridSize, affineMap);
   }
+
+  mlir::tt::GridAttr CreateWorkerGrid(
+      const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
+    return mlir::tt::GridAttr::get(&context, physicalGridSize);
+  }
+
+  static constexpr std::array<int64_t, 2> gridShapeHwN300 = {7, 8};
+  static constexpr size_t workerCoresN300 = 56;
 };
+
+#endif // UNITTESTS_OPMODEL_TTNN_OPMODELFIXTURE_H

@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "OpModelFixture.h"
-#include "gtest/gtest.h"
 
-#include "mlir/IR/AffineExpr.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "mlir/IR/AffineExpr.h"
+#include "gtest/gtest.h"
 
 #include <optional>
 
@@ -23,6 +24,7 @@ public:
   getOpConstraints(Operation *op) {
     std::vector<TTNNLayoutAttr> inputs;
 
+    // TODO(odjuricic): check for DPS explicitly.
     // create input layouts
     auto numOperand = op->getNumOperands();
     // some ops have multiple operands
@@ -61,7 +63,7 @@ public:
     auto map4 = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1, shardOffset},
         &context);
-    auto workerGrid = GridAttr::get(&context, {8, 8}, map3);
+    auto workerGrid = GridAttr::get(&context, gridShapeHwN300, map3);
 
     return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
   }
@@ -69,7 +71,7 @@ public:
 
 TEST_F(OpModelBase, ReluInterface) {
   // create ReluOp
-  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorType =
       RankedTensorType::get(tensorShape, elementType);
@@ -97,7 +99,8 @@ TEST_F(OpModelBase, ReluInterface) {
       EXPECT_EQ(peak_size, 4096);
       EXPECT_EQ(output_size, 4096);
     } else {
-      FAIL() << "Missing L1 constraints";
+      FAIL() << "Missing L1 constraints; Error="
+             << std::get<2>(constraints).value() << std::endl;
     }
   } else {
     FAIL() << "Failed to cast ReluOp to OpModel";
@@ -105,7 +108,7 @@ TEST_F(OpModelBase, ReluInterface) {
 }
 TEST_F(OpModelBase, SoftmaxInterface) {
   // create SoftmaxOp
-  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorType =
       RankedTensorType::get(tensorShape, elementType);
@@ -142,7 +145,7 @@ TEST_F(OpModelBase, SoftmaxInterface) {
 
 TEST_F(OpModelBase, AddInterface) {
   // create AddOp
-  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+  llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
   Type elementType = builder.getBF16Type();
   RankedTensorType rankedTensorType =
       RankedTensorType::get(tensorShape, elementType);

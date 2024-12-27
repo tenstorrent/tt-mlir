@@ -2,11 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "TTNNOpModel.h"
-
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "Conversion.hpp"
+
 #include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::tt::op_model::ttnn {
 
@@ -36,7 +38,7 @@ getDataType(const mlir::tt::ttnn::TTNNLayoutAttr layout) {
   }
 }
 
-::ttnn::SimpleShape getSimpleShape(const ::llvm::ArrayRef<int64_t> &shape) {
+::ttnn::SimpleShape getSimpleShape(const ::llvm::ArrayRef<int64_t> shape) {
   ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape;
   for (const auto &dim : shape) {
     small_vector_shape.push_back(static_cast<uint32_t>(dim));
@@ -67,11 +69,9 @@ getPageLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 }
 
 ::tt::tt_metal::CoreRangeSet
-getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
-                const mlir::tt::GridAttr &workerGrid) {
+getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  for (const auto &[loc, size] :
-       utils::toCoreRangeSet(layout.getGrid(), workerGrid)) {
+  for (const auto &[loc, size] : utils::toCoreRangeSet(layout.getGrid())) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
         CoreCoord(loc[0], loc[1]),
         CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
@@ -80,23 +80,21 @@ getCoreRangeSet(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
 }
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
-             const mlir::tt::GridAttr &workerGrid) {
+getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
-  // defaulting to ROW_MAJOR. TODO: figure out if we need to expose this
+  // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
   return isShardedMemoryLayout(layout.getMemLayout().getValue())
-             ? std::make_optional(ShardSpec(getCoreRangeSet(layout, workerGrid),
+             ? std::make_optional(ShardSpec(getCoreRangeSet(layout),
                                             getShardShape(layout),
                                             ShardOrientation::ROW_MAJOR, false))
              : std::nullopt;
 }
 
-::tt::tt_metal::BufferType getBufferType(const mlir::MemRefType &memref) {
-  auto memorySpace =
-      mlir::cast<mlir::tt::ttnn::BufferTypeAttr>(memref.getMemorySpace())
-          .getValue();
+::tt::tt_metal::BufferType
+getBufferType(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  auto bufferType = layout.getBufferType();
 
-  switch (memorySpace) {
+  switch (bufferType) {
   case mlir::tt::ttnn::BufferType::DRAM:
     return ::tt::tt_metal::BufferType::DRAM;
   case mlir::tt::ttnn::BufferType::L1:
@@ -129,30 +127,25 @@ getTensorMemoryLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 }
 
 ::tt::tt_metal::MemoryConfig
-getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
-                const mlir::tt::GridAttr &workerGrid) {
+getMemoryConfig(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
 
   auto tensorMemoryLayout = getTensorMemoryLayout(layout);
-  auto bufferType = getBufferType(layout.getMemref());
+  auto bufferType = getBufferType(layout);
 
-  auto shardSpec = getShardSpec(layout, workerGrid);
+  auto shardSpec = getShardSpec(layout);
   return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
                                       shardSpec);
 }
 
 ::tt::tt_metal::TensorLayout
-getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout,
-                const mlir::tt::GridAttr &workerGrid) {
-  return ::tt::tt_metal::TensorLayout(getDataType(layout),
-                                      getPageLayout(layout),
-                                      getMemoryConfig(layout, workerGrid));
+getTensorLayout(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  return ::tt::tt_metal::TensorLayout(
+      getDataType(layout), getPageLayout(layout), getMemoryConfig(layout));
 }
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const mlir::tt::ttnn::TTNNLayoutAttr &layout,
-                                 const mlir::tt::GridAttr &workerGrid) {
-  return ::ttnn::TensorSpec(getSimpleShape(shape),
-                            getTensorLayout(layout, workerGrid));
+                                 const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
+  return ::ttnn::TensorSpec(getSimpleShape(shape), getTensorLayout(layout));
 }
 
 } // namespace conversion

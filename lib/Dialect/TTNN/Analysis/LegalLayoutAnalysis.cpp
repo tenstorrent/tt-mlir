@@ -9,7 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalGrid.h"
+#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
 
 namespace mlir::tt::ttnn {
 
@@ -250,7 +250,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
            "Max device grid is expected to be 2D.");
     // Block Sharded
     auto affineMapBs =
-        mlir::tt::ttnn::utils::SingleDeviceCreateVirtualToPhysicalLayoutMap(
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
             op->getContext(), TensorMemoryLayout::BlockSharded,
             analysisInput.maxGrid.getShape());
     for (int width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
@@ -269,7 +269,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
     int64_t numCores = analysisInput.maxGrid.getGridVolume();
     // Height Sharded
     auto affineMapHs =
-        mlir::tt::ttnn::utils::SingleDeviceCreateVirtualToPhysicalLayoutMap(
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
             op->getContext(), TensorMemoryLayout::HeightSharded,
             analysisInput.maxGrid.getShape());
 
@@ -285,7 +285,7 @@ void LegalLayoutAnalysis::analysisImplementation() {
 
     // Width Sharded
     auto affineMapWs =
-        mlir::tt::ttnn::utils::SingleDeviceCreateVirtualToPhysicalLayoutMap(
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
             op->getContext(), TensorMemoryLayout::WidthSharded,
             analysisInput.maxGrid.getShape());
     for (int width = 1; width <= numCores; ++width) {

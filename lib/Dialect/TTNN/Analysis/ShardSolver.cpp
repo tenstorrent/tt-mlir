@@ -525,14 +525,14 @@ bool ShardSolver::checkShardCompatible(
     assert(deviceAttr);
     auto workerGrid = deviceAttr.getWorkerGrid();
 
-    // map consumer operands to DRAM interleave or provided producerLayout
+    // Map consumer operands to DRAM interleave or provided producerLayout
     // only one operand can be mapped to producerLayout, it's picked as first
     // operand matching producerOp output shape.
 
     uint32_t numOperands = consumerOp->getNumOperands();
-    // some ops have multiple operands; and some ops have output also an
-    // operand. TBD if there is a more robust way to get real number of inputs
 
+    // Some ops have multiple operands; and some ops have output also an
+    // operand. TBD if there is a more robust way to get real number of inputs.
     // TODO(odjuricic): cast to DPSop?
     numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
     std::vector<TTNNLayoutAttr> inputLayouts;

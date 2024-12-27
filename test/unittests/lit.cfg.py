@@ -41,15 +41,20 @@ if "HOME" in os.environ:
     config.environment["HOME"] = os.environ["HOME"]
 
 
+if "TT_MLIR_HOME" in os.environ:
+    print(f"{os.environ['TT_MLIR_HOME']}")
+    config.environment["TT_MLIR_HOME"] = os.environ["TT_MLIR_HOME"]
+else:
+    raise EnvironmentError("TT_MLIR_HOME environment variable is not set")
+
 if "TT_METAL_HOME" in os.environ:
     print(f"{os.environ['TT_METAL_HOME']}")
     config.environment["TT_METAL_HOME"] = os.environ["TT_METAL_HOME"]
 else:
-    print("Error: TT_METAL_HOME not set")
+    raise EnvironmentError("TT_METAL_HOME environment variable is not set")
 
 if "ARCH_NAME" in os.environ:
     print(f"ARCH_NAME={os.environ['ARCH_NAME']}")
     config.environment["ARCH_NAME"] = os.environ["ARCH_NAME"]
 else:
-    print("ARCH_NAME not set. Defaulting to wormhole")
-    config.environment["ARCH_NAME"] = os.environ["wormhole_b0"]
+    raise EnvironmentError("ARCH_NAME environment variable is not set")

@@ -7,10 +7,20 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-#include <llvm/ADT/ArrayRef.h>
+#include "llvm/ADT/ArrayRef.h"
+
 #include <tuple>
 
 namespace mlir::tt::op_model::ttnn {
+
+//===----------------------------------------------------------------------===//
+// Device
+//===----------------------------------------------------------------------===//
+
+namespace Device {
+std::tuple<bool, std::optional<std::string>>
+getDeviceConstraints(const mlir::tt::GridAttr &workerGrid);
+}; // namespace Device
 
 //===----------------------------------------------------------------------===//
 // ReluOp
@@ -22,8 +32,7 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
 getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
                  const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-                 const mlir::tt::GridAttr &workerGrid);
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 }; // namespace ReluOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -38,8 +47,7 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
                  const llvm::ArrayRef<int64_t> &inputShape_b,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
                  const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-                 const mlir::tt::GridAttr &workerGrid);
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 }; // namespace AddOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -52,8 +60,7 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
 getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout,
                  const int dim_arg, const llvm::ArrayRef<int64_t> &outputShape,
-                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-                 const mlir::tt::GridAttr &workerGrid);
+                 const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout);
 }; // namespace SoftmaxOpInterface
 
 //===----------------------------------------------------------------------===//
@@ -69,8 +76,7 @@ getOpConstraints(const llvm::ArrayRef<int64_t> &inputShape_a,
                  const mlir::tt::ttnn::TTNNLayoutAttr &inputLayout_b,
                  const llvm::ArrayRef<int64_t> &outputShape,
                  const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
-                 bool transpose_a, bool transpose_b,
-                 const mlir::tt::GridAttr &workerGrid);
+                 bool transpose_a, bool transpose_b);
 }; // namespace MatmulOpInterface
 
 } // namespace mlir::tt::op_model::ttnn
