@@ -22,11 +22,11 @@ static void runReductionOp(
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 
-  const auto *fbDimArg = op->dim_arg();
+  const auto *fbDim = op->dim();
   std::optional<::ttnn::SmallVector<int>> dimArg =
-      fbDimArg ? std::make_optional(::ttnn::SmallVector<int>(fbDimArg->begin(),
-                                                             fbDimArg->end()))
-               : std::nullopt;
+      fbDim ? std::make_optional(
+                  ::ttnn::SmallVector<int>(fbDim->begin(), fbDim->end()))
+            : std::nullopt;
 
   ::ttnn::Tensor out = ttnnOp(
       in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,

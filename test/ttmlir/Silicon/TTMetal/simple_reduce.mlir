@@ -7,7 +7,7 @@ func.func @reduceW(%arg0: tensor<256x384xf32, #layout1>) -> tensor<256x32xf32, #
   %0 = tensor.empty() : tensor<256x32xf32, #layout2>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
-                               dim_arg = [-1: i32],
+                               dim = [-1: i32],
                                keep_dim = true}> :
     (tensor<256x384xf32, #layout1>, tensor<256x32xf32, #layout2>) -> tensor<256x32xf32, #layout2>
   return %1 : tensor<256x32xf32, #layout2>
@@ -18,7 +18,7 @@ func.func @reduceH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x384xf32, #
   %0 = tensor.empty() : tensor<32x384xf32, #layout3>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
-                               dim_arg = [-2: i32],
+                               dim = [-2: i32],
                                keep_dim = true}> :
     (tensor<256x384xf32, #layout1>, tensor<32x384xf32, #layout3>) -> tensor<32x384xf32, #layout3>
   return %1 : tensor<32x384xf32, #layout3>
@@ -29,7 +29,7 @@ func.func @reduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32, #
   %0 = tensor.empty() : tensor<32x32xf32, #layout4>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
   %1 = "ttir.sum"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
-                               dim_arg = [-1: i32, -2: i32],
+                               dim = [-1: i32, -2: i32],
                                keep_dim = true}> :
     (tensor<256x384xf32, #layout1>, tensor<32x32xf32, #layout4>) -> tensor<32x32xf32, #layout4>
   return %1 : tensor<32x32xf32, #layout4>
@@ -39,7 +39,7 @@ func.func @maxReduceWH(%arg0: tensor<256x384xf32, #layout1>) -> tensor<32x32xf32
   %0 = tensor.empty() : tensor<32x32xf32, #layout4>
   // CHECK: %[[C:.*]] = "ttmetal.dispatch"[[C:.*]]
   %1 = "ttir.max" (%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>,
-                               dim_arg = [-1: i32, -2: i32],
+                               dim = [-1: i32, -2: i32],
                                keep_dim = true}> :
     (tensor<256x384xf32, #layout1>, tensor<32x32xf32, #layout4>) -> tensor<32x32xf32, #layout4>
   return %1 : tensor<32x32xf32, #layout4>

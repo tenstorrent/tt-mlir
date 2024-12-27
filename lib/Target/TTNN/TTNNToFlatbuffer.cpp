@@ -307,8 +307,8 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
   // tensor is sliced at the fastest dimension.
   if (meshShape[0] == 1 || meshShape[1] == 1) {
     assert(type.getShape().size() > 0 && "expected non-zero tensor shape");
-    uint32_t target_dim = type.getShape().size() - 1;
-    auto strategy = ::tt::target::CreateShardTensor(*cache.fbb, target_dim);
+    uint32_t targetDim = type.getShape().size() - 1;
+    auto strategy = ::tt::target::CreateShardTensor(*cache.fbb, targetDim);
     return ::tt::target::CreateDistributionStrategy(
         *cache.fbb, ::tt::target::DistributedTensorConfig::ShardTensor,
         strategy.Union());
@@ -730,11 +730,13 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  auto dim_arg =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+  SmallVector<int64_t> dims = op.getReduceDims();
+  SmallVector<int32_t> dims32(dims.begin(), dims.end());
+  auto dimArg =
+      op.getReduceDims().empty() ? 0 : toFlatbuffer<int32_t>(cache, dims32);
 
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
-                                               dim_arg, op.getKeepDim());
+                                               dimArg, op.getKeepDim());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
@@ -1134,8 +1136,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
                            locInfo);
   }
-  if (auto max_pool2dOp = dyn_cast<MaxPool2dOp>(op); max_pool2dOp) {
-    return createOperation(cache, createMaxPool2dOp(cache, max_pool2dOp),
+  if (auto maxPool2dOp = dyn_cast<MaxPool2dOp>(op); maxPool2dOp) {
+    return createOperation(cache, createMaxPool2dOp(cache, maxPool2dOp),
                            debugString, locInfo);
   }
   if (auto deallocateOp = dyn_cast<DeallocateOp>(op); deallocateOp) {

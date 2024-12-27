@@ -332,7 +332,7 @@ public:
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getKeepDim(),
-        adaptor.getDimArg().value_or(nullptr));
+        adaptor.getDim().value_or(nullptr));
     return success();
   }
 };

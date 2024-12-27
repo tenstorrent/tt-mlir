@@ -615,7 +615,7 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          BoolAttr:$keep_dim,
-                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+                         OptionalAttr<AnyAttrOf<[SI32Attr, I32ArrayAttr]>>:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -623,6 +623,26 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
 
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
+
+      SmallVector<int64_t> getReduceDims() {
+        mlir::Attribute reduceDimsAttr = getDim().value_or(mlir::Attribute{});
+        SmallVector<int64_t> reduceDimsVec;
+        if (!reduceDimsAttr) {
+          return reduceDimsVec;
+        }
+
+        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(reduceDimsAttr)) {
+          reduceDimsVec.push_back(intAttr.getSInt());
+        } else {
+          auto arrayAttr = mlir::cast<mlir::ArrayAttr>(reduceDimsAttr);
+          for (auto dimAttr : arrayAttr) {
+            int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+            reduceDimsVec.push_back(dim);
+          }
+        }
+
+        return reduceDimsVec;
+      }
 
       // Returns the indexing maps and iterator types for the reduction op.
       // Indexing maps are identity maps with dropped dimensions corresponding to the
@@ -635,10 +655,9 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
         SmallVector<Attribute> iteratorTypes(
             rank, builder.getAttr<IteratorTypeAttr>(IteratorType::Parallel));
 
-        auto reduceDims = getDimArgAttr();
+        SmallVector<int64_t> reduceDims = getReduceDims();
         auto resultIndexingMap = indexingMaps.back();
-        for (auto reduceDim : reduceDims) {
-          int64_t reduceDimInt = mlir::cast<IntegerAttr>(reduceDim).getInt();
+        for (auto reduceDimInt : reduceDims) {
           if (reduceDimInt < 0) {
             reduceDimInt += rank;
           }

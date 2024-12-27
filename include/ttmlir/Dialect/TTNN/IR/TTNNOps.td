@@ -578,9 +578,31 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
 
     let arguments = (ins AnyRankedTensor:$input,
                          BoolAttr:$keep_dim,
-                         OptionalAttr<I32ArrayAttr>:$dim_arg);
+                         OptionalAttr<AnyAttrOf<[SI32Attr, I32ArrayAttr]>>:$dim);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      SmallVector<int64_t> getReduceDims() {
+        mlir::Attribute reduceDimsAttr = getDim().value_or(mlir::Attribute{});
+        SmallVector<int64_t> reduceDimsVec;
+        if (!reduceDimsAttr) {
+          return reduceDimsVec;
+        }
+
+        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(reduceDimsAttr)) {
+          reduceDimsVec.push_back(intAttr.getSInt());
+        } else {
+          auto arrayAttr = mlir::cast<mlir::ArrayAttr>(reduceDimsAttr);
+          for (auto dimAttr : arrayAttr) {
+            int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+            reduceDimsVec.push_back(dim);
+          }
+        }
+
+        return reduceDimsVec;
+      }
+    }];
 
     let hasVerifier = 1;
 }

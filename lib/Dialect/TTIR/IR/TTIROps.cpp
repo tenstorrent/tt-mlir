@@ -1729,23 +1729,20 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
 // Common verifier for all Reduce ops.
 static mlir::LogicalResult
 verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
-               const std::optional<mlir::ArrayAttr> &reduceDims) {
-  if (!reduceDims) {
+               const llvm::SmallVector<int64_t> &reduceDims) {
+  if (reduceDims.empty()) {
     return mlir::success();
   }
-
   int64_t inputTensorRank = inputType.getRank();
-
   llvm::SmallSet<int64_t, 4> uniqueReduceDims;
-  for (mlir::Attribute reduceDim : *reduceDims) {
-    int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
+  for (int64_t reduceDimInt : reduceDims) {
     if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
       return reduceOp->emitOpError("Reduce dimensions are out of range");
     }
     uniqueReduceDims.insert(reduceDimInt);
   }
 
-  if (uniqueReduceDims.size() != reduceDims->size()) {
+  if (uniqueReduceDims.size() != reduceDims.size()) {
     return reduceOp->emitOpError("Reduce dimensions are not unique");
   }
 
@@ -1770,7 +1767,7 @@ void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getReduceDims());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1786,7 +1783,7 @@ void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // MeanOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getReduceDims());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1802,5 +1799,5 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 
 // SumOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  return verifyReduceOp(getOperation(), getInput().getType(), getReduceDims());
 }

@@ -16,16 +16,11 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Extracts reduce dimensions' values from the dimArg attribute. In case when
-// dimArg is not specified, returns empty vector.
-llvm::SmallVector<int64_t>
-getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg);
-
 // Calculates the shape of the new Reduce op created in the workaround, based
 // on the input shape and reducing dimensions.
 llvm::SmallVector<int64_t>
 calculateNewReduceShape(RankedTensorType inputType,
-                        const std::optional<mlir::ArrayAttr> &dimArg);
+                        const llvm::SmallVector<int64_t> &reduceDims);
 
 // This workaround addresses the next Metal issue:
 // https://github.com/tenstorrent/tt-metal/issues/13361
@@ -70,7 +65,7 @@ private:
                                      RankedTensorType inputType,
                                      RankedTensorType outputType) const {
     llvm::SmallVector<int64_t> outputShapeVec =
-        calculateNewReduceShape(inputType, srcOp.getDimArg());
+        calculateNewReduceShape(inputType, srcOp.getReduceDims());
 
     TTNNLayoutAttr newOutputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(outputType.getEncoding())
@@ -81,7 +76,7 @@ private:
 
     return rewriter.create<ReduceOp>(srcOp.getLoc(), newOutputType,
                                      srcOp.getInput(), true /*keep_dim*/,
-                                     srcOp.getDimArg().value_or(nullptr));
+                                     srcOp.getDim().value_or(nullptr));
   }
 
   void replaceOpWithReshapeOp(ReduceOp srcOp, ReduceOp newReduceOp,
@@ -108,11 +103,11 @@ public:
 
   LogicalResult matchAndRewrite(ReduceOp srcOp,
                                 PatternRewriter &rewriter) const override {
-    if (!srcOp.getDimArg() || srcOp.getDimArg()->empty()) {
+    llvm::SmallVector<int64_t> reduceDims = srcOp.getReduceDims();
+    if (reduceDims.empty()) {
       return failure();
     }
 
-    llvm::SmallVector<int64_t> reduceDims = getReduceDims(srcOp.getDimArg());
     llvm::SmallSet<int64_t, 4> uniqueReduceDims(reduceDims.begin(),
                                                 reduceDims.end());
 

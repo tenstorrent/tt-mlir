@@ -9,24 +9,9 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 llvm::SmallVector<int64_t>
-getReduceDims(const std::optional<mlir::ArrayAttr> &dimArg) {
-  llvm::SmallVector<int64_t, 4> reduceDims;
-  if (!dimArg) {
-    return reduceDims;
-  }
-
-  for (const mlir::Attribute &reduceDim : *dimArg) {
-    reduceDims.push_back(mlir::cast<mlir::IntegerAttr>(reduceDim).getInt());
-  }
-
-  return reduceDims;
-}
-
-llvm::SmallVector<int64_t>
 calculateNewReduceShape(RankedTensorType inputType,
-                        const std::optional<mlir::ArrayAttr> &dimArg) {
+                        const llvm::SmallVector<int64_t> &reduceDims) {
   llvm::SmallVector<int64_t> outputShapeVec(inputType.getShape());
-  llvm::SmallVector<int64_t> reduceDims = getReduceDims(dimArg);
 
   if (reduceDims.empty()) {
     // When reduce dimensions are not specified that means we are reducing over
