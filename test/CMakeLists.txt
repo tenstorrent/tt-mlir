@@ -38,4 +38,4 @@ set_target_properties(check-ttmlir PROPERTIES FOLDER "Tests")
 add_lit_testsuites(TTMLIRStatic ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
 
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/ DESTINATION test COMPONENT Test EXCLUDE_FROM_ALL)
-install(DIRECTORY third_party/tt-metal/src/tt-metal-build/ttnn/ DESTINATION third_party/tt-metal/src/tt-metal/ COMPONENT Test EXCLUDE_FROM_ALL)
+install(DIRECTORY $ENV{TT_METAL_HOME}-build/ttnn/ DESTINATION third_party/tt-metal/src/tt-metal/ COMPONENT Test EXCLUDE_FROM_ALL)
