@@ -135,6 +135,3 @@ llvm_config.with_environment(
     os.getenv("TT_METAL_HOME"),
     append_path=False,
 )
-
-for name, value in os.environ.items():
-    print("{0}: {1}".format(name, value))
