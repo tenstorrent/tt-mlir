@@ -5,19 +5,10 @@
 import re
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
-import dataclasses
 
 from ttmlir.dialects import tt, ttnn, ttir
 from ttmlir import ir, util
-
-
-# TODO(odjuricic): Also change the KeyValue to support editable instead of this.
-def make_editable_kv(kv, editable):
-    obj = dataclasses.asdict(kv)
-    obj["editable"] = editable
-    return dataclasses.make_dataclass(
-        "KeyValue", ((k, type(v)) for k, v in obj.items())
-    )(**obj)
+from . import utils
 
 
 def parse_loc_string(loc_str):
@@ -408,7 +399,7 @@ def parse_ttnn_ttnn_layout(attr):
     memory_layout = layout.tensor_memory_layout_as_int
     if memory_layout is not None:
         result.append(
-            make_editable_kv(
+            utils.make_editable_kv(
                 graph_builder.KeyValue(
                     key="tensor_memory_layout",
                     value=str(ttnn.TensorMemoryLayout(memory_layout)),
@@ -420,7 +411,7 @@ def parse_ttnn_ttnn_layout(attr):
             )
         )
     result.append(
-        make_editable_kv(
+        utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
             ),
@@ -438,7 +429,7 @@ def parse_ttnn_ttnn_layout(attr):
     )
     buffer_attr = ttnn.ir.BufferTypeAttr.maybe_downcast(layout.memref.memory_space)
     result.append(
-        make_editable_kv(
+        utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="buffer_type", value=str(ttnn.BufferType(buffer_attr.value))
             ),
@@ -450,7 +441,7 @@ def parse_ttnn_ttnn_layout(attr):
     )
 
     result.append(
-        make_editable_kv(
+        utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="memory_layout",
                 value=str(ttnn.Layout(layout.memory_layout_as_int)),
@@ -463,7 +454,7 @@ def parse_ttnn_ttnn_layout(attr):
     )
 
     result.append(
-        make_editable_kv(
+        utils.make_editable_kv(
             graph_builder.KeyValue(
                 key="data_type",
                 value=str(tt.DataType(layout.data_type_as_int)),

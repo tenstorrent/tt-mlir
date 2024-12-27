@@ -173,7 +173,5 @@ void populateTTNNModule(py::module &m) {
                              [](tt::ttnn::TTNNLayoutAttr self) {
                                return static_cast<uint32_t>(self.getDataType());
                              });
-  // .def_property_readonly("data_type",
-  //                        &tt::ttnn::TTNNLayoutAttr::getDataType);
 }
 } // namespace mlir::ttmlir::python
