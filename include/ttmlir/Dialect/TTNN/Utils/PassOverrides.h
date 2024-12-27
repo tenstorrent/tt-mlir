@@ -5,13 +5,10 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 #define TTMLIR_DIALECT_TTNN_UTILS_PASSOVERRIDES_H
 
-#include <string_view>
-
 #include <llvm/Support/CommandLine.h>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 
 namespace mlir::tt::ttnn {
 
@@ -31,12 +28,12 @@ struct OptionNames {
 };
 
 struct OutputLayoutOverrideParams {
-  std::optional<SmallVector<int64_t, 2>> grid;
-  std::optional<BufferType> bufferType;
-  std::optional<TensorMemoryLayout>
-      tensorMemoryLayout;             // INTERLEAVED / SHARDED etc...
-  std::optional<Layout> memoryLayout; // ROW_MAJOR / TILE
-  std::optional<tt::DataType> dataType;
+  std::optional<SmallVector<int64_t, 2>> grid = std::nullopt;
+  std::optional<BufferType> bufferType = std::nullopt;
+  std::optional<TensorMemoryLayout> tensorMemoryLayout =
+      std::nullopt; // INTERLEAVED / SHARDED etc...
+  std::optional<Layout> memoryLayout = std::nullopt; // ROW_MAJOR / TILE
+  std::optional<tt::DataType> dataType = std::nullopt;
 
   // Check if all layout parameters that are generated in LegalLayoutAnalysis
   // are overridden. DataType is the only that is not.
@@ -45,7 +42,7 @@ struct OutputLayoutOverrideParams {
            tensorMemoryLayout.has_value() && memoryLayout.has_value();
   }
 
-  bool operator==(const OutputLayoutOverrideParams rhs) const {
+  bool operator==(const OutputLayoutOverrideParams &rhs) const {
     if (grid.has_value() != rhs.grid.has_value()) {
       return false;
     }
