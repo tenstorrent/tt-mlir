@@ -581,17 +581,7 @@ class Run:
                                         f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}/golden_results.json"
                                     )
 
-                                for (
-                                    loc,
-                                    golden_data,
-                                ) in callback_runtime_config.golden_report.items():
-                                    if (
-                                        golden_data["actual_pcc"]
-                                        < golden_data["expected_pcc"]
-                                    ):
-                                        raise Exception(
-                                            f"Failed: golden comparison failed for program={program_index}, actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
-                                        )
+                                callback_runtime_config.check_golden_pcc()
 
                             if self["--memory"]:
                                 if self["--save-artifacts"]:
@@ -600,57 +590,7 @@ class Run:
                                     )
 
                                 if self["--check-memory-leak"]:
-                                    num_items = 0
-                                    for (
-                                        key,
-                                        value,
-                                    ) in callback_runtime_config.memory_report.items():
-                                        num_items += 1
-
-                                    if num_items == 0:
-                                        self.logging.warning(f"No memory data found")
-                                    else:
-                                        # query initial memory usage
-                                        dram_initial_size = callback_runtime_config.memory_report[
-                                            0
-                                        ][
-                                            "dram"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-                                        l1_initlal_size = callback_runtime_config.memory_report[
-                                            0
-                                        ][
-                                            "l1"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-
-                                        # query final memory usage and ensure no memory leaks
-                                        dram_final_size = callback_runtime_config.memory_report[
-                                            num_items - 1
-                                        ][
-                                            "dram"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-                                        l1_final_size = callback_runtime_config.memory_report[
-                                            num_items - 1
-                                        ][
-                                            "l1"
-                                        ][
-                                            "total_allocated (bytes) : total_allocated/bank * num_banks"
-                                        ]
-
-                                        if dram_final_size > dram_initial_size:
-                                            raise Exception(
-                                                "Memory leak detected in DRAM"
-                                            )
-
-                                        if l1_final_size > l1_initlal_size:
-                                            raise Exception(
-                                                "Memory leak detected in L1 cache"
-                                            )
+                                    callback_runtime_config.check_memory_leaks()
 
                     except Exception as e:
                         test_result = {

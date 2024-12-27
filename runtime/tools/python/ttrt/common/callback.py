@@ -62,6 +62,41 @@ class CallbackRuntimeConfig:
 
         self.logging.debug(f"Saved memory report to={memory_report_path}")
 
+    def check_golden_pcc(self):
+        for loc, golden_data in self.golden_report.items():
+            if golden_data["actual_pcc"] < golden_data["expected_pcc"]:
+                raise Exception(
+                    f"Failed: golden comparison failed : actual_pcc={golden_data['actual_pcc']} < expected_pcc={golden_data['expected_pcc']}"
+                )
+
+    def check_memory_leaks(self):
+        num_items = len(self.memory_report)
+
+        if num_items == 0:
+            self.logging.warning(f"No memory data found")
+        else:
+            # query initial memory usage
+            dram_initial_size = self.memory_report[0]["dram"][
+                "total_allocated (bytes) : total_allocated/bank * num_banks"
+            ]
+            l1_initlal_size = self.memory_report[0]["l1"][
+                "total_allocated (bytes) : total_allocated/bank * num_banks"
+            ]
+
+            # query final memory usage and ensure no memory leaks
+            dram_final_size = self.memory_report[num_items - 1]["dram"][
+                "total_allocated (bytes) : total_allocated/bank * num_banks"
+            ]
+            l1_final_size = self.memory_report[num_items - 1]["l1"][
+                "total_allocated (bytes) : total_allocated/bank * num_banks"
+            ]
+
+            if dram_final_size > dram_initial_size:
+                raise Exception("Memory leak detected in DRAM")
+
+            if l1_final_size > l1_initlal_size:
+                raise Exception("Memory leak detected in L1")
+
 
 """
 -----------------------GOLDEN CALLBACK-----------------------
