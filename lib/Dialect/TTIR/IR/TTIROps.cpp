@@ -397,6 +397,11 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input tensor rank should match output tensor rank.");
   }
 
+  llvm::SmallVector<int64_t, 4> broadcastedShape;
+  if (!OpTrait::util::getBroadcastedShape(
+          inputType.getShape(), outputType.getShape(), broadcastedShape)) {
+    return emitOpError("Operands are not broadcast compatible");
+  }
   return success();
 }
 
