@@ -29,7 +29,6 @@ static llvm::LogicalResult translateModuleToCpp(
 
     ModuleOp module = dyn_cast<ModuleOp>(op);
     assert(module && "Expected ModuleOp as top level operation");
-    // return mlir::tt::emitTensixKernelAsCpp(module, os);
     return mlir::tt::emitKernelAsCpp(module, os, threadType);
 
 }
