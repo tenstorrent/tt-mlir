@@ -1,4 +1,4 @@
-// RUN: ttmlir-translate --ttkernel-to-cpp %s
+// RUN: ttmlir-translate --tensixkernel-to-cpp %s
 #l1_ = #tt.memory_space<l1>
 
 func.func @ttkernel_tensix(%arg1: !ttkernel.cb<cb_in0, 294912, memref<2x4x!tt.tile<32x32, f32>, #l1_>, 4096, 1>,

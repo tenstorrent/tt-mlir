@@ -1,4 +1,4 @@
-// RUN: ttmlir-translate --ttkernel-to-cpp %s
+// RUN: ttmlir-translate --nockernel-to-cpp %s
 
 func.func @ttkernel_noc() -> () {
     %c262432_i32 = arith.constant 262432 : i32
