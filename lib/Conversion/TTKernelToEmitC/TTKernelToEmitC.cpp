@@ -610,18 +610,6 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
 }
 
 LogicalResult
-emitNocKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os)
-{
-  return emitKernelAsCpp(op, os, ttkernel::ThreadType::Noc);
-}
-
-LogicalResult
-emitTensixKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os)
-{
-  return emitKernelAsCpp(op, os, ttkernel::ThreadType::Tensix);
-}
-
-LogicalResult
 emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType )
 {
   std::vector<func::FuncOp> ops;

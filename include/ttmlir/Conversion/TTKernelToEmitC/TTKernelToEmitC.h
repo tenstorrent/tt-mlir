@@ -39,12 +39,6 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
 
 
 LogicalResult
-emitNocKernelAsCpp( mlir::ModuleOp op, llvm::raw_ostream &os);
-
-LogicalResult
-emitTensixKernelAsCpp( mlir::ModuleOp op, llvm::raw_ostream &os);
-
-LogicalResult
 emitKernelAsCpp( mlir::ModuleOp op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType);
 
 } // namespace mlir::tt

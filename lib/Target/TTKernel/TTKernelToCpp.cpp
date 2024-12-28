@@ -92,18 +92,18 @@ struct Printer{
 };
 
 static llvm::LogicalResult translateModuleToCpp(
-    Operation *op, llvm::raw_ostream &os) {
+    Operation *op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType) {
+
     ModuleOp module = dyn_cast<ModuleOp>(op);
     assert(module && "Expected ModuleOp as top level operation");
     // return mlir::tt::emitTensixKernelAsCpp(module, os);
-    return mlir::tt::emitNocKernelAsCpp(module, os);
+    return mlir::tt::emitKernelAsCpp(module, os, threadType);
 
 }
 
-
 LogicalResult translateTTKernelToCpp(
-    Operation *op, llvm::raw_ostream &os) {
-  return translateModuleToCpp(op, os);
+    Operation *op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType) {
+  return translateModuleToCpp(op, os, threadType);
 }
 
 } // namespace mlir::tt::ttkernel
