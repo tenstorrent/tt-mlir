@@ -36,7 +36,7 @@ def main():
         sys.exit(1)
 
     # Create unique source and build directories
-    cpp_base_name = os.path.basename(cpp_file_path).split(".")[0]
+    cpp_base_name = os.path.basename(cpp_file_path).rsplit(".", 1)[0]
     temp_source_dir = os.path.join(
         tt_mlir_home, f"tools/ttnn-standalone/temp_source_{cpp_base_name}"
     )

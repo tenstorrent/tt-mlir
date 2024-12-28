@@ -138,3 +138,10 @@ llvm_config.with_environment(
     os.getenv("TT_METAL_HOME"),
     append_path=False,
 )
+
+# Add `TT_METAL_HOME` to the lit environment.
+llvm_config.with_environment(
+    "TT_METAL_BUILD_HOME",
+    os.getenv("TT_METAL_BUILD_HOME"),
+    append_path=False,
+)

@@ -168,6 +168,7 @@ jobs:
         source env/activate
         cmake --build ${{ steps.strings.outputs.build-output-dir }}
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component Test
+        cmake --install ${{ steps.strings.outputs.build-output-dir }} --component EmitCTestLibs
 
     - name: Unique-ify clang-tidy fixes
       shell: bash
@@ -362,6 +363,7 @@ jobs:
         ls -lahF
         echo "CREATING THE SYMLINK"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/tt-metal-build/lib/ ${{ steps.strings.outputs.work-dir }}third_party/tt-metal/src/tt-metal-build/lib
         echo ${{ steps.strings.outputs.install-output-dir }}
         echo ${{ steps.strings.outputs.build-output-dir }}
         ls -lahF

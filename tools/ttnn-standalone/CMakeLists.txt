@@ -44,6 +44,9 @@ endif()
 if("$ENV{TT_METAL_HOME}" STREQUAL "")
     message(FATAL_ERROR "TT_METAL_HOME is not set")
 endif()
+if("$ENV{TT_METAL_BUILD_HOME}" STREQUAL "")
+    message(FATAL_ERROR "TT_METAL_BUILD_HOME is not set")
+endif()
 if("$ENV{ARCH_NAME}" STREQUAL "")
     message(FATAL_ERROR "ARCH_NAME is not set")
 endif()
@@ -89,7 +92,7 @@ set(INCLUDE_DIRS
 # Link directories
 #
 set(LINK_DIRS
-    $ENV{TT_METAL_HOME}-build/lib
+    $ENV{TT_METAL_BUILD_HOME}/lib
 )
 
 # Libraries to link
@@ -102,7 +105,7 @@ set(LINK_LIBS
 
     # TTNN
     # _ttnn  # Why doesn't this work?
-    $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
+    $ENV{TT_METAL_BUILD_HOME}/lib/_ttnn.so
 )
 
 # Compile definitions
