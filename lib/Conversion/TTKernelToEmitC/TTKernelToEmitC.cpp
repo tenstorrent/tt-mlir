@@ -525,7 +525,6 @@ private:
 
   OpBuilder *builder;
   Location loc;
-  ttkernel::KernelConfigInterface kernelConfig;
   ttkernel::ThreadType threadType;
 };
 
