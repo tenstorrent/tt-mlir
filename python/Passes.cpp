@@ -4,6 +4,7 @@
 
 #include "mlir/InitAllTranslations.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
@@ -202,7 +203,7 @@ void populatePassesModule(py::module &m) {
           }
         });
 
-  m.def("ttkernel_to_cpp_file",
+  m.def("nockernel_to_cpp",
         [](MlirModule module, std::string &filepath) {
           mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
           std::error_code fileError;
@@ -211,12 +212,26 @@ void populatePassesModule(py::module &m) {
             throw std::runtime_error("Failed to open file: " + filepath +
                                      ". Error: " + fileError.message());
           }
-          if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(
-                  moduleOp, file))) {
+          if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(moduleOp, file, tt::ttkernel::ThreadType::Noc))) {
             throw std::runtime_error("Failed to write C++ to file: " +
                                      filepath);
           }
         });
+  m.def("tensixkernel_to_cpp",
+      [](MlirModule module, std::string &filepath) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        std::error_code fileError;
+        llvm::raw_fd_ostream file(filepath, fileError);
+        if (fileError) {
+          throw std::runtime_error("Failed to open file: " + filepath +
+                                    ". Error: " + fileError.message());
+        }
+        if (mlir::failed(mlir::tt::ttkernel::translateTTKernelToCpp(moduleOp, file, tt::ttkernel::ThreadType::Tensix))) {
+          throw std::runtime_error("Failed to write C++ to file: " +
+                                    filepath);
+        }
+      });
+        
         
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
