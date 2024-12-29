@@ -363,8 +363,10 @@ jobs:
         ls -lahF
         echo "CREATING THE SYMLINK"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        mkdir -p ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal-build
-        ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/tt-metal-build/lib/ ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal-build/lib
+        # mkdir -p ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal-build
+        # ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/tt-metal-build/lib/ ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal-build/lib
+        mkdir -p ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src
+        ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/tt-metal ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src/tt-metal
         echo ${{ steps.strings.outputs.install-output-dir }}
         echo ${{ steps.strings.outputs.build-output-dir }}
         ls -lahF
