@@ -584,31 +584,33 @@ public:
     }
     ValueRange outputs = outputsVec;
 
-    auto windowDimensions = adaptor.getWindowDimensionsAttr();
-    auto windowStrides = adaptor.getWindowStridesAttr();
-    auto baseDilations = adaptor.getBaseDilationsAttr();
-    auto window_dilations = adaptor.getWindowDilationsAttr();
-    auto padding_ = adaptor.getPaddingAttr();
+    auto windowDimensionsAttr = adaptor.getWindowDimensionsAttr();
+    auto windowStridesAttr = adaptor.getWindowStridesAttr();
+    auto baseDilationsAttr = adaptor.getBaseDilationsAttr();
+    auto windowDilationsAttr = adaptor.getWindowDilationsAttr();
+    auto paddingAttr = adaptor.getPaddingAttr();
 
     // Generate defaults if they dont exist (these defaults are what the
     // stablehlo dialect intends when they are not provided)
-    windowStrides = windowStrides
-                        ? windowStrides
-                        : rewriter.getDenseI64ArrayAttr(
-                              SmallVector<int64_t>(windowDimensions.size(), 1));
-    baseDilations = baseDilations
-                        ? baseDilations
-                        : rewriter.getDenseI64ArrayAttr(
-                              SmallVector<int64_t>(windowDimensions.size(), 1));
-    window_dilations = window_dilations
-                           ? window_dilations
-                           : rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
-                                 windowDimensions.size(), 1));
-    auto padding =
-        padding_ ? rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(padding_.getValues<int64_t>()))
-                 : rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(windowDimensions.size() * 2, 0));
+    windowStridesAttr =
+        windowStridesAttr ? windowStridesAttr
+                          : rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
+                                windowDimensionsAttr.size(), 1));
+    baseDilationsAttr =
+        baseDilationsAttr ? baseDilationsAttr
+                          : rewriter.getDenseI64ArrayAttr(SmallVector<int64_t>(
+                                windowDimensionsAttr.size(), 1));
+    windowDilationsAttr =
+        windowDilationsAttr
+            ? windowDilationsAttr
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(windowDimensionsAttr.size(), 1));
+    auto newPaddingAttr =
+        paddingAttr
+            ? rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(paddingAttr.getValues<int64_t>()))
+            : rewriter.getDenseI64ArrayAttr(
+                  SmallVector<int64_t>(windowDimensionsAttr.size() * 2, 0));
 
     mlir::tt::ttir::PoolingMethod poolingMethod;
     if (isMaxPool(srcOp)) {
@@ -623,8 +625,8 @@ public:
 
     rewriter.replaceOpWithNewOp<ttir::PoolingOp>(
         srcOp, outputType, adaptor.getInputs(), outputs, poolingMethod,
-        windowDimensions, windowStrides, baseDilations, window_dilations,
-        padding);
+        windowDimensionsAttr, windowStridesAttr, baseDilationsAttr,
+        windowDilationsAttr, newPaddingAttr);
 
     return success();
   }

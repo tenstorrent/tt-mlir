@@ -622,150 +622,75 @@ struct GatherToEmbeddingConversionPattern
   }
 };
 
+// Rewrite PoolingOp to MaxPool2dOp. The PoolingOp is expected to have 2 spatial
+// dimensions which are used to determine the height and width indices. Input
+// tensor can have any layout (NHWC, NCHW, etc.). We generate a permutation to
+// convert the input tensor to NCHW layout, apply the pooling operation, and
+// then permute the output back to the original layout. The pooling operation is
+// performed in NCHW layout.
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
 
-  std::vector<int64_t> getIndicesOfSpatialDims(ttir::PoolingOp op) const {
-    std::vector<int64_t> spatialDims;
-    for (int64_t i = 0;
-         i < static_cast<int64_t>(op.getWindowDimensions().size()); i++) {
-      if (op.getWindowDimensions()[i] > 1) {
-        spatialDims.push_back(i);
-      }
-    }
-    return spatialDims;
-  }
-
-  LogicalResult canDecompose2DPoolingOp(ttir::PoolingOp op) const {
-
-    // Window dimensions must be 4 in length
-    if (op.getWindowDimensions().size() != 4) {
-      return failure();
-    }
-
-    // Window strides must be 4 in length
-    if (op.getWindowStrides().size() != 4) {
-      return failure();
-    }
-
-    // Operand rank(s) must be 4
-    for (Value operand : op.getInputs()) {
-      auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-      if (operandType.getRank() != 4) {
-        return failure();
-      }
-    }
-
-    // Exactly two of the window dimensions must be greater than 1
-    std::vector<int64_t> trueWindowDimensionsIndices =
-        getIndicesOfSpatialDims(op);
-
-    if (trueWindowDimensionsIndices.size() != 2) {
-      return failure();
-    }
-
-    // Exactly two of the window strides must be greater than 1
-    std::vector<int64_t> trueWindowStrideIndices;
-    for (int64_t i = 0; i < static_cast<int64_t>(op.getWindowStrides().size());
-         i++) {
-      if (op.getWindowStrides()[i] > 1) {
-        trueWindowStrideIndices.push_back(i);
-      }
-    }
-
-    if (trueWindowStrideIndices.size() != 2) {
-      return failure();
-    }
-
-    // The indices of the true window dimensions and strides must be the same
-    if ((trueWindowDimensionsIndices[0] != trueWindowStrideIndices[0] ||
-         trueWindowDimensionsIndices[1] != trueWindowStrideIndices[1]) &&
-        (trueWindowDimensionsIndices[0] != trueWindowStrideIndices[1] ||
-         trueWindowDimensionsIndices[1] != trueWindowStrideIndices[0])) {
-      return failure();
-    }
-
-    // Padding must be 8 in length
-    if (op.getPadding().size() != 8) {
-      return failure();
-    }
-
-    return success();
-  }
-
   template <typename PoolOpType>
   void rewritePool2d(ttir::PoolingOp op, OpAdaptor adaptor,
                      ConversionPatternRewriter &rewriter) const {
+    constexpr int32_t NON_SPATIAL_PLACEHOLDER = -1;
 
-    const int64_t SPATIAL_H = -3;
-    const int64_t SPATIAL_W = -2;
-    const int64_t NON_SPATIAL = -1;
+    // Get indices of spatial dimensions (height, width).
+    SmallVector<uint32_t, 4> spatialDims = op.getIndicesOfSpatialDims();
+    SmallVector<int32_t, 4> currentLayout(4, NON_SPATIAL_PLACEHOLDER);
 
-    auto inputType =
-        mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
-    assert(inputType.getRank() == 4 && "Input must be 4D tensor");
-    std::vector<int64_t> desiredLayout(inputType.getRank(), NON_SPATIAL);
-    desiredLayout[inputType.getRank() - 3] = SPATIAL_H;
-    desiredLayout[inputType.getRank() - 2] = SPATIAL_W;
+    // Set height position in current layout.
+    currentLayout[spatialDims[0]] = 2;
+    // Set width position in current layout.
+    currentLayout[spatialDims[1]] = 3;
 
-    int64_t nonSpatialCount = 0;
-    for (int64_t i = 0; i < static_cast<int64_t>(desiredLayout.size()); i++) {
-      if (desiredLayout[i] == NON_SPATIAL) {
-        desiredLayout[i] = nonSpatialCount;
-        nonSpatialCount++;
+    // At this point we have fixed the height and width positions in the layout.
+    // We need to fill the rest of the layout with the remaining dimensions.
+    for (size_t i = 0, cnt = 0; i < currentLayout.size(); ++i) {
+      if (currentLayout[i] == NON_SPATIAL_PLACEHOLDER) {
+        currentLayout[i] = cnt++;
       }
     }
 
-    std::vector<int64_t> spatialDims = getIndicesOfSpatialDims(op);
+    // Desired layout for any pooling 2d operation is NCHW.
+    SmallVector<int32_t, 4> desiredLayout = {0, 1, 2, 3};
 
-    std::vector<int64_t> currentLayout(inputType.getRank(), NON_SPATIAL);
-    currentLayout[spatialDims[0]] = SPATIAL_H;
-    currentLayout[spatialDims[1]] = SPATIAL_W;
+    // Permutation to apply before pooling operation.
+    SmallVector<int64_t> permutation =
+        ttmlir::utils::generatePermutation<int32_t>(currentLayout,
+                                                    desiredLayout);
+    // Inverse of permutation to apply after pooling operation.
+    SmallVector<int64_t> inverseOfPermutation =
+        ttmlir::utils::inversePermutation(permutation);
 
-    nonSpatialCount = 0;
-    for (int64_t i = 0; i < static_cast<int64_t>(currentLayout.size()); i++) {
-      if (currentLayout[i] == NON_SPATIAL) {
-        currentLayout[i] = nonSpatialCount;
-        nonSpatialCount++;
-      }
-    }
-
-    auto permutation = ttmlir::utils::generatePermutation(
-        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
-    auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
-
-    auto kernelHeightAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDims[0]]));
-    auto kernelWidthAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowDimensions()[spatialDims[1]]));
-
-    auto strideHeightAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowStrides()[spatialDims[0]]));
-
-    auto strideWidthAttr = rewriter.getSI32IntegerAttr(
-        static_cast<int32_t>(op.getWindowStrides()[spatialDims[1]]));
-
-    auto dilationHeightAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowDilations()[spatialDims[0]]);
-    auto dilationWidthAttr = rewriter.getSI32IntegerAttr(
-        adaptor.getWindowDilations()[spatialDims[1]]);
-    auto ceilModeAttr = rewriter.getBoolAttr(false);
-
-    auto paddingTopAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[0]]);
-    auto paddingBottomAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[0] + 1]);
-    auto paddingLeftAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[1]]);
-    auto paddingRightAttr =
-        rewriter.getSI32IntegerAttr(op.getPadding()[2 * spatialDims[1] + 1]);
+    auto kernelHeight =
+        static_cast<int32_t>(op.getWindowDimensions()[spatialDims[0]]);
+    auto kernelWidth =
+        static_cast<int32_t>(op.getWindowDimensions()[spatialDims[1]]);
+    auto strideHeight =
+        static_cast<int32_t>(op.getWindowStrides()[spatialDims[0]]);
+    auto strideWidth =
+        static_cast<int32_t>(op.getWindowStrides()[spatialDims[1]]);
+    auto dilationHeight =
+        static_cast<int32_t>(adaptor.getWindowDilations()[spatialDims[0]]);
+    auto dilationWidth =
+        static_cast<int32_t>(adaptor.getWindowDilations()[spatialDims[1]]);
+    bool ceilMode = false;
+    auto paddingTop = static_cast<int32_t>(op.getPadding()[2 * spatialDims[0]]);
+    auto paddingBottom =
+        static_cast<int32_t>(op.getPadding()[2 * spatialDims[0] + 1]);
+    auto paddingLeft =
+        static_cast<int32_t>(op.getPadding()[2 * spatialDims[1]]);
+    auto paddingRight =
+        static_cast<int32_t>(op.getPadding()[2 * spatialDims[1] + 1]);
 
     llvm::SmallVector<Value> outputs;
     for (Value input : adaptor.getInputs()) {
       RankedTensorType inputTy = mlir::cast<RankedTensorType>(input.getType());
 
-      auto inputPermuteShape =
+      SmallVector<int64_t> inputPermuteShape =
           ::ttmlir::utils::applyPermutation(inputTy.getShape(), permutation);
       auto inputDPSOutput = rewriter.create<tensor::EmptyOp>(
           op.getLoc(), inputPermuteShape, inputTy.getElementType());
@@ -774,7 +699,7 @@ public:
                                                inputDPSOutput, permutation);
 
       auto outputType = mlir::cast<RankedTensorType>(op.getResult(0).getType());
-      auto newOutputShape =
+      SmallVector<int64_t> newOutputShape =
           ::ttmlir::utils::applyPermutation(outputType.getShape(), permutation);
       auto newOutputType =
           outputType.cloneWith(newOutputShape, outputType.getElementType());
@@ -783,10 +708,9 @@ public:
           newOutputType.getElementType());
 
       auto newPool = rewriter.create<PoolOpType>(
-          op.getLoc(), newOutputType, input, outputTensor, kernelHeightAttr,
-          kernelWidthAttr, strideHeightAttr, strideWidthAttr,
-          dilationHeightAttr, dilationWidthAttr, ceilModeAttr, paddingTopAttr,
-          paddingBottomAttr, paddingLeftAttr, paddingRightAttr);
+          op.getLoc(), newOutputType, input, outputTensor, kernelHeight,
+          kernelWidth, strideHeight, strideWidth, dilationHeight, dilationWidth,
+          ceilMode, paddingLeft, paddingRight, paddingTop, paddingBottom);
 
       // Applying the inverse of permutation to the output will restore the
       // tensor to the original layout.
@@ -802,28 +726,11 @@ public:
     rewriter.replaceOp(op, outputs);
   }
 
-  uint32_t getNumSpatialDims(ttir::PoolingOp op) const {
-    uint32_t numSpatialDims = 0;
-    for (int64_t dim : op.getWindowDimensions()) {
-      if (dim > 1) {
-        numSpatialDims++;
-      }
-    }
-    return numSpatialDims;
-  }
-
   LogicalResult
   matchAndRewrite(ttir::PoolingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    uint32_t numSpatialDims = getNumSpatialDims(op);
+    uint32_t numSpatialDims = op.countSpatialDims();
     if (numSpatialDims == 2) {
-      if (failed(canDecompose2DPoolingOp(op))) {
-        return rewriter.notifyMatchFailure(
-            op, "2D pooling op with the given attributes is not supported "
-                "currently");
-      }
-
       switch (op.getPoolingMethod()) {
       case ttir::PoolingMethod::Max: {
         rewritePool2d<ttir::MaxPool2dOp>(op, adaptor, rewriter);
@@ -839,6 +746,86 @@ public:
     return rewriter.notifyMatchFailure(
         op, "No decompositions for a pooling op with " +
                 std::to_string(numSpatialDims) + " spatial dimensions");
+  }
+};
+
+//  This pattern canonicalizes changes input/output tensor to have channel last
+//  layout (maxpool2d in ttnn expects channel last layout). If channel_last is
+//  0 then we assume here that input/ouput is in NCHW layout. If not we permute
+//  the input tensor to have the channel dimension as the last dimension.
+//  The canonicalization steps are:
+//  1. Permute the input tensor to have the channel dimension as the last
+//  dimension. So NCHW -> NHWC.
+//  3. Perform the MaxPool2dOp.
+//  5. Permute the output tensor to have the channel dimension as the second
+//  dimension. So NHWC -> NCHW.
+struct CanonicalizeChannelLastMaxPoolPattern
+    : public OpConversionPattern<ttir::MaxPool2dOp> {
+public:
+  using OpConversionPattern<ttir::MaxPool2dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MaxPool2dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // If we already converted the operation to channel last we do nothing.
+    if (op.getChannelLast()) {
+      return success();
+    }
+
+    // All transformations below will be done using these shapes for simplicity.
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputType =
+        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    SmallVector<int64_t, 4> inputShape(inputType.getShape());
+    SmallVector<int64_t, 4> outputShape(outputType.getShape());
+    SmallVector<int64_t, 4> desiredPermutation = {0, 2, 3, 1};
+
+    // Use intermediateResult to store the result of each transformation
+    // and replace the input tensor with it at the end.
+    Value intermediateResult = adaptor.getInput();
+
+    // First apply permutation on input tensor to have the channel dimension as
+    // the last dimension. Example: tensor<2x3x4x5> -> tensor<2x4x5x3>.
+    {
+      SmallVector<int64_t, 4> newShape =
+          ::ttmlir::utils::applyPermutation<int64_t>(inputShape,
+                                                     desiredPermutation);
+      auto dpsEmpty = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), newShape, inputType.getElementType());
+      intermediateResult = rewriter.create<ttir::PermuteOp>(
+          op.getLoc(), dpsEmpty.getType(), intermediateResult, dpsEmpty,
+          desiredPermutation);
+    }
+
+    // Perform the MaxPool2dOp.
+    {
+      SmallVector<int64_t, 4> newShape =
+          ::ttmlir::utils::applyPermutation<int64_t>(outputShape,
+                                                     desiredPermutation);
+      auto dpsEmpty = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), newShape, inputType.getElementType());
+      intermediateResult = rewriter.create<ttir::MaxPool2dOp>(
+          op.getLoc(), dpsEmpty.getType(), intermediateResult, dpsEmpty,
+          op.getKernelHeight(), op.getKernelWidth(), op.getStrideHeight(),
+          op.getStrideWidth(), op.getDilationHeight(), op.getDilationWidth(),
+          op.getCeilMode(), op.getPaddingTop(), op.getPaddingBottom(),
+          op.getPaddingLeft(), op.getPaddingRight(), 1 /* channel_last */);
+    }
+
+    // Permute the output tensor of reshape to have the channel dimension as the
+    // second dimension.
+    {
+      SmallVector<int64_t, 4> inversePermutation =
+          ttmlir::utils::inversePermutation(desiredPermutation);
+      auto dpsEmpty = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), outputShape, inputType.getElementType());
+      intermediateResult = rewriter.create<ttir::PermuteOp>(
+          op.getLoc(), dpsEmpty.getType(), intermediateResult, dpsEmpty,
+          inversePermutation);
+    }
+
+    rewriter.replaceOp(op, intermediateResult);
+    return success();
   }
 };
 
@@ -1089,6 +1076,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
   patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
+  patterns.add<CanonicalizeChannelLastMaxPoolPattern>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<Legalize1DConvolutionPattern>(typeConverter, ctx);
   patterns.add<ConvolutionToConv2dPattern>(typeConverter, ctx);

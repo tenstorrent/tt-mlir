@@ -6,7 +6,11 @@ module attributes {} {
     %0 = tensor.empty() : tensor<1x32x64x64xf32>
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 16384 : i32, 32 : i32]
     // CHECK: "ttnn.max_pool2d"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 64 : i32, 64 : i32, 32 : i32]
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
     %1 = "ttir.pooling"(%arg0, %0) <{

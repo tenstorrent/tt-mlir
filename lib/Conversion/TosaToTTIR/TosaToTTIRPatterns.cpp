@@ -200,7 +200,7 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MaxPool2dOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getInput(),
         outputTensor, dims[0], dims[1], strides[0], strides[1], 1, 1, false,
-        pad[2], pad[3], pad[0], pad[1]);
+        pad[2], pad[3], pad[0], pad[1], 1 /* channel_last */);
     return success();
   }
 };

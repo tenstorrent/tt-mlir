@@ -183,6 +183,15 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
   return inversePermutation;
 }
 
+// Returns a vector `mergedPermutation`, such that
+// mergedPermutation[i] = permutation1[permutation2[i]], for all i. Assumes
+// that permutation1 and permutation2 have the same size. Example:
+// permutation1 = [1, 2, 0], permutation2 = [2, 0, 1] -> [0, 1, 2].
+inline llvm::SmallVector<int64_t>
+mergePermutations(llvm::ArrayRef<int64_t> permutation1,
+                  llvm::ArrayRef<int64_t> permutation2) {
+  return applyPermutation(permutation1, permutation2);
+}
 } // namespace ttmlir::utils
 
 #endif

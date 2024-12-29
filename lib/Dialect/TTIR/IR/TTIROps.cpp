@@ -195,6 +195,101 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // PoolingOp
 //===----------------------------------------------------------------------===//
 
+// Gets the indices of the spatial dimensions in the window dimensions.
+// For example, if the window dimensions are [1, 2, 2, 1], the spatial
+// dimensions are [1, 2].
+llvm::SmallVector<uint32_t>
+mlir::tt::ttir::PoolingOp::getIndicesOfSpatialDims() {
+  llvm::SmallVector<uint32_t> spatialDims;
+  for (const auto [i, dim] : llvm::enumerate(getWindowDimensions())) {
+    if (dim > 1) {
+      spatialDims.push_back(i);
+    }
+  }
+  return spatialDims;
+}
+
+// Counts the number of spatial dimensions in the window dimensions.
+// For example, if the window dimensions are [1, 2, 2, 1], the number of
+// spatial dimensions is 2.
+uint32_t mlir::tt::ttir::PoolingOp::countSpatialDims() {
+  return llvm::count_if(getWindowDimensions(),
+                        [](int64_t dim) { return dim > 1; });
+}
+
+// Helper function to verify pooling operations.
+template <size_t Rank>
+static bool verifyPooling(mlir::tt::ttir::PoolingOp op) {
+  // Deduce spatial dimensions
+  constexpr size_t NumSpatialDims = Rank - 2;
+
+  // Calculate required sizes based on rank and spatial dimensions.
+  size_t windowSize = Rank;
+  size_t strideSize = Rank;
+  size_t paddingSize = 2 * Rank;
+
+  // Window dimensions must match the expected size.
+  if (op.getWindowDimensions().size() != windowSize) {
+    op.emitOpError("Window dimensions must be ") << windowSize << " in length.";
+    return false;
+  }
+
+  // Window strides must match the expected size.
+  if (op.getWindowStrides().size() != strideSize) {
+    op.emitOpError("Window strides must be ") << strideSize << " in length.";
+    return false;
+  }
+
+  // Operand rank(s) must match the expected rank.
+  if (llvm::all_of(op.getInputs(), [](mlir::Value operand) {
+        return mlir::cast<mlir::RankedTensorType>(operand.getType())
+                   .getRank() != Rank;
+      })) {
+    op.emitOpError("All input tensors must have a rank of ") << Rank << ".";
+    return false;
+  }
+
+  // Exactly the expected number of spatial dimensions must be greater than 1.
+  llvm::SmallVector<uint32_t> trueWindowDimensionsIndices =
+      op.getIndicesOfSpatialDims();
+
+  if (trueWindowDimensionsIndices.size() != NumSpatialDims) {
+    op.emitOpError("Exactly ")
+        << NumSpatialDims
+        << " of the window dimensions must be greater than 1.";
+    return false;
+  }
+
+  // Exactly the expected number of window strides must be greater than 1.
+  llvm::SmallVector<uint32_t> trueWindowStrideIndices;
+  for (size_t i = 0; i < op.getWindowStrides().size(); i++) {
+    if (op.getWindowStrides()[i] > 1) {
+      trueWindowStrideIndices.push_back(i);
+    }
+  }
+
+  if (trueWindowStrideIndices.size() != NumSpatialDims) {
+    op.emitOpError("Exactly ")
+        << NumSpatialDims << " of the window strides must be greater than 1.";
+    return false;
+  }
+
+  // Check if the true window dimensions and strides indices match.
+  if (trueWindowDimensionsIndices != trueWindowStrideIndices) {
+    op.emitOpError("The indices of the true window dimensions and strides "
+                   "must be the same.");
+    return false;
+  }
+
+  // Padding must match the expected size.
+  if (op.getPadding().size() != paddingSize) {
+    op.emitOpError("Padding must be ") << paddingSize << " in length.";
+    return false;
+  }
+
+  return true;
+}
+
 ::mlir::LogicalResult mlir::tt::ttir::PoolingOp::verify() {
 
   uint32_t inputRank =
@@ -228,6 +323,14 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
                        "the rank of the input tensor");
   }
 
+  if (countSpatialDims() != 2) {
+    return emitOpError("Pooling operation only supports 2D pooling.");
+  }
+
+  if (!verifyPooling<4>(*this)) {
+    return failure();
+  }
+
   return success();
 }
 
@@ -238,7 +341,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 // MaxPool2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  std::vector<int64_t> inputShape = getInput().getType().getShape().vec();
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
 
   if (inputType.getRank() != 4) {
     return emitOpError()
@@ -246,15 +349,20 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
            << inputType.getRank() << ". Shape: (" << inputShape << ").";
   }
 
-  if (getKernelHeight() > inputShape[1]) {
+  const size_t heightDim = getChannelLast() ? 1 : 2;
+  const size_t widthDim = getChannelLast() ? 2 : 3;
+
+  if (getKernelHeight() > inputShape[heightDim]) {
     return emitOpError() << "Kernel height " << getKernelHeight()
-                         << " is greater than input height " << inputShape[1]
+                         << " is greater than input height "
+                         << inputShape[heightDim]
                          << ". This MaxPool2d configuration is invalid.";
   }
 
-  if (getKernelWidth() > inputShape[2]) {
+  if (getKernelWidth() > inputShape[widthDim]) {
     return emitOpError() << "Kernel width " << getKernelWidth()
-                         << " is greater than input width " << inputShape[2]
+                         << " is greater than input width "
+                         << inputShape[widthDim]
                          << ". This MaxPool2d configuration is invalid.";
   }
 
@@ -1615,6 +1723,41 @@ bool matchSimpleBlock(mlir::Region &region) {
   }
 
   return success();
+}
+
+// PermuteOp canonicalization
+::mlir::LogicalResult
+mlir::tt::ttir::PermuteOp::canonicalize(PermuteOp op,
+                                        PatternRewriter &rewriter) {
+  // If the permutation is the identity permutation, then the operation is a
+  // no-op and can be replaced with the input tensor.
+  if (llvm::is_sorted(op.getPermutation())) {
+    rewriter.replaceOp(op, op.getInput());
+    return success();
+  }
+
+  // If there are two consecutive permutations check if they can be merged
+  // into single permutation or removed.
+  if (auto inputPermuteOp = op.getInput().getDefiningOp<PermuteOp>()) {
+    llvm::SmallVector<int64_t> firstPermutation(
+        inputPermuteOp.getPermutation());
+    llvm::SmallVector<int64_t> secondPermutation(op.getPermutation());
+    llvm::SmallVector<int64_t> mergedPermutation =
+        ttmlir::utils::mergePermutations(firstPermutation, secondPermutation);
+
+    // If the merged permutation is the identity permutation, the both
+    // permutations can be removed. Otherwise, replace the operation with a new
+    // PermuteOp with the merged permutation.
+    if (llvm::is_sorted(mergedPermutation)) {
+      rewriter.replaceOp(op, inputPermuteOp.getInput());
+    } else {
+      rewriter.replaceOpWithNewOp<PermuteOp>(op, op.getResult().getType(),
+                                             inputPermuteOp.getInput(),
+                                             op.getOutput(), mergedPermutation);
+    }
+  }
+
+  return failure();
 }
 
 //===----------------------------------------------------------------------===//

@@ -933,6 +933,12 @@ def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
 
   let results = (outs Variadic<AnyRankedTensor>);
 
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+    SmallVector<uint32_t> getIndicesOfSpatialDims();
+    uint32_t countSpatialDims();
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -954,7 +960,8 @@ def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
                          SI32Attr:$padding_left,
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom);
+                         SI32Attr:$padding_bottom,
+                         DefaultValuedAttr<I64Attr, "0">:$channel_last);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1335,6 +1342,8 @@ def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizeMethod = 1;
 }
 
 //===----------------------------------------------------------------------===//
