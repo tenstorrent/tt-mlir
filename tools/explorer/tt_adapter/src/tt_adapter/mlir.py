@@ -8,16 +8,17 @@ from model_explorer import graph_builder, node_data_builder
 
 from ttmlir.dialects import tt, ttnn, ttir
 from ttmlir import ir, util
+from . import utils
 
 
-def get_loc_str(loc):
-    try:
-        res = util.get_loc_name(loc)
-        if res == "-":
-            res = util.get_loc_full(loc)
-    except:
-        res = "unknown"
-    return res
+def parse_loc_string(loc_str):
+    """
+    This can be replaced by ttmlir.ir.Module.parse, but requires some further wodo to extract the actual location object from the module.
+    """
+    match = re.match(r'^loc\("([^"]+)"', loc_str)
+    if match:
+        return match.group(1)
+    return None
 
 
 class AttrHandler:
@@ -395,29 +396,73 @@ def parse_ttnn_ttnn_layout(attr):
     layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(attr)
     result = []
     result.append(graph_builder.KeyValue(key="linear", value=str(layout.linear)))
-    memory_layout = layout.memory_layout_as_int
+    memory_layout = layout.tensor_memory_layout_as_int
     if memory_layout is not None:
         result.append(
-            graph_builder.KeyValue(
-                key="memory_layout",
-                value=str(ttnn.TensorMemoryLayout(memory_layout)),
+            utils.make_editable_kv(
+                graph_builder.KeyValue(
+                    key="tensor_memory_layout",
+                    value=str(ttnn.TensorMemoryLayout(memory_layout)),
+                ),
+                editable={
+                    "input_type": "value_list",
+                    "options": [str(o) for o in ttnn.TensorMemoryLayout],
+                },
             )
         )
     result.append(
-        graph_builder.KeyValue(
-            key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+            ),
+            editable={
+                "input_type": "grid",
+                "separator": "x",
+                "min_value": 1,
+                "max_value": 100,
+                "step": 1,
+            },
         )
     )
     result.append(
         graph_builder.KeyValue(key="memref_shape", value=str(layout.memref.shape))
     )
-    result.append(
-        graph_builder.KeyValue(key="memref_rank", value=str(layout.memref.rank))
-    )
     buffer_attr = ttnn.ir.BufferTypeAttr.maybe_downcast(layout.memref.memory_space)
     result.append(
-        graph_builder.KeyValue(
-            key="memref_memory_space", value=str(ttnn.BufferType(buffer_attr.value))
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="buffer_type", value=str(ttnn.BufferType(buffer_attr.value))
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.BufferType],
+            },
+        )
+    )
+
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="memory_layout",
+                value=str(ttnn.Layout(layout.memory_layout_as_int)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in ttnn.Layout],
+            },
+        )
+    )
+
+    result.append(
+        utils.make_editable_kv(
+            graph_builder.KeyValue(
+                key="data_type",
+                value=str(tt.DataType(layout.data_type_as_int)),
+            ),
+            editable={
+                "input_type": "value_list",
+                "options": [str(o) for o in tt.DataType],
+            },
         )
     )
     return result
@@ -429,11 +474,12 @@ class OpHandler:
 
     def __init__(self, op):
         self.op = op
-        self.location = get_loc_str(self.op.location)
+        self.named_location = util.get_loc_name(self.op.location)
+        self.full_location = util.get_loc_full(self.op.location)
         self.id = self._create_unique_id()
 
     def _create_unique_id(self):
-        name = self.location
+        name = self.full_location if self.full_location else "unknown"
         name_num = self.name_dict[name]
         id = name + "__" + str(name_num)
         self.name_dict[name] += 1
@@ -441,16 +487,60 @@ class OpHandler:
 
     def get_namespace(self, parent_op=None):
         op = self.op if not parent_op else parent_op
-        name = get_loc_str(op.location)
+        name = util.get_loc_name(op.location)
         if op.parent and op.parent.name != "builtin.module":
-            return self.get_namespace(op.parent) + "/" + name
-        return name
+            parent_name = self.get_namespace(op.parent)
+            if parent_name:
+                return parent_name + "/" + name
+        return name or ""
 
     def get_attributes(self):
         # Parse Op Attributes themselves
         result = []
         for attr in self.op.attributes:
             result.extend(AttrHandler.parse_attr(attr))
+
+        # Add location as an attribute
+        if self.named_location:
+            result.append(
+                graph_builder.KeyValue(key="named_location", value=self.named_location)
+            )
+        if self.full_location:
+            result.append(
+                graph_builder.KeyValue(key="full_location", value=self.full_location)
+            )
+
+        # Add output tensor attriributes to the op itself
+        if self.op.results:
+            output_tensor = self.op.result
+            output_attrs = []
+            if isinstance(output_tensor.type, ir.RankedTensorType):
+                output_attrs = [
+                    graph_builder.KeyValue(
+                        key="shape", value=str(output_tensor.type.shape)
+                    ),
+                    graph_builder.KeyValue(
+                        key="dtype", value=str(output_tensor.type.element_type)
+                    ),
+                    graph_builder.KeyValue(
+                        key="rank", value=str(output_tensor.type.rank)
+                    ),
+                ]
+            if hasattr(output_tensor.type, "encoding") and output_tensor.type.encoding:
+                if "ttnn_layout" in str(output_tensor.type.encoding):
+                    output_attrs.extend(
+                        AttrHandler.parse_attr(
+                            output_tensor.type.encoding.get_named("ttnn_layout")
+                        )
+                    )
+                else:
+                    # Parse as a standard layout
+                    output_attrs.extend(
+                        AttrHandler.parse_attr(
+                            output_tensor.type.encoding.get_named("tt.layout")
+                        )
+                    )
+            result.extend(output_attrs)
         return result
 
     def make_graph_node(self):
@@ -477,6 +567,7 @@ EMPTY_OPS = [
 FILTERED_OPS = [
     "ttnn.deallocate",
     "ttnn.get_device",
+    *EMPTY_OPS,
 ]
 
 
@@ -491,9 +582,10 @@ def build_graph(module, perf_trace=None):
     loc_to_perf = {}
     if perf_trace is not None:
         for _, row in perf_trace.iterrows():
-            loc = get_loc_str(row["LOC"])
+            loc = parse_loc_string(row["LOC"])
             assert loc not in loc_to_perf
-            loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
+            if loc:
+                loc_to_perf[loc] = row["DEVICE FW DURATION [ns]"]
 
     module_op = OpHandler(module.operation)
     module_attrs = module_op.get_attributes()
@@ -511,12 +603,15 @@ def build_graph(module, perf_trace=None):
                     operation = OpHandler(op)
                     graph_node = operation.make_graph_node()
 
-                    if operation.location in loc_to_perf:
+                    if (
+                        operation.named_location in loc_to_perf
+                        and operation.op.name not in EMPTY_OPS
+                    ):
                         perf_node_data[operation.id] = node_data_builder.NodeDataResult(
-                            loc_to_perf[operation.location]
+                            loc_to_perf[operation.named_location]
                         )
 
-                    if op.name in EMPTY_OPS:
+                    if op.name not in FILTERED_OPS and op.name in EMPTY_OPS:
                         append_later.append(graph_node)
                     elif op.name not in FILTERED_OPS:
                         graph.nodes.append(graph_node)

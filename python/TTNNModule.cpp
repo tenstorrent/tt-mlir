@@ -156,7 +156,7 @@ void populateTTNNModule(py::module &m) {
       .def_property_readonly(
           "memref",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getMemref()); })
-      .def_property_readonly("memory_layout_as_int",
+      .def_property_readonly("tensor_memory_layout_as_int",
                              [](tt::ttnn::TTNNLayoutAttr self)
                                  -> std::variant<uint32_t, py::object> {
                                if (!self.getMemLayout()) {
@@ -164,6 +164,14 @@ void populateTTNNModule(py::module &m) {
                                }
                                return static_cast<uint32_t>(
                                    self.getMemLayout().getValue());
+                             })
+      .def_property_readonly("memory_layout_as_int",
+                             [](tt::ttnn::TTNNLayoutAttr self) {
+                               return static_cast<uint32_t>(self.getLayout());
+                             })
+      .def_property_readonly("data_type_as_int",
+                             [](tt::ttnn::TTNNLayoutAttr self) {
+                               return static_cast<uint32_t>(self.getDataType());
                              });
 }
 } // namespace mlir::ttmlir::python

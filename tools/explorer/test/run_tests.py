@@ -16,67 +16,15 @@ TEST_LOAD_MODEL_PATHS = [
     "test/ttmlir/Dialect/TTNN/optimizer/mnist_sharding.mlir",
     "tools/explorer/test/models/*.mlir",
 ]
+MNIST_SHARDING_PATH = "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
-    "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
+    MNIST_SHARDING_PATH,
 ]
-
-
-def get_test_files(paths):
-    files = []
-    for path in paths:
-        files.extend(glob.glob(path))
-    return files
-
-
-def send_command(command, model_path, settings):
-    cmd = {
-        "extensionId": "tt_adapter",
-        "cmdId": command,
-        "modelPath": model_path,
-        "deleteAfterConversion": False,
-        "settings": settings,
-    }
-
-    return requests.post(COMMAND_URL, json=cmd, timeout=10)
-
-
-def execute_command(model_path, settings):
-    result = send_command("execute", model_path, settings)
-    assert result.ok
-    if "error" in result.json():
-        print(result.json())
-        assert False
-
-
-def wait_for_execution_to_finish(timeout):
-    for _ in range(timeout):
-        try:
-            response = send_command("status_check", "", {})
-            if response.status_code == 200 and response.json().get("graphs")[0].get(
-                "isDone"
-            ):
-                return response.json()
-        except requests.RequestException as e:
-            print(f"Request failed: {e}")
-            raise Exception("Status check request failed")
-        time.sleep(1)
-    raise RuntimeError(
-        f"Execution did not finish within {MODEL_EXECUTION_TIMEOUT} seconds"
-    )
-
-
-def execute_command_and_wait(model_path, settings, timeout):
-    execute_command(model_path, settings)
-    adapter_response = wait_for_execution_to_finish(timeout)
-    assert "graphs" in adapter_response
-    assert len(adapter_response["graphs"]) == 1
-    response = adapter_response["graphs"][0]
-    assert response["isDone"]
-    assert response["error"] is None
 
 
 @pytest.fixture(scope="function", autouse=True)
 def start_server(request):
+    """Start the model explorer server before running tests and stop it after."""
     server_thread = multiprocessing.Process(
         target=model_explorer.visualize,
         kwargs={"extensions": ["tt_adapter"], "host": HOST, "port": PORT},
@@ -105,13 +53,70 @@ def start_server(request):
     request.addfinalizer(server_shutdown)
 
 
-@pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
-def test_load_model(model_path):
-    result = send_command("convert", model_path, {})
+def get_test_files(paths):
+    files = []
+    for path in paths:
+        files.extend(glob.glob(path))
+    return files
+
+
+def send_command(command, model_path, settings={}):
+    cmd = {
+        "extensionId": "tt_adapter",
+        "cmdId": command,
+        "modelPath": model_path,
+        "deleteAfterConversion": False,
+        "settings": settings,
+    }
+
+    return requests.post(COMMAND_URL, json=cmd, timeout=10)
+
+
+def execute_command(model_path, settings):
+    result = send_command("execute", model_path, settings)
     assert result.ok
     if "error" in result.json():
         print(result.json())
         assert False
+
+
+def wait_for_execution_to_finish(timeout):
+    for _ in range(timeout):
+        try:
+            response = send_command("status_check", "")
+            if response.status_code == 200 and response.json().get("graphs")[0].get(
+                "isDone"
+            ):
+                return response.json()
+        except requests.RequestException as e:
+            print(f"Request failed: {e}")
+            raise Exception("Status check request failed")
+        time.sleep(1)
+    raise RuntimeError(f"Execution did not finish within {timeout} seconds")
+
+
+def execute_command_and_wait(model_path, settings, timeout):
+    execute_command(model_path, settings)
+    adapter_response = wait_for_execution_to_finish(timeout)
+    assert "graphs" in adapter_response
+    assert len(adapter_response["graphs"]) == 1
+    response = adapter_response["graphs"][0]
+    assert response["isDone"]
+    assert response["error"] is None
+
+
+def convert_command_and_assert(model_path):
+    result = send_command("convert", model_path)
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert False
+    return result.json()
+
+
+@pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
+def test_load_model(model_path):
+    convert_command_and_assert(model_path)
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
@@ -119,22 +124,56 @@ def test_execute_model(model_path):
     execute_command_and_wait(
         model_path, {"optimizationPolicy": "DF Sharding"}, timeout=60
     )
+    convert_command_and_assert(model_path)
 
 
 def test_execute_mnist_l1_interleaved():
     execute_command_and_wait(
-        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
+        MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Greedy L1 Interleaved"},
         timeout=60,
     )
+    convert_command_and_assert(MNIST_SHARDING_PATH)
 
 
 def test_execute_mnist_optimizer_disabled():
     execute_command_and_wait(
-        "test/ttmlir/Silicon/TTNN/optimizer/mnist_sharding.mlir",
+        MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=60,
     )
+    convert_command_and_assert(MNIST_SHARDING_PATH)
+
+
+def test_execute_mnist_with_overrides():
+    overrides = {
+        'loc("matmul_1"("MNISTLinear":4294967295:10))__17': {
+            "named_location": "matmul_1",
+            "attributes": [
+                {"key": "data_type", "value": "f32"},
+                {"key": "memory_layout", "value": "tile"},
+                {"key": "buffer_type", "value": "dram"},
+                {"key": "tensor_memory_layout", "value": "interleaved"},
+                {"key": "grid_shape", "value": "[8,8]"},
+            ],
+        }
+    }
+    execute_command_and_wait(
+        MNIST_SHARDING_PATH,
+        {"optimizationPolicy": "DF Sharding", "overrides": overrides},
+        timeout=60,
+    )
+    convert_command_and_assert(MNIST_SHARDING_PATH)
+
+
+def test_execute_and_check_perf_data_exists():
+    execute_command_and_wait(
+        MNIST_SHARDING_PATH,
+        {"optimizationPolicy": "DF Sharding"},
+        timeout=60,
+    )
+    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    assert "perf_data" in result["graphs"][0]
 
 
 def test_execute_model_invalid_policy():
