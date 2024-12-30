@@ -69,7 +69,9 @@ runs:
       shell: bash
       run: |
         source env/activate
-        export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
+        if [ -f "${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
+          export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
+        fi
         cmake --build ${{ inputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ inputs.test_report_path }}
 
@@ -78,7 +80,9 @@ runs:
       if: inputs.enable-op-model == 'ON'
       run: |
         source env/activate
-        export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
+        if [ -f "${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys" ]; then
+          export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
+        fi
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
