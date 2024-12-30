@@ -64,12 +64,12 @@ runs:
       run: |
         source env/activate
         ttrt query --save-artifacts
-        export SYSTEM_DESC_PATH="$(pwd)/ttrt-artifacts/system_desc.ttsys"
 
     - name: Run tt-mlir tests
       shell: bash
       run: |
         source env/activate
+        export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
         cmake --build ${{ inputs.build-output-dir }} -- check-ttmlir
         cp build/test/report.xml ${{ inputs.test_report_path }}
 
@@ -78,6 +78,7 @@ runs:
       if: inputs.enable-op-model == 'ON'
       run: |
         source env/activate
+        export SYSTEM_DESC_PATH="${{ inputs.work-dir }}/ttrt-artifacts/system_desc.ttsys"
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
