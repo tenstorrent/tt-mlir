@@ -53,7 +53,7 @@ public:
     return std::nullopt;
   }
 
-  auto getFakeDeviceAttr() {
+  mlir::tt::DeviceAttr getFakeDeviceAttr() {
     auto deviceIdx = mlir::getAffineConstantExpr(0, &context);
     auto shardOffset = mlir::getAffineConstantExpr(0, &context);
     auto d0 = mlir::getAffineDimExpr(0, &context); // d0
@@ -67,21 +67,23 @@ public:
 
     return DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0});
   }
+
+  mlir::Value createEmptyTensor(llvm::ArrayRef<int64_t> tensorShape) {
+    Type elementType = builder.getBF16Type();
+    RankedTensorType rankedTensorType =
+        RankedTensorType::get(tensorShape, elementType);
+    return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
+                                  ShapeAttr::get(&context, tensorShape),
+                                  nullptr, nullptr, nullptr, nullptr);
+  }
 };
 
 TEST_F(OpModelBase, ReluInterface) {
   // create ReluOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-  Type elementType = builder.getBF16Type();
-  RankedTensorType rankedTensorType =
-      RankedTensorType::get(tensorShape, elementType);
 
-  auto input = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
-  auto output = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input = createEmptyTensor(tensorShape);
+  auto output = createEmptyTensor(tensorShape);
 
   auto relu = builder.create<ReluOp>(builder.getUnknownLoc(), output.getType(),
                                      ::mlir::ValueRange{input, output});
@@ -109,16 +111,9 @@ TEST_F(OpModelBase, ReluInterface) {
 TEST_F(OpModelBase, SoftmaxInterface) {
   // create SoftmaxOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-  Type elementType = builder.getBF16Type();
-  RankedTensorType rankedTensorType =
-      RankedTensorType::get(tensorShape, elementType);
 
-  auto input = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
-  auto output = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input = createEmptyTensor(tensorShape);
+  auto output = createEmptyTensor(tensorShape);
 
   auto softmax = builder.create<SoftmaxOp>(builder.getUnknownLoc(),
                                            output.getType(), input, -1);
@@ -146,19 +141,10 @@ TEST_F(OpModelBase, SoftmaxInterface) {
 TEST_F(OpModelBase, AddInterface) {
   // create AddOp
   llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
-  Type elementType = builder.getBF16Type();
-  RankedTensorType rankedTensorType =
-      RankedTensorType::get(tensorShape, elementType);
 
-  auto input1 = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
-  auto input2 = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
-  auto output = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorType, nullptr,
-      ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+  auto input1 = createEmptyTensor(tensorShape);
+  auto input2 = createEmptyTensor(tensorShape);
+  auto output = createEmptyTensor(tensorShape);
 
   auto add = builder.create<AddOp>(builder.getUnknownLoc(), output.getType(),
                                    ::mlir::ValueRange{input1, input2, output});
@@ -188,22 +174,10 @@ TEST_F(OpModelBase, MatmulInterface) {
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
   llvm::SmallVector<int64_t> tensorShapeB = {1024, 2048};
   llvm::SmallVector<int64_t> tensorShapeO = {2048, 2048};
-  Type elementType = builder.getBF16Type();
-  RankedTensorType rankedTensorTypeA =
-      RankedTensorType::get(tensorShapeA, elementType);
-  RankedTensorType rankedTensorTypeB =
-      RankedTensorType::get(tensorShapeB, elementType);
-  RankedTensorType rankedTensorTypeO =
-      RankedTensorType::get(tensorShapeO, elementType);
-  auto inputA = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorTypeA, nullptr,
-      ShapeAttr::get(&context, tensorShapeA), nullptr, nullptr, nullptr);
-  auto inputB = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorTypeB, nullptr,
-      ShapeAttr::get(&context, tensorShapeB), nullptr, nullptr, nullptr);
-  auto output = builder.create<EmptyOp>(
-      builder.getUnknownLoc(), rankedTensorTypeO, nullptr,
-      ShapeAttr::get(&context, tensorShapeO), nullptr, nullptr, nullptr);
+
+  auto inputA = createEmptyTensor(tensorShapeA);
+  auto inputB = createEmptyTensor(tensorShapeB);
+  auto output = createEmptyTensor(tensorShapeO);
 
   auto matmul =
       builder.create<MatmulOp>(builder.getUnknownLoc(), output.getType(),
