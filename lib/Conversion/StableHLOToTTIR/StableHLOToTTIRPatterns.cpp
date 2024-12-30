@@ -128,30 +128,29 @@ private:
   }
 };
 
-class StableHLOToTTIRDotGeneralOpConversionPattern 
+class StableHLOToTTIRDotGeneralOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
   using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
 
-  public:
-    LogicalResult
-    matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
-                    mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
-                    ConversionPatternRewriter &rewriter) const override{
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
+                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
-      auto outputType = mlir::cast<RankedTensorType>(
+    auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::DotGeneralOp>(
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::DotGeneralOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getLhs(), adaptor.getRhs(), 
+        adaptor.getLhs(), adaptor.getRhs(),
         adaptor.getDotDimensionNumbers().getLhsBatchingDimensions(),
         adaptor.getDotDimensionNumbers().getLhsContractingDimensions(),
         adaptor.getDotDimensionNumbers().getRhsBatchingDimensions(),
-        adaptor.getDotDimensionNumbers().getRhsContractingDimensions()
-      );
-      return success();
+        adaptor.getDotDimensionNumbers().getRhsContractingDimensions());
+    return success();
   }
 };
 
@@ -1816,8 +1815,8 @@ void addReduceOpsConversionPatterns(MLIRContext *ctx,
 }
 
 void addDotGeneralOpConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
                                                              ctx);
 }

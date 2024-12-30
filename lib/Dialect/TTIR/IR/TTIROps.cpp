@@ -309,14 +309,14 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   // 5. Check that the all batch dimensions of A and B are the same
-  for(size_t i = 0; i < batchdims_a.size(); i++) {
+  for (size_t i = 0; i < batchdims_a.size(); i++) {
     if (inputAShape[batchdims_a[i]] != inputBShape[batchdims_b[i]]) {
       return emitOpError() << "Batch dimensions of A and B must be the same";
     }
   }
 
   // 6. Check that the all contract dimensions of A and B are the same
-  for(size_t i = 0; i < contractdims_a.size(); i++) {
+  for (size_t i = 0; i < contractdims_a.size(); i++) {
     if (inputAShape[contractdims_a[i]] != inputBShape[contractdims_b[i]]) {
       return emitOpError() << "Contract dimensions of A and B must be the same";
     }

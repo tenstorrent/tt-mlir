@@ -627,207 +627,243 @@ struct GatherToEmbeddingConversionPattern
   }
 };
 
-struct DotGeneralToMatmulConversionPattern : public OpConversionPattern<ttir::DotGeneralOp>{
+struct DotGeneralToMatmulConversionPattern
+    : public OpConversionPattern<ttir::DotGeneralOp> {
   using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-                      
-      Value lhs = adaptor.getA();
-      auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
-      int64_t lhsRank = lhsType.getRank();
+  LogicalResult
+  matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
 
-      auto lhsBatchDims = op.getBatchdimsA();
-      auto lhsContractDims = op.getContractdimsA();
+    Value lhs = adaptor.getA();
+    auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+    int64_t lhsRank = lhsType.getRank();
 
-      llvm::SmallDenseSet<int64_t> lhsAllDims;
-      for (int64_t i = 0; i < lhsRank; i++) {
-        lhsAllDims.insert(i);
-      }
+    auto lhsBatchDims = op.getBatchdimsA();
+    auto lhsContractDims = op.getContractdimsA();
 
-      for(auto dim: lhsBatchDims){
-        lhsAllDims.erase(dim);
-      }
+    llvm::SmallDenseSet<int64_t> lhsAllDims;
+    for (int64_t i = 0; i < lhsRank; i++) {
+      lhsAllDims.insert(i);
+    }
 
-      for(auto dim: lhsContractDims){
-        lhsAllDims.erase(dim);
-      }
+    for (auto dim : lhsBatchDims) {
+      lhsAllDims.erase(dim);
+    }
 
-      SmallVector<int64_t> lhsResultDims(lhsAllDims.begin(), lhsAllDims.end());
+    for (auto dim : lhsContractDims) {
+      lhsAllDims.erase(dim);
+    }
 
-      Value rhs = adaptor.getB();
-      auto rhsType = mlir::cast<RankedTensorType>(rhs.getType());
-      int64_t rhsRank = rhsType.getRank();
+    // Remove batch and contract dims from all dims to get result dims
 
-      auto rhsBatchDims = op.getBatchdimsB();
-      auto rhsContractDims = op.getContractdimsB();
+    SmallVector<int64_t> lhsResultDims(lhsAllDims.begin(), lhsAllDims.end());
 
-      llvm::SmallDenseSet<int64_t> rhsAllDims;
-      for(int32_t i = 0; i < rhsRank; i++){
-        rhsAllDims.insert(i);
-      }
+    Value rhs = adaptor.getB();
+    auto rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+    int64_t rhsRank = rhsType.getRank();
 
-      for(auto dim: rhsBatchDims){
-        rhsAllDims.erase(dim);
-      }
+    auto rhsBatchDims = op.getBatchdimsB();
+    auto rhsContractDims = op.getContractdimsB();
 
-      for(auto dim: rhsContractDims){
-        rhsAllDims.erase(dim);
-      }
+    llvm::SmallDenseSet<int64_t> rhsAllDims;
+    for (int32_t i = 0; i < rhsRank; i++) {
+      rhsAllDims.insert(i);
+    }
 
-      SmallVector<int64_t> rhsResultDims(rhsAllDims.begin(), rhsAllDims.end());
+    for (auto dim : rhsBatchDims) {
+      rhsAllDims.erase(dim);
+    }
 
-      SmallVector<int64_t> lhs_permutation;
-      lhs_permutation.append(lhsBatchDims.begin(), lhsBatchDims.end());
-      lhs_permutation.append(lhsResultDims.begin(), lhsResultDims.end());
-      lhs_permutation.append(lhsContractDims.begin(), lhsContractDims.end());
+    for (auto dim : rhsContractDims) {
+      rhsAllDims.erase(dim);
+    }
 
-      SmallVector<int64_t> rhs_permutation;
-      rhs_permutation.append(rhsBatchDims.begin(), rhsBatchDims.end());
-      rhs_permutation.append(rhsContractDims.begin(), rhsContractDims.end());
-      rhs_permutation.append(rhsResultDims.begin(), rhsResultDims.end());
+    SmallVector<int64_t> rhsResultDims(rhsAllDims.begin(), rhsAllDims.end());
 
-      SmallVector<int64_t> lhs_destination_shape;
-      for(auto dim: lhs_permutation){
-        lhs_destination_shape.push_back(lhsType.getShape()[dim]);
-      }
+    // Permute lhs and rhs to get the desired layout
+    // For lhs: (batch dims, result dims, contract dims)
+    // For rhs: (batch dims, contract dims, result dims)
 
-      auto lhs_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), lhs_destination_shape, lhsType.getElementType());
-      
-      auto lhs_permute = rewriter.create<ttir::PermuteOp>(
-          op.getLoc(), lhs_destination.getType(), lhs, lhs_destination, lhs_permutation);
+    SmallVector<int64_t> lhs_permutation;
+    lhs_permutation.append(lhsBatchDims.begin(), lhsBatchDims.end());
+    lhs_permutation.append(lhsResultDims.begin(), lhsResultDims.end());
+    lhs_permutation.append(lhsContractDims.begin(), lhsContractDims.end());
 
-      SmallVector<int64_t> rhs_destination_shape;
-      for(auto dim: rhs_permutation){
-        rhs_destination_shape.push_back(rhsType.getShape()[dim]);
-      }
+    SmallVector<int64_t> rhs_permutation;
+    rhs_permutation.append(rhsBatchDims.begin(), rhsBatchDims.end());
+    rhs_permutation.append(rhsContractDims.begin(), rhsContractDims.end());
+    rhs_permutation.append(rhsResultDims.begin(), rhsResultDims.end());
 
-      auto rhs_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), rhs_destination_shape, rhsType.getElementType());
-      
-      auto rhs_permute = rewriter.create<ttir::PermuteOp>(
-          op.getLoc(), rhs_destination.getType(), rhs, rhs_destination, rhs_permutation);
+    SmallVector<int64_t> lhs_destination_shape;
+    for (auto dim : lhs_permutation) {
+      lhs_destination_shape.push_back(lhsType.getShape()[dim]);
+    }
 
-      SmallVector<mlir::Attribute> lhs_final_shape;
-      for(auto dim: lhsBatchDims){
-        lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
-      }
+    auto lhs_destination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), lhs_destination_shape, lhsType.getElementType());
 
-      int64_t lhsContractProduct = 1;
-      for (auto dim : lhsContractDims) {
-          lhsContractProduct *= lhsType.getShape()[dim];
-      }   
-      int64_t lhsResultProduct = 1;
-      for (auto dim : lhsResultDims) {
-          lhsResultProduct *= lhsType.getShape()[dim];
-      }
-      lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsResultProduct));
-      lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsContractProduct));
+    auto lhs_permute =
+        rewriter.create<ttir::PermuteOp>(op.getLoc(), lhs_destination.getType(),
+                                         lhs, lhs_destination, lhs_permutation);
 
-      
+    SmallVector<int64_t> rhs_destination_shape;
+    for (auto dim : rhs_permutation) {
+      rhs_destination_shape.push_back(rhsType.getShape()[dim]);
+    }
 
-      SmallVector<mlir::Attribute> rhs_final_shape;
-      for(auto dim: rhsBatchDims){
-        rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsType.getShape()[dim]));
-      }
+    auto rhs_destination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), rhs_destination_shape, rhsType.getElementType());
 
-      int64_t rhsContractProduct = 1;
-      for (auto dim : rhsContractDims) {
-          rhsContractProduct *= rhsType.getShape()[dim];
-      }
-      int64_t rhsResultProduct = 1;
-      for (auto dim : rhsResultDims) {
-          rhsResultProduct *= rhsType.getShape()[dim];
-      }
-      rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsContractProduct));
-      rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsResultProduct));
+    auto rhs_permute =
+        rewriter.create<ttir::PermuteOp>(op.getLoc(), rhs_destination.getType(),
+                                         rhs, rhs_destination, rhs_permutation);
 
-      SmallVector<int64_t> lhs_final_shape_i64;
-      for(auto dim: lhs_final_shape){
-        lhs_final_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
-      }
+    SmallVector<mlir::Attribute> lhs_final_shape;
+    for (auto dim : lhsBatchDims) {
+      lhs_final_shape.push_back(
+          rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
+    }
 
-      SmallVector<mlir::Attribute, 4> lhs_final_shape_i32;
-      for (auto dim : lhs_final_shape) {
-          int32_t dim_i32 = static_cast<int32_t>(mlir::cast<mlir::IntegerAttr>(dim).getInt());
-          lhs_final_shape_i32.push_back(rewriter.getI32IntegerAttr(dim_i32));
-      }
+    int64_t lhsContractProduct = 1;
+    for (auto dim : lhsContractDims) {
+      lhsContractProduct *= lhsType.getShape()[dim];
+    }
+    int64_t lhsResultProduct = 1;
+    for (auto dim : lhsResultDims) {
+      lhsResultProduct *= lhsType.getShape()[dim];
+    }
+    lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsResultProduct));
+    lhs_final_shape.push_back(rewriter.getI64IntegerAttr(lhsContractProduct));
 
-      auto lhs_final_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), lhs_final_shape_i64, lhsType.getElementType());
+    SmallVector<mlir::Attribute> rhs_final_shape;
+    for (auto dim : rhsBatchDims) {
+      rhs_final_shape.push_back(
+          rewriter.getI64IntegerAttr(rhsType.getShape()[dim]));
+    }
 
-      auto lhs_final = rewriter.create<ttir::ReshapeOp>( 
-          op.getLoc(), mlir::RankedTensorType::get(lhs_final_shape_i64, lhsType.getElementType()),
-          lhs_permute, lhs_final_destination, rewriter.getArrayAttr(lhs_final_shape_i32));
+    int64_t rhsContractProduct = 1;
+    for (auto dim : rhsContractDims) {
+      rhsContractProduct *= rhsType.getShape()[dim];
+    }
+    int64_t rhsResultProduct = 1;
+    for (auto dim : rhsResultDims) {
+      rhsResultProduct *= rhsType.getShape()[dim];
+    }
+    rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsContractProduct));
+    rhs_final_shape.push_back(rewriter.getI64IntegerAttr(rhsResultProduct));
 
-      SmallVector<int64_t> rhs_final_shape_i64;
-      for(auto dim: rhs_final_shape){
-        rhs_final_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
-      }
+    SmallVector<int64_t> lhs_final_shape_i64;
+    for (auto dim : lhs_final_shape) {
+      lhs_final_shape_i64.push_back(
+          mlir::cast<mlir::IntegerAttr>(dim).getInt());
+    }
 
-      SmallVector<mlir::Attribute, 4> rhs_final_shape_i32;
-      for (auto dim : rhs_final_shape) {
-          int32_t dim_i32 = static_cast<int32_t>(mlir::cast<mlir::IntegerAttr>(dim).getInt());
-          rhs_final_shape_i32.push_back(rewriter.getI32IntegerAttr(dim_i32));
-      }
-      
-      auto rhs_final_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), rhs_final_shape_i64, rhsType.getElementType());
-      
-      auto rhs_final = rewriter.create<ttir::ReshapeOp>(
-          op.getLoc(), mlir::RankedTensorType::get(rhs_final_shape_i64, rhsType.getElementType()),
-          rhs_permute, rhs_final_destination, rewriter.getArrayAttr(rhs_final_shape_i32));
-      
-      SmallVector<int64_t> matmul_destination_shape;
-      for(auto dim: lhsBatchDims){
-        matmul_destination_shape.push_back(lhsType.getShape()[dim]);
-      }
-      matmul_destination_shape.push_back(lhsResultProduct);
-      matmul_destination_shape.push_back(rhsResultProduct);
+    SmallVector<mlir::Attribute, 4> lhs_final_shape_i32;
+    for (auto dim : lhs_final_shape) {
+      int32_t dim_i32 =
+          static_cast<int32_t>(mlir::cast<mlir::IntegerAttr>(dim).getInt());
+      lhs_final_shape_i32.push_back(rewriter.getI32IntegerAttr(dim_i32));
+    }
 
-      auto matmul_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), matmul_destination_shape, lhsType.getElementType());
+    auto lhs_final_destination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), lhs_final_shape_i64, lhsType.getElementType());
 
-      auto matmul = rewriter.create<ttir::MatmulOp>(
-          op.getLoc(), mlir::RankedTensorType::get(matmul_destination_shape, lhsType.getElementType()),
-          lhs_final, rhs_final, matmul_destination);
-      
-      SmallVector<mlir::Attribute> result_shape;
-      for(auto dim: lhsBatchDims){
-        result_shape.push_back(rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
-      }
-      for(auto dim: lhsResultDims){
-        result_shape.push_back(rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
-      }
-      for(auto dim: rhsResultDims){
-        result_shape.push_back(rewriter.getI64IntegerAttr(rhsType.getShape()[dim]));
-      }
+    auto lhs_final = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(),
+        mlir::RankedTensorType::get(lhs_final_shape_i64,
+                                    lhsType.getElementType()),
+        lhs_permute, lhs_final_destination,
+        rewriter.getArrayAttr(lhs_final_shape_i32));
 
-      SmallVector<int64_t> result_shape_i64;
-      for(auto dim: result_shape){
-        result_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
-      }
+    SmallVector<int64_t> rhs_final_shape_i64;
+    for (auto dim : rhs_final_shape) {
+      rhs_final_shape_i64.push_back(
+          mlir::cast<mlir::IntegerAttr>(dim).getInt());
+    }
 
-      auto result_destination = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), result_shape_i64, lhsType.getElementType());
+    SmallVector<mlir::Attribute, 4> rhs_final_shape_i32;
+    for (auto dim : rhs_final_shape) {
+      int32_t dim_i32 =
+          static_cast<int32_t>(mlir::cast<mlir::IntegerAttr>(dim).getInt());
+      rhs_final_shape_i32.push_back(rewriter.getI32IntegerAttr(dim_i32));
+    }
 
-      SmallVector<mlir::Attribute, 4> result_shape_i32;
-      for (auto dim : result_shape) {
-          int32_t dim_i32 = static_cast<int32_t>(mlir::cast<mlir::IntegerAttr>(dim).getInt());
-          result_shape_i32.push_back(rewriter.getI32IntegerAttr(dim_i32));
-      }
-      
-      ttir::ReshapeOp reshape_result = rewriter.create<ttir::ReshapeOp>(
-          op.getLoc(), mlir::RankedTensorType::get(result_shape_i64, lhsType.getElementType()),
-          matmul, result_destination, rewriter.getArrayAttr(result_shape_i32));
+    auto rhs_final_destination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), rhs_final_shape_i64, rhsType.getElementType());
 
-      rewriter.replaceOp(op, reshape_result);
+    auto rhs_final = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(),
+        mlir::RankedTensorType::get(rhs_final_shape_i64,
+                                    rhsType.getElementType()),
+        rhs_permute, rhs_final_destination,
+        rewriter.getArrayAttr(rhs_final_shape_i32));
 
-      return success();
+    // Reshape lhs and rhs to adapt to matmul op
+    // For lhs: (batch dims, prod(result dims), prod(contract dims))
+    // For rhs: (batch dims, prod(contract dims), prod(result dims))
+
+    SmallVector<int64_t> matmul_destination_shape;
+    for (auto dim : lhsBatchDims) {
+      matmul_destination_shape.push_back(lhsType.getShape()[dim]);
+    }
+    matmul_destination_shape.push_back(lhsResultProduct);
+    matmul_destination_shape.push_back(rhsResultProduct);
+
+    auto matmul_destination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), matmul_destination_shape, lhsType.getElementType());
+
+    // Perform matmul operation
+
+    auto matmul = rewriter.create<ttir::MatmulOp>(
+        op.getLoc(),
+        mlir::RankedTensorType::get(matmul_destination_shape,
+                                    lhsType.getElementType()),
+        lhs_final, rhs_final, matmul_destination);
+
+    SmallVector<mlir::Attribute> result_shape;
+    for (auto dim : lhsBatchDims) {
+      result_shape.push_back(
+          rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
+    }
+    for (auto dim : lhsResultDims) {
+      result_shape.push_back(
+          rewriter.getI64IntegerAttr(lhsType.getShape()[dim]));
+    }
+    for (auto dim : rhsResultDims) {
+      result_shape.push_back(
+          rewriter.getI64IntegerAttr(rhsType.getShape()[dim]));
+    }
+
+    SmallVector<int64_t> result_shape_i64;
+    for (auto dim : result_shape) {
+      result_shape_i64.push_back(mlir::cast<mlir::IntegerAttr>(dim).getInt());
+    }
+
+    auto result_destination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), result_shape_i64, lhsType.getElementType());
+
+    SmallVector<mlir::Attribute, 4> result_shape_i32;
+    for (auto dim : result_shape) {
+      int32_t dim_i32 =
+          static_cast<int32_t>(mlir::cast<mlir::IntegerAttr>(dim).getInt());
+      result_shape_i32.push_back(rewriter.getI32IntegerAttr(dim_i32));
+    }
+
+    // Reshape the result to the original shape
+    // From (batch dims, prod(lhs_result dims), prod(rhs_result dims)) unroll
+    // back to (batch dims, lhs_result dims, rhs_result dims)
+
+    ttir::ReshapeOp reshape_result = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(),
+        mlir::RankedTensorType::get(result_shape_i64, lhsType.getElementType()),
+        matmul, result_destination, rewriter.getArrayAttr(result_shape_i32));
+
+    rewriter.replaceOp(op, reshape_result);
+
+    return success();
   }
 };
-
 
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
