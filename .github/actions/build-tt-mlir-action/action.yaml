@@ -52,6 +52,20 @@ runs:
         cmake --build ${{ inputs.build-output-dir }}
         cmake --install ${{ inputs.build-output-dir }} --component Test
 
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- ttrt
+
+    - name: Generate and set system descriptor
+      shell: bash
+      if: inputs.enable-op-model == 'ON'
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+        export SYSTEM_DESC_PATH="$(pwd)/ttrt-artifacts/system_desc.ttsys"
+
     - name: Run tt-mlir tests
       shell: bash
       run: |
@@ -74,11 +88,6 @@ runs:
         name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}
         path: ${{ inputs.test_report_path }}
 
-    - name: Build ttrt
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ inputs.build-output-dir }} -- ttrt
 
     - name: Upload ttrt .whl
       uses: actions/upload-artifact@v4
