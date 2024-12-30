@@ -1360,7 +1360,8 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::UpsampleOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode());
+        adaptor.getInput(), adaptor.getScaleFactor(), adaptor.getMode(),
+        ttnn::MemoryConfigAttr());
 
     return success();
   }

@@ -5,6 +5,7 @@
 #include "upsample.h"
 
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/operations/utils.h"
 
 namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
@@ -20,13 +21,18 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   } else if (op->scale_factor_type() ==
              ::tt::target::ttnn::Scale2D::UniformScale2D) {
     std::array<uint32_t, 2> scale;
-    auto fbScale = op->scale_factor_as_NonUniformScale2D()->scale();
-    std::copy(fbScale->begin(), fbScale->end(), scale.begin());
+    const ::flatbuffers::Vector<int32_t> *fbScaleFactor =
+        op->scale_factor_as_NonUniformScale2D()->scale();
+    std::copy(fbScaleFactor->begin(), fbScaleFactor->end(), scale.begin());
   } else {
     DEBUG_ASSERT(false);
   }
 
   std::string mode = op->mode()->str();
+  std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
+      op->memory_config() ? std::make_optional(utils::createMemoryConfig(
+                                op->memory_config(), op->out()))
+                          : std::nullopt;
 
   ::ttnn::Tensor output = ::ttnn::upsample(input, scaleFactor, mode);
 

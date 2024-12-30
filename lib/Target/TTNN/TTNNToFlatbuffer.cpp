@@ -594,36 +594,39 @@ createOp(FlatbufferObjectCache &cache, PermuteOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
 createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
-  auto input =
+  flatbuffers::Offset<::tt::target::TensorRef> input =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
-  auto mode = toFlatbuffer(cache, op.getMode());
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
+  flatbuffers::Offset<flatbuffers::String> mode =
+      toFlatbuffer(cache, op.getMode());
+  flatbuffers::Offset<::tt::target::MemoryConfigDesc> memoryConfig =
+      op.getMemoryConfig()
+          ? cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer)
+          : 0;
+  flatbuffers::Offset<::tt::target::TensorRef> output =
+      cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                        kHostAllocatedAddress, kHostAllocatedSize);
+
+  ::tt::target::ttnn::Scale2D scaleType;
+  ::flatbuffers::Offset<void> scaleFactor;
   if (auto uniformScaleFactor =
           mlir::dyn_cast<IntegerAttr>(op.getScaleFactor())) {
-    ::flatbuffers::Offset<void> scaleFactor =
-        ::tt::target::ttnn::CreateUniformScale2D(*cache.fbb,
-                                                 uniformScaleFactor.getSInt())
-            .Union();
-    return ::tt::target::ttnn::CreateUpsampleOp(
-        *cache.fbb, input, ::tt::target::ttnn::Scale2D::UniformScale2D,
-        scaleFactor, mode, output);
-  }
-  if (auto nonUniformScaleFactor =
-          mlir::dyn_cast<DenseI32ArrayAttr>(op.getScaleFactor())) {
-    ::flatbuffers::Offset<void> scaleFactor =
+    scaleType = ::tt::target::ttnn::Scale2D::UniformScale2D;
+    scaleFactor = ::tt::target::ttnn::CreateUniformScale2D(
+                      *cache.fbb, uniformScaleFactor.getSInt())
+                      .Union();
+  } else if (auto nonUniformScaleFactor =
+                 mlir::dyn_cast<DenseI32ArrayAttr>(op.getScaleFactor())) {
+    scaleType = ::tt::target::ttnn::Scale2D::NonUniformScale2D;
+    scaleFactor =
         ::tt::target::ttnn::CreateNonUniformScale2D(
             *cache.fbb, toFlatbuffer(cache, nonUniformScaleFactor.asArrayRef()))
             .Union();
-    return ::tt::target::ttnn::CreateUpsampleOp(
-        *cache.fbb, input, ::tt::target::ttnn::Scale2D::NonUniformScale2D,
-        scaleFactor, mode, output);
+  } else {
+    assert(false && "Unhandled scale factor type");
   }
-  assert(false && "Unhandled scale factor type");
 
-  // auto scaleFactor = toFlatbuffer(cache, op.getScaleFactor());
-  // return ::tt::target::ttnn::CreateUpsampleOp(*cache.fbb, input, scaleFactor,
-  //                                             mode, output);
+  return ::tt::target::ttnn::CreateUpsampleOp(
+      *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>

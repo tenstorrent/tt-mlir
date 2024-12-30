@@ -1293,7 +1293,8 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
-                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
+                         DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 

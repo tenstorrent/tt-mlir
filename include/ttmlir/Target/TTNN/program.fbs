@@ -388,6 +388,7 @@ table UpsampleOp {
   in: tt.target.TensorRef;
   scale_factor: Scale2D;
   mode: string;
+  memory_config: MemoryConfigDesc;
   out: tt.target.TensorRef;
 }
 
