@@ -142,6 +142,7 @@ void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
 
 std::tuple<bool, std::optional<std::string>>
 Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   try {
     detail::checkGrid(SingletonDeviceContext::getInstance()
                           .getDevice()
@@ -150,6 +151,7 @@ Device::getDeviceConstraints(const mlir::tt::GridAttr &workerGrid) {
   } catch (const std::exception &e) {
     return std::make_tuple(false, e.what());
   }
+#endif
   return std::make_tuple(true, std::nullopt);
 }
 
