@@ -809,7 +809,7 @@ public:
           op.getKernelHeight(), op.getKernelWidth(), op.getStrideHeight(),
           op.getStrideWidth(), op.getDilationHeight(), op.getDilationWidth(),
           op.getCeilMode(), op.getPaddingTop(), op.getPaddingBottom(),
-          op.getPaddingLeft(), op.getPaddingRight(), 1 /* channel_last */);
+          op.getPaddingLeft(), op.getPaddingRight(), true /* channel_last */);
     }
 
     // Permute the output tensor of reshape to have the channel dimension as the

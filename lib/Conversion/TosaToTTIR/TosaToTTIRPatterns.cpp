@@ -197,10 +197,23 @@ public:
     auto dims = srcOp.getKernelAttr();
     auto strides = srcOp.getStrideAttr();
     auto pad = srcOp.getPadAttr();
+    int32_t strideHeight = strides[0];
+    int32_t strideWidth = strides[1];
+    int32_t kernelHeight = dims[0];
+    int32_t kernelWidth = dims[1];
+    int32_t dilationHeight = 1;
+    int32_t dilationWidth = 1;
+    bool ceilMode = false;
+    int32_t paddingLeft = pad[2];
+    int32_t paddingRight = pad[3];
+    int32_t paddingTop = pad[0];
+    int32_t paddingBottom = pad[1];
+
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MaxPool2dOp>(
-        srcOp, TypeRange(outputTensor.getType()), adaptor.getInput(),
-        outputTensor, dims[0], dims[1], strides[0], strides[1], 1, 1, false,
-        pad[2], pad[3], pad[0], pad[1], 1 /* channel_last */);
+        srcOp, outputTensor.getType(), adaptor.getInput(), outputTensor,
+        kernelHeight, kernelWidth, strideHeight, strideWidth, dilationHeight,
+        dilationWidth, ceilMode, paddingLeft, paddingRight, paddingTop,
+        paddingBottom, true);
     return success();
   }
 };

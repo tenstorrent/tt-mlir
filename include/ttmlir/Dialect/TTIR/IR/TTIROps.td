@@ -961,7 +961,7 @@ def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
                          SI32Attr:$padding_bottom,
-                         DefaultValuedAttr<I64Attr, "0">:$channel_last);
+                         DefaultValuedAttr<BoolAttr, "false">:$channel_last);
 
     let results = (outs AnyRankedTensor:$result);
 
