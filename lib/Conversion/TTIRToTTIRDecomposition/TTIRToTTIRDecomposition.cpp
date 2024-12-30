@@ -8,7 +8,12 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
+
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -19,10 +24,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <llvm/ADT/DenseSet.h>
-#include <llvm/ADT/SmallVector.h>
-#include <mlir/IR/Attributes.h>
-#include <mlir/IR/BuiltinAttributes.h>
 
 using namespace mlir;
 using namespace mlir::tt;
