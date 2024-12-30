@@ -408,21 +408,12 @@ TTNNLayoutAttr TTNNLayoutAttr::withGrid(
                                   collapseIntervals);
 }
 
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces the element type with the given one.
-//
-// param context The MLIR context.
-// param elementType The new element type.
-// return The new TTNNLayoutAttr with the given element type.
-TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
-                                               Type elementType) {
-  return TTNNLayoutAttr::get(
-      context, getLinear(), getGrid(),
-      buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
-                                              elementType, getBufferType()),
-      getMemLayout());
+TTNNLayoutAttr TTNNLayoutAttr::withElementType(
+    ::mlir::MLIRContext *context, Type elementType,
+    ArrayRef<int64_t> tensorShape,
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
+  return TTNNLayoutAttr::get(context, tensorShape, elementType, getBufferType(),
+                             getGrid(), getMemLayout(), collapseIntervals);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -435,11 +426,22 @@ TTNNLayoutAttr TTNNLayoutAttr::withElementType(::mlir::MLIRContext *context,
 // return The new TTNNLayoutAttr with the given memory space.
 TTNNLayoutAttr TTNNLayoutAttr::withBufferType(::mlir::MLIRContext *context,
                                               BufferType memorySpace) {
+  ttnn::TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
+  tt::GridAttr grid = getGrid();
+
+  // If the buffer type is SystemMemory or DRAM, the memory layout should be
+  // empty.
+  if (memorySpace == BufferType::SystemMemory ||
+      memorySpace == BufferType::DRAM) {
+    memLayoutAttr = TensorMemoryLayoutAttr{};
+    grid = tt::GridAttr::get(context, grid.getShape().size());
+  }
+
   return TTNNLayoutAttr::get(
-      context, getLinear(), getGrid(),
+      context, getLinear(), grid,
       buildMemRef<BufferType, BufferTypeAttr>(context, getScalarShardShape(),
                                               getElementType(), memorySpace),
-      getMemLayout());
+      memLayoutAttr);
 }
 
 // Construct a new TTNNLayoutAttr

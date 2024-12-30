@@ -280,7 +280,8 @@ private:
       RankedTensorType result = RankedTensorType::get(
           oldOutput.getShape(), oldOutput.getElementType(),
           oldOutputLayoutAttr
-              .withElementType(rewriter.getContext(), newElementType)
+              .withElementType(rewriter.getContext(), newElementType,
+                               oldOutput.getShape())
               .withShardShape(rewriter.getContext(), newShardShape));
       return result;
     }
@@ -291,7 +292,8 @@ private:
                         {ttnn::TILE_HEIGHT, ttnn::TILE_WIDTH}, outputDtype);
       RankedTensorType result = RankedTensorType::get(
           oldOutput.getShape(), oldOutput.getElementType(),
-          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType));
+          oldOutputLayoutAttr.withElementType(rewriter.getContext(), tileType,
+                                              oldOutput.getShape()));
       return result;
     }
 

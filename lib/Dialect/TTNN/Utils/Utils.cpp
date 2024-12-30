@@ -124,8 +124,34 @@ createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
 RankedTensorType
 createRankedTensorTypeWithElementType(RankedTensorType tensorType,
                                       Type elementType) {
-  return RankedTensorType::get(tensorType.getShape(), elementType,
-                               tensorType.getEncoding());
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding = oldEncoding.withElementType(
+      tensorType.getContext(), elementType, tensorType.getShape());
+  Type newElementType = elementType;
+  if (TileType tileType = dyn_cast<TileType>(elementType)) {
+    newElementType = tileType.getElementType();
+  }
+
+  return RankedTensorType::get(tensorType.getShape(), newElementType,
+                               newEncoding);
+}
+
+RankedTensorType
+createRankedTensorTypeWithBufferType(RankedTensorType tensorType,
+                                     ttnn::BufferType bufferType) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withBufferType(tensorType.getContext(), bufferType);
+  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
+}
+
+RankedTensorType
+createRankedTensorTypeWithMemoryLayout(RankedTensorType tensorType,
+                                       ttnn::TensorMemoryLayout memoryLayout) {
+  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withMemoryLayout(tensorType.getContext(), memoryLayout);
+  return createRankedTensorTypeWithEncoding(tensorType, newEncoding);
 }
 
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
@@ -139,9 +165,8 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout) {
 }
 
 // Helper method to get the tensor layout attribute from the value.
-TTNNLayoutAttr
-getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue) {
-  return mlir::cast<TTNNLayoutAttr>(tensorValue.getType().getEncoding());
+TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorValue) {
+  return mlir::cast<TTNNLayoutAttr>(tensorValue.getEncoding());
 }
 
 // Helper method to get the element type for the given tensor layout and data.

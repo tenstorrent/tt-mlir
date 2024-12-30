@@ -63,6 +63,8 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasCanonicalizeMethod = 1;
+
+    let hasVerifier = 1;
 }
 
 def TTNN_TypecastOp : TTNN_Op<"typecast"> {

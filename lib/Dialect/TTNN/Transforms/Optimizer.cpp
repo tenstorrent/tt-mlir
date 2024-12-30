@@ -448,7 +448,10 @@ private:
           producerOpTensorShape, producerOpTensorType.getElementType(),
           producerOpLayout
               .withElementType(consumerOp->getContext(),
-                               consumerOpOutputLayout.getElementType())
+                               consumerOpOutputLayout.getElementType(),
+                               mlir::cast<RankedTensorType>(
+                                   producerOp->getResult(0).getType())
+                                   .getShape())
               .withBufferType(consumerOp->getContext(),
                               consumerOpOutputLayout.getBufferType())
               .withMemoryLayout(consumerOp->getContext(),

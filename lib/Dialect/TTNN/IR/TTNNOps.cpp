@@ -686,6 +686,18 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   return mlir::success();
 }
 
+// ToLayoutOp verification
+::mlir::LogicalResult mlir::tt::ttnn::ToLayoutOp::verify() {
+  RankedTensorType inputTy = getInput().getType();
+  RankedTensorType outputTy = getResult().getType();
+
+  if (inputTy == outputTy) {
+    return emitOpError("Input and output tensor types must be different");
+  }
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
