@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
@@ -18,8 +20,6 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/Transforms/Passes.h"
-
-#include "ttmlir/Conversion/Passes.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/transforms/Passes.h"
@@ -48,52 +48,55 @@ void createStableHLOToTTIRPipeline(
 
 void createLinalgToLLVMPipeline(OpPassManager &manager,
                                 const LinalgToLLVMPipelineOptions &options) {
+  // Specify we only want  to run this pipeline on our CPUModuleOp.
+  OpPassManager &modulePassManager = manager.nest<tt::CPUModuleOp>();
+
   // These are initial passes to ensure we start with well-form linalg dialect
   // operations.
-  manager.addPass(mlir::createCanonicalizerPass());
-  manager.addPass(mlir::createConvertElementwiseToLinalgPass());
-  manager.addPass(mlir::createConvertTensorToLinalgPass());
+  modulePassManager.addPass(mlir::createCanonicalizerPass());
+  modulePassManager.addPass(mlir::createConvertElementwiseToLinalgPass());
+  modulePassManager.addPass(mlir::createConvertTensorToLinalgPass());
 
   // One-shot bufferize passes convert tensors into memrefs, which we can lower
   // into LLVM Dialect.  See:
   // https://mlir.llvm.org/docs/Bufferization/#ownership-based-buffer-deallocation
   mlir::bufferization::OneShotBufferizationOptions bufferizationOptions;
   bufferizationOptions.bufferizeFunctionBoundaries = true;
-  manager.addPass(
+  modulePassManager.addPass(
       mlir::bufferization::createOneShotBufferizePass(bufferizationOptions));
   mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
-  mlir::bufferization::buildBufferDeallocationPipeline(manager,
+  mlir::bufferization::buildBufferDeallocationPipeline(modulePassManager,
                                                        deallocationOptions);
 
   // An explicit bufferization to memref conversion is sometimes needed to
   // eliminate some nasty bufferization::clone() calls.
-  manager.addPass(mlir::createBufferizationToMemRefPass());
+  modulePassManager.addPass(mlir::createBufferizationToMemRefPass());
 
   // This lowers linalg to scf-based loops.
-  manager.addPass(mlir::createConvertLinalgToLoopsPass());
+  modulePassManager.addPass(mlir::createConvertLinalgToLoopsPass());
 
   // This is needed to lower memref.subview before we can convert all memref ops
   // to LLVM.
-  manager.addPass(mlir::memref::createExpandStridedMetadataPass());
+  modulePassManager.addPass(mlir::memref::createExpandStridedMetadataPass());
 
   // These two passes convert scf to LLVM control flow.
-  manager.addPass(mlir::createConvertSCFToCFPass());
-  manager.addPass(mlir::createConvertControlFlowToLLVMPass());
+  modulePassManager.addPass(mlir::createConvertSCFToCFPass());
+  modulePassManager.addPass(mlir::createConvertControlFlowToLLVMPass());
   // These passes convert corresponding primitives to their LLVM equivalents.
-  manager.addPass(mlir::createArithToLLVMConversionPass());
-  manager.addPass(mlir::createConvertFuncToLLVMPass());
-  manager.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
+  modulePassManager.addPass(mlir::createArithToLLVMConversionPass());
+  modulePassManager.addPass(mlir::createConvertFuncToLLVMPass());
+  modulePassManager.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
   // This pass is a cleanup for any unrealized conversion casts between
   // types--we should be completely in LLVM Dialect now, so all unrealized
   // conversions should be removable.
-  manager.addPass(mlir::createReconcileUnrealizedCastsPass());
+  modulePassManager.addPass(mlir::createReconcileUnrealizedCastsPass());
 
   // Optionally, we can run some cleanup passes to eliminate dead code, etc.
   if (options.cleanupOutputEnabled) {
-    manager.addPass(mlir::createCanonicalizerPass());
-    manager.addPass(mlir::createSCCPPass());
-    manager.addPass(mlir::createCSEPass());
-    manager.addPass(mlir::createSymbolDCEPass());
+    modulePassManager.addPass(mlir::createCanonicalizerPass());
+    modulePassManager.addPass(mlir::createSCCPPass());
+    modulePassManager.addPass(mlir::createCSEPass());
+    modulePassManager.addPass(mlir::createSymbolDCEPass());
   }
 }
 //===----------------------------------------------------------------------===//
