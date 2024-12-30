@@ -26,12 +26,12 @@ using locSize2d = std::tuple<std::array<int32_t, 2>,  //  {{locX, locY},
 /// \param virtualGrid The virtual grid attributes.
 /// \returns A vector of core ranges, where each core range is represented by
 ///          a pair of location and size (both 2D).
-inline std::vector<locSize2d> toCoreRangeSet(GridAttr virtualGrid) {
-  llvm::SmallVector<std::int64_t> tensorGridShape(virtualGrid.getShape());
+inline std::vector<locSize2d>
+toCoreRangeSet(const llvm::ArrayRef<int64_t> virtualGridShape,
+               const mlir::AffineMap mapping) {
   std::vector<locSize2d> coreRangeSet;
-  AffineMap mapping = virtualGrid.getMapping();
   ::ttmlir::utils::sample(
-      tensorGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {
+      virtualGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {
         llvm::SmallVector<std::int64_t> coreCoord =
             mapping.compose(virtualCoreCoord);
         assert(coreCoord.size() == PhysGridResultIdx::NumIndices &&

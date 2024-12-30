@@ -370,7 +370,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
              GridAttr deviceGrid) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet;
 
-  for (const auto &locsize2d : utils::toCoreRangeSet(tensorGrid)) {
+  auto mapping = (tensorGrid.getMapping().isEmpty() == true)
+                     ? deviceGrid.getMapping()
+                     : tensorGrid.getMapping();
+  for (const auto &locsize2d :
+       utils::toCoreRangeSet(tensorGrid.getShape(), mapping)) {
     const auto &[loc, size] = locsize2d;
     coreRangeSet.push_back(
         ::tt::target::Dim2dRange(::tt::target::Dim2d(loc[1], loc[0]),
