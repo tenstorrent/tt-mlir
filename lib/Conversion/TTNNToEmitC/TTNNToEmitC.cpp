@@ -859,7 +859,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::EmbeddingOp>,
                DefaultOpConversionPattern<ttnn::EmbeddingBackwardOp>,
                DefaultOpConversionPattern<ttnn::WhereOp>,
-               DefaultOpConversionPattern<ttnn::UpsampleOp>>(typeConverter, ctx);
+               DefaultOpConversionPattern<ttnn::UpsampleOp>>(typeConverter,
+                                                             ctx);
 
   // CCL ops
   //
