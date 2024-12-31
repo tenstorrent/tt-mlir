@@ -405,6 +405,15 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+// BroadcastOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
+
+  if (getType() == getOperand(0).getType()) {
+    return getOperand(0);
+  }
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SliceOp
 //===----------------------------------------------------------------------===//

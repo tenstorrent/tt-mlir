@@ -199,7 +199,7 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
+def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where", [TTIR_ImplicitBroadcastable]> {
     let summary = "Eltwise where op.";
     let description = [{
       Eltwise where operation.
@@ -569,7 +569,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
     }];
 }
 
-def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
+def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_ImplicitBroadcastable]> {
     let summary = "Eltwise minimum OP.";
     let description = [{
       Calculates minimum of input tensors' values element-wise and stores result
@@ -582,7 +582,7 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
     }];
 }
 
-def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
+def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract", [TTIR_ImplicitBroadcastable]> {
     let summary = "Eltwise subtract.";
     let description = [{
       Eltwise subtract operation.
@@ -829,6 +829,7 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     }];
 
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
@@ -1396,14 +1397,14 @@ class TTIR_GenericElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> 
     }];
 }
 
-def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add"> {
+def TTIR_AddOp : TTIR_GenericElementwiseBinaryOp<"add", [TTIR_ImplicitBroadcastable]> {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
     }];
 }
 
-def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply"> {
+def TTIR_MultiplyOp : TTIR_GenericElementwiseBinaryOp<"multiply", [TTIR_ImplicitBroadcastable]> {
     let summary = "Eltwise multiply.";
     let description = [{
       Eltwise multiply operation.
@@ -1417,7 +1418,7 @@ def TTIR_DivOp : TTIR_GenericElementwiseBinaryOp<"div"> {
     }];
 }
 
-def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum"> {
+def TTIR_MaximumOp : TTIR_GenericElementwiseBinaryOp<"maximum", [TTIR_ImplicitBroadcastable]> {
     let summary = "Eltwise maximum.";
     let description = [{
       Calculates maximum of input tensors' values element-wise and stores result in output tensor.
