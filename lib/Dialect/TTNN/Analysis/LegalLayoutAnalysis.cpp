@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/Utils/VirtualToPhysicalAffineMap.h"
 
 namespace mlir::tt::ttnn {
 
@@ -248,13 +249,18 @@ void LegalLayoutAnalysis::analysisImplementation() {
     assert(analysisInput.maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
     // Block Sharded
+    auto affineMapBs =
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+            op->getContext(), TensorMemoryLayout::BlockSharded,
+            analysisInput.maxGrid.getShape());
     for (int width = 1; width <= analysisInput.maxGrid.getShape()[0]; ++width) {
       for (int height = 1; height <= analysisInput.maxGrid.getShape()[1];
            ++height) {
         shardedResults.push_back(
             shardedBase
                 .withGrid(op->getContext(), tensorType,
-                          GridAttr::get(op->getContext(), {width, height}))
+                          GridAttr::get(op->getContext(), {width, height},
+                                        affineMapBs))
                 .withMemoryLayout(op->getContext(),
                                   TensorMemoryLayout::BlockSharded));
       }
@@ -262,23 +268,32 @@ void LegalLayoutAnalysis::analysisImplementation() {
 
     int64_t numCores = analysisInput.maxGrid.getGridVolume();
     // Height Sharded
-    // TODO(odjuricic): Missing affine mapping to actual grid. Need to check
-    // with runtime implementation on what to produce here.
+    auto affineMapHs =
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+            op->getContext(), TensorMemoryLayout::HeightSharded,
+            analysisInput.maxGrid.getShape());
+
     for (int height = 1; height <= numCores; ++height) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(op->getContext(), tensorType,
-                        GridAttr::get(op->getContext(), {height, 1}))
+              .withGrid(
+                  op->getContext(), tensorType,
+                  GridAttr::get(op->getContext(), {height, 1}, affineMapHs))
               .withMemoryLayout(op->getContext(),
                                 TensorMemoryLayout::HeightSharded));
     }
 
     // Width Sharded
+    auto affineMapWs =
+        mlir::tt::ttnn::utils::CreateSingleDeviceVirtualToPhysicalAffineMap(
+            op->getContext(), TensorMemoryLayout::WidthSharded,
+            analysisInput.maxGrid.getShape());
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(op->getContext(), tensorType,
-                        GridAttr::get(op->getContext(), {1, width}))
+              .withGrid(
+                  op->getContext(), tensorType,
+                  GridAttr::get(op->getContext(), {1, width}, affineMapWs))
               .withMemoryLayout(op->getContext(),
                                 TensorMemoryLayout::WidthSharded));
     }

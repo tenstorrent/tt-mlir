@@ -39,3 +39,22 @@ if "TEMP" in os.environ:
 # that causes the tests to fail.
 if "HOME" in os.environ:
     config.environment["HOME"] = os.environ["HOME"]
+
+
+if "TT_MLIR_HOME" in os.environ:
+    print(f"{os.environ['TT_MLIR_HOME']}")
+    config.environment["TT_MLIR_HOME"] = os.environ["TT_MLIR_HOME"]
+else:
+    raise OSError("TT_MLIR_HOME environment variable is not set")
+
+if "TT_METAL_HOME" in os.environ:
+    print(f"{os.environ['TT_METAL_HOME']}")
+    config.environment["TT_METAL_HOME"] = os.environ["TT_METAL_HOME"]
+else:
+    raise OSError("TT_METAL_HOME environment variable is not set")
+
+if "ARCH_NAME" in os.environ:
+    print(f"ARCH_NAME={os.environ['ARCH_NAME']}")
+    config.environment["ARCH_NAME"] = os.environ["ARCH_NAME"]
+else:
+    raise OSError("ARCH_NAME environment variable is not set")

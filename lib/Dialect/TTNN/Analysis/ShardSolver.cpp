@@ -520,9 +520,73 @@ bool ShardSolver::checkShardCompatible(
   //
 
   if (OpModel backend = dyn_cast<OpModel>(consumerOp)) {
-    if (false ==
-        backend.isOpLegal(std::vector{producerLayout}, consumerLayout)) {
+
+    auto deviceAttr = mlir::tt::getCurrentScopeDevice(producerOp);
+    assert(deviceAttr);
+    auto workerGrid = deviceAttr.getWorkerGrid();
+
+    // Map consumer operands to DRAM interleave or provided producerLayout
+    // only one operand can be mapped to producerLayout, it's picked as first
+    // operand matching producerOp output shape.
+
+    uint32_t numOperands = consumerOp->getNumOperands();
+
+    // Some ops have multiple operands; and some ops have output also an
+    // operand. TBD if there is a more robust way to get real number of inputs.
+    // TODO(odjuricic): cast to DPSop?
+    numOperands = (numOperands > 1) ? numOperands - 1 : numOperands;
+    std::vector<TTNNLayoutAttr> inputLayouts;
+
+    auto inputUnderCheck =
+        mlir::cast<RankedTensorType>(producerOp->getResult(0).getType());
+    bool inputUnderCheckFound = false;
+
+    for (uint32_t i = 0; i < numOperands; i++) {
+      auto operand = consumerOp->getOperand(i);
+      auto input = mlir::cast<RankedTensorType>(operand.getType());
+
+      if ((inputUnderCheckFound == false) &&
+          (inputUnderCheck.getShape() == input.getShape())) {
+        // this is the input we are checking compatibility for
+        inputUnderCheckFound = true;
+        inputLayouts.push_back(producerLayout);
+      } else {
+        // this is the other input that we DRAM interleave
+
+        // what if it is tilized already?
+        auto elementType =
+            TileType::get(consumerOp->getContext(), input.getElementType());
+
+        auto layout = TTNNLayoutAttr::get(
+            consumerOp->getContext(), input.getShape(), elementType,
+            BufferType::DRAM, workerGrid,
+            TensorMemoryLayoutAttr::get(consumerOp->getContext(),
+                                        TensorMemoryLayout::Interleaved));
+        inputLayouts.push_back(layout);
+      }
+    }
+
+    auto [legal, l1Usage, errorMsg] =
+        backend.getOpConstraints(inputLayouts, consumerLayout);
+
+    constexpr bool debug = false;
+    if (false == legal) {
+      // early exit
+      if (debug) {
+        llvm::errs() << "OpModel constraints failed: ";
+        llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
+                     << " :: " << errorMsg.value() << "\n";
+        producerLayout.dump();
+        consumerLayout.dump();
+      }
       return false;
+    }
+    if (debug) {
+      llvm::errs() << "OpModel constraints valid. ";
+      llvm::errs() << producerOp->getName() << "->" << consumerOp->getName()
+                   << "\n";
+      producerLayout.dump();
+      consumerLayout.dump();
     }
   }
 
@@ -563,12 +627,6 @@ bool ShardSolver::checkShardCompatible(
     if (!l1UsageValid) {
       return false;
     }
-  }
-
-  // Shard compat assumption. Try to keep same shard layout.
-  //
-  if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
-    return false;
   }
 
   return true;
