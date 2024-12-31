@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTKernelDialect
+add_mlir_dialect_library(TTMLIRTTKernelDialect
         TTKernelDialect.cpp
         TTKernelOps.cpp
         TTKernelOpsTypes.cpp
@@ -11,5 +11,5 @@ add_mlir_dialect_library(MLIRTTKernelDialect
         MLIRTTOpsIncGen
 
         LINK_LIBS PUBLIC
-        MLIRTTMetalDialect
+        TTMLIRTTMetalDialect
         )

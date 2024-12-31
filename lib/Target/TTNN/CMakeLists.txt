@@ -6,11 +6,11 @@ add_mlir_translation_library(TTNNTargetFlatbuffer
     ${PROJECT_SOURCE_DIR}/include/Target/TTNN
 
     LINK_LIBS PUBLIC
-    MLIRTTNNDialect
-    MLIRTTIRDialect
-    MLIRTTDialect
-    MLIRTTKernelDialect
-    MLIRTTNNTransforms
+    TTMLIRTTNNDialect
+    TTMLIRTTIRDialect
+    TTMLIRTTDialect
+    TTMLIRTTKernelDialect
+    TTMLIRTTNNTransforms
     TTMLIRTTNNToEmitC
 )
 

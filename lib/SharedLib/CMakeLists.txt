@@ -11,19 +11,19 @@ endif()
 set(TTMLIR_LIBS
     TTNNTargetFlatbuffer
     TTMetalTargetFlatbuffer
-    MLIRTTDialect
-    MLIRTTIRDialect
-    MLIRTTNNDialect
-    MLIRTTKernelDialect
+    TTMLIRTTDialect
+    TTMLIRTTIRDialect
+    TTMLIRTTNNDialect
+    TTMLIRTTKernelDialect
     TTMLIRTTIRToTTIRDecomposition
     TTMLIRTTIRToTTNN
     TTMLIRTTIRToTTMetal
-    MLIRTTMetalDialect
-    MLIRTTIRTransforms
-    MLIRTTNNTransforms
-    MLIRTTNNAnalysis
-    MLIRTTNNPipelines
-    MLIRTTMetalPipelines
+    TTMLIRTTMetalDialect
+    TTMLIRTTIRTransforms
+    TTMLIRTTNNTransforms
+    TTMLIRTTNNAnalysis
+    TTMLIRTTNNPipelines
+    TTMLIRTTMetalPipelines
     TTMLIRTTNNToEmitC
 )
 

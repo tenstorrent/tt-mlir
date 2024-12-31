@@ -1,6 +1,6 @@
 set(ttmlir_cmake_builddir "${CMAKE_BINARY_DIR}/lib/cmake/ttmlir")
 
-set_property(GLOBAL APPEND PROPERTY TTMLIR_EXPORTS "MLIRTTDialect;MLIRTTNNDialect;TTMLIRTTNNUtils;MLIRTTKernelDialect;MLIRTTMetalDialect;MLIRTTNNTransforms;")
+set_property(GLOBAL APPEND PROPERTY TTMLIR_EXPORTS "TTMLIRTTDialect;TTMLIRTTNNDialect;TTMLIRTTNNUtils;TTMLIRTTKernelDialect;TTMLIRTTMetalDialect;TTMLIRTTNNTransforms;")
 get_property(TTMLIR_EXPORTS GLOBAL PROPERTY TTMLIR_EXPORTS)
 export(TARGETS ${TTMLIR_EXPORTS} FILE ${ttmlir_cmake_builddir}/TTMLIRTargets.cmake)
 

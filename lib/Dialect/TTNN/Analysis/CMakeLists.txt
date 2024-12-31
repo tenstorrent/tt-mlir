@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTNNAnalysis
+add_mlir_dialect_library(TTMLIRTTNNAnalysis
         LegalLayoutAnalysis.cpp
         OpConfigAnalysis.cpp
         MemoryLayoutAnalysis.cpp

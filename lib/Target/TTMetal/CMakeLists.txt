@@ -6,10 +6,10 @@ add_mlir_translation_library(TTMetalTargetFlatbuffer
     ${PROJECT_SOURCE_DIR}/include/Target/TTMetal
 
     LINK_LIBS PUBLIC
-    MLIRTTMetalDialect
-    MLIRTTKernelDialect
-    MLIRTTIRDialect
-    MLIRTTDialect
+    TTMLIRTTMetalDialect
+    TTMLIRTTKernelDialect
+    TTMLIRTTIRDialect
+    TTMLIRTTDialect
     TTMLIRTTKernelToEmitC
 )
 
