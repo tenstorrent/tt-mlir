@@ -237,20 +237,7 @@ def ttkernel_compile(f):
         arg_dtypes = [to_data_type(arg.dtype) for arg in args]
         m = ast.parse(inspect.getsource(f))
         b = TTKernelBuilder(f.__name__, arg_shapes, arg_dtypes)
-        # print(ast.dump(m, indent=4))
         b.visit(m)
-        # CHECK: "func.func"[[C:.*]]
-        # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
-        # CHECK: "scf.for"[[C:.*]]
-        # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
-        # CHECK: "ttkernel.cb_reserve_back"[[C:.*]]
-        # CHECK: "ttkernel.tile_regs_acquire"[[C:.*]]
-        # CHECK: "ttkernel.unpack_ab"[[C:.*]]
-        # CHECK: "ttkernel.add"[[C:.*]]
-        # CHECK: "ttkernel.pack"[[C:.*]]
-        # CHECK: "ttkernel.tile_regs_release"[[C:.*]]
-        # CHECK: "ttkernel.cb_pop_front"[[C:.*]]
-        # CHECK: "ttkernel.cb_push_back"[[C:.*]]
         print(b.module)
         # return f(*args, **kwargs)
 
@@ -258,50 +245,47 @@ def ttkernel_compile(f):
 
 
 @ttkernel_compile
-def eltwise(
-    in0,
-    in1,
-    out,
-    index_maps=[
-        lambda *dn, m, n: (*dn, m, n),
-        lambda *dn, m, n: (*dn, m, n),
-        lambda *dn, m, n: (*dn, m, n),
-    ],
-    iterator_types=["parallel", "parallel", "parallel"],
-    dynamic_shapes=False,
-):
+def eltwise(in0, in1, out):
+    # CHECK: "func.func"[[C:.*]]
     t6 = Tensix(in0, in1, out)
+    # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
+    # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
+    # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
+    # CHECK: "scf.for"[[C:.*]]
     for dn in range(in0.shape[-3]):
+        # CHECK: "scf.for"[[C:.*]]
         for m in range(in0.shape[-2]):
+            # CHECK: "scf.for"[[C:.*]]
             for n in range(in0.shape[-1]):
+                # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
                 in0.wait()
+                # CHECK: "ttkernel.cb_wait_front"[[C:.*]]
                 in1.wait()
+                # CHECK: "ttkernel.cb_reserve_back"[[C:.*]]
                 out.reserve()
+                # CHECK: "ttkernel.tile_regs_acquire"[[C:.*]]
                 t6.tile_regs_acquire()
+                # CHECK: "ttkernel.unpack_ab"[[C:.*]]
                 t6.unpack_ab(in0, 0, in1, 0)
+                # CHECK: "ttkernel.add"[[C:.*]]
                 t6.add(0)
+                # CHECK: "ttkernel.pack"[[C:.*]]
                 t6.pack(0, out, 0)
+                # CHECK: "ttkernel.tile_regs_release"[[C:.*]]
                 t6.tile_regs_release()
+                # CHECK: "ttkernel.cb_pop_front"[[C:.*]]
                 in0.pop()
+                # CHECK: "ttkernel.cb_pop_front"[[C:.*]]
                 in1.pop()
+                # CHECK: "ttkernel.cb_push_back"[[C:.*]]
                 out.push()
 
 
-# @ttkernel_generic
-# def eltwise_generic(
-#     in0,
-#     in1,
-#     index_maps=[
-#         lambda *dn, m, n: (*dn, m, n),
-#         lambda *dn, m, n: (*dn, m, n),
-#         lambda *dn, m, n: (*dn, m, n),
-#     ],
-#     iterator_types=["parallel", "parallel", "parallel"],
-# ):
-#     return in0 + in1
+def test_eltwise():
+    a = Tensor((8, 128, 128), "float32")
+    b = Tensor((8, 128, 128), "float32")
+    out = Tensor((8, 128, 128), "float32")
+    eltwise(a, b, out)
 
 
-a = Tensor((8, 128, 128), "float32")
-b = Tensor((8, 128, 128), "float32")
-out = Tensor((8, 128, 128), "float32")
-eltwise(a, b, out)
+test_eltwise()
