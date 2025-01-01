@@ -25,6 +25,7 @@ set(TTMLIR_LIBS
     MLIRTTNNAnalysis
     MLIRTTNNPipelines
     MLIRTTMetalPipelines
+    MLIRTTKernelPipelines
     TTMLIRTTNNToEmitC
 )
 
