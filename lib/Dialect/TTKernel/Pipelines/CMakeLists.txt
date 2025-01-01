@@ -5,7 +5,5 @@ add_mlir_dialect_library(MLIRTTKernelPipelines
   ${PROJECT_SOURCE_DIR}/include/ttmlir
 
   LINK_LIBS PUBLIC
-  MLIRTTIRDialect
   MLIRTTKernelDialect
-  MLIRTransforms
 )
