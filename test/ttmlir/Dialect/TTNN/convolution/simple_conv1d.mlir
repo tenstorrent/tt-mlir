@@ -8,8 +8,6 @@ module {
     // CHECK-SAME: shape = [1024 : i32, 256 : i32, 1 : i32, 1 : i32]
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
-    // CHECK: "ttnn.permute"
-    // CHECK-SAME: permutation = array<i64: 0, 1, 2, 3>
     // CHECK: "ttnn.conv2d"
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
