@@ -510,7 +510,7 @@ public:
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/reduce.h",
                                         /*isStandard=*/false);
       builder->create<emitc::VerbatimOp>(loc, "namespace NAMESPACE {");
-    }  
+    }
   }
 
   ~ThreadConfigHelper() {
@@ -522,17 +522,15 @@ public:
   }
 
 private:
-
   OpBuilder *builder;
   Location loc;
   ttkernel::ThreadType threadType;
 };
 
-LogicalResult convertTTKernelRegionToEmitC(
-    OpBuilder &builder, Region *region,
-    const ttkernel::ThreadType &threadType) {
-  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(),
-                                        threadType);
+LogicalResult
+convertTTKernelRegionToEmitC(OpBuilder &builder, Region *region,
+                             const ttkernel::ThreadType &threadType) {
+  ThreadConfigHelper threadConfigHelper(&builder, region->getLoc(), threadType);
 
   auto funcOp = builder.create<func::FuncOp>(
       region->getLoc(), "kernel_main",
@@ -551,17 +549,15 @@ LogicalResult convertTTKernelRegionToEmitC(
   return success();
 }
 
-LogicalResult
-emitOpRegionAsCpp(Region *region, std::string &regionCpp,
-                          const ttkernel::ThreadType &threadType) {
+LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
+                                const ttkernel::ThreadType &threadType) {
 
   llvm::raw_string_ostream os(regionCpp);
   return emitOpRegionAsCpp(region, os, threadType);
 }
 
-LogicalResult
-emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
-                          const ttkernel::ThreadType &threadType) {
+LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
+                                const ttkernel::ThreadType &threadType) {
 
   // We must load the EmitC dialect before we can emit any EmitC code. This
   // dialect won't be loaded by MLIR until pass manager starts a pass that
@@ -593,13 +589,11 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
   assert(cppStrings.size() == dispatchOp.getNumRegions() &&
          "cppStrings size must match number of regions");
 
-
-
   for (auto &reg : dispatchOp->getRegions()) {
     auto kernelConfig = mlir::cast<ttkernel::KernelConfigInterface>(
         dispatchOp.getKernelConfigs()[reg.getRegionNumber()]);
     if (emitOpRegionAsCpp(&reg, cppStrings[reg.getRegionNumber()],
-                                  kernelConfig.getThreadType())
+                          kernelConfig.getThreadType())
             .failed()) {
       return llvm::failure();
     }
@@ -608,19 +602,14 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
   return success();
 }
 
-LogicalResult
-emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os, const ttkernel::ThreadType &threadType )
-{
+LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
+                              const ttkernel::ThreadType &threadType) {
   std::vector<func::FuncOp> ops;
-  op->walk([&](func::FuncOp entry) {
-    ops.push_back(entry);
-  });
+  op->walk([&](func::FuncOp entry) { ops.push_back(entry); });
 
-  for (const auto &op : ops){
+  for (const auto &op : ops) {
     for (auto &reg : op->getRegions()) {
-      if (emitOpRegionAsCpp(&reg, os,
-                              threadType)
-        .failed()) {
+      if (emitOpRegionAsCpp(&reg, os, threadType).failed()) {
         return llvm::failure();
       }
     }
