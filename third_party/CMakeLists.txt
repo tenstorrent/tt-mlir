@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "c4df003d49057066c59a227d7511fca2e9999043")
+set(TT_METAL_VERSION "0979abdb853ad4cc8a32d90cce6825a3967d1adc")
 
 if ("$ENV{ARCH_NAME}" STREQUAL "grayskull")
   set(ARCH_NAME "grayskull")
