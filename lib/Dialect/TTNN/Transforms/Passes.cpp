@@ -63,11 +63,16 @@ public:
   }
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNDeallocate::rOO\n";
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
     module->walk([&](func::FuncOp func) {
-      assert(func.getBody().hasOneBlock());
+      if (func.isDeclaration()) {
+        return;
+      }
+      assert(func.getBody().hasOneBlock() &&
+             "found func that didn't have one block!");
       Liveness liveness(func.getOperation());
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
@@ -110,6 +115,7 @@ public:
         }
       });
     });
+    llvm::outs() << "e TTNNDeallocate::rOO\n";
   }
 };
 
@@ -121,6 +127,8 @@ public:
       TTNNCreateInputGenerators>::TTNNCreateInputGeneratorsBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNCreateInputGenerators::rOO\n";
+
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
@@ -286,6 +294,8 @@ public:
           rewriter.getI32IntegerAttr(0));
       rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
     }
+
+    llvm::outs() << "e TTNNCreateInputGenerators::rOO\n";
   }
 };
 
@@ -298,6 +308,8 @@ public:
       TTNNModifySignaturesForDylib>::TTNNModifySignaturesForDylibBase;
 
   void runOnOperation() final {
+    llvm::outs() << "s TTNNModifySignaturesForDylib::rOO\n";
+
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
 
@@ -423,6 +435,7 @@ public:
                                                           tupleOp.getResult());
       });
     }
+    llvm::outs() << "e TTNNModifySignaturesForDylib::rOO\n";
   }
 };
 
