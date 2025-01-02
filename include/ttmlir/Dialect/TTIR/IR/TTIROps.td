@@ -812,15 +812,15 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
   }];
 }
 
-def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
-    let summary = "Broadcast operation.";
+def TTIR_RepeatOp : TTIR_DPSOp<"repeat"> {
+    let summary = "Repeat operation.";
     let description = [{
-      Broadcast op.
+      Repeat op.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ArrayAttr:$dimension);
+                         I32ArrayAttr:$repeat_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 

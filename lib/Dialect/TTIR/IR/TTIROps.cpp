@@ -384,11 +384,11 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// BroadcastOp
+// RepeatOp
 //===----------------------------------------------------------------------===//
 
-// BroadcastOp verification
-::mlir::LogicalResult mlir::tt::ttir::BroadcastOp::verify() {
+// RepeatOp verification
+::mlir::LogicalResult mlir::tt::ttir::RepeatOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
@@ -397,7 +397,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Input tensor rank should match output tensor rank.");
   }
 
-  llvm::SmallVector<int64_t, 4> broadcastedShape;
+  llvm::SmallVector<int64_t> broadcastedShape;
   if (!OpTrait::util::getBroadcastedShape(
           inputType.getShape(), outputType.getShape(), broadcastedShape)) {
     return emitOpError("Operands are not broadcast compatible");
