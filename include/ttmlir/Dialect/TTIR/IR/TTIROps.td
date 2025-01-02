@@ -835,12 +835,17 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
 def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
-      Broadcast op.
+      Broadcasts each dimension of the input tensor based on the broadcast dimensions.
+
+      Example:
+      // %arg0: tensor<1x1x32xf32>
+      %0 = tensor.empty() : tensor<1x16x32xf32>
+      %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = [1 : i32, 16 : i32, 1 : i32]}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ArrayAttr:$dimension);
+                         I32ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 

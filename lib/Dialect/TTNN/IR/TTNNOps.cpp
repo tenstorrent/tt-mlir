@@ -251,11 +251,6 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
-  // Check that the input rank matches the rank of the output tensor
-  if (inputType.getRank() != outputType.getRank()) {
-    return emitOpError("Input tensor rank should match output tensor rank.");
-  }
-
   auto shape = getShape();
 
   // Check that the shape size matches the rank of the output tensor
@@ -266,11 +261,15 @@ namespace mlir::tt::ttnn {
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 
-  size_t shape_size = shape.size();
-  for (size_t i = 0; i < shape_size; i++) {
+  size_t shapeSize = shape.size();
+  for (size_t i = 0; i < shapeSize; i++) {
     int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
     if (inputShape[i] * dim_value != outputShape[i]) {
-      return emitOpError("Input shape does not repeat to output shape.");
+      return emitOpError() << "Input tensor shape ("
+                           << ttmlir::utils::join(inputShape, ",") << ") index "
+                           << i << " does not repeat to output ("
+                           << ttmlir::utils::join(outputShape, ",")
+                           << ") using repeat value " << dim_value;
     }
   }
 
@@ -287,14 +286,14 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   auto shape = getShape();
-  int64_t shape_size = static_cast<int64_t>(shape.size());
+  int64_t shapeSize = static_cast<int64_t>(shape.size());
 
   // Check that the shape size matches the rank of the output tensor
-  if (shape_size != static_cast<int64_t>(outputType.getRank())) {
+  if (shapeSize != static_cast<int64_t>(outputType.getRank())) {
     return emitOpError("Shape attribute size must match output tensor rank");
   }
   // Check that the shape attribute is non-empty
-  if (shape_size == 0) {
+  if (shapeSize == 0) {
     return emitOpError("Shape attribute must be non-empty");
   }
 
@@ -311,7 +310,7 @@ namespace mlir::tt::ttnn {
   // Check that all dimensions are positive except for at most one -1
   // Check that the non-negative dimensions match the output tensor shape
   // Calculate the product of the known dimensions
-  for (int64_t i = 0; i < shape_size; i++) {
+  for (int64_t i = 0; i < shapeSize; i++) {
     int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
 
     if (dim_value == -1) {

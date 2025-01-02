@@ -392,16 +392,39 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
-  // Check that the input rank matches the rank of the output tensor
+  // Sanity check to make sure that input rank matches the rank of the output
+  // tensor
   if (inputType.getRank() != outputType.getRank()) {
-    return emitOpError("Input tensor rank should match output tensor rank.");
+    return emitOpError() << "Input tensor rank of " << inputType.getRank()
+                         << " does not match output tensor rank of "
+                         << outputType.getRank();
   }
 
-  llvm::SmallVector<int64_t, 4> broadcastedShape;
-  if (!OpTrait::util::getBroadcastedShape(
-          inputType.getShape(), outputType.getShape(), broadcastedShape)) {
-    return emitOpError("Operands are not broadcast compatible");
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  llvm::SmallVector<int64_t> broadcastedShape;
+  if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
+                                          broadcastedShape)) {
+    return emitOpError() << "Input tensor shape ("
+                         << ttmlir::utils::join(inputShape, ",")
+                         << ") is not broadcastable to output shape ("
+                         << ttmlir::utils::join(outputShape, ",") << ")";
   }
+
+  auto broadcastDimensions = getBroadcastDimensions();
+  for (size_t i = 0; i < broadcastDimensions.size(); i++) {
+    int64_t dim_value =
+        mlir::cast<IntegerAttr>(broadcastDimensions[i]).getInt();
+    if (inputShape[i] * dim_value != outputShape[i]) {
+      return emitOpError() << "Input tensor shape ("
+                           << ttmlir::utils::join(inputShape, ",") << ") index "
+                           << i << " does not broadcast to output ("
+                           << ttmlir::utils::join(outputShape, ",")
+                           << ") using broadcast value " << dim_value;
+    }
+  }
+
   return success();
 }
 

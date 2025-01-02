@@ -636,28 +636,14 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    assert(mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType())
-                   .getRank() == mlir::cast<::mlir::RankedTensorType>(
-                                     adaptor.getOutput().getType())
-                                     .getRank() &&
-           "Repeats are not supported when Input and Output Ranks match");
-
-    // Extract input tensor type
-    ::llvm::ArrayRef<int64_t> inputShape =
+    assert(
         mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType())
-            .getShape();
+                .getRank() ==
+            mlir::cast<::mlir::RankedTensorType>(adaptor.getOutput().getType())
+                .getRank() &&
+        "Broadcast is not supported when Input and Output Ranks don't match");
 
-    ::llvm::ArrayRef<int64_t> outputShape =
-        mlir::cast<::mlir::RankedTensorType>(adaptor.getOutput().getType())
-            .getShape();
-
-    SmallVector<int64_t, 4> repeatShape;
-    for (unsigned int i = 0; i < outputShape.size(); i++) {
-      int d = outputShape[i] / inputShape[i];
-      repeatShape.push_back(d);
-    }
-
-    auto shapeAttr = rewriter.getI64ArrayAttr(repeatShape);
+    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),

@@ -1308,9 +1308,18 @@ public:
       tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
           op.getLoc(), outputShape, outputType.getElementType());
 
+      auto inputShape =
+          mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
+
+      SmallVector<int32_t, 4> broadcastShape;
+      for (unsigned int i = 0; i < outputShape.size(); i++) {
+        int d = outputShape[i] / inputShape[i];
+        broadcastShape.push_back(d);
+      }
+
       output = rewriter.create<ttir::BroadcastOp>(
           op.getLoc(), broadcastType, output, dpsOutput,
-          rewriter.getArrayAttr(broadcastDims));
+          rewriter.getI32ArrayAttr(broadcastShape));
 
       assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
                  outputType.getShape() &&
