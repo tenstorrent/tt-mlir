@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -129,9 +130,13 @@ void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
   createTTNNPipelineTTIRBroadcastFoldPass(pm, *optionsStruct);
 }
-
+π
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(ttir::createTTIRHoistTransform());
+  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
+  ttir::createLinalgToLLVMPipeline(pm, linalgToLLLVMOptions);
+
   createTTNNPipelineTTIRPasses(pm, options);
   createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
