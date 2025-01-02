@@ -46,17 +46,7 @@ struct ConvertTTIRToLinalgPass
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-<<<<<<< HEAD:lib/Conversion/TTIRToLinalg/TTIRToLinalgPass.cpp
     populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
-=======
-    llvm::outs() << "pre populateTTIRToLinAlgPatterns!\n";
-    populateTTIRToLinAlgPatterns(&getContext(), patterns, typeConverter);
-    llvm::outs() << "post populateTTIRToLinAlgPatterns!\n";
-
-    llvm::outs() << "IR before conversion:\n";
-    getOperation()->print(llvm::outs());
-    llvm::outs() << "\n";
->>>>>>> 5f54244c (add runtime support for unpacking flatbuffer dylibs):lib/Conversion/TTIRToLinAlg/TTIRToLinAlgPass.cpp
 
     // Apply full conversion
     //
