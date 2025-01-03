@@ -5,12 +5,12 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -255,17 +255,10 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
             .getResult();
   }
 
-  // If the input tensor is not a constant or empty tensor, we need to create a
-  // new tensor with the desired layout which will be used as the output of the
-  // ToLayoutOp
-  tensor::EmptyOp output = rewriter.create<tensor::EmptyOp>(
-      loc, ty.getShape(), ty.getElementType(), desiredLayout);
-
   // Create the ToLayoutOp which will convert the input tensor to the desired
-  // layout
-  return rewriter
-      .create<ttir::ToLayoutOp>(loc, output.getType(), input, output)
-      ->getResult(0);
+  // layout.
+  return ttmlir::utils::createDPSOp<ttir::ToLayoutOp>(
+      rewriter, loc, ty.getShape(), ty.getElementType(), desiredLayout, input);
 }
 
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
