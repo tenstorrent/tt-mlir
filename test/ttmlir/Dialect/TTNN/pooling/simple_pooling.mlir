@@ -4,7 +4,11 @@ module attributes {} {
     %0 = tensor.empty() : tensor<1x32x64x64xbf16>
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 2, 3, 1>
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 16384 : i32, 32 : i32]
     // CHECK: "ttnn.max_pool2d"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 64 : i32, 64 : i32, 32 : i32]
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
     %1 = "ttir.pooling"(%arg0, %0) <{
@@ -16,5 +20,29 @@ module attributes {} {
         window_dilations = array<i64: 1, 1, 1, 1>,
         padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>}> : (tensor<1x32x128x128xbf16>, tensor<1x32x64x64xbf16>) -> tensor<1x32x64x64xbf16>
     return %1 : tensor<1x32x64x64xbf16>
+  }
+}
+
+module attributes {} {
+  func.func @forward(%arg0: tensor<128x1x128x32xbf16>) -> tensor<64x1x64x32xbf16> {
+    %0 = tensor.empty() : tensor<64x1x64x32xbf16>
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 1, 0, 2, 3>
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 16384 : i32, 32 : i32]
+    // CHECK: "ttnn.max_pool2d"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 64 : i32, 64 : i32, 32 : i32]
+    // CHECK: "ttnn.permute"
+    // CHECK-SAME: permutation = array<i64: 1, 0, 2, 3>
+    %1 = "ttir.pooling"(%arg0, %0) <{
+        operandSegmentSizes = array<i32: 1, 1>,
+        pooling_method = #ttir<pooling_method Max>,
+        window_dimensions = array<i64: 2, 1, 2, 1>,
+        window_strides = array<i64: 2, 1, 2, 1>,
+        base_dilations = array<i64: 1, 1, 1, 1>,
+        window_dilations = array<i64: 1, 1, 1, 1>,
+        padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>}> : (tensor<128x1x128x32xbf16>, tensor<64x1x64x32xbf16>) -> tensor<64x1x64x32xbf16>
+    return %1 : tensor<64x1x64x32xbf16>
   }
 }
