@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -22,12 +23,9 @@ public:
 
   LogicalResult matchAndRewrite(ConstantOp op,
                                 PatternRewriter &rewriter) const final {
-    auto resultTy = op.getResult().getType();
-    auto empty = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultTy.getShape(), resultTy.getElementType(),
-        resultTy.getEncoding());
-    rewriter.replaceOpWithNewOp<ttir::FillOp>(op, resultTy, empty,
-                                              op.getValue());
+    ttmlir::utils::replaceOpWithNewDPSOp<FillOp>(rewriter, op, op.getType(),
+                                                 op.getValue());
+
     return success();
   }
 };
@@ -50,7 +48,6 @@ public:
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::tt::ttir::TTIRDialect>();
-    registry.insert<mlir::tt::TTDialect>();
   }
 };
 
