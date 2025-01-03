@@ -1802,6 +1802,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$scatter_indices,
                        AnyRankedTensor:$update,
+                       AnyRankedTensor:$output,
                        DenseI32ArrayAttr:$update_window_dims,
                        DenseI32ArrayAttr:$inserted_window_dims,
                        DenseI32ArrayAttr:$input_batching_dims,
@@ -1809,8 +1810,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
                        DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
                        I32Attr:$index_vector_dim,
                        BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices,
-                       AnyRankedTensor:$output);
+                       BoolAttr:$unique_indices);
 
   let regions = (region SizedRegion<1>:$update_computation);
 

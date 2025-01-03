@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <llvm/ADT/SmallVector.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -1658,13 +1660,11 @@ public:
   matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
     Value operand = srcOp.getInputs()[0];
-    Value scatterIndices = srcOp.getScatterIndices();
+    Value scatterIndices = adaptor.getScatterIndices();
     Value update = srcOp.getUpdates()[0];
     auto updateWindowsDims =
         adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
@@ -1681,25 +1681,14 @@ public:
     auto indicesAreSorted = adaptor.getIndicesAreSorted();
     auto uniqueIndices = adaptor.getUniqueIndices();
 
-    auto newScatterOp = rewriter.create<mlir::tt::ttir::ScatterOp>(
-        srcOp.getLoc(), outputType, operand, scatterIndices, update,
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(updateWindowsDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(insertedWindowDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(inputBatchingDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(scatterIndicesBatchingDims)),
-        llvm::ArrayRef<int32_t>(
-            convertArrayRefToInt32vector(scatterDimsToOperandDims)),
-        indexVectorDim, indicesAreSorted, uniqueIndices, outputTensor);
-
-    // Replaces with different types do not work and will fail silently, so we
-    // manually set the second operand, since the type changes there from i32 to
-    // i64.
-    newScatterOp.setOperand(
-        1, adaptor.getScatterIndices().getDefiningOp()->getResult(0));
+    auto newScatterOp = ttmlir::utils::createDPSOp<ttir::ScatterOp>(
+        rewriter, srcOp->getLoc(), outputType, operand, scatterIndices, update,
+        llvm::SmallVector<int32_t>(updateWindowsDims),
+        llvm::SmallVector<int32_t>(insertedWindowDims),
+        llvm::SmallVector<int32_t>(inputBatchingDims),
+        llvm::SmallVector<int32_t>(scatterIndicesBatchingDims),
+        llvm::SmallVector<int32_t>(scatterDimsToOperandDims), indexVectorDim,
+        indicesAreSorted, uniqueIndices);
 
     newScatterOp->getRegion(0).takeBody(adaptor.getUpdateComputation());
     changeRegionTypes(newScatterOp->getRegion(0), *getTypeConverter(),
@@ -1711,18 +1700,6 @@ public:
   }
 
 private:
-  std::vector<int32_t>
-  convertArrayRefToInt32vector(const llvm::ArrayRef<int64_t> &source) const {
-    std::vector<int32_t> converted;
-    converted.reserve(source.size());
-
-    for (int64_t value : source) {
-      converted.push_back(static_cast<int32_t>(value));
-    }
-
-    return converted;
-  }
-
   void changeRegionTypes(mlir::Region &region,
                          const mlir::TypeConverter &typeConverter,
                          mlir::PatternRewriter &rewriter) const {
