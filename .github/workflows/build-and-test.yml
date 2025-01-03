@@ -392,13 +392,13 @@ jobs:
       if: matrix.build.emitc == 'ON'
       run: |
         source env/activate
-        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN/emitc
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC
 
     - name: Upload ttrt test report json
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.emitc }}_${{ matrix.build.name }}_results.json
         path: ${{ matrix.build.name }}_results.json
 
     - name: Upload Test Report xml
