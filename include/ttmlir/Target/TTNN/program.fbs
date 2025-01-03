@@ -321,6 +321,27 @@ table MeshShardOp {
   shard_shape: [int64];
 }
 
+table UniformScale2D {
+  scale: int32;
+}
+
+table NonUniformScale2D {
+  scale: [int32];
+}
+
+union Scale2D {
+  UniformScale2D,
+  NonUniformScale2D,
+}
+
+table UpsampleOp {
+  in: tt.target.TensorRef;
+  scale_factor: Scale2D;
+  mode: string;
+  memory_config: MemoryConfigDesc;
+  out: tt.target.TensorRef;
+}
+
 union OpType {
   GetDeviceOp,
   ToMemoryConfigOp,
@@ -352,6 +373,7 @@ union OpType {
   UpdateCacheOp,
   FillCacheOp,
   PermuteOp,
+  UpsampleOp,
 }
 
 table Operation {
