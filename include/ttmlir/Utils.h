@@ -5,6 +5,8 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -264,8 +266,10 @@ struct count_consecutive<> {
 template <typename First, typename... Rest>
 struct count_consecutive<First, Rest...> {
   static constexpr size_t value =
-      std::is_convertible_v<First, mlir::Value> ||
-              std::is_convertible_v<First, mlir::ValueRange>
+      (std::is_convertible_v<First, mlir::Value> ||
+       std::is_convertible_v<First, mlir::ValueRange>) &&
+              !std::is_convertible_v<First,
+                                     mlir::TypedValue<mlir::tt::DeviceType>>
           ? 1 + count_consecutive_v<Rest...>
           : 0;
 };
