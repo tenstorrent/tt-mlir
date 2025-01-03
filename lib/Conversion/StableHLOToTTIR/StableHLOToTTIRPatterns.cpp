@@ -448,7 +448,7 @@ public:
 
     ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::ConvolutionOp>(
         rewriter, srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
-        nullptr, windowStridesAttr, paddingAttr, inputDilationAttr,
+        Value(), windowStridesAttr, paddingAttr, inputDilationAttr,
         kernelDilationAttr, windowReversalAttr,
         mlir::tt::ttir::ConvolutionLayoutAttr::get(
             getContext(), dimNums.getInputBatchDimension(),

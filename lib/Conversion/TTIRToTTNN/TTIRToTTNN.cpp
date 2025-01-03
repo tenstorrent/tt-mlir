@@ -1015,20 +1015,12 @@ public:
                                              outputType.getElementType(),
                                              outputType.getEncoding());
 
-    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
-    // attribute determination.
-    auto convDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
-        adaptor.getOutput().getDefiningOp(), outputType.getShape(),
-        outputType.getElementType(), outputType.getEncoding());
-
-    // TODO (azecevic): TT_Device is type, so `device` is Value, this isn't
-    // covered under ttmlir::utils::createDPSOp pattern.
-    ttnn::Conv2dOp newConv = rewriter.create<ttnn::Conv2dOp>(
-        op.getLoc(), outputType, flattenedInput, adaptor.getWeight(),
-        adaptor.getBias(), convDPSOutput, device, inChannels, outChannels,
-        batchSize, inputHeight, inputWidth, kernelHeight, kernelWidth,
-        strideHeight, strideWidth, paddingHeight, paddingWidth, dilationHeight,
-        dilationWidth, groups);
+    ttnn::Conv2dOp newConv = ttmlir::utils::createDPSOp<ttnn::Conv2dOp>(
+        rewriter, op.getLoc(), outputType, flattenedInput, adaptor.getWeight(),
+        adaptor.getBias(), device, inChannels, outChannels, batchSize,
+        inputHeight, inputWidth, kernelHeight, kernelWidth, strideHeight,
+        strideWidth, paddingHeight, paddingWidth, dilationHeight, dilationWidth,
+        groups);
 
     Value output =
         ttir_to_ttnn::utils::generateReshape(newConv, outputShape, rewriter);
