@@ -7,6 +7,9 @@ inputs:
   enable-op-model:
     description: "Enable op model interface tests"
     required: true
+  enable-emitc:
+    description: "Enable EmitC tests"
+    required: true
   build-name:
     description: "A unique name for this build (e.g., 'run' or 'perf')"
     required: true
@@ -87,10 +90,18 @@ runs:
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 
+    - name: Compile dylibs and install for EmitC
+      shell: bash
+      if: inputs.enable-emitc == 'ON'
+      run: |
+        # TODO: set some env vars so that llvm-lit works?
+        # TODO: Compile dylibs
+        cmake --install ${{ inputs.build-output-dir }} --component EmitCTestLibs
+
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}
+        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-${{ inputs.enable-emitc }}
         path: ${{ inputs.test_report_path }}
 
 

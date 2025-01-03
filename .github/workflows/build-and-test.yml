@@ -97,8 +97,9 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, name: "run", ttrt_flags: ""},
-          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: OFF, name: "run", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: ON, enable_op_model: OFF, enable_emitc: OFF, name: "perf", ttrt_flags: ""},
+          {runs-on: ubuntu-latest, enable_perf: OFF, enable_op_model: OFF, enable_emitc: ON, name: "emitc", ttrt_flags: ""},
         ]
 
     name: Build and test tt-mlir (compute machine)
@@ -117,7 +118,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.name }})"
+        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -146,6 +147,7 @@ jobs:
       with:
         enable-perf: ${{ matrix.build.enable_perf }}
         enable-op-model: ${{ matrix.build.enable_op_model }}
+        enable-emitc: ${{ matrix.build.enable_emitc }}
         build-name: ${{ matrix.build.name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
@@ -164,13 +166,13 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, emitc: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, emitc: OFF, name: "perf"},
-          {runs-on: n150, enable_perf: OFF, emitc: ON, name: "run", ttrt_flags: "--emitc"},
-          {runs-on: n300, enable_perf: OFF, emitc: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, emitc: OFF, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, name: "run", build_name: "emitc", ttrt_flags: "--emitc"},
+          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.emitc }}, ${{ matrix.build.name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
 
     runs-on:
       - in-service
@@ -195,7 +197,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.emitc }}, ${{ matrix.build.name }})"
+        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -217,7 +219,7 @@ jobs:
     - name: Use build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.name }}
+        name: install-artifacts-${{ matrix.build.build_name }}
         path: ${{ steps.strings.outputs.install-output-dir }}
 
     # This is needed to preserve file permissions
@@ -235,7 +237,7 @@ jobs:
     - name: Download ttrt run whls
       uses: actions/download-artifact@v4
       with:
-        name: ttrt-whl-${{ matrix.build.name }}
+        name: ttrt-whl-${{ matrix.build.build_name }}
 
     - name: Install ttrt run whls
       shell: bash
@@ -257,13 +259,20 @@ jobs:
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test --filter-out 'ttmlir/EmitC/TTNN/.*'
+
+    - name: Generate EmitC tests
+      shell: bash
+      if: matrix.build.enable_emitc == 'ON'
+      run: |
+        source env/activate
         mkdir -p ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal
         ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/ ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src
-        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
+        llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTTN
 
     - name: Run functional tests
       shell: bash
-      if: matrix.build.enable_perf == 'OFF' && matrix.build.emitc == 'OFF'
+      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_emitc == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
@@ -278,7 +287,7 @@ jobs:
 
     - name: Run emitc tests
       shell: bash
-      if: matrix.build.emitc == 'ON'
+      if: matrix.build.enable_emitc == 'ON'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC
@@ -287,8 +296,8 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.emitc }}_${{ matrix.build.name }}_results.json
-        path: ${{ matrix.build.name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.enable_perf }}_${{ matrix.build.enable_emitc }}_${{ matrix.build.build_name }}_results.json
+        path: ${{ matrix.build.build_name }}_results.json
 
     - name: Upload Test Report xml
       uses: actions/upload-artifact@v4
@@ -302,7 +311,7 @@ jobs:
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.test_report_path }}
-        check_name: TTRT ${{ matrix.build.runs-on }} ${{ matrix.build.name }} Tests
+        check_name: TTRT ${{ matrix.build.runs-on }} ${{ matrix.build.build_name }} Tests
 
   run-ttrt-tests:
 
@@ -341,7 +350,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+        job-name: "${{ github.job }} (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -362,7 +371,7 @@ jobs:
     - name: Use build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.name }}
+        name: install-artifacts-${{ matrix.build.build_name }}
         path: ${{ steps.strings.outputs.install-output-dir }}
 
     # This is needed to preserve file permissions
@@ -380,7 +389,7 @@ jobs:
     - name: Download ttrt run whls
       uses: actions/download-artifact@v4
       with:
-        name: ttrt-whl-${{ matrix.build.name }}
+        name: ttrt-whl-${{ matrix.build.build_name }}
 
     - name: Install ttrt run whls
       shell: bash
@@ -416,7 +425,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: success() || failure()
       with:
-        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.name }}
+        name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.build_name }}
         path: ${{ steps.strings.outputs.test_report_path }}
 
     - name: Show Test Report
@@ -472,7 +481,7 @@ jobs:
     - name: Use build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: install-artifacts-${{ matrix.build.name }}
+        name: install-artifacts-${{ matrix.build.build_name }}
         path: ${{ steps.strings.outputs.install-output-dir }}
 
     # This is needed to preserve file permissions
@@ -490,7 +499,7 @@ jobs:
     - name: Download ttrt run whls
       uses: actions/download-artifact@v4
       with:
-        name: ttrt-whl-${{ matrix.build.name }}
+        name: ttrt-whl-${{ matrix.build.build_name }}
 
     # Runtime tests currently require ttrt whls to be installed
     - name: Install ttrt run whls
@@ -606,7 +615,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, name: "op_model" , ttrt_flags: ""}
+          {runs-on: n300, enable_perf: OFF, enable_op_model: ON, enable_emitc: OFF, name: "op_model", build_name: "op_model", ttrt_flags: ""}
         ]
 
     name: Run build and test tt-mlir (TT machine)
@@ -632,7 +641,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.name }})"
+        job-name: "Build tt-mlir (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_op_model }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -654,7 +663,7 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
-        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ env.SDK_VERSION }}
+        key: ${{ matrix.build.runs-on }}-run-ON-perf-${{ matrix.build.enable_perf }}-op_model-${{ matrix.build.enable_op_model }}-${{ matrix.build.enable_emitc }}-${{ env.SDK_VERSION }}
 
     # Build project
     - name: Run build and test tt-mlir
@@ -662,7 +671,8 @@ jobs:
       with:
         enable-perf: ${{ matrix.build.enable_perf }}
         enable-op-model: ${{ matrix.build.enable_op_model }}
-        build-name: ${{ matrix.build.name }}
+        enable-emitc: ${{ matrix.build.enable_emitc }}
+        build-name: ${{ matrix.build.build_name }}
         build-output-dir: ${{ steps.strings.outputs.build-output-dir }}
         install-output-dir: ${{ steps.strings.outputs.install-output-dir }}
         work-dir: ${{ steps.strings.outputs.work-dir }}
