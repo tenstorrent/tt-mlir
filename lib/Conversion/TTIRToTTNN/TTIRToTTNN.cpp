@@ -1150,51 +1150,39 @@ public:
            "separately");
 
     auto device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    llvm::ArrayRef<std::int64_t> inputShape = inputType.getShape();
 
-    auto batch_size =
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 4]);
-    auto channels =
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
+    auto batchSize = static_cast<int32_t>(inputShape[inputShape.size() - 4]);
+    auto channels = static_cast<int32_t>(inputShape[inputShape.size() - 1]);
 
     Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
         mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
         rewriter);
 
-    auto output_ty =
+    auto outputType =
         mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
-    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+    llvm::ArrayRef<std::int64_t> outputShape = outputType.getShape();
 
-    std::vector<int64_t> flattenedOutputShape = {
-        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
-        output_shape[3]};
+    llvm::SmallVector<int64_t> flattenedOutputShape{
+        1, 1, outputShape[0] * outputShape[1] * outputShape[2], outputShape[3]};
 
-    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+    outputType = mlir::RankedTensorType::get(flattenedOutputShape,
+                                             outputType.getElementType(),
+                                             outputType.getEncoding());
 
-    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
-    // attribute determination
-    auto poolDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
-        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
-        output_ty.getElementType());
-
-    // Must set the type to the output type to maintain the layout attributes
-    poolDPSOutput.getResult().setType(output_ty);
-
-    auto new_pool = rewriter.create<ttnn::MaxPool2dOp>(
-        op.getLoc(), output_ty, flattenedInput, poolDPSOutput, device,
-        batch_size,
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 3]),
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 2]),
-        channels, adaptor.getKernelHeightAttr(), adaptor.getKernelWidthAttr(),
-        adaptor.getStrideHeightAttr(), adaptor.getStrideWidthAttr(),
-        adaptor.getDilationHeightAttr(), adaptor.getDilationWidthAttr(),
-        adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
-        adaptor.getPaddingRightAttr());
+    auto newPool = ttmlir::utils::createDPSOp<ttnn::MaxPool2dOp>(
+        rewriter, op.getLoc(), outputType, flattenedInput, device, batchSize,
+        static_cast<int32_t>(inputShape[inputShape.size() - 3]),
+        static_cast<int32_t>(inputShape[inputShape.size() - 2]), channels,
+        adaptor.getKernelHeight(), adaptor.getKernelWidth(),
+        adaptor.getStrideHeight(), adaptor.getStrideWidth(),
+        adaptor.getDilationHeight(), adaptor.getDilationWidth(),
+        adaptor.getCeilMode(), adaptor.getPaddingTop(),
+        adaptor.getPaddingRight());
 
     Value output =
-        ttir_to_ttnn::utils::generateReshape(new_pool, output_shape, rewriter);
+        ttir_to_ttnn::utils::generateReshape(newPool, outputShape, rewriter);
 
     rewriter.replaceOp(op, output);
 
