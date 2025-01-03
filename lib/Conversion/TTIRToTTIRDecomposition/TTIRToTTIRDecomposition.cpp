@@ -8,7 +8,12 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
+
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -18,6 +23,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <llvm/ADT/ArrayRef.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -622,6 +629,206 @@ struct GatherToEmbeddingConversionPattern
   }
 };
 
+struct DotGeneralToMatmulConversionPattern
+    : public OpConversionPattern<ttir::DotGeneralOp> {
+  using OpConversionPattern<ttir::DotGeneralOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DotGeneralOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Value lhs = adaptor.getA();
+    auto lhsType = mlir::cast<RankedTensorType>(lhs.getType());
+    int64_t lhsRank = lhsType.getRank();
+    SmallVector<int64_t> lhsBatchDims(op.getBatchDimsA().begin(),
+                                      op.getBatchDimsA().end());
+    SmallVector<int64_t> lhsContractDims(op.getContractDimsA().begin(),
+                                         op.getContractDimsA().end());
+
+    Value rhs = adaptor.getB();
+    auto rhsType = mlir::cast<RankedTensorType>(rhs.getType());
+    int64_t rhsRank = rhsType.getRank();
+    SmallVector<int64_t> rhsBatchDims(op.getBatchDimsB().begin(),
+                                      op.getBatchDimsB().end());
+    SmallVector<int64_t> rhsContractDims(op.getContractDimsB().begin(),
+                                         op.getContractDimsB().end());
+
+    SmallVector<int64_t> lhsResultDims =
+        getResultDims(lhsBatchDims, lhsContractDims, lhsRank, lhsType);
+    SmallVector<int64_t> rhsResultDims =
+        getResultDims(rhsBatchDims, rhsContractDims, rhsRank, rhsType);
+
+    // Compute permutation for lhs and rhs to get the desired layout
+    // For lhs: (batch dims, result dims, contract dims)
+    // For rhs: (batch dims, contract dims, result dims)
+
+    SmallVector<int64_t> lhsPermutation =
+        getPermutation(lhsBatchDims, lhsResultDims, lhsContractDims);
+    SmallVector<int64_t> rhsPermutation =
+        getPermutation(rhsBatchDims, rhsContractDims, rhsResultDims);
+
+    // Apply these permutations to lhs and rhs
+
+    auto [lhsDestination, lhsPermute] =
+        createPermuteOp(rewriter, op.getLoc(), lhs, lhsType, lhsPermutation);
+    auto [rhsDestination, rhsPermute] =
+        createPermuteOp(rewriter, op.getLoc(), rhs, rhsType, rhsPermutation);
+
+    // Compute final shape for lhs and rhs
+    // for lhs (batch dims, prod(result dims), prod(contract dims))
+    // for rhs (batch dims, prod(contract dims), prod(result dims))
+
+    SmallVector<int64_t> lhsFinalShape = computeFinalShape(
+        lhsType, lhsBatchDims, lhsResultDims, lhsContractDims, rewriter);
+    SmallVector<int64_t> rhsFinalShape = computeFinalShape(
+        rhsType, rhsBatchDims, rhsContractDims, rhsResultDims, rewriter);
+
+    // Apply this reshape to lhs and rhs to adapt to matmul op
+    // For lhs: (batch dims, prod(result dims), prod(contract dims))
+    // For rhs: (batch dims, prod(contract dims), prod(result dims))
+
+    auto [lhsFinalDestination, lhsFinal] = createFinalOps(
+        rewriter, op.getLoc(), lhsPermute, lhsType, lhsFinalShape);
+    auto [rhsFinalDestination, rhsFinal] = createFinalOps(
+        rewriter, op.getLoc(), rhsPermute, rhsType, rhsFinalShape);
+
+    // Get shape of matmul op result
+
+    SmallVector<int64_t> matmulDestinationShape;
+    for (auto dim : lhsBatchDims) {
+      matmulDestinationShape.push_back(lhsType.getShape()[dim]);
+    }
+    matmulDestinationShape.push_back(
+        computeProductOfDims(lhsType, lhsResultDims));
+    matmulDestinationShape.push_back(
+        computeProductOfDims(rhsType, rhsResultDims));
+
+    auto matmulDestination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), matmulDestinationShape, lhsType.getElementType());
+
+    // Perform matmul operation
+
+    auto matmul = rewriter.create<ttir::MatmulOp>(
+        op.getLoc(), matmulDestination.getType(), lhsFinal, rhsFinal,
+        matmulDestination);
+
+    // Reshape the result by unrolling the prod(lhsResultDims) to original
+    // lhsResultDims and likewise for rhsResultDims
+
+    SmallVector<int64_t> resultShape;
+    for (auto dim : lhsBatchDims) {
+      resultShape.push_back(lhsType.getShape()[dim]);
+    }
+    for (auto dim : lhsResultDims) {
+      resultShape.push_back(lhsType.getShape()[dim]);
+    }
+    for (auto dim : rhsResultDims) {
+      resultShape.push_back(rhsType.getShape()[dim]);
+    }
+
+    auto [resultDestination, reshapeResult] =
+        createFinalOps(rewriter, op.getLoc(), matmul, lhsType, resultShape);
+
+    rewriter.replaceOp(op, reshapeResult);
+
+    return success();
+  }
+  SmallVector<int64_t> getResultDims(const SmallVector<int64_t> &batchDims,
+                                     const SmallVector<int64_t> &contractDims,
+                                     int64_t rank,
+                                     const RankedTensorType &type) const {
+
+    llvm::SmallDenseSet<int64_t> allDims;
+    for (int64_t i = 0; i < rank; i++) {
+      allDims.insert(i);
+    }
+
+    // Remove batch and contract dims
+    for (auto dim : batchDims) {
+      allDims.erase(dim);
+    }
+    for (auto dim : contractDims) {
+      allDims.erase(dim);
+    }
+
+    return SmallVector<int64_t>(allDims.begin(), allDims.end());
+  }
+  SmallVector<int64_t> getPermutation(const SmallVector<int64_t> &batchDims,
+                                      const SmallVector<int64_t> &dims1,
+                                      const SmallVector<int64_t> &dims2) const {
+
+    SmallVector<int64_t> permutation;
+    permutation.append(batchDims.begin(), batchDims.end());
+    permutation.append(dims1.begin(), dims1.end());
+    permutation.append(dims2.begin(), dims2.end());
+
+    return permutation;
+  }
+
+  std::pair<Value, Value>
+  createPermuteOp(PatternRewriter &rewriter, Location loc, Value input,
+                  const RankedTensorType &inputType,
+                  const SmallVector<int64_t> &permutation) const {
+
+    SmallVector<int64_t> destination_shape =
+        ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+
+    auto destination = rewriter.create<tensor::EmptyOp>(
+        loc, destination_shape, inputType.getElementType());
+
+    auto permute = rewriter.create<ttir::PermuteOp>(
+        loc, destination.getType(), input, destination, permutation);
+
+    return {destination, permute};
+  }
+
+  SmallVector<int64_t>
+  computeFinalShape(const RankedTensorType &tensorType,
+                    const SmallVector<int64_t> &batchDims,
+                    const SmallVector<int64_t> &contractDims,
+                    const SmallVector<int64_t> &resultDims,
+                    ConversionPatternRewriter &rewriter) const {
+
+    SmallVector<int64_t> finalShape;
+
+    // Add the batch dimensions
+    for (auto dim : batchDims) {
+      finalShape.push_back(tensorType.getShape()[dim]);
+    }
+
+    // Add the result and contract product dimensions
+    finalShape.push_back(computeProductOfDims(tensorType, contractDims));
+    finalShape.push_back(computeProductOfDims(tensorType, resultDims));
+
+    return finalShape;
+  }
+  std::pair<Value, Value>
+  createFinalOps(PatternRewriter &rewriter, Location loc, Value permute,
+                 const RankedTensorType &type,
+                 const SmallVector<int64_t> &final_shape) const {
+
+    llvm::SmallVector<int32_t> final_shape_i32(final_shape.begin(),
+                                               final_shape.end());
+
+    auto final_destination = rewriter.create<tensor::EmptyOp>(
+        loc, final_shape, type.getElementType());
+
+    auto final_op = rewriter.create<ttir::ReshapeOp>(
+        loc, mlir::RankedTensorType::get(final_shape, type.getElementType()),
+        permute, final_destination, rewriter.getI32ArrayAttr(final_shape_i32));
+
+    return {final_destination, final_op};
+  }
+  int64_t computeProductOfDims(const RankedTensorType &tensorType,
+                               const ArrayRef<int64_t> &dims) const {
+    int64_t product = 1;
+    for (auto dim : dims) {
+      product *= tensorType.getShape()[dim];
+    }
+    return product;
+  }
+};
+
 struct PoolingToPool2dPattern : public OpConversionPattern<ttir::PoolingOp> {
 public:
   using OpConversionPattern<ttir::PoolingOp>::OpConversionPattern;
@@ -1095,6 +1302,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<GatherToEmbeddingConversionPattern>(typeConverter, ctx);
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
+  patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

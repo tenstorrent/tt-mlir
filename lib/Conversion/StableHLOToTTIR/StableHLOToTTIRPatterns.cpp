@@ -128,6 +128,31 @@ private:
   }
 };
 
+class StableHLOToTTIRDotGeneralOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
+  using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
+                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::DotGeneralOp>(
+        srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
+        adaptor.getDotDimensionNumbers().getLhsBatchingDimensions(),
+        adaptor.getDotDimensionNumbers().getLhsContractingDimensions(),
+        adaptor.getDotDimensionNumbers().getRhsBatchingDimensions(),
+        adaptor.getDotDimensionNumbers().getRhsContractingDimensions());
+    return success();
+  }
+};
+
 class StableHLOToTTIRTransposeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::TransposeOp> {
   using OpConversionPattern<mlir::stablehlo::TransposeOp>::OpConversionPattern;
@@ -171,125 +196,6 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::ReshapeOp>(
         srcOp, getTypeConverter()->convertType(outputTensor.getType()),
         adaptor.getOperand(), outputTensor, new_shape_attr);
-    return success();
-  }
-};
-
-class StableHLOToTTIRDotGeneralOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
-  using OpConversionPattern<mlir::stablehlo::DotGeneralOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::DotGeneralOp srcOp,
-                  mlir::stablehlo::DotGeneralOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    // This is a basic version that can only work for cases that can be directly
-    // converted to matmul. The op should be extended as other ops such as
-    // ttir.permute and ttir.broadcast_in_dim become available.
-
-    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
-    if (!legalityResult.succeeded()) {
-      return legalityResult;
-    }
-
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        adaptor.getLhs(), adaptor.getRhs(), Value(outputTensor));
-    return success();
-  }
-
-private:
-  LogicalResult
-  checkBasicLegality(mlir::stablehlo::DotGeneralOp &srcOp,
-                     mlir::stablehlo::DotGeneralOp::Adaptor &adaptor,
-                     ConversionPatternRewriter &rewriter) const {
-
-    ::mlir::stablehlo::DotDimensionNumbersAttr dimensions =
-        adaptor.getDotDimensionNumbers();
-
-    if (dimensions.getLhsContractingDimensions().size() != 1 ||
-        dimensions.getRhsContractingDimensions().size() != 1) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "LHS and RHS must have exactly 1 contracting dimension each. "
-          "Received LHS contracting dims: " +
-              std::to_string(dimensions.getLhsContractingDimensions().size()) +
-              ", RHS contracting dims: " +
-              std::to_string(dimensions.getRhsContractingDimensions().size()));
-    }
-
-    // Use negative indexing to determine if this is a valid matmul since math
-    // is done over the final two dimensions.
-    int64_t lhsContractingDim = dimensions.getLhsContractingDimensions()[0] -
-                                srcOp.getLhs().getType().getRank();
-    int64_t rhsContractingDim = dimensions.getRhsContractingDimensions()[0] -
-                                srcOp.getRhs().getType().getRank();
-
-    if (lhsContractingDim != -1) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only support contracting dimensions that correspond to valid "
-                 "matmuls. LHS contracting dimension must be " +
-                     std::to_string(srcOp.getLhs().getType().getRank() - 1) +
-                     ". Got " + std::to_string(lhsContractingDim));
-    }
-
-    if (rhsContractingDim != -2) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "Only support contracting dimensions that correspond to valid "
-                 "matmuls. RHS contracting dimension must be " +
-                     std::to_string(srcOp.getRhs().getType().getRank() - 2) +
-                     ". Got " + std::to_string(rhsContractingDim));
-    }
-
-    if (dimensions.getLhsBatchingDimensions() !=
-        dimensions.getRhsBatchingDimensions()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "LHS and RHS must have same batching dimensions.");
-    }
-
-    // For the RHS, all dimensions which are not the row and column dimensions
-    // must be 1 OR they must be equal to the corresponding dimension in the
-    // LHS. If the RHS has less dimensions than the LHS we will assume that the
-    // missing dimensions are 1.
-
-    auto lhsShape = srcOp.getLhs().getType().getShape().vec();
-    auto rhsShape = srcOp.getRhs().getType().getShape().vec();
-
-    if (rhsShape.size() > lhsShape.size()) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "RHS must not be a higher rank than LHS.");
-    }
-
-    while (rhsShape.size() < lhsShape.size()) {
-      rhsShape.insert(rhsShape.begin(), 1);
-    }
-
-    // Need only to check dims to the left of dim -2 on the RHS
-    bool allOnes = true;
-    bool mismatchedDims = false;
-    for (int32_t i = rhsShape.size() - 3; i >= 0; i--) {
-      if (rhsShape[i] != 1) {
-        allOnes = false;
-      }
-
-      if (rhsShape[i] != lhsShape[i]) {
-        mismatchedDims = true;
-      }
-    }
-
-    if (mismatchedDims && !allOnes) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "All dimensions in the RHS that are not the row and column "
-                 "dimensions must be 1 OR they must all be equal to the "
-                 "corresponding dimensions in the LHS.");
-    }
-
     return success();
   }
 };
@@ -1787,9 +1693,9 @@ void addReduceOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<StableHLOToTTIRReduceOpConversionPattern>(typeConverter, ctx);
 }
 
-void addMatmulOpsConversionPatterns(MLIRContext *ctx,
-                                    RewritePatternSet &patterns,
-                                    TypeConverter &typeConverter) {
+void addDotGeneralOpConversionPatterns(MLIRContext *ctx,
+                                       RewritePatternSet &patterns,
+                                       TypeConverter &typeConverter) {
   patterns.add<StableHLOToTTIRDotGeneralOpConversionPattern>(typeConverter,
                                                              ctx);
 }
@@ -1928,7 +1834,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addElementwiseUnaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReduceOpsConversionPatterns(ctx, patterns, typeConverter);
-  addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
+  addDotGeneralOpConversionPatterns(ctx, patterns, typeConverter);
   addGetDimensionSizeOpsConversionPatterns(ctx, patterns, typeConverter);
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
