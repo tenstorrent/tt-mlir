@@ -1152,15 +1152,9 @@ public:
 
     assert(!slices.empty());
     if (slices.size() > 1) {
-      // TODO (azecevic): ValueRange
-      auto concatDpsResult = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), outputType.getShape(), outputType.getElementType());
-
-      auto concatOp = rewriter.create<ttir::ConcatOp>(
-          op.getLoc(), outputType, slices, concatDpsResult,
-          rewriter.getSI32IntegerAttr(dim));
-
-      rewriter.replaceOp(op, concatOp.getResult());
+      auto concatOp = ttmlir::utils::createDPSOp<ttir::ConcatOp>(
+          rewriter, op.getLoc(), outputType, slices, dim);
+      rewriter.replaceOp(op, concatOp);
     } else {
       rewriter.replaceOp(op, slices[0]);
     }
