@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTMetalDialect
+add_mlir_dialect_library(TTMLIRTTMetalDialect
         TTMetalDialect.cpp
         TTMetalOps.cpp
         TTMetalOpsTypes.cpp

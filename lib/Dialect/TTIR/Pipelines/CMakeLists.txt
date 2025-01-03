@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTIRPipelines
+add_mlir_dialect_library(TTMLIRTTIRPipelines
   TTIRPipelines.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -17,7 +17,7 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   MLIRReconcileUnrealizedCasts
   MLIRSCFToControlFlow
   MLIRTensorToLinalg
-  MLIRTTIRDialect
+  TTMLIRTTIRDialect
   MLIRPass
   MLIRTransforms
 )

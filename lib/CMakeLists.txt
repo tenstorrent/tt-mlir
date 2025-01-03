@@ -15,18 +15,18 @@ if (TTMLIR_ENABLE_SHARED_LIB)
 endif()
 
 set(link_libs
-MLIRTTDialect
-MLIRTTIRDialect
-MLIRTTIRTransforms
+TTMLIRTTDialect
+TTMLIRTTIRDialect
+TTMLIRTTIRTransforms
 TTMLIRConversions
-MLIRTTNNAnalysis
-MLIRTTNNDialect
-MLIRTTNNTransforms
-MLIRTTKernelDialect
-MLIRTTMetalDialect
-MLIRTTIRPipelines
-MLIRTTNNPipelines
-MLIRTTMetalPipelines
+TTMLIRTTNNAnalysis
+TTMLIRTTNNDialect
+TTMLIRTTNNTransforms
+TTMLIRTTKernelDialect
+TTMLIRTTMetalDialect
+TTMLIRTTIRPipelines
+TTMLIRTTNNPipelines
+TTMLIRTTMetalPipelines
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
