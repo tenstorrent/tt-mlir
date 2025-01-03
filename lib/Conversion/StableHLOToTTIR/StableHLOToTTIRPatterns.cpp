@@ -1548,47 +1548,38 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    Value min = adaptor.getMin();
-    Value max = adaptor.getMax();
-    Operation *minDefiningOp = min.getDefiningOp();
-    Operation *maxDefiningOp = max.getDefiningOp();
-    if (minDefiningOp && maxDefiningOp &&
-        isa<mlir::tt::ttir::ConstantOp>(minDefiningOp) &&
-        isa<mlir::tt::ttir::ConstantOp>(maxDefiningOp)) {
-      mlir::ElementsAttr minValAttr =
-          mlir::cast<mlir::tt::ttir::ConstantOp>(minDefiningOp).getValueAttr();
-      mlir::ElementsAttr maxValAttr =
-          mlir::cast<mlir::tt::ttir::ConstantOp>(maxDefiningOp).getValueAttr();
-      if (minValAttr.isSplat() && maxValAttr.isSplat()) {
-        float minValue =
-            minValAttr.getElementType().isInteger()
-                ? static_cast<float>(minValAttr.getSplatValue<int>())
-                : minValAttr.getSplatValue<float>();
-        float maxValue =
-            maxValAttr.getElementType().isInteger()
-                ? static_cast<float>(maxValAttr.getSplatValue<int>())
-                : maxValAttr.getSplatValue<float>();
-        rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
-            srcOp,
-            this->getTypeConverter()->convertType(outputTensor.getType()),
-            Value(adaptor.getOperand()), Value(outputTensor),
-            rewriter.getF32FloatAttr(minValue),
-            rewriter.getF32FloatAttr(maxValue));
 
-        return success();
-      }
+    if (std::optional<float> minValue = getConstantValue(adaptor.getMin()),
+        maxValue = getConstantValue(adaptor.getMax());
+        minValue && maxValue) {
+      ttmlir::utils::replaceOpWithNewDPSOp<ttir::ClampOp>(
+          rewriter, srcOp, outputType, adaptor.getOperand(),
+          mlir::APFloat(*minValue), mlir::APFloat(*maxValue));
+
+      return success();
     }
 
-    ttir::MaximumOp maximumOp = rewriter.create<mlir::tt::ttir::MaximumOp>(
-        srcOp->getLoc(), min, adaptor.getOperand(), outputTensor);
+    ttir::MaximumOp maximumOp = ttmlir::utils::createDPSOp<ttir::MaximumOp>(
+        rewriter, srcOp->getLoc(), outputType, adaptor.getMin(),
+        adaptor.getOperand());
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::MinimumOp>(
+        rewriter, srcOp, outputType, maximumOp.getResult(0), adaptor.getMax());
 
-    tensor::EmptyOp finalOutputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinimumOp>(
-        srcOp, maximumOp->getResult(0), max, finalOutputTensor);
     return success();
+  }
+
+private:
+  std::optional<float> getConstantValue(Value value) const {
+    if (auto constantOp = value.getDefiningOp<ttir::ConstantOp>()) {
+      auto attr = constantOp.getValueAttr();
+      if (!attr.isSplat()) {
+        return {};
+      }
+      return attr.getElementType().isInteger()
+                 ? static_cast<float>(attr.getSplatValue<int>())
+                 : attr.getSplatValue<float>();
+    }
+    return {};
   }
 };
 } // namespace

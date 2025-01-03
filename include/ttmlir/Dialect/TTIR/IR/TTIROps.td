@@ -480,6 +480,10 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
       [{
         build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
+      }]>,
+      OpBuilder<(ins "Type":$outputType, "Value": $lhs, "Value": $rhs, "Value": $out),
+      [{
+        build($_builder, $_state, {outputType}, {lhs, rhs}, out);
       }]>
     ];
 }
