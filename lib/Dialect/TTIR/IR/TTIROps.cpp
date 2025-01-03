@@ -384,6 +384,28 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// RepeatOp
+//===----------------------------------------------------------------------===//
+
+// RepeatOp verification
+::mlir::LogicalResult mlir::tt::ttir::RepeatOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Check that the input rank matches the rank of the output tensor
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("Input tensor rank should match output tensor rank.");
+  }
+
+  llvm::SmallVector<int64_t> broadcastedShape;
+  if (!OpTrait::util::getBroadcastedShape(
+          inputType.getShape(), outputType.getShape(), broadcastedShape)) {
+    return emitOpError("Operands are not broadcast compatible");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // SliceOp
 //===----------------------------------------------------------------------===//
 

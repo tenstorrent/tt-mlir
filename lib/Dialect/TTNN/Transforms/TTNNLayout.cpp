@@ -297,9 +297,9 @@ public:
         continue;
       }
 
-      // If the operand is a BroadcastOp or a ToLayout op do not put a
+      // If the operand is a RepeatOp or a ToLayout op do not put a
       // ToLayoutOp on its output
-      if (operand.get().getDefiningOp<ttir::BroadcastOp>() ||
+      if (operand.get().getDefiningOp<ttir::RepeatOp>() ||
           operand.get().getDefiningOp<ttir::ToLayoutOp>()) {
         continue;
       }
