@@ -272,11 +272,6 @@ jobs:
         ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
         ln -sf ${{ steps.strings.outputs.work-dir }}/install/third_party/tt-metal/src/ ${{ steps.strings.outputs.work-dir }}/third_party/tt-metal/src
         llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/EmitC/TTNN
-        echo STARTING HERE
-        tree
-        echo ${{ steps.strings.outputs.build-output-dir }}
-        # ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        # llvm-lit -sv ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Run functional tests
       shell: bash
