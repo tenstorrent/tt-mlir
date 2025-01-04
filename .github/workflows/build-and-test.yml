@@ -323,7 +323,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: ON, name: "perf", build_name: "perf"},
         ]
 
     runs-on:
@@ -445,7 +445,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run"},
+          {runs-on: n150, enable_perf: OFF, name: "run", build_name: "run"},
         ]
 
     runs-on:
