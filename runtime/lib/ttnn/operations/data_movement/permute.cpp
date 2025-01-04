@@ -16,8 +16,8 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 
-  std::vector<int64_t> permutation(op->permutation()->begin(),
-                                   op->permutation()->end());
+  ::ttnn::SmallVector<int64_t> permutation(op->permutation()->begin(),
+                                           op->permutation()->end());
   std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
       op->memory_config() ? std::make_optional(utils::createMemoryConfig(
                                 op->memory_config(), op->out()))
