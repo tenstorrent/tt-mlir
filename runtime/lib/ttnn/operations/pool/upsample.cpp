@@ -15,15 +15,15 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
   DEBUG_ASSERT(input.is_allocated());
 
   std::variant<int32_t, std::array<uint32_t, 2>> scaleFactor;
-  if (op->scale_factor_type() ==
-      ::tt::target::ttnn::Scale2D::NonUniformScale2D) {
+  if (op->scale_factor_type() == ::tt::target::ttnn::Scale2D::UniformScale2D) {
     scaleFactor = op->scale_factor_as_UniformScale2D()->scale();
   } else if (op->scale_factor_type() ==
-             ::tt::target::ttnn::Scale2D::UniformScale2D) {
-    std::array<uint32_t, 2> scale;
+             ::tt::target::ttnn::Scale2D::NonUniformScale2D) {
+    std::array<uint32_t, 2> scaleHW;
     const ::flatbuffers::Vector<int32_t> *fbScaleFactor =
         op->scale_factor_as_NonUniformScale2D()->scale();
-    std::copy(fbScaleFactor->begin(), fbScaleFactor->end(), scale.begin());
+    std::copy(fbScaleFactor->begin(), fbScaleFactor->end(), scaleHW.begin());
+    scaleFactor = scaleHW;
   } else {
     DEBUG_ASSERT(false);
   }
