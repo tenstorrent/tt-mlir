@@ -503,6 +503,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
+  assert(false && "KCM Testing");
+
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;
   inputsWithLayout.reserve(inputHandles.size());
