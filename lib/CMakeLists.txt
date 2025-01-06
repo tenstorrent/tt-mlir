@@ -1,6 +1,3 @@
-include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
-include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
-
 add_subdirectory(OpModel)
 add_subdirectory(CAPI)
 add_subdirectory(Conversion)
@@ -30,7 +27,7 @@ MLIRTTMetalPipelines
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)
-list(APPEND link_libs StablehloRegister)
+list(APPEND link_libs StablehloRegister SdyRegister)
 endif()
 
 add_mlir_library(TTMLIRStatic STATIC RegisterAll.cpp

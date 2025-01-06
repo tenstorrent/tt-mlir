@@ -1,5 +1,3 @@
-include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
-include_directories(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo-build)
 include_directories(${TTMLIR_SOURCE_DIR}/include)
 
 set(LLVM_TARGET_DEFINITIONS Passes.td)
