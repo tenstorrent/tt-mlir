@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttir-cpu-hoist-transform %s | FileCheck %s
-
+module {
 func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %0 = tensor.empty() : tensor<32x32xbf16>
   // CHECK: %{{.*}} = call @hoisted_ttir.add_32x32xbf16_32x32xbf16_32x32xbf16_func
@@ -35,3 +35,4 @@ func.func @add4(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<
 // CHECK: func.func private @hoisted_ttir.add_32x32xbf16_32x32xbf16_32x32xbf16_func
 // CHECK: func.func private @hoisted_ttir.add_32x32xf32_32x32xf32_32x32xf32_func
 // CHECK: func.func private @hoisted_ttir.add_32x3xf32_32x3xf32_32x3xf32_func
+}

@@ -8,22 +8,22 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
-
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h" // For LLVM Dialect definitions
-#include "mlir/Dialect/LLVMIR/LLVMTypes.h" // For LLVM Type support (e.g., LLVMStructType, LLVMPointerType)
-
-#include "llvm/ADT/ArrayRef.h"    // For ArrayRef
-#include "llvm/ADT/SmallVector.h" // For SmallVector
-#include "llvm/Support/Casting.h" // For dyn_cast
-
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
+
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 
 namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITHELPERFUNCS
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
-void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
+void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
 
@@ -38,7 +38,7 @@ void generateLLVMHelpersForArgRanks(mlir::ModuleOp moduleOp) {
       continue;
     }
 
-    builder.setInsertionPointToEnd(moduleOp.getBody());
+    builder.setInsertionPointToEnd(&moduleOp.getBody().front());
 
     // Define the helper function name and type
     llvm::SmallString<32> helperName(func.getName());

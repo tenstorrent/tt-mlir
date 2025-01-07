@@ -492,6 +492,12 @@ public:
 
     // Create MemoryConfig object first, then pass it to the op
     //
+    llvm::outs() << "doing ttnn_to_emitc::utils::createMemoryConfigOp() for:\n";
+    srcOp->dump();
+    if (!srcOp.getMemoryConfig())
+    {
+      llvm::outs() << "did not find a memoryConfig though!\n";
+    }
     emitc::CallOpaqueOp memCfgOp = ttnn_to_emitc::utils::createMemoryConfigOp(
         rewriter, srcOp.getMemoryConfig(), srcOp.getLoc());
 

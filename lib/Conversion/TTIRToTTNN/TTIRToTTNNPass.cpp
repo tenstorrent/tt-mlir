@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -15,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -35,6 +37,8 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
+    target.addLegalDialect<tt::TTDialect>();
+    target.addLegalDialect<linalg::LinalgDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     TypeConverter typeConverter;
@@ -44,10 +48,10 @@ struct ConvertTTIRToTTNNPass
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTNNPatterns(&getContext(), patterns, typeConverter);
 
-    // Apply full conversion
+    // Apply partial conversion
     //
     if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+            applyPartialConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }

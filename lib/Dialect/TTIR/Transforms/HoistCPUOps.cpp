@@ -217,6 +217,12 @@ public:
     TTIRHoistAnalyze analysisPass(moduleOp);
     const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
+    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
+    if (hoistOpSets.empty())
+    {
+      return;
+    }
+
     // Check if a "cpu_module" already exists.
     tt::CPUModuleOp cpuModule;
     for (auto &op : moduleOp.getBody()->getOperations()) {

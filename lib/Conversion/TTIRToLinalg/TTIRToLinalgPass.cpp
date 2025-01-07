@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TT/IR/TT.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -36,10 +37,9 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<tensor::TensorDialect>();
     target.addLegalDialect<linalg::LinalgDialect>();
     target.addLegalDialect<arith::ArithDialect>();
+    target.addLegalDialect<tt::TTDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
-    target.addLegalOp<mlir::linalg::AddOp>();
-    target.markOpRecursivelyLegal<mlir::linalg::AddOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.
@@ -68,7 +68,7 @@ struct ConvertTTIRToLinalgPass
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToLinalgPass() {
+std::unique_ptr<OperationPass<tt::CPUModuleOp>> createConvertTTIRToLinalgPass() {
   return std::make_unique<ConvertTTIRToLinalgPass>();
 }
 

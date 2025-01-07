@@ -208,11 +208,24 @@ emitc::CallOpaqueOp createMemoryConfigOp(ConversionPatternRewriter &rewriter,
   //
   // TODO(svuckovic): (#620) Currently missing ShardSpec
   //
-  ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
-      {convertTensorMemoryLayout(rewriter,
-                                 memoryConfig.getTensorMemoryLayout()),
-       convertBufferType(rewriter, memoryConfig.getBufferType())});
+  // Check if tensor_memory_layout exists
+  auto tensorMemoryLayout = memoryConfig ? memoryConfig.getTensorMemoryLayout()
+                                         : nullptr;
 
+  // Provide a default value if the attribute doesn't exist
+  if (!tensorMemoryLayout) {
+    llvm::outs() << "(vwells) tensor_memory_layout attribute not found. Using default.\n";
+
+    // Replace `DefaultEnumValue` with the specific default you want to use
+    auto defaultLayout = ttnn::TensorMemoryLayout::SingleBank;
+
+    // Create the default attribute
+    tensorMemoryLayout = ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(), defaultLayout);
+  }
+   ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
+      {convertTensorMemoryLayout(rewriter,
+                                 tensorMemoryLayout),
+       convertBufferType(rewriter, memoryConfig.getBufferType())});
   // Create MemoryConfig object
   //
   emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(

@@ -126,6 +126,10 @@ public:
     ChipDescAttr chipDesc = systemDesc.getChipDescs().front();
 
     module->walk([&](func::FuncOp func) {
+      // Function has no body, so it is declaration; safely ignore it.
+      if (func.getBody().empty()) {
+        return;
+      }
       assert(func.getBody().hasOneBlock());
       auto systemDesc = getCurrentScopeSystemDesc(func);
       assert(systemDesc);

@@ -21,6 +21,10 @@ public:
     IRRewriter rewriter(&getContext());
     llvm::SmallVector<Operation *> opsToReplace;
     module->walk([&](func::FuncOp func) {
+      // Function has no body, so it is declaration; safely ignore it.
+      if (func.getBody().empty()) {
+        return;
+      }
       assert(func.getBody().hasOneBlock());
       func->walk([&](Operation *op) {
         if (!isa<ttnn::ToLayoutOp>(op)) {

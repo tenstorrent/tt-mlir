@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
+#include "ttmlir/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -27,7 +28,7 @@ void createTTNNPipelineTTIRPasses(
 
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
-  pm.addPass(mlir::createInlinerPass());
+  // pm.addPass(mlir::createInlinerPass());
 
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
@@ -130,12 +131,14 @@ void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
   createTTNNPipelineTTIRBroadcastFoldPass(pm, *optionsStruct);
 }
-π
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(ttir::createTTIRHoistTransform());
-  ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
-  ttir::createLinalgToLLVMPipeline(pm, linalgToLLLVMOptions);
+  pm.addPass(createConvertTTIRToLinalgPass());
+  pm.addPass(createConvertLinalgToLLVMPass());
+  // ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
+  // ttir::createLinalgToLLVMPipeline(pm, linalgToLLLVMOptions);
 
   createTTNNPipelineTTIRPasses(pm, options);
   createTTNNPipelineTTIRBroadcastFoldPass(pm, options);

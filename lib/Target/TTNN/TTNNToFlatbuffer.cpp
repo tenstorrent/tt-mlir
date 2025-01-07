@@ -5,6 +5,7 @@
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -24,6 +25,7 @@
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Version.h"
+#include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -32,11 +34,24 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 #include <cassert>
+#include <flatbuffers/buffer.h>
 #include <optional>
 
 namespace mlir::tt {
+
+template <typename OpType>
+static OpType findOpAtTopLevel(mlir::ModuleOp module) {
+    for (auto &op : module.getBody()->getOperations()) {
+        if (auto targetOp = llvm::dyn_cast<OpType>(op)) {
+            return targetOp;
+        }
+    }
+    return nullptr;
+}
+
 
 ::tt::target::TensorMemoryLayout
 toFlatbuffer(FlatbufferObjectCache &,
@@ -274,6 +289,22 @@ createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
                                   kHostAllocatedAddress, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateFromDeviceOp(*cache.fbb, input, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::CpuOp>
+createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id)
+{  
+  std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> ins;
+  for (auto input : op.getOperands()) {
+    ins.push_back(
+        cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(input)));
+  }
+  
+  // For now, assume we will get exactly 1 result tensor from our call -- this is hardcoded assumption for all ops AFAICT.
+    auto output = cache.getOrCreate(*op.getResults().begin(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+
+    return ::tt::target::ttnn::CreateCpuOp(*cache.fbb, cache.fbb->CreateVector(ins), output, cache.fbb->CreateString(op.getCallee().str()), dylib_id);
 }
 
 ::flatbuffers::Offset<::tt::target::DistributionStrategy>
@@ -1182,6 +1213,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, permuteOp), debugString,
                            locInfo);
   }
+  // TODO (before PR): establish if we actually want multiple dylibs per program.  Don't see use case. Also, currently, this seems to be the only case a callOp is legal inside a "program"; that doesn't seem like it ought to always be the case? Discuss w/ Nick etc.
+  if (auto callOp = dyn_cast<func::CallOp>(op); callOp) {
+    return createOperation(cache, createCpuOp(cache, callOp, 0), debugString, locInfo);
+  }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
@@ -1209,6 +1244,21 @@ ttnnToFlatbuffer(Operation *op,
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
   (void)result;
 
+  // Handle dylib creation and packaging, if needed.
+  // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a vector here in case in the future we support more complex arrangements.
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::DynamicLib>> dylibs;
+  if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(module); cpuModule != nullptr)
+  {
+    llvm::SmallVector<char, 2048> binaryBuffer;
+    llvm::raw_svector_ostream dylibStream(binaryBuffer);
+    auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuModule, dylibStream);
+    if (llvm::succeeded(result))
+    {
+      auto rawFileVector = fbb.CreateVector(reinterpret_cast<const uint8_t *>(binaryBuffer.data()), binaryBuffer.size());
+      dylibs.emplace_back(::tt::target::ttnn::CreateDynamicLib(fbb, 0, rawFileVector));
+    }
+  }  
+
   std::vector<::flatbuffers::Offset<::tt::target::GoldenKV>> goldenKVList;
   goldenKVList.reserve(goldenMap.size());
 
@@ -1233,7 +1283,7 @@ ttnnToFlatbuffer(Operation *op,
                                                        emitTTNNOperation);
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        {}, debugInfo));
+        &dylibs, debugInfo));
   });
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(

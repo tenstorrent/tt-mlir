@@ -7,7 +7,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LLVMEmitHelperFuncs: Pass<"emit-llvm-helpers", "::mlir::ModuleOp">
+def LLVMEmitHelperFuncs: Pass<"emit-llvm-helpers", "tt::CPUModuleOp">
 {
   let summary = "Helper function for emitting standardized call-format for all of our functions lowered to LLVMDialect";
   let dependentDialects = ["mlir::LLVM::LLVMDialect"];

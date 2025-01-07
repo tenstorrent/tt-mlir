@@ -62,5 +62,21 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "tt::CPUModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
 }
 
+def ConvertLinalgToLLVM: Pass<"convert-linalg-to-llvm", "tt::CPUModuleOp">
+{
+  let summary = "Small wrapper to create a PassManager + run conversion pipeline on contents of CPUModuleOp.  This is easiest way to enforce that the conversion only runs on CPUModuleOp vs entire module and still works properly.";
+  let constructor = "createConvertTTIRToLinalgPass()";
+  let dependentDialects = [
+    "mlir::LLVM::LLVMDialect",
+    "mlir::linalg::LinalgDialect", 
+    "mlir::bufferization::BufferizationDialect",
+    "mlir::func::FuncDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::scf::SCFDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::vector::VectorDialect"
+  ];
+}
 
 #endif // TTMLIR_CONVERSION_PASSES

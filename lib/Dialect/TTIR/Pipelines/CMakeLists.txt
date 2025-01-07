@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRTTIRPipelines
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/ArithToLLVM
 
   LINK_LIBS PUBLIC
+  MLIRTTTransforms
   MLIRLinalgTransforms
   MLIRArithToLLVM
   MLIRBufferizationPipelines

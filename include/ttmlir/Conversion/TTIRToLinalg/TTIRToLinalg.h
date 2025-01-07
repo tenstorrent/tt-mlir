@@ -10,10 +10,11 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 
 // #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 
@@ -22,7 +23,7 @@ namespace mlir::tt {
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter);
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToLinalgPass();
+std::unique_ptr<OperationPass<tt::CPUModuleOp>> createConvertTTIRToLinalgPass();
 
 } // namespace mlir::tt
 
