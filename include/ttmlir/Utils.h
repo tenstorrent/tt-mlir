@@ -12,6 +12,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
+#include <cstdint>
 
 namespace ttmlir::utils {
 template <typename T>
@@ -242,32 +243,6 @@ getPairOfInteger(mlir::Attribute attr) {
   }
 
   return std::make_pair(x, y);
-}
-
-template <typename T>
-inline llvm::Expected<std::pair<T, T>> getScaleFactor(mlir::Attribute attr) {
-  T scaleH = 1, scaleW = 1;
-  // If scale factor is an integer, it's interpreted as a uniform scale factor.
-  if (auto scale = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-    scaleH = scale.getSInt();
-    scaleW = scale.getSInt();
-    // If scale factor is a pair of integers, it's interpreted as a non-uniform
-    // scale factors for H and W resprectively.
-  } else if (auto scales =
-                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<T>>(attr);
-             scales.size() == 2) {
-    scaleH = scales[0];
-    scaleW = scales[1];
-    // Otherwise, it's an error.
-  } else if (scales) {
-    return llvm::createStringError(
-        "Expected integer or pair of integers, got tuple of size %lu",
-        scales.size());
-  } else {
-    return llvm::createStringError("Unexpected attribute type");
-  }
-
-  return std::make_pair(scaleH, scaleW);
 }
 
 } // namespace ttmlir::utils

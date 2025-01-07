@@ -1595,7 +1595,7 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
                        std::to_string(outputType.getRank()));
   }
 
-  auto scaleFactor = ttmlir::utils::getScaleFactor<int32_t>(getScaleFactor());
+  auto scaleFactor = ttmlir::utils::getPairOfInteger<int32_t>(getScaleFactor());
   if (auto error = scaleFactor.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
