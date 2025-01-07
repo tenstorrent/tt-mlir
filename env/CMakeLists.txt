@@ -56,6 +56,9 @@ ExternalProject_Add(
     -DMLIR_BUILD_MLIR_C_DYLIB=ON
     -DMLIR_LINK_MLIR_DYLIB=OFF
     -DMLIR_BUILD_MLIR_C_DYLIB=ON
+    # build stablehlo
+    # ======================
+    -TORCH_MLIR_ENABLE_STABLEHLO=ON
     # ======================
     -DCMAKE_BUILD_TYPE=MinSizeRel
     -DLLVM_ENABLE_ASSERTIONS=ON
