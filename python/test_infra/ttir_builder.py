@@ -398,11 +398,58 @@ class TTIRBuilder:
     def logical_not(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.logical_not, ttir.LogicalNotOp, [in0])
 
+    def bitwise_not(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.bitwise_not, ttir.BitwiseNotOp, [in0])
+
+    def ceil(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.log, ttir.CeilOp, [in0])
+
+    def sin(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.sin, ttir.SinOp, [in0])
+
+    def cos(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.cos, ttir.CosOp, [in0])
+
+    def tan(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.tan, ttir.TanOp, [in0])
+
+    def tanh(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.tanh, ttir.TanhOp, [in0])
+
+    def log(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.log, ttir.LogOp, [in0])
+
+    def log1p(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.log1p, ttir.Log1pOp, [in0])
+
+    def expm1(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.expm1, ttir.Expm1Op, [in0])
+
+    def sign(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.sign, ttir.SignOp, [in0])
+
+    def is_finite(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.isfinite, ttir.IsFiniteOp, [in0])
+
+    def floor(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.floor, ttir.FloorOp, [in0])
+
+    def where(self, in0: Operand, in1: Operand, in2: Operand) -> OpView:
+        return self.eltwise_proxy(torch.where, ttir.WhereOp, [in0, in1, in2])
+
     def neg(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.neg, ttir.NegOp, [in0])
 
     def relu(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.relu, ttir.ReluOp, [in0])
+
+    def leaky_relu(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(
+            torch.nn.functional.leaky_relu, ttir.LeakyReluOp, [in0]
+        )
+
+    def gelu(self, in0: Operand) -> OpView:
+        return self.eltwise_proxy(torch.nn.functional.gelu, ttir.GeluOp, [in0])
 
     def sqrt(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.sqrt, ttir.SqrtOp, [in0])
@@ -428,6 +475,18 @@ class TTIRBuilder:
     def logical_or(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.logical_or, ttir.LogicalOrOp, [in0, in1])
 
+    def logical_xor(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.logical_xor, ttir.LogicalXorOp, [in0, in1])
+
+    def bitwise_and(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.bitwise_and, ttir.BitwiseAndOp, [in0, in1])
+
+    def bitwise_or(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.bitwise_or, ttir.BitwiseOrOp, [in0, in1])
+
+    def bitwise_xor(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.bitwise_xor, ttir.BitwiseXorOp, [in0, in1])
+
     def subtract(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.subtract, ttir.SubtractOp, [in0, in1])
 
@@ -452,8 +511,14 @@ class TTIRBuilder:
     def div(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.div, ttir.DivOp, [in0, in1])
 
+    def remainder(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.remainder, ttir.RemainderOp, [in0, in1])
+
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+
+    def minimum(self, in0: Operand, in1: Operand) -> OpView:
+        return self.eltwise_proxy(torch.minimum, ttir.MinimumOp, [in0, in1])
 
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
