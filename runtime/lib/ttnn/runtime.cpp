@@ -18,6 +18,8 @@
 #include <cstdint>
 #include <dlfcn.h>
 #include <memory>
+#include <string>
+#include <ttnn/tensor/tensor.hpp>
 
 namespace tt::runtime::ttnn {
 
@@ -536,12 +538,13 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
 std::vector<Tensor> do_stuff(void *so, std::string func_name,
                              std::vector<Tensor> inputs, Device device) {
-
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 
+  // In this path, we only ever test with a single device (for now), hence
+  // MeshDevice is unpacked to get the Device
+  //
   assert(ttnnMeshDevice.get_devices().size() == 1);
-
   ::ttnn::Device *ttnnDevice = ttnnMeshDevice.get_devices()[0];
 
   // Convert inputs to TTNN tensors using .as method
@@ -552,80 +555,35 @@ std::vector<Tensor> do_stuff(void *so, std::string func_name,
     ttnnInputs.push_back(input.as<::ttnn::Tensor>(DeviceRuntime::TTNN));
   }
 
-  // Clear previous error
+  // Clear previous errors
   //
   dlerror();
 
-  // Get function from shared object
+  // Get function from the shared object
   //
   using ForwardFunction = std::vector<::ttnn::Tensor> (*)(
       std::vector<::ttnn::Tensor>, ::ttnn::Device *);
-  std::cout << "before" << std::endl;
   ForwardFunction forwardFunc =
       reinterpret_cast<ForwardFunction>(dlsym(so, func_name.c_str()));
-  std::cout << "after" << std::endl;
 
+  // Check for errors
+  //
   const char *dlsym_error = dlerror();
   if (dlsym_error) {
-    std::cerr << "Failed to load symbol: " << dlsym_error << std::endl;
     dlclose(so);
-    throw std::runtime_error("Failed to load symbol");
+    throw std::runtime_error(
+        fmt::format("Failed to load symbol: {}", dlsym_error));
   }
 
-  // Call function
+  // Call program/function
   //
   std::vector<::ttnn::Tensor> ttnnOutputs = forwardFunc(ttnnInputs, ttnnDevice);
 
-  // Convert outputs to Tensor using Tensor constructor
+  // Convert TTNN Tensors to Runtime Tensors
   //
   std::vector<Tensor> outputs;
   for (::ttnn::Tensor &output : ttnnOutputs) {
-    // using Storage = std::variant<OwnedStorage, DeviceStorage,
-    // BorrowedStorage, MultiDeviceHostStorage, MultiDeviceStorage>;
-    if (std::holds_alternative<OwnedStorage>(
-            output.tensor_attributes->storage)) {
-      std::cout << "OwnedStorage" << std::endl;
-    } else if (std::holds_alternative<DeviceStorage>(
-                   output.tensor_attributes->storage)) {
-      std::cout << "DeviceStorage" << std::endl;
-    } else if (std::holds_alternative<BorrowedStorage>(
-                   output.tensor_attributes->storage)) {
-      std::cout << "BorrowedStorage" << std::endl;
-    } else if (std::holds_alternative<MultiDeviceHostStorage>(
-                   output.tensor_attributes->storage)) {
-      std::cout << "MultiDeviceHostStorage" << std::endl;
-    } else if (std::holds_alternative<MultiDeviceStorage>(
-                   output.tensor_attributes->storage)) {
-      std::cout << "MultiDeviceStorage" << std::endl;
-    } else {
-      std::cout << "Unknown" << std::endl;
-    }
-
-    // BorrowedBuffer borrowedBuffer =
-    //     std::get<BorrowedStorage>(output.tensor_attributes->storage).buffer;
-    // std::visit(
-    //     [&outputs, &output](auto &&buffer) {
-    //       outputs.push_back(
-    //           Tensor(std::make_shared<::ttnn::Tensor>(std::move(output)),
-    //                  std::shared_ptr<void>(static_cast<void
-    //                  *>(buffer.data()),
-    //                                        [](void *) {}),
-    //                  DeviceRuntime::TTNN));
-    //     },
-    //     borrowedBuffer);
-
-    OwnedStorage ownedStorage =
-        std::get<OwnedStorage>(output.tensor_attributes->storage).buffer;
-
-    std::visit(
-        [&outputs, &output](auto &&buffer) {
-          outputs.push_back(
-              Tensor(std::make_shared<::ttnn::Tensor>(std::move(output)),
-                     std::shared_ptr<void>(static_cast<void *>(buffer.data()),
-                                           [](void *) {}),
-                     DeviceRuntime::TTNN));
-        },
-        ownedStorage.get_buffer());
+    outputs.push_back(utils::createRuntimeTensorFromTTNN(output));
   }
 
   return outputs;
@@ -646,31 +604,31 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
   for (size_t i = 0; i < lhsTensors.size(); i++) {
     auto *lhsTensor = lhsTensors[i];
     auto *rhsTensor = rhsTensors[i];
-    std::cout << "Dtype: " << static_cast<int>(lhsTensor->get_dtype()) << ", "
-              << static_cast<int>(rhsTensor->get_dtype()) << std::endl;
-    LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype());
-    std::cout << "Shape: " << lhsTensor->get_shape() << ", "
-              << rhsTensor->get_shape() << std::endl;
-    LOG_ASSERT(lhsTensor->get_shape() == rhsTensor->get_shape());
-    std::cout << "Layout: " << static_cast<int>(lhsTensor->get_layout()) << ", "
-              << static_cast<int>(rhsTensor->get_layout()) << std::endl;
-    LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout());
-    std::cout << "Logical shape: " << lhsTensor->get_logical_shape() << ", "
-              << rhsTensor->get_logical_shape() << std::endl;
-    LOG_ASSERT(lhsTensor->get_logical_shape() ==
-               rhsTensor->get_logical_shape());
-    std::cout << "Volume: " << lhsTensor->volume() << ", "
-              << rhsTensor->volume() << std::endl;
-    LOG_ASSERT(lhsTensor->volume() == rhsTensor->volume());
-    std::cout << "Element size in bytes: " << lhsTensor->element_size() << ", "
-              << rhsTensor->element_size() << std::endl;
-    LOG_ASSERT(lhsTensor->element_size() == rhsTensor->element_size());
 
-    std::cout << "Printing LHS:" << std::endl;
-    lhsTensor->print();
-    std::cout << std::endl << std::endl;
-    std::cout << "Printing RHS:" << std::endl;
-    rhsTensor->print();
+    // Compare various tensor properties
+    //
+    LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
+               fmt::format("DType: {}, {}\n",
+                           static_cast<int>(lhsTensor->get_dtype()),
+                           static_cast<int>(rhsTensor->get_dtype())));
+    LOG_ASSERT(lhsTensor->get_shape() == rhsTensor->get_shape(),
+               fmt::format("Shape: {}, {}\n", lhsTensor->get_shape(),
+                           rhsTensor->get_shape()));
+    LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
+               fmt::format("Layout: {}, {}\n",
+                           static_cast<int>(lhsTensor->get_layout()),
+                           static_cast<int>(rhsTensor->get_layout())));
+    LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
+               fmt::format("Logical shape: {}, {}\n",
+                           lhsTensor->get_logical_shape(),
+                           rhsTensor->get_logical_shape()));
+    LOG_ASSERT(lhsTensor->volume() == rhsTensor->volume(),
+               fmt::format("Volume: {}, {}\n", lhsTensor->volume(),
+                           rhsTensor->volume()));
+    LOG_ASSERT(lhsTensor->element_size() == rhsTensor->element_size(),
+               fmt::format("Element size in bytes: {}, {}\n",
+                           lhsTensor->element_size(),
+                           rhsTensor->element_size()));
 
     // Compare tensor data
     //
@@ -678,18 +636,15 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
         ::tt::tt_metal::get_raw_host_data_ptr(*lhsTensor));
     uint8_t *rhsData = static_cast<uint8_t *>(
         ::tt::tt_metal::get_raw_host_data_ptr(*rhsTensor));
-
     for (size_t i = 0; i < lhsTensor->volume() * lhsTensor->element_size();
          i++) {
       if (lhsData[i] != rhsData[i]) {
-        std::cout << "Mismatch at byte number: " << i << ": "
-                  << static_cast<int>(lhsData[i])
-                  << " != " << static_cast<int>(rhsData[i]) << std::endl;
+        LOG_ASSERT(false, fmt::format("Mismatch at byte number: {}: {} != {}",
+                                      i, static_cast<int>(lhsData[i]),
+                                      static_cast<int>(rhsData[i])));
         return false;
       }
     }
-
-    std::cout << "Done" << std::endl << std::endl;
   }
 
   return true;
