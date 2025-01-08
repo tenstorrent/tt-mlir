@@ -237,6 +237,7 @@ def ttkernel_compile(f):
         arg_dtypes = [to_data_type(arg.dtype) for arg in args]
         m = ast.parse(inspect.getsource(f))
         b = TTKernelBuilder(f.__name__, arg_shapes, arg_dtypes)
+        # print(ast.dump(m, indent=4))
         b.visit(m)
         print(b.module)
         # return f(*args, **kwargs)
