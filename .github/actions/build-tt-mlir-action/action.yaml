@@ -94,6 +94,7 @@ runs:
       shell: bash
       if: inputs.enable-emitc == 'ON'
       run: |
+        source env/activate
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
     - name: Upload Test Report
