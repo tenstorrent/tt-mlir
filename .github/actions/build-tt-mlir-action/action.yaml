@@ -54,6 +54,19 @@ runs:
         source env/activate
         cmake --build ${{ inputs.build-output-dir }}
 
+    - name: Build ttrt
+      shell: bash
+      run: |
+        source env/activate
+        cmake --build ${{ inputs.build-output-dir }} -- ttrt
+
+    - name: Generate and set system descriptor
+      shell: bash
+      if: inputs.enable-op-model == 'ON'
+      run: |
+        source env/activate
+        ttrt query --save-artifacts
+
     - name: Compile dylibs for EmitC
       shell: bash
       if: inputs.enable-emitc == 'ON'
@@ -68,19 +81,6 @@ runs:
       shell: bash
       run: |
         cmake --install ${{ inputs.build-output-dir }} --component Test
-
-    - name: Build ttrt
-      shell: bash
-      run: |
-        source env/activate
-        cmake --build ${{ inputs.build-output-dir }} -- ttrt
-
-    - name: Generate and set system descriptor
-      shell: bash
-      if: inputs.enable-op-model == 'ON'
-      run: |
-        source env/activate
-        ttrt query --save-artifacts
 
     - name: Run tt-mlir tests
       shell: bash
