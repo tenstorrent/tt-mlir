@@ -224,7 +224,10 @@ public:
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
-        // Ensure getDeviceOp is always in the beginning of the schedule.
+        // TODO: This is a temporary solution - when defaulting to dram tile
+        // input/output layout, GetDeviceOp can randomly appear as the last op
+        // in the graph instead of the first. This workaround ensures
+        // getDeviceOp is always in the beginning of the schedule.
         auto it =
             std::find_if(opSchedule[func].begin(), opSchedule[func].end(),
                          [](Operation *op) { return isa<GetDeviceOp>(op); });

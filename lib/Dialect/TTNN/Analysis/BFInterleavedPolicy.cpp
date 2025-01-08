@@ -117,6 +117,25 @@ void BFInterleavedPolicy::run() {
       scheduler.scheduleOp(nextOpForScheduling);
     }
 
+    // TODO: This is a temporary solution
+    // Currently ReturnOps are not considered when calculating L1 usage
+    llvm::SmallVector<mlir::Operation *> eraseableL1UsageOps;
+    for (auto &[op, usage] : currentL1UsagePerOp) {
+      for (Operation *user : op->getUsers()) {
+        if (isa<mlir::func::ReturnOp>(user)) {
+          usage.numOfUnscheduledUsers -= 1;
+        }
+      }
+      if (usage.numOfUnscheduledUsers == 0) {
+        eraseableL1UsageOps.push_back(op);
+      }
+    }
+
+    for (Operation *op : eraseableL1UsageOps) {
+      currentL1Usage -= currentL1UsagePerOp[op].l1MemUsagePerUser;
+      currentL1UsagePerOp.erase(op);
+    }
+
     assert(currentL1Usage == 0);
     assert(currentL1UsagePerOp.size() == 0);
 
