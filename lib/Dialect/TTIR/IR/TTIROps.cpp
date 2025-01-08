@@ -413,15 +413,19 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   auto broadcastDimensions = getBroadcastDimensions();
+  // Check that the shape size matches the rank of the output tensor
+  if (static_cast<int64_t>(broadcastDimensions.size()) != inputType.getRank()) {
+    return emitOpError("Input tensor rank should match output tensor rank.");
+  }
+
   for (size_t i = 0; i < broadcastDimensions.size(); i++) {
-    int64_t dim_value =
-        mlir::cast<IntegerAttr>(broadcastDimensions[i]).getInt();
-    if (inputShape[i] * dim_value != outputShape[i]) {
+    int64_t dimValue = broadcastDimensions[i];
+    if (inputShape[i] * dimValue != outputShape[i]) {
       return emitOpError() << "Input tensor shape ("
                            << ttmlir::utils::join(inputShape, ",") << ") index "
                            << i << " does not broadcast to output ("
                            << ttmlir::utils::join(outputShape, ",")
-                           << ") using broadcast value " << dim_value;
+                           << ") using broadcast value " << dimValue;
     }
   }
 

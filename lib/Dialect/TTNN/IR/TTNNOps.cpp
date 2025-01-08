@@ -252,24 +252,22 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   auto shape = getShape();
-
   // Check that the shape size matches the rank of the output tensor
-  if (static_cast<int64_t>(shape.size()) != outputType.getRank()) {
+  if (static_cast<int64_t>(shape.size()) != inputType.getRank()) {
     return emitOpError("Input tensor rank should match output tensor rank.");
   }
 
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 
-  size_t shapeSize = shape.size();
-  for (size_t i = 0; i < shapeSize; i++) {
-    int64_t dim_value = mlir::cast<IntegerAttr>(shape[i]).getInt();
-    if (inputShape[i] * dim_value != outputShape[i]) {
+  for (size_t i = 0; i < shape.size(); i++) {
+    uint32_t dimValue = mlir::cast<IntegerAttr>(shape[i]).getInt();
+    if (inputShape[i] * dimValue != outputShape[i]) {
       return emitOpError() << "Input tensor shape ("
                            << ttmlir::utils::join(inputShape, ",") << ") index "
                            << i << " does not repeat to output ("
                            << ttmlir::utils::join(outputShape, ",")
-                           << ") using repeat value " << dim_value;
+                           << ") using repeat value " << dimValue;
     }
   }
 

@@ -678,7 +678,7 @@ public:
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
           srcOp, outputTensor.getType(), adaptor.getOperand(), outputTensor,
-          rewriter.getI32ArrayAttr(broadcastShape));
+          broadcastShape);
     } else {
       // This stablehlo operation cannot be represented by a single TTIR
       // operation. It has to be split into ttir.reshape followed by a
@@ -687,6 +687,8 @@ public:
       ::llvm::ArrayRef<int64_t> broadcastInDim =
           adaptor.getBroadcastDimensions();
 
+      // Since we convert scalars to 1D tensors as a special case,
+      // so check input dimension is not empty
       if (!broadcastInDim.empty()) {
         for (int64_t i = 0; i < inputType.getRank(); i++) {
           unsqueezeShape[broadcastInDim[i]] = inputType.getDimSize(i);
@@ -723,7 +725,7 @@ public:
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
           srcOp, broadcastOutputTensor.getType(), reshape.getResult(),
-          broadcastOutputTensor, rewriter.getI32ArrayAttr(broadcastShape));
+          broadcastOutputTensor, broadcastShape);
     }
 
     return success();

@@ -636,18 +636,11 @@ public:
   matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    assert(
-        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType())
-                .getRank() ==
-            mlir::cast<::mlir::RankedTensorType>(adaptor.getOutput().getType())
-                .getRank() &&
-        "Broadcast is not supported when Input and Output Ranks don't match");
-
     auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
 
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), shapeAttr);
+        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
 
     return success();
   }

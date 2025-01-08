@@ -1318,8 +1318,7 @@ public:
       }
 
       output = rewriter.create<ttir::BroadcastOp>(
-          op.getLoc(), broadcastType, output, dpsOutput,
-          rewriter.getI32ArrayAttr(broadcastShape));
+          op.getLoc(), broadcastType, output, dpsOutput, broadcastShape);
 
       assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
                  outputType.getShape() &&

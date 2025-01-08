@@ -808,7 +808,7 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getShape());
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedAddress, kHostAllocatedSize);
 
@@ -821,7 +821,7 @@ createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getShape());
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedAddress, kHostAllocatedSize);
 
