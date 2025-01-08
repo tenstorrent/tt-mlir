@@ -62,7 +62,7 @@ runs:
 
     - name: Generate and set system descriptor
       shell: bash
-      if: inputs.enable-op-model == 'ON'
+      if: inputs.enable-op-model == 'ON' || inputs.enable-emitc == 'ON'
       run: |
         source env/activate
         ttrt query --save-artifacts
