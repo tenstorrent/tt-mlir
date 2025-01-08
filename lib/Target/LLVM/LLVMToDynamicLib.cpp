@@ -11,6 +11,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -64,6 +65,7 @@ llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
 // Function to convert MLIR ModuleOp to LLVM Module
 std::unique_ptr<llvm::Module> convertToLLVMModule(CPUModuleOp cpuModule, 
                                                  llvm::LLVMContext &llvmContext) {
+  mlir::registerLLVMDialectTranslation(*cpuModule.getContext());
   // Create a new MLIR module
   mlir::OpBuilder builder(cpuModule.getContext());
   auto mlirModule = builder.create<mlir::ModuleOp>(cpuModule.getLoc());
@@ -75,6 +77,10 @@ std::unique_ptr<llvm::Module> convertToLLVMModule(CPUModuleOp cpuModule,
       builder.clone(op);
     }
   }
+
+  llvm::outs() << "mlir module: \n\n";
+  mlirModule.dump();
+  llvm::outs() << "\n\n";
 
   // Use the existing translation infrastructure
   auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext,
@@ -212,7 +218,7 @@ llvm::LogicalResult verifyAllLLVM(tt::CPUModuleOp module) {
 
   module.walk([&](Operation *op) {
     // check other operations to make sure they're llvm
-    if (op->getDialect() != llvmDialect) {
+    if (op->getDialect() != llvmDialect && !(llvm::isa<tt::CPUModuleOp>(op) || llvm::isa<tt::CPUModuleTerminatorOp>(op)) ) {
       isAllLLVM = false;
       llvm::errs() << "Non-LLVM operation found: " << op->getName()
                    << " at location " << op->getLoc() << "\n";
@@ -290,6 +296,10 @@ llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
   }
   llvm::LLVMContext llvmContext;
   auto llvmModule = convertToLLVMModule(moduleOp, llvmContext);
+  if (!llvmModule)
+  {
+    return llvm::failure();
+  }
   const auto maybeDylibBinary =
       compileAndLinkToSharedLibrary(*llvmModule.get(), llvmContext);
   if (!maybeDylibBinary.has_value()) {

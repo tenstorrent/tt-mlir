@@ -136,9 +136,9 @@ private:
 
 class ProgramContext {
 public:
-  ProgramContext(const TensorMap &liveTensors,
-                 const std::unordered_set<uint32_t> &programInputs,
-                 const std::unordered_set<uint32_t> &programOutputs,
+  ProgramContext(const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
+                 const std::vector<uint32_t> &programInputs,
+                 const std::vector<uint32_t> &programOutputs,
                  const DylibHandleMap *programDylibs,
                  ::ttnn::MeshDevice *parentMesh)
       : tensorPool(

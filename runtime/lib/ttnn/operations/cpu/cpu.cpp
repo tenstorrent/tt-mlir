@@ -5,6 +5,8 @@
 #include "cpu.h"
 
 #include <dlfcn.h>
+#include <link.h>
+
 
 namespace tt::runtime::ttnn::operations::cpu {
 // using
@@ -55,6 +57,20 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   if (!dylib_handle) {
     throw std::runtime_error("could not find dylib corresponding to id: " +
                              std::to_string(op->dylib_id()));
+  }
+
+  // Debug: Print all available symbols
+  struct link_map *map;
+  dlinfo(dylib_handle, RTLD_DI_LINKMAP, &map);
+  
+  if (map && map->l_symtab && map->l_strtab) {
+    printf("Available symbols in dylib %d:\n", op->dylib_id());
+    for (int i = 0; i < map->l_nchain; i++) {
+      const char *name = map->l_strtab + map->l_symtab[i].st_name;
+      if (name && *name) {  // Check that name exists and isn't empty
+        printf("  %s\n", name);
+      }
+    }
   }
 
   WrappedFunc fn =

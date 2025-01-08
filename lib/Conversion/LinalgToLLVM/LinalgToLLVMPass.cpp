@@ -147,6 +147,7 @@ struct ConvertLinalgToLLVMPass
         mlir::bufferization::BufferDeallocationPipelineOptions deallocationOptions;
         mlir::bufferization::buildBufferDeallocationPipeline(tempPM,
                                                             deallocationOptions);
+        tempPM.addPass(mlir::createBufferizationToMemRefPass());
 
         // Add lowering passes.
         tempPM.addPass(createConvertLinalgToLoopsPass());

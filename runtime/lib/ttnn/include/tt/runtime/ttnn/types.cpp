@@ -386,14 +386,14 @@ std::vector<Tensor> ProgramTensorPool::gatherOutputTensors() {
 //
 // ProgramContext APIs
 //
-ProgramContext::ProgramContext(
-    const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
-    const std::vector<uint32_t> &programInputs,
-    const std::vector<uint32_t> &programOutputs, ::ttnn::MeshDevice *parentMesh)
-    : tensorPool(ProgramTensorPool(liveTensors, programInputs, programOutputs)),
-      parentMesh(parentMesh) {
-  LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
-}
+// ProgramContext::ProgramContext(
+//     const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
+//     const std::vector<uint32_t> &programInputs,
+//     const std::vector<uint32_t> &programOutputs, const DylibHandleMap *dylibMap, ::ttnn::MeshDevice *parentMesh)
+//     : tensorPool(ProgramTensorPool(liveTensors, programInputs, programOutputs)),
+//       parentMesh(parentMesh) {
+//   LOG_ASSERT(parentMesh, "Parent mesh cannot be null");
+// }
 
 void ProgramContext::addSubMesh(uint32_t meshId,
                                 std::shared_ptr<::ttnn::MeshDevice> subMesh) {

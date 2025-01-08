@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
@@ -137,6 +138,7 @@ void createTTIRToTTNNBackendPipeline(
   pm.addPass(ttir::createTTIRHoistTransform());
   pm.addPass(createConvertTTIRToLinalgPass());
   pm.addPass(createConvertLinalgToLLVMPass());
+  pm.addPass(llvm_util::createLLVMEmitHelperFuncs());
   // ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
   // ttir::createLinalgToLLVMPipeline(pm, linalgToLLLVMOptions);
 

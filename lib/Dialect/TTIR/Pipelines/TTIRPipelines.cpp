@@ -73,7 +73,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
 
   // An explicit bufferization to memref conversion is sometimes needed to
   // eliminate some nasty bufferization::clone() calls.
-  // funcPassManager.addPass(mlir::createBufferizationToMemRefPass());
+  manager.addPass(mlir::createBufferizationToMemRefPass());
 
   // This lowers linalg to scf-based loops.
   manager.addPass(mlir::createConvertLinalgToLoopsPass());
