@@ -2,7 +2,6 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
 // RUN: ttmlir-opt --ttnn-modify-signatures-for-dylib --convert-ttnn-to-emitc %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
-// RUN: compile_dylib.py %basename_t.cpp .
 // UNSUPPORTED: true
 
 module @MNISTLinear attributes {} {
