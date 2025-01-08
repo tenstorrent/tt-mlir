@@ -508,7 +508,7 @@ void *openSo(std::string path) {
 std::vector<Tensor> runSoProgram(void *so, std::string name,
                                  std::vector<Tensor> inputs, Device device) {
 
-  return ::tt::runtime::ttnn::do_stuff(so, name, inputs, device);
+  return ::tt::runtime::ttnn::runSoProgram(so, name, inputs, device);
 }
 
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {

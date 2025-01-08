@@ -536,8 +536,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
   return outputs;
 }
 
-std::vector<Tensor> do_stuff(void *so, std::string func_name,
-                             std::vector<Tensor> inputs, Device device) {
+std::vector<Tensor> runSoProgram(void *so, std::string func_name,
+                                 std::vector<Tensor> inputs, Device device) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 

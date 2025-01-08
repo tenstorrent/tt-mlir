@@ -100,7 +100,7 @@ runs:
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
       with:
-        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-${{ inputs.enable-emitc }}
+        name: test-reports-${{ inputs.runs-on }}-perf-${{ inputs.enable-perf }}-op_model-${{ inputs.enable-op-model }}-emitc-${{ inputs.enable-emitc }}
         path: ${{ inputs.test_report_path }}
 
     - name: Upload ttrt .whl

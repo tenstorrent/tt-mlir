@@ -420,8 +420,6 @@ class Run:
                 get_callback_fn(callback_runtime_config)
             )
 
-            is_emitc_testing_requested = self["--emitc"]
-
             try:
                 for bin in binaries:
                     try:
@@ -430,8 +428,11 @@ class Run:
                         if self["--save-artifacts"]:
                             self.artifacts.create_binary_artifacts_folder(bin)
 
-                        if is_emitc_testing_requested:
+                        if self["--emitc"]:
+                            # .so are compiled such that they have the same name as flatbuffers, so we rename here
                             emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
+
+                            # Open the dylib
                             emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
                             self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
@@ -559,7 +560,8 @@ class Run:
                                 ttrt.runtime.wait(event)
 
                             # Compare to EmitC
-                            if is_emitc_testing_requested:
+                            if self["--emitc"]:
+                                # Create symbol string to read from dylib
                                 fwd_func_name = program.program["name"]
                                 fwd_func_name_len = len(fwd_func_name)
                                 fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v06DeviceE"

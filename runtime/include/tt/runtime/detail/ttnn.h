@@ -132,8 +132,8 @@ std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
 
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs);
 
-std::vector<Tensor> do_stuff(void *so, std::string func_name,
-                             std::vector<Tensor> inputs, Device device);
+std::vector<Tensor> runSoProgram(void *so, std::string func_name,
+                                 std::vector<Tensor> inputs, Device device);
 
 } // namespace tt::runtime::ttnn
 
