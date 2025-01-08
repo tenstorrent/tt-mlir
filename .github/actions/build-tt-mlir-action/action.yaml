@@ -48,11 +48,25 @@ runs:
           -DTTMLIR_ENABLE_OPMODEL=${{ inputs.enable-op-model }} \
           -S ${{ inputs.work-dir }}
 
-    - name: Build and Install
+    - name: Build
       shell: bash
       run: |
         source env/activate
         cmake --build ${{ inputs.build-output-dir }}
+
+    - name: Compile dylibs for EmitC
+      shell: bash
+      if: inputs.enable-emitc == 'ON'
+      run: |
+        source env/activate
+        export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
+        ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
+
+    - name: Install
+      shell: bash
+      run: |
         cmake --install ${{ inputs.build-output-dir }} --component Test
 
     - name: Build ttrt
@@ -90,12 +104,12 @@ runs:
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
 
-    - name: Compile dylibs for EmitC
-      shell: bash
-      if: inputs.enable-emitc == 'ON'
-      run: |
-        source env/activate
-        ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
+    # - name: Compile dylibs for EmitC
+    #   shell: bash
+    #   if: inputs.enable-emitc == 'ON'
+    #   run: |
+    #     source env/activate
+    #     ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
