@@ -252,11 +252,6 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   auto shape = getShape();
-  // Check that the shape size matches the rank of the output tensor
-  if (static_cast<int64_t>(shape.size()) != inputType.getRank()) {
-    return emitOpError("Input tensor rank should match output tensor rank.");
-  }
-
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
 

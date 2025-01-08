@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include <llvm/ADT/APFloat.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
@@ -670,11 +671,9 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape;
-      for (size_t i = 0; i < outputShape.size(); i++) {
-        int32_t d = outputShape[i] / inputShape[i];
-        broadcastShape.push_back(d);
-      }
+      SmallVector<int32_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+                                                         outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
           srcOp, outputTensor.getType(), adaptor.getOperand(), outputTensor,
@@ -717,11 +716,9 @@ public:
       ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
-      SmallVector<int32_t> broadcastShape;
-      for (size_t i = 0; i < outputShape.size(); i++) {
-        int32_t d = outputShape[i] / inputShape[i];
-        broadcastShape.push_back(d);
-      }
+      SmallVector<int32_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+                                                         outputShape);
 
       rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
           srcOp, broadcastOutputTensor.getType(), reshape.getResult(),

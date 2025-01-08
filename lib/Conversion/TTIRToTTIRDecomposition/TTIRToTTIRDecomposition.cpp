@@ -1311,11 +1311,9 @@ public:
       auto inputShape =
           mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-      SmallVector<int32_t, 4> broadcastShape;
-      for (unsigned int i = 0; i < outputShape.size(); i++) {
-        int d = outputShape[i] / inputShape[i];
-        broadcastShape.push_back(d);
-      }
+      SmallVector<int32_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+                                                         outputShape);
 
       output = rewriter.create<ttir::BroadcastOp>(
           op.getLoc(), broadcastType, output, dpsOutput, broadcastShape);
