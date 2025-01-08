@@ -27,6 +27,13 @@ def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Attach a TTMetal layout to operands of a TTIR op.
+  }];
+}
+
 def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
