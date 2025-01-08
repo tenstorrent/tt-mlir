@@ -879,54 +879,55 @@ public:
     assert(adaptor.getPaddingLeft() == adaptor.getPaddingRight() &&
            "TTNN max_pool2d does not support padding top/bottom/left/right "
            "separately");
+    assert(op.getChannelLast() &&
+           "Cannot convert ttir::MaxPool2dOp to "
+           "ttnn::MaxPool2dOp. Convert ttir::MaxPool2dOp "
+           "to channel_last format first (NCHW -> NHWC).");
 
     auto device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto input_ty = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    llvm::ArrayRef<std::int64_t> input_shape = input_ty.getShape();
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    llvm::ArrayRef<int64_t> inputShape = inputTy.getShape();
+    llvm::ArrayRef<int64_t> outputShape = outputTy.getShape();
 
-    auto batch_size =
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 4]);
-    auto channels =
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
+    Value intermediateInput = adaptor.getInput();
 
-    Value flattenedInput =
-        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
+    // Generate reshape op which will flatten the input tensor from NHWC to
+    // NHW*C.
+    {
+      intermediateInput =
+          ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
+    }
 
-    auto output_ty =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
-    llvm::ArrayRef<std::int64_t> output_shape = output_ty.getShape();
+    // Create ttnn::MaxPool2dOp.
+    {
+      SmallVector<int64_t, 4> flattenedOutputShape =
+          ttir_to_ttnn::utils::flattenNHW(outputShape);
+      RankedTensorType flattenedOutputTy =
+          RankedTensorType::get(flattenedOutputShape, outputTy.getElementType(),
+                                outputTy.getEncoding());
 
-    std::vector<int64_t> flattenedOutputShape = {
-        1, 1, output_shape[0] * output_shape[1] * output_shape[2],
-        output_shape[3]};
+      // Input tensor is in format NHWC.
+      int32_t batchSize = inputShape[0];
+      int32_t channels = inputShape[3];
+      int32_t height = inputShape[1];
+      int32_t width = inputShape[2];
 
-    output_ty = mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
-        output_ty.cloneWith(flattenedOutputShape, output_ty.getElementType())));
+      intermediateInput = rewriter.create<ttnn::MaxPool2dOp>(
+          op.getLoc(), flattenedOutputTy, intermediateInput, device, batchSize,
+          height, width, channels, adaptor.getKernelHeight(),
+          adaptor.getKernelWidth(), adaptor.getStrideHeight(),
+          adaptor.getStrideWidth(), adaptor.getDilationHeight(),
+          adaptor.getDilationWidth(), adaptor.getCeilMode(),
+          adaptor.getPaddingTop(), adaptor.getPaddingRight());
+    }
 
-    // Using a tensor::EmptyOp so that the rewriter for EmptyOp can handle the
-    // attribute determination
-    auto poolDPSOutput = rewriter.replaceOpWithNewOp<tensor::EmptyOp>(
-        adaptor.getOutput().getDefiningOp(), flattenedOutputShape,
-        output_ty.getElementType());
+    // Create a reshape operation to reshape the output tensor to channel last
+    // So from 1,1,N*H*W,C to N,H,W,C.
+    intermediateInput = ttir_to_ttnn::utils::generateReshape(
+        intermediateInput, outputShape, rewriter);
 
-    // Must set the type to the output type to maintain the layout attributes
-    poolDPSOutput.getResult().setType(output_ty);
-
-    auto new_pool = rewriter.create<ttnn::MaxPool2dOp>(
-        op.getLoc(), output_ty, flattenedInput, poolDPSOutput, device,
-        batch_size,
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 3]),
-        rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 2]),
-        channels, adaptor.getKernelHeightAttr(), adaptor.getKernelWidthAttr(),
-        adaptor.getStrideHeightAttr(), adaptor.getStrideWidthAttr(),
-        adaptor.getDilationHeightAttr(), adaptor.getDilationWidthAttr(),
-        adaptor.getCeilModeAttr(), adaptor.getPaddingTopAttr(),
-        adaptor.getPaddingRightAttr());
-
-    Value output =
-        ttir_to_ttnn::utils::generateReshape(new_pool, output_shape, rewriter);
-
-    rewriter.replaceOp(op, output);
+    rewriter.replaceOp(op, intermediateInput);
 
     return success();
   }

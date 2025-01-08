@@ -7,24 +7,28 @@
 namespace mlir {
 namespace tt {
 namespace ttir_to_ttnn::utils {
+// Generates a reshape operation for the given input tensor with the new shape.
 ttnn::ReshapeOp generateReshape(Value input, ArrayRef<int64_t> newShape,
                                 PatternRewriter &rewriter) {
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
   auto outputType = inputType.cloneWith(newShape, inputType.getElementType());
 
-  std::vector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+  SmallVector<int32_t> newShapeI32(newShape);
   return rewriter.create<ttnn::ReshapeOp>(
       input.getLoc(), outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
 }
 
+// Generates a reshape operation for the given input tensor that returns 4D
+// tensor. Assumes that the input tensor is 4D. First 3 dimensions are flattened
+// into 3rd dimension and 4th dimension is kept as is.
 ttnn::ReshapeOp generateNHWFlatten(Value input, PatternRewriter &rewriter) {
-  std::vector<int64_t> shape =
-      mlir::cast<RankedTensorType>(input.getType()).getShape().vec();
+  ArrayRef<int64_t> shape =
+      mlir::cast<RankedTensorType>(input.getType()).getShape();
 
-  assert(shape.size() == 4 && "Must have 4-dim tensor as conv2d input");
+  assert(shape.size() == 4 &&
+         "Must have 4-dim tensor as conv2d/maxpool2d input.");
 
-  std::vector<int64_t> newShape = {1, 1, shape[0] * shape[1] * shape[2],
-                                   shape[3]};
+  SmallVector<int64_t, 4> newShape = flattenNHW(shape);
   return generateReshape(input, newShape, rewriter);
 }
 
