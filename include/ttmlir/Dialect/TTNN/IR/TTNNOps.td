@@ -1298,6 +1298,12 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds();
+      }
+    }];
+
     let hasVerifier = 1;
 }
 

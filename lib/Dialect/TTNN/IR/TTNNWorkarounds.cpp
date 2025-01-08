@@ -149,4 +149,14 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
       .addInputOperandWorkaround(bf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds rowMajorLayoutBF16Workaround;
+  rowMajorLayoutBF16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorLayoutBF16Workaround.tensorDataTypeWorkaround = DataType::BFloat16;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorLayoutBF16Workaround)
+      .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
+}
 } // namespace mlir::tt::ttnn::wa

@@ -244,8 +244,7 @@ private:
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
-           (user->getOperand(0) == op || user->getOperand(1) == op)) ||
-          isa<ttir::Upsample2dOp>(user)) {
+           (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
       }
     }
