@@ -19,7 +19,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include <algorithm>
-#include <llvm/ADT/ArrayRef.h>
 
 using namespace mlir;
 using namespace mlir::tt;
