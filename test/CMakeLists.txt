@@ -4,6 +4,8 @@ llvm_canonicalize_cmake_booleans(
     MLIR_ENABLE_BINDINGS_PYTHON
 )
 
+# Configure into build dir
+#
 configure_lit_site_cfg(
     ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
     ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
@@ -11,6 +13,17 @@ configure_lit_site_cfg(
     ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
 )
 
+# Configure into source dir
+#
+configure_lit_site_cfg(
+    ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py
+    MAIN_CONFIG
+    ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
+)
+
+# Configure into unit tests dir
+#
 configure_lit_site_cfg(
     ${CMAKE_CURRENT_SOURCE_DIR}/unittests/lit.site.cfg.py.in
     ${CMAKE_CURRENT_BINARY_DIR}/unittests/lit.site.cfg.py
