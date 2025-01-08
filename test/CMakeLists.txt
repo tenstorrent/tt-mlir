@@ -48,6 +48,8 @@ add_lit_testsuite(check-ttmlir "Running the ttmlir regression tests"
 )
 set_target_properties(check-ttmlir PROPERTIES FOLDER "Tests")
 
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py @ONLY)
+
 add_lit_testsuites(TTMLIRStatic ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${TTMLIR_TEST_DEPENDS})
 
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/ DESTINATION test COMPONENT Test EXCLUDE_FROM_ALL)
