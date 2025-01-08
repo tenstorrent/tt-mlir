@@ -157,7 +157,8 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
   auto memoryConfigTensorLayout = memoryConfig.getTensorMemoryLayout();
   ::tt::target::TensorMemoryLayout tensorMemoryLayout =
       (memoryConfigTensorLayout)
-          ? ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(memoryConfigTensorLayout.getValue())
+          ? ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
+                memoryConfigTensorLayout.getValue())
           : ::tt::target::TensorMemoryLayout::SingleBank;
   ::tt::target::BufferType bufferType =
       ::tt::mlir::ttnn::utils::toTargetBufferType(
@@ -308,7 +309,7 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
 
   return ::tt::target::ttnn::CreateCpuOp(
       *cache.fbb, cache.fbb->CreateVector(ins), output,
-      cache.fbb->CreateString(op.getCallee().str()), dylib_id);
+      cache.fbb->CreateString(op.getCallee().str() + "_helper"), dylib_id);
 }
 
 ::flatbuffers::Offset<::tt::target::DistributionStrategy>

@@ -3,21 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Pass/Pass.h"
 
-#include "ttmlir/Dialect/TT/IR/TTOps.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
 
 namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITHELPERFUNCS
@@ -153,9 +152,9 @@ class LLVMEmitHelperFuncs
   void runOnOperation() final {
     auto moduleOp = getOperation();
     // only run this on our hoisted cpu op modules
-    if (!moduleOp->getAttr("ttir.cpu_module")) {
-      return;
-    }
+    // if (!moduleOp->getAttr("ttir.cpu_module")) {
+    //   return;
+    // }
     generateLLVMHelpersForArgRanks(moduleOp);
 
     // for every func in this module, emit a corresponding unpacker
