@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttir-to-ttir-decomposition %s | FileCheck %s
-module @jit_loss attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
-  func.func public @main(%arg0: tensor<2x1xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, %arg1: tensor<1xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, %arg2: tensor<127x2xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, %arg3: tensor<127x1xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}) -> (tensor<2x1xf32> {jax.result_info = "[0]", mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, tensor<1xf32> {jax.result_info = "[1]", mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}) {
-    %0 = "ttir.dot_general"(%arg2, %arg0) <{batch_dims_a = array<i64>, batch_dims_b = array<i64>, contract_dims_a = array<i64: 1>, contract_dims_b = array<i64: 0>}> : (tensor<127x2xf32>, tensor<2x1xf32>) -> tensor<127x1xf32>
+module @jit_loss {
+  func.func public @main(%arg0: tensor<2x1xf32>, %arg1: tensor<1xf32>, %arg2: tensor<127x2xf32>, %arg3: tensor<127x1xf32>) -> (tensor<2x1xf32>, tensor<1xf32>) {
+    %0 = "ttir.dot_general"(%arg2, %arg0) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<127x2xf32>, tensor<2x1xf32>) -> tensor<127x1xf32>
     %1 = tensor.empty() : tensor<1xf32>
     %2 = "ttir.typecast"(%arg1, %1) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1xf32>, tensor<1xf32>) -> tensor<1xf32>
     %3 = tensor.empty() : tensor<127x1xf32>
@@ -28,7 +28,7 @@ module @jit_loss attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 
     %24 = "ttir.sum"(%22, %23) <{dim_arg = [0 : i32, 1 : i32], keep_dim = false}> : (tensor<127x1xf32>, tensor<1xf32>) -> tensor<1xf32>
     %25 = tensor.empty() : tensor<1xf32>
     %26 = "ttir.typecast"(%24, %25) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<1xf32>, tensor<1xf32>) -> tensor<1xf32>
-    %27 = "ttir.dot_general"(%22, %arg2) <{batch_dims_a = array<i64>, batch_dims_b = array<i64>, contract_dims_a = array<i64: 0>, contract_dims_b = array<i64: 0>}> : (tensor<127x1xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
+    %27 = "ttir.dot_general"(%22, %arg2) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 0>, contract_dims_rhs = array<i64: 0>}> : (tensor<127x1xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
     // CHECK: "ttir.permute"
     // CHECK: {permutation = array<i64: 1, 0>}> : (tensor<127x1xf32>, tensor<1x127xf32>) -> tensor<1x127xf32>
     // CHECK: "ttir.matmul"

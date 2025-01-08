@@ -162,15 +162,14 @@ def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
       From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
     }];
 
-    let arguments = (ins AnyRankedTensor:$a,
-                         AnyRankedTensor:$b,
-                         DenseI64ArrayAttr:$batch_dims_a,
-                         DenseI64ArrayAttr:$contract_dims_a,
-                         DenseI64ArrayAttr:$batch_dims_b,
-                         DenseI64ArrayAttr:$contract_dims_b);
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         DenseI64ArrayAttr:$batch_dims_lhs,
+                         DenseI64ArrayAttr:$contract_dims_lhs,
+                         DenseI64ArrayAttr:$batch_dims_rhs,
+                         DenseI64ArrayAttr:$contract_dims_rhs);
 
     let results = (outs AnyRankedTensor:$result);
-    let hasVerifier = 1;
 }
 
 

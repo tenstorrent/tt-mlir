@@ -1,7 +1,7 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
-module @jit_loss attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
-  func.func public @main(%arg0: tensor<2x1xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, %arg1: tensor<f32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, %arg2: tensor<127x2xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, %arg3: tensor<127x1xf32> {mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}) -> (tensor<2x1xf32> {jax.result_info = "[0]", mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}, tensor<f32> {jax.result_info = "[1]", mhlo.layout_mode = "default", mhlo.sharding = "{replicated}"}) {
+module @jit_loss attributes {} {
+  func.func public @main(%arg0: tensor<2x1xf32>, %arg1: tensor<f32>, %arg2: tensor<127x2xf32>, %arg3: tensor<127x1xf32>) -> (tensor<2x1xf32>, tensor<f32>) {
     %0 = stablehlo.dot_general %arg2, %arg0, contracting_dims = [1] x [0], precision = [DEFAULT, DEFAULT] : (tensor<127x2xf32>, tensor<2x1xf32>) -> tensor<127x1xf32>
     %1 = stablehlo.convert %arg1 : tensor<f32>
     %2 = stablehlo.broadcast_in_dim %1, dims = [] : (tensor<f32>) -> tensor<127x1xf32>
@@ -21,7 +21,7 @@ module @jit_loss attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 
     %12 = stablehlo.convert %11 : tensor<f32>
     %13 = stablehlo.dot_general %10, %arg2, contracting_dims = [0] x [0], precision = [DEFAULT, DEFAULT] : (tensor<127x1xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
     // CHECK: "ttir.dot_general"
-    // CHECK: {batch_dims_a = array<i64>, batch_dims_b = array<i64>, contract_dims_a = array<i64: 0>, contract_dims_b = array<i64: 0>}
+    // CHECK: {batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 0>, contract_dims_rhs = array<i64: 0>}
     // CHECK: (tensor<127x1xf32>, tensor<127x2xf32>) -> tensor<1x2xf32>
     %14 = stablehlo.transpose %13, dims = [1, 0] : (tensor<1x2xf32>) -> tensor<2x1xf32>
     return %14, %12 : tensor<2x1xf32>, tensor<f32>
