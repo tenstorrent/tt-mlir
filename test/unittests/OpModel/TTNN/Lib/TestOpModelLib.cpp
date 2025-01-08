@@ -502,7 +502,7 @@ INSTANTIATE_TEST_SUITE_P(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
             mlir::tt::ttnn::BufferType::DRAM, llvm::SmallVector<int64_t>{8, 8},
-            llvm::SmallVector<int64_t>{8, 8}, true, 786432, 0, 0),
+            llvm::SmallVector<int64_t>{8, 8}, true, 753664, 0, 0),
         std::make_tuple(
             llvm::SmallVector<int64_t>{2048, 2048},
             mlir::tt::ttnn::TensorMemoryLayout::Interleaved,
