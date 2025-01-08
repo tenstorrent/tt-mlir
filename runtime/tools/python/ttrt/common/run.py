@@ -537,9 +537,12 @@ class Run:
                                     for i, runtime_output_tensor in enumerate(
                                         runtime_outputs
                                     ):
+                                        output_host = ttrt.runtime.to_host(
+                                            runtime_output_tensor, untilize=True
+                                        )
                                         ttrt.runtime.memcpy(
                                             total_outputs[loop][i],
-                                            runtime_output_tensor,
+                                            output_host,
                                         )
                                         ttrt.runtime.deallocate_tensor(
                                             runtime_output_tensor, force=True

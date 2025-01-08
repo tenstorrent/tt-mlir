@@ -92,7 +92,10 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor LayoutConverter::handleHostInputNoLayoutNoTypecast(
     const ::ttnn::Tensor &input, std::optional<DeviceVariant> targetDevice) {
-  ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
+  ::ttnn::Tensor out =
+      ::ttnn::to_layout(input, ::ttnn::Layout::TILE, std::nullopt, std::nullopt,
+                        static_cast<::ttnn::Device *>(nullptr));
+  out = toDeviceIfNeeded(out, targetDevice);
   out = toMemoryConfigIfNeeded(out);
   return out;
 }

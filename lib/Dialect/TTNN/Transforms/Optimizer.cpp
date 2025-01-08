@@ -224,6 +224,16 @@ public:
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
+        // Ensure getDeviceOp is always in the beginning of the schedule.
+        auto it =
+            std::find_if(opSchedule[func].begin(), opSchedule[func].end(),
+                         [](Operation *op) { return isa<GetDeviceOp>(op); });
+        if (it != opSchedule[func].end()) {
+          GetDeviceOp deviceOp = mlir::cast<GetDeviceOp>(*it);
+          opSchedule[func].erase(it);
+          opSchedule[func].insert(opSchedule[func].begin(), deviceOp);
+        }
+
         for (size_t i = 0; i < opSchedule[func].size() - 1; i++) {
           Operation *op = opSchedule[func][i];
 

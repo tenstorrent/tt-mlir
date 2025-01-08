@@ -71,10 +71,10 @@ public:
       llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
           g_defaultCollapseDims);
 
+      auto tileType = TileType::get(ctx, type.getElementType());
       TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
-          ctx, type.getShape(), type.getElementType(),
-          g_defaultMemorySpaceDevice, tensorGrid,
-          TensorMemoryLayoutAttr::get(ctx, g_defaultMemoryLayout),
+          ctx, type.getShape(), tileType, g_defaultMemorySpaceDevice,
+          tensorGrid, TensorMemoryLayoutAttr::get(ctx, g_defaultMemoryLayout),
           collapseDimsRef);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
@@ -368,7 +368,7 @@ public:
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
           TensorMemoryLayoutAttr::get(rewriter.getContext(),
                                       g_defaultMemoryLayout),
-          false /* tiled */);
+          true /* tiled */);
       if (layout.has_value()) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
