@@ -49,19 +49,6 @@ config.test_exec_root = os.path.join(config.ttmlir_obj_root, "test")
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
-# In emitc dylib testing path, we want to build dylibs but their CMake expects proper TT_METAL_HOME in order to locate
-# sources/libs from TT Metal. However, importing TTRT can change TT_METAL_HOME env to `/opt/ttmlir-toolchain/...`. In
-# order to combat this, we save the original TT_METAL_HOME variable TT_METAL_HOME_ORIGINAL and adjust the dylib CMake
-# file to read TT_METAL_HOME_ORIGINAL if it exists.
-if "TT_METAL_HOME" in os.environ:
-    llvm_config.with_environment(
-        "TT_METAL_HOME_ORIGINAL",
-        os.getenv("TT_METAL_HOME"),
-        append_path=False,
-    )
-else:
-    raise OSError("Error: TT_METAL_HOME not set")
-
 if config.system_desc_path:
     try:
         import ttrt

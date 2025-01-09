@@ -502,13 +502,27 @@ void *openSo(std::string path) {
     return handle;
   }
 #endif
-  throw std::runtime_error("ttnn runtime is not enabled");
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
 }
 
 std::vector<Tensor> runSoProgram(void *so, std::string name,
                                  std::vector<Tensor> inputs, Device device) {
-
+#if defined(TT_RUNTIME_ENABLE_TTNN)
   return ::tt::runtime::ttnn::runSoProgram(so, name, inputs, device);
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
 }
 
 bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
@@ -517,7 +531,13 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     return ::tt::runtime::ttnn::compareOuts(lhs, rhs);
   }
 #endif
-  throw std::runtime_error("ttnn runtime is not enabled");
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    LOG_FATAL("not implemented");
+  }
+#endif
+  LOG_FATAL("runtime is not enabled");
 }
 
 } // namespace tt::runtime

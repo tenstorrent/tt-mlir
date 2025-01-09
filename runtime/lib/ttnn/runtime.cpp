@@ -599,8 +599,8 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
   for (auto &tensor : rhs) {
     rhsTensors.push_back(static_cast<::ttnn::Tensor *>(tensor.handle.get()));
   }
-
   LOG_ASSERT(lhsTensors.size() == rhsTensors.size());
+
   for (size_t i = 0; i < lhsTensors.size(); i++) {
     auto *lhsTensor = lhsTensors[i];
     auto *rhsTensor = rhsTensors[i];

@@ -76,9 +76,12 @@ runs:
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
+    # Install needs to run after the "Compile dylibs" step
+    #
     - name: Install
       shell: bash
       run: |
+        source env/activate
         cmake --install ${{ inputs.build-output-dir }} --component Test
 
     - name: Run tt-mlir tests
@@ -102,13 +105,6 @@ runs:
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Conversion/TestConversion
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Lib/TestOpModelLib
         ${{ inputs.build-output-dir }}/test/unittests/OpModel/TTNN/Op/TestOpModelInterface
-
-    # - name: Compile dylibs for EmitC
-    #   shell: bash
-    #   if: inputs.enable-emitc == 'ON'
-    #   run: |
-    #     source env/activate
-    #     ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
     - name: Upload Test Report
       uses: actions/upload-artifact@v4
