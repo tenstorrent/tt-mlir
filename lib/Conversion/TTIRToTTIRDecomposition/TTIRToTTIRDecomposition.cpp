@@ -1327,6 +1327,31 @@ public:
   }
 };
 
+// TTNN does not support reduction operation for logical and. So this reduction
+// is performed by decomposing/converting into reduction product (ttnn.prod op).
+// If ttnn.prod output is zero then reduce_and output is false; otherwise the
+// output is true.
+struct ReductionAndPattern : public OpConversionPattern<ttir::ReduceAndOp> {
+public:
+  using OpConversionPattern<ttir::ReduceAndOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceAndOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    tensor::EmptyOp reduceOutputTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), reduceOutputType.getShape(),
+        reduceOutputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ProdOp>(
+        op, reduceOutputType, op.getInput(), reduceOutputTensor,
+        op.getKeepDim(), op.getDimArgAttr());
+
+    return success();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1338,6 +1363,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
+  patterns.add<ReductionAndPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
