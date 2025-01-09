@@ -1362,7 +1362,7 @@ public:
 
 //   %4 = "ttir.permute"(%3, %dst) {permutation = array<i64: 0, 3, 1, 2>}:
 //          (tensor<NxH'xW'xC>, tensor<NxCxH'xW'>) -> tensor<NxCxH'xW'>
-class UpsampleToUpsampleConversionPattern
+class Upsample2dChannelLastCanonicalizationPattern
     : public OpConversionPattern<ttir::Upsample2dOp> {
 public:
   using OpConversionPattern<ttir::Upsample2dOp>::OpConversionPattern;
@@ -1444,7 +1444,8 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
-  patterns.add<UpsampleToUpsampleConversionPattern>(typeConverter, ctx);
+  patterns.add<Upsample2dChannelLastCanonicalizationPattern>(typeConverter,
+                                                             ctx);
 }
 
 } // namespace mlir::tt
