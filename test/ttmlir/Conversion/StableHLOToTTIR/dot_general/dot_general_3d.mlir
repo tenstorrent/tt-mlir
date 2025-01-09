@@ -1,10 +1,11 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | FileCheck %s
-module {
-  func.func @main(%arg0: tensor<8x1x920xbf16>, %arg1: tensor<8x100x32xbf16>, %arg2: tensor<8x32x920xbf16>) -> tensor<8x100x920xbf16> {
-    %0 = stablehlo.broadcast_in_dim %arg2, dims = [0, 1, 2] : (tensor<8x32x920xbf16>) -> tensor<8x32x920xbf16>
-    // CHECK: %[[C:.*]] = "ttir.matmul"[[C:.*]]
-    %1 = stablehlo.dot_general %arg1, %0, batching_dims = [0] x [0], contracting_dims = [2] x [1] : (tensor<8x100x32xbf16>, tensor<8x32x920xbf16>) -> tensor<8x100x920xbf16>
-    return %1 : tensor<8x100x920xbf16>
+module @jit_dot_general attributes {} {
+  func.func public @test_dot_general(%arg0 : tensor<4x10x1xf32>, %arg1 : tensor<4x10x2xf32>) -> tensor<1x2xf32> {
+    %0 = stablehlo.dot_general %arg0, %arg1, contracting_dims = [0, 1] x [0, 1] : (tensor<4x10x1xf32>, tensor<4x10x2xf32>) -> tensor<1x2xf32>
+    // CHECK: "ttir.dot_general"
+    // CHECK-SAME: {batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 0, 1>, contract_dims_rhs = array<i64: 0, 1>}
+    // CHECK-SAME: (tensor<4x10x1xf32>, tensor<4x10x2xf32>) -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
   }
 }

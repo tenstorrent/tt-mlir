@@ -153,6 +153,26 @@ def TTIR_AllocOp : TTIR_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
+def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
+    let summary = "Dot general operation.";
+    let description = [{
+      Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+      dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+      where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+      From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         DenseI64ArrayAttr:$batch_dims_lhs,
+                         DenseI64ArrayAttr:$contract_dims_lhs,
+                         DenseI64ArrayAttr:$batch_dims_rhs,
+                         DenseI64ArrayAttr:$contract_dims_rhs);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
+
 def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
     let summary = "Dealloc op.";
     let description = [{
