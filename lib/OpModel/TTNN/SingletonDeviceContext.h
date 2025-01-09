@@ -11,7 +11,7 @@
 namespace tt {
 namespace tt_metal {
 inline namespace v0 {
-class Device;
+class IDevice;
 } // namespace v0
 } // namespace tt_metal
 } // namespace tt
@@ -29,7 +29,7 @@ class SingletonDeviceContext {
 public:
   static SingletonDeviceContext &getInstance();
 
-  ::tt::tt_metal::v0::Device *getDevice() { return m_device; }
+  ::tt::tt_metal::v0::IDevice *getDevice() { return m_device; }
 
 private:
   SingletonDeviceContext();
@@ -38,7 +38,7 @@ private:
   SingletonDeviceContext(const SingletonDeviceContext &) = delete;
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
-  ::tt::tt_metal::Device *m_device;
+  ::tt::tt_metal::IDevice *m_device;
 };
 } // namespace mlir::tt::op_model::ttnn
 

@@ -41,7 +41,7 @@ namespace {
 
 emitc::OpaqueAttr createNullDevicePointer(Builder &builder) {
   return builder.getType<emitc::OpaqueAttr>(
-      "static_cast<::ttnn::Device *>(nullptr)");
+      "static_cast<::ttnn::IDevice *>(nullptr)");
 }
 
 // Base class for TTNN to EmitC OpConversionPattern

@@ -171,7 +171,7 @@ ReluOpInterface::getOpConstraints(
                         const ::llvm::ArrayRef<int64_t> &outputShape,
                         const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::Device *device =
+    ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -217,7 +217,7 @@ AddOpInterface::getOpConstraints(
                        const ::llvm::ArrayRef<int64_t> &outputShape,
                        const ::mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::Device *device =
+    ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -265,7 +265,7 @@ SoftmaxOpInterface::getOpConstraints(
                            const llvm::ArrayRef<int64_t> &outputShape,
                            const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::Device *device =
+    ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs
@@ -314,7 +314,7 @@ MatmulOpInterface::getOpConstraints(
                           const mlir::tt::ttnn::TTNNLayoutAttr &outputLayout,
                           bool transpose_a, bool transpose_b) {
     // open device device, will close it at the end of function
-    ::tt::tt_metal::v0::Device *device =
+    ::tt::tt_metal::v0::IDevice *device =
         SingletonDeviceContext::getInstance().getDevice();
 
     // prepare io specs

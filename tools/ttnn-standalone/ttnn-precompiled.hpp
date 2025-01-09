@@ -30,8 +30,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static ttnn::Device *getInstance() {
-    static ttnn::Device *instance = &ttnn::open_device(0);
+  static ttnn::IDevice *getInstance() {
+    static ttnn::IDevice *instance = &ttnn::open_device(0);
 
     return instance;
   }
@@ -43,7 +43,7 @@ public:
   DeviceGetter(DeviceGetter const &) = delete;
   void operator=(DeviceGetter const &) = delete;
 
-  ttnn::Device *device;
+  ttnn::IDevice *device;
 };
 
 } // namespace ttnn

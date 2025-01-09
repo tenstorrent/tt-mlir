@@ -20,7 +20,7 @@ calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
                     const ::tt::target::Dim2d *subMeshShape) {
   for (size_t row = 0; row < parentMesh.num_rows(); row++) {
     for (size_t col = 0; col < parentMesh.num_cols(); col++) {
-      const ::ttnn::Device *currDevice = parentMesh.get_device(row, col);
+      const ::ttnn::IDevice *currDevice = parentMesh.get_device(row, col);
       if (desiredDeviceIds.contains(currDevice->id())) {
         return MeshOffset(row, col);
       }

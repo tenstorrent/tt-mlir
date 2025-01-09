@@ -70,7 +70,7 @@ using OutputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
 std::shared_ptr<::tt::tt_metal::Event>
-executeCommandQueue(::tt::tt_metal::Device *device,
+executeCommandQueue(::tt::tt_metal::IDevice *device,
                     ::tt::target::metal::CommandQueue const *cq,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
                     std::vector<OutputBuffer> const &outputs);
@@ -95,7 +95,7 @@ inline CoreRangeSet toCoreRangeSet(
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
 inline std::shared_ptr<::tt::tt_metal::Buffer>
-createBufferFromTensorRef(::tt::tt_metal::Device *device,
+createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
                           ::tt::target::TensorRef const *tensorRef) {
   ::tt::target::TensorDesc const *tensorDesc = tensorRef->desc();
   ::tt::target::LayoutDesc const *layout = tensorDesc->layout();

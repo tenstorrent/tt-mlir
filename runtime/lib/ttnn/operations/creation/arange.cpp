@@ -16,7 +16,7 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::DataType dtype =
       ::ttnn::DataType::BFLOAT16; // Default in arange implementation
-  std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
+  std::optional<std::reference_wrapper<::ttnn::IDevice>> device = std::nullopt;
   ::ttnn::MemoryConfig memoryConfig =
       ::ttnn::DRAM_MEMORY_CONFIG; // Default in arange implementation
 
@@ -33,11 +33,11 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
     DeviceVariant targetDevice =
         context.getTargetDevice(op->device()->global_id());
 
-    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::Device>>(
+    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::IDevice>>(
                    targetDevice),
                "ttnn::arange does not support MeshDevice.");
     device = std::make_optional(
-        std::get<std::reference_wrapper<::ttnn::Device>>(targetDevice));
+        std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice));
   }
   ::ttnn::Tensor out = ::ttnn::arange(op->start(), op->end(), op->step(), dtype,
                                       device, memoryConfig);
