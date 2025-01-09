@@ -62,7 +62,7 @@ runs:
 
     - name: Generate and set system descriptor
       shell: bash
-      if: inputs.enable-op-model == 'ON' || inputs.enable-emitc == 'ON'
+      if: inputs.enable-op-model == 'ON'
       run: |
         source env/activate
         ttrt query --save-artifacts
@@ -73,7 +73,6 @@ runs:
       run: |
         source env/activate
         export LD_LIBRARY_PATH="${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         llvm-lit -sv ${{ inputs.work-dir }}/test/ttmlir/EmitC/TTNN
         ${{ inputs.work-dir }}/tools/ttnn-standalone/ci_compile_dylib.py
 
