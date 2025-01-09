@@ -9,7 +9,6 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -17,10 +16,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Utils.h"
 
 #include <algorithm>
-#include <cstdint>
 
 using namespace mlir;
 using namespace mlir::tt;
