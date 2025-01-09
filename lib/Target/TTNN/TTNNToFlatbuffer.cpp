@@ -32,7 +32,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include <mlir/IR/BuiltinAttributes.h>
 
 namespace mlir::tt {
 

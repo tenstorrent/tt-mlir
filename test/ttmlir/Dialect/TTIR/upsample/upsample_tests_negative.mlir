@@ -1,7 +1,7 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for upsample2d operation
 
-// Verify that the parsing fails if input or output are not 4D tensors
+// Verify that the parsing fails if input or output are not 4D tensors.
 module {
   func.func @upsample2d_input_3d(%arg0: tensor<3x16x16xbf16>) -> tensor<3x16x16xbf16> {
     // CHECK: error: 'ttir.upsample2d' op Expected rank of input tensor is 4, got rank 3
@@ -31,7 +31,7 @@ module {
   }
 }
 
-// Verify that the scale factor is either integer or pair of integers
+// Verify that the scale factor is either integer or pair of integers.
 // -----
 module {
   func.func @upsample2d_scale_factor_triplet(%arg0: tensor<3x16x16x4xbf16>) -> tensor<3x16x16x4xbf16> {
@@ -42,7 +42,7 @@ module {
   }
 }
 
-// Verify that scale factors must be positive integers
+// Verify that scale factors must be positive integers.
 // -----
 module {
   func.func @upsample2d_nonpositive_scale_factor_uniform(%arg0: tensor<3x16x16x4xbf16>) -> tensor<3x16x16x4xbf16> {
@@ -63,7 +63,7 @@ module {
   }
 }
 
-// Verify that output shape must be input shape multiplied by scale factors
+// Verify that output shape must be input shape multiplied by scale factors.
 // -----
 module {
   func.func @upsample2d_mismatch_n(%arg0: tensor<3x16x16x4xbf16>) -> tensor<6x16x16x4xbf16> {
@@ -134,7 +134,7 @@ module {
   }
 }
 
-// Verify that the mode is one of supported modes
+// Verify that the mode is one of supported modes.
 // -----
 module {
   func.func @upsample2d_supported_mode(%arg0: tensor<3x16x32x4xbf16>) -> tensor<3x16x32x4xbf16> {
