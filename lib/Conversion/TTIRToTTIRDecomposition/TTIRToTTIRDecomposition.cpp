@@ -9,7 +9,6 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -624,12 +623,19 @@ struct GatherToEmbeddingConversionPattern
 };
 
 //===----------------------------------------------------------------------===//
-// Below is the implementation of the DotGeneralOp decomposition to MatmulOp,
-// ReshapeOp and PermuteOp. The DotGeneralOp is a generalization of the
-// MatmulOp, where the input tensors can have arbitrary batch and contract
-// dimensions. So far, only the case where DotGeneralOp directly corresponds to
-// a MatmulOp was supported. This decomposition therefore enables DotGeneralOp
-// in TTIR to work beyond the matmul-specific use case.
+/*
+Below is the implementation of the DotGeneralOp decomposition into MatmulOp,
+ReshapeOp, and PermuteOp. The DotGeneralOp is a more general form of MatmulOp
+where tensors can have arbitrary contract dimensions. Contract dimensions are
+the ones along which multiplication happens (typically summed over during the
+operation). Previously, DotGeneralOp only supported cases where it directly
+mapped to a MatmulOp, which typically involves batch dimensions (e.g., [5, 6, 7]
+x [5, 7, 6] where 5 is the batch dimension and multiplication happens along
+dimension 7). This decomposition extends the support to more flexible tensor
+shapes, such as [5, 6, 7] x [5, 6, 7], where the contract dimension is 6 (or 7)
+in both tensors. This allows DotGeneralOp to handle cases beyond the typical
+MatmulOp constraints, enabling more complex tensor operations.
+*/
 
 struct DotGeneralToMatmulConversionPattern
     : public OpConversionPattern<ttir::DotGeneralOp> {
@@ -685,9 +691,9 @@ struct DotGeneralToMatmulConversionPattern
     // For lhs: (batch dims, prod(result dims), prod(contract dims))
     // For rhs: (batch dims, prod(contract dims), prod(result dims))
 
-    ttir::ReshapeOp lhsMatmulInputFinal = createMatmulFinal(
+    ttir::ReshapeOp lhsMatmulInput = createMatmulFinal(
         rewriter, op.getLoc(), lhsPermute, lhsType, lhsMatmulInputShape);
-    ttir::ReshapeOp rhsMatmulInputFinal = createMatmulFinal(
+    ttir::ReshapeOp rhsMatmulInput = createMatmulFinal(
         rewriter, op.getLoc(), rhsPermute, rhsType, rhsMatmulInputShape);
 
     // Get shape of matmul op result.
@@ -707,8 +713,8 @@ struct DotGeneralToMatmulConversionPattern
     // Perform matmul operation.
 
     auto matmul = rewriter.create<ttir::MatmulOp>(
-        op.getLoc(), matmulDestination.getType(), lhsMatmulInputFinal,
-        rhsMatmulInputFinal, matmulDestination);
+        op.getLoc(), matmulDestination.getType(), lhsMatmulInput,
+        rhsMatmulInput, matmulDestination);
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
     // lhsResultDims and likewise for rhsResultDims.
@@ -724,8 +730,16 @@ struct DotGeneralToMatmulConversionPattern
       resultShape.push_back(rhsType.getShape()[dim]);
     }
 
-    ttir::ReshapeOp reshapeResult =
-        createMatmulFinal(rewriter, op.getLoc(), matmul, lhsType, resultShape);
+    llvm::SmallVector<int32_t> finalShapeI32(resultShape.begin(),
+                                             resultShape.end());
+
+    auto finalDestination = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultShape, lhsType.getElementType());
+
+    ttir::ReshapeOp reshapeResult = rewriter.create<ttir::ReshapeOp>(
+        op.getLoc(),
+        mlir::RankedTensorType::get(resultShape, lhsType.getElementType()),
+        matmul, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
 
     rewriter.replaceOp(op, reshapeResult);
 
@@ -737,21 +751,33 @@ private:
                                      const SmallVector<int64_t> &contractDims,
                                      int64_t rank) const {
 
-    llvm::SmallDenseSet<int64_t> allDims;
+    SmallVector<int64_t> allDims;
     for (int64_t i = 0; i < rank; i++) {
-      allDims.insert(i);
+      allDims.push_back(i);
     }
 
     // Remove batch and contract dims.
-    for (auto dim : batchDims) {
-      allDims.erase(dim);
+
+    for (size_t i = 0; i < batchDims.size(); i++) {
+      for (size_t j = 0; j < allDims.size(); j++) {
+        if (allDims[j] == batchDims[i]) {
+          allDims.erase(allDims.begin() + j);
+          break;
+        }
+      }
     }
-    for (auto dim : contractDims) {
-      allDims.erase(dim);
+    for (size_t i = 0; i < contractDims.size(); i++) {
+      for (size_t j = 0; j < allDims.size(); j++) {
+        if (allDims[j] == contractDims[i]) {
+          allDims.erase(allDims.begin() + j);
+          break;
+        }
+      }
     }
 
-    return SmallVector<int64_t>(allDims.begin(), allDims.end());
+    return allDims;
   }
+
   SmallVector<int64_t> getPermutation(const SmallVector<int64_t> &batchDims,
                                       const SmallVector<int64_t> &dims1,
                                       const SmallVector<int64_t> &dims2) const {
@@ -803,8 +829,9 @@ private:
 
     return finalShape;
   }
+
   ttir::ReshapeOp
-  createMatmulFinal(PatternRewriter &rewriter, Location loc, Value permute,
+  createMatmulFinal(PatternRewriter &rewriter, Location loc, Value input,
                     RankedTensorType type,
                     const SmallVector<int64_t> &finalShape) const {
 
@@ -816,10 +843,11 @@ private:
 
     auto finalOp = rewriter.create<ttir::ReshapeOp>(
         loc, mlir::RankedTensorType::get(finalShape, type.getElementType()),
-        permute, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
+        input, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
 
     return finalOp;
   }
+
   int64_t computeProductOfDims(ArrayRef<int64_t> tensorShape,
                                ArrayRef<int64_t> dims) const {
     int64_t product = 1;
