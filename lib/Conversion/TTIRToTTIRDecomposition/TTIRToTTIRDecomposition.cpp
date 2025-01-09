@@ -1327,6 +1327,57 @@ public:
   }
 };
 
+struct ReductionAndPattern : public OpConversionPattern<ttir::ReduceAndOp> {
+public:
+  using OpConversionPattern<ttir::ReduceAndOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceAndOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Reduce sum op
+    RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    tensor::EmptyOp reduceOutputTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), reduceOutputType.getShape(),
+        reduceOutputType.getElementType());
+
+    mlir::ArrayAttr dimArg = op.getDimArgAttr();
+    assert(dimArg.size() == 1);
+
+    ttir::SumOp sumOp = rewriter.create<mlir::tt::ttir::SumOp>(
+        op.getLoc(), reduceOutputType, op.getInput(), reduceOutputTensor,
+        false /* keep_dim */, dimArg);
+
+    // Creating a ttir.constant with dimesion size (reduction dimension) and
+    // shape equal to output of reduce op.
+    RankedTensorType inputTensorType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op->getOperandTypes()[0]));
+    int32_t dimIndex = dyn_cast<mlir::IntegerAttr>(dimArg[0]).getInt();
+    int32_t dimSize = inputTensorType.getShape()[dimIndex];
+    mlir::APFloat input(mlir::APFloat::BFloat(), dimSize);
+    std::vector<mlir::APFloat> booleanValue = {input};
+    ElementsAttr value =
+        mlir::DenseElementsAttr::get(op.getResult().getType(), booleanValue);
+    ttir::ConstantOp constOp = rewriter.create<ttir::ConstantOp>(
+        op->getLoc(), reduceOutputType, value);
+
+    // Compare op
+    llvm::SmallVector<mlir::Value, 4> equalInput = {sumOp, constOp};
+    mlir::ValueRange equalInputRange(equalInput);
+    tensor::EmptyOp equalOutputTensor = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), reduceOutputType.getShape(),
+        reduceOutputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::EqualOp>(
+        op,
+        TypeRange(
+            this->getTypeConverter()->convertType(equalOutputTensor.getType())),
+        equalInputRange, ValueRange(equalOutputTensor));
+
+    return success();
+  }
+};
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter) {
@@ -1338,6 +1389,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<SelectToSliceConversionPattern>(typeConverter, ctx);
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
+  patterns.add<ReductionAndPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
