@@ -50,7 +50,6 @@ def compile_shared_object(cpp_file_path, output_dir):
         for file in [
             "CMakeLists.txt",
             "ttnn-precompiled.hpp",
-            "ttnn-dylib.hpp",
             "ttnn-standalone.cpp",
         ]:
             shutil.copy2(
