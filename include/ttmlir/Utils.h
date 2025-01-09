@@ -183,6 +183,25 @@ inversePermutation(llvm::ArrayRef<int64_t> permutation) {
   return inversePermutation;
 }
 
+// Returns a vector `broadcastShape`, such that each index i of inputShape
+// multiplied by index i of broadcastShape is equal to index i of outputShape.
+// Example:  inputShape = [1, 32, 1], outputShape = [1, 32, 16] -> [1, 1, 16]
+template <typename T>
+inline llvm::SmallVector<T>
+getBroadcastDimensions(llvm::ArrayRef<int64_t> inputShape,
+                       llvm::ArrayRef<int64_t> outputShape) {
+  assert(inputShape.size() == outputShape.size() &&
+         "Input and Output shape should match.");
+
+  llvm::SmallVector<T> broadcastShape;
+  for (size_t i = 0; i < outputShape.size(); i++) {
+    T d = outputShape[i] / inputShape[i];
+    broadcastShape.push_back(d);
+  }
+
+  return broadcastShape;
+}
+
 } // namespace ttmlir::utils
 
 #endif

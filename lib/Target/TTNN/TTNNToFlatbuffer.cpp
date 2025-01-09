@@ -802,17 +802,29 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
       out);
 }
 
-template <typename ReshapeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getShape());
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedAddress, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
+}
+
+template <typename RepeatOp>
+::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
+createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto shape =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(cache, op.getShape());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateRepeatOp(*cache.fbb, in, out, shape);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
@@ -1129,6 +1141,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
                            debugString, locInfo);
+  }
+  if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {
+    return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
+                           locInfo);
   }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
     return createOperation(cache, createSliceOp(cache, sliceOp), debugString,

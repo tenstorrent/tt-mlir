@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include <llvm/ADT/APFloat.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
@@ -655,17 +656,74 @@ public:
       return legalityResult;
     }
 
+    auto inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getOperand().getType()));
+
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    mlir::ArrayAttr dimArg =
-        rewriter.getI64ArrayAttr(adaptor.getBroadcastDimensions());
+    if (inputType.getRank() == outputType.getRank()) {
+      // No unsqueeze is needed in this case and this broadcast can be
+      // represented by broadcast op.
+      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
-    rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
-        srcOp, getTypeConverter()->convertType(outputTensor.getType()),
-        Value(adaptor.getOperand()), Value(outputTensor), dimArg);
+      ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+      ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+      SmallVector<int32_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+                                                         outputShape);
+
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
+          srcOp, outputTensor.getType(), adaptor.getOperand(), outputTensor,
+          broadcastShape);
+    } else {
+      // This stablehlo operation cannot be represented by a single TTIR
+      // operation. It has to be split into ttir.reshape followed by a
+      // ttir.broadcast op.
+      SmallVector<int64_t> unsqueezeShape(outputType.getRank(), 1);
+      ::llvm::ArrayRef<int64_t> broadcastInDim =
+          adaptor.getBroadcastDimensions();
+
+      // Since we convert scalars to 1D tensors as a special case,
+      // so check input dimension is not empty.
+      if (!broadcastInDim.empty()) {
+        for (int64_t i = 0; i < inputType.getRank(); i++) {
+          unsqueezeShape[broadcastInDim[i]] = inputType.getDimSize(i);
+        }
+      }
+
+      RankedTensorType unsqueezeOutputType =
+          RankedTensorType::get(unsqueezeShape, outputType.getElementType());
+
+      tensor::EmptyOp reshapeOutputTensor = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), unsqueezeOutputType.getShape(),
+          unsqueezeOutputType.getElementType());
+
+      SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
+                                      unsqueezeShape.end());
+      auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
+
+      mlir::tt::ttir::ReshapeOp reshape =
+          rewriter.create<mlir::tt::ttir::ReshapeOp>(
+              srcOp.getLoc(), unsqueezeOutputType, adaptor.getOperand(),
+              reshapeOutputTensor, reshapeDimAttr);
+
+      tensor::EmptyOp broadcastOutputTensor = rewriter.create<tensor::EmptyOp>(
+          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+      ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
+      ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+      SmallVector<int32_t> broadcastShape =
+          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
+                                                         outputShape);
+
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
+          srcOp, broadcastOutputTensor.getType(), reshape.getResult(),
+          broadcastOutputTensor, broadcastShape);
+    }
 
     return success();
   }

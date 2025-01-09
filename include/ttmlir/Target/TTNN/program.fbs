@@ -218,6 +218,12 @@ table ReshapeOp {
   shape: [int32];
 }
 
+table RepeatOp {
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  shape: [uint32];
+}
+
 table SliceOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -352,6 +358,7 @@ union OpType {
   UpdateCacheOp,
   FillCacheOp,
   PermuteOp,
+  RepeatOp,
 }
 
 table Operation {
