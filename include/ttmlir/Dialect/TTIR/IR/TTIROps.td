@@ -840,7 +840,7 @@ def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
       Example:
       // %arg0: tensor<1x1x32xf32>
       %0 = tensor.empty() : tensor<1x16x32xf32>
-      %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = [1 : i32, 16 : i32, 1 : i32]}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+      %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

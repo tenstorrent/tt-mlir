@@ -802,7 +802,6 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
       out);
 }
 
-template <typename ReshapeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =

@@ -687,7 +687,7 @@ public:
           adaptor.getBroadcastDimensions();
 
       // Since we convert scalars to 1D tensors as a special case,
-      // so check input dimension is not empty
+      // so check input dimension is not empty.
       if (!broadcastInDim.empty()) {
         for (int64_t i = 0; i < inputType.getRank(); i++) {
           unsqueezeShape[broadcastInDim[i]] = inputType.getDimSize(i);

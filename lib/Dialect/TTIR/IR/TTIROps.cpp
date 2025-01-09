@@ -393,7 +393,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
   // Sanity check to make sure that input rank matches the rank of the output
-  // tensor
+  // tensor.
   if (inputType.getRank() != outputType.getRank()) {
     return emitOpError() << "Input tensor rank of " << inputType.getRank()
                          << " does not match output tensor rank of "
@@ -403,6 +403,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
+  // Verify that inputShape can be legally broadcasted to outputShape.
   llvm::SmallVector<int64_t> broadcastedShape;
   if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
                                           broadcastedShape)) {
@@ -413,11 +414,14 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   auto broadcastDimensions = getBroadcastDimensions();
-  // Check that the shape size matches the rank of the output tensor
+
+  // Check that the shape size matches the rank of the output tensor.
   if (static_cast<int64_t>(broadcastDimensions.size()) != inputType.getRank()) {
     return emitOpError("Input tensor rank should match output tensor rank.");
   }
 
+  // Verify that each dimension of the inputShape multiplied by corresponding
+  // broadcast dimension is equal to the outputShape dimension.
   for (size_t i = 0; i < broadcastDimensions.size(); i++) {
     int64_t dimValue = broadcastDimensions[i];
     if (inputShape[i] * dimValue != outputShape[i]) {
