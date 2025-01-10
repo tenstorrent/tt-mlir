@@ -233,10 +233,12 @@ table SliceOp {
 }
 
 table LinearOp {
-  in0: tt.target.TensorRef;
-  in1: tt.target.TensorRef;
+  a: tt.target.TensorRef;
+  b: tt.target.TensorRef;
   bias: tt.target.TensorRef;
   out: tt.target.TensorRef;
+  transpose_a: bool;
+  transpose_b: bool;
 }
 
 // ANCHOR: adding_an_op_matmul_fbs

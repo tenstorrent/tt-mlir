@@ -417,9 +417,9 @@ createOp(FlatbufferObjectCache &cache, OnesOp op) {
 
 ::flatbuffers::Offset<::tt::target::ttnn::LinearOp>
 createOp(FlatbufferObjectCache &cache, LinearOp op) {
-  auto in0 =
+  auto a =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
-  auto in1 =
+  auto b =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
   auto bias = op.getODSOperands(2).empty()
                   ? flatbuffers::Offset<::tt::target::TensorRef>()
@@ -427,7 +427,8 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
                         getOperandThroughDPSOps(op.getBias()));
   auto output = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateLinearOp(*cache.fbb, in0, in1, bias, output);
+  return ::tt::target::ttnn::CreateLinearOp(
+      *cache.fbb, a, b, bias, output, op.getTransposeA(), op.getTransposeB());
 }
 
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
