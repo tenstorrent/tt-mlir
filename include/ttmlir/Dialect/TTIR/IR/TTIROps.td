@@ -1316,6 +1316,8 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 // ANCHOR: adding_an_op_matmul_ttir
