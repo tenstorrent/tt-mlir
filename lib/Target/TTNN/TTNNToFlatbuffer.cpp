@@ -433,13 +433,14 @@ createOp(FlatbufferObjectCache &cache, LinearOp op) {
 // ANCHOR: adding_an_op_matmul_serialize_to_binary
 ::flatbuffers::Offset<::tt::target::ttnn::MatmulOp>
 createOp(FlatbufferObjectCache &cache, MatmulOp op) {
-  auto in0 =
+  auto a =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getA()));
-  auto in1 =
+  auto b =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getB()));
   auto output = cache.at<::tt::target::TensorRef>(
       getOperandThroughDPSOps(op.getResult()));
-  return ::tt::target::ttnn::CreateMatmulOp(*cache.fbb, in0, in1, output);
+  return ::tt::target::ttnn::CreateMatmulOp(
+      *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB());
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
