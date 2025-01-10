@@ -1678,7 +1678,9 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 

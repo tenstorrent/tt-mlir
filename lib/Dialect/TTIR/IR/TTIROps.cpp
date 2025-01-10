@@ -1514,56 +1514,58 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
   llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
-  // Verify that the input A is at least 1D tensor
+  // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
     return emitOpError("Input A must be at least a 1D tensor");
   }
 
-  // Verify that the input B is at least 1D tensor
+  // Verify that the input B is at least 1D tensor.
   if (inputBType.getRank() < 1) {
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimension for the
-  // purpose of the matrix multiply. After the matrix multiply, the prepended
-  // dimension is removed.
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
   if (inputAType.getRank() == 1) {
     inputAShape.insert(inputAShape.begin(), 1);
+  } else if (getTransposeA()) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
   }
 
-  // If input B is a vector (1D tensor), a 1 is appended to its dimension for
-  // the purpose of the matrix-vector product and removed after.
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
   if (inputBType.getRank() == 1) {
     inputBShape.push_back(1);
+  } else if (getTransposeB()) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
   }
 
-  // Verify that the input A and input B has matching inner dimensions
+  // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
       inputBShape[inputBShape.size() - 2]) {
-    return emitOpError(
-        "Input A[-1](" + std::to_string(inputAShape[inputAShape.size() - 1]) +
-        ") and B[-2](" + std::to_string(inputBShape[inputBShape.size() - 2]) +
-        ") must have matching inner dimensions");
+    return emitOpError("Input A[-1](")
+           << inputAShape[inputAShape.size() - 1] << ") and B[-2]("
+           << inputBShape[inputBShape.size() - 2]
+           << ") must have matching inner dimensions";
   }
 
   llvm::SmallVector<int64_t> expectedOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape
+  // expected output shape. If either of input A or input B is at most 2D
+  // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
-    llvm::SmallVector<int64_t> inputABatchDims, inputBBatchDims;
-
-    if (inputAShape.size() > 2) {
-      inputABatchDims.insert(inputABatchDims.begin(), inputAShape.begin(),
-                             inputAShape.end() - 2);
-    }
-
-    if (inputBShape.size() > 2) {
-      inputBBatchDims.insert(inputBBatchDims.begin(), inputBShape.begin(),
-                             inputBShape.end() - 2);
-    }
+    llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
+                                               inputAShape.end() - 2);
+    llvm::SmallVector<int64_t> inputBBatchDims(inputBShape.begin(),
+                                               inputBShape.end() - 2);
 
     // Verify that the batch dimensions of input A and B are broadcast
-    // compatible
+    // compatible.
     llvm::SmallVector<int64_t, 4> broadcastedShape;
     if (!mlir::OpTrait::util::getBroadcastedShape(
             inputABatchDims, inputBBatchDims, broadcastedShape)) {
@@ -1575,10 +1577,8 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
                          ") are not broadcast compatible");
     }
 
-    // Insert the broadcasted batch dimensions in the expected output shape
-    expectedOutputShape.insert(expectedOutputShape.begin(),
-                               broadcastedShape.begin(),
-                               broadcastedShape.end());
+    // Insert the broadcasted batch dimensions in the expected output shape.
+    expectedOutputShape = std::move(broadcastedShape);
   }
 
   // Insert the input A and B inner dimensions in expected output shape
@@ -1604,26 +1604,25 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
       return emitOpError("Scalar output must be a 1D tensor of size 1");
     }
 
-    return llvm::success();
+    return success();
   }
 
-  // Verify that the output shape is correct
+  // Verify that the output shape is correct.
   if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(" +
-                       std::to_string(outputShape.size()) +
-                       ") must match the expected output shape rank(" +
-                       std::to_string(expectedOutputShape.size()) + ")");
+    return emitOpError("Output shape rank(")
+           << outputShape.size()
+           << ") must match the expected output shape rank("
+           << expectedOutputShape.size() << ")";
   }
 
-  // Verify each dim of the output shape
-  for (size_t i = 0; i < outputShape.size(); i++) {
-    if (outputShape[i] != expectedOutputShape[i]) {
-      return emitOpError(
-          "Output shape dimension[" + std::to_string(i) + "](" +
-          std::to_string(outputShape[i]) +
-          ") doesn't match the expected output shape dimension[" +
-          std::to_string(i) + "](" + std::to_string(expectedOutputShape[i]) +
-          ")");
+  // Verify each dim of the output shape.
+  for (auto [index, outputDim, expectedDim] : llvm::zip(
+           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
+    if (outputDim != expectedDim) {
+      return emitOpError("Output shape dimension[")
+             << index << "](" << outputDim
+             << ") doesn't match the expected output shape dimension[" << index
+             << "](" << expectedDim << ")";
     }
   }
 
