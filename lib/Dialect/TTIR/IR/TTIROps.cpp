@@ -1486,17 +1486,60 @@ mlir::tt::ttir::ToLayoutOp::canonicalize(ttir::ToLayoutOp op,
   return success();
 }
 
-// LinearOp canonicalize method
-::mlir::LogicalResult
-mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
-                                       mlir::PatternRewriter &rewriter) {
-  if (op.getBias()) {
-    return mlir::failure();
+// If value is defined by TransposeOp with transpose dimensions
+// (rank - 2, rank - 1), return the input of the TransposeOp, otherwise return
+// std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
+static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
+getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
+  auto producerOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
+  if (!producerOp) {
+    return std::nullopt;
   }
 
-  rewriter.replaceOpWithNewOp<ttir::MatmulOp>(op, op.getType(), op.getA(),
-                                              op.getB(), op.getOutput());
-  return mlir::success();
+  int64_t rank = value.getType().getRank();
+  // TODO (azecevic): Change llvm::SmallSet comparison to direct comparison when
+  // TransposeOp canonicalization is merged.
+  if (rank < 2 || llvm::SmallSet<int64_t, 2>{rank - 2, rank - 1} !=
+                      llvm::SmallSet<int64_t, 2>{producerOp.getDim0(),
+                                                 producerOp.getDim1()}) {
+    return std::nullopt;
+  }
+
+  return producerOp.getInput();
+}
+
+// LinearOp canonicalization
+void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // linear(transpose(a), b, bias transpose_a, transpose_b) -> linear(a, b,
+  // bias, !transpose_a, transpose_b)
+  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
+    auto inputACanonical = getTransposeOpOperand(op.getA());
+    if (!inputACanonical) {
+      return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
+        op, op.getType(), *inputACanonical, op.getB(), op.getBias(),
+        op.getOutput(), !op.getTransposeA(), op.getTransposeB());
+
+    return mlir::success();
+  });
+
+  // linear(a, transpose(b), bias transpose_a, transpose_b) -> linear(a, b,
+  // bias, transpose_a, !transpose_b)
+  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
+    auto inputBCanonical = getTransposeOpOperand(op.getB());
+    if (!inputBCanonical) {
+      return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
+        op, op.getType(), op.getA(), *inputBCanonical, op.getBias(),
+        op.getOutput(), op.getTransposeA(), !op.getTransposeB());
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1629,28 +1672,6 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
-
-// If value is defined by TransposeOp with transpose dimensions
-// (rank - 2, rank - 1), return the input of the TransposeOp, otherwise return
-// std::nullopt. This is used for canonicalization of MatmulOp and LinearOp.
-static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getTransposeOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerOp = value.getDefiningOp<mlir::tt::ttir::TransposeOp>();
-  if (!producerOp) {
-    return std::nullopt;
-  }
-
-  int64_t rank = value.getType().getRank();
-  // TODO (azecevic): Change llvm::SmallSet comparison to direct comparison when
-  // TransposeOp canonicalization is merged.
-  if (rank < 2 || llvm::SmallSet<int64_t, 2>{rank - 2, rank - 1} !=
-                      llvm::SmallSet<int64_t, 2>{producerOp.getDim0(),
-                                                 producerOp.getDim1()}) {
-    return std::nullopt;
-  }
-
-  return producerOp.getInput();
-}
 
 // MatmulOp canonicalization
 void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
