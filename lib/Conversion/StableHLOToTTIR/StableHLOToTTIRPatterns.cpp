@@ -662,7 +662,10 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
-    if (inputType.getRank() == outputType.getRank()) {
+    ::llvm::ArrayRef<int64_t> broadcastInDim = adaptor.getBroadcastDimensions();
+
+    if (inputType.getRank() == outputType.getRank() &&
+        broadcastInDim.size() == static_cast<size_t>(outputType.getRank())) {
       // No unsqueeze is needed in this case and this broadcast can be
       // represented by broadcast op.
       tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
@@ -683,8 +686,6 @@ public:
       // operation. It has to be split into ttir.reshape followed by a
       // ttir.broadcast op.
       SmallVector<int64_t> unsqueezeShape(outputType.getRank(), 1);
-      ::llvm::ArrayRef<int64_t> broadcastInDim =
-          adaptor.getBroadcastDimensions();
 
       // Since we convert scalars to 1D tensors as a special case,
       // so check input dimension is not empty.
