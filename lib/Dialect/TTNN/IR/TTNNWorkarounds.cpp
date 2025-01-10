@@ -105,7 +105,7 @@ TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds() {
 // Metal issue for input operand workaround:
 // https://github.com/tenstorrent/tt-metal/issues/14915
 //
-// Metal issue weight operand workaround:
+// Metal issue for weight operand workaround:
 // TBD
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
@@ -120,5 +120,22 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
       .addInputOperandWorkaround(weightWorkaround)
       .addInputOperandWorkaround(weightWorkaround)
       .addOutputOperandWorkaround(weightWorkaround);
+}
+
+// Factory method to create a set of workarounds for matmul operation operands.
+// The matmul operation expects the input to be in tile layout and it produce
+// output in tile layout.
+//
+// Metal issue for input and output operand workaround:
+// TBD
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMatmulOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds tileLayoutWorkaround =
+      TTNNOperandWorkarounds(Layout::Tile);
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
+      .addInputOperandWorkaround(tileLayoutWorkaround)
+      .addInputOperandWorkaround(tileLayoutWorkaround)
+      .addInputOperandWorkaround(tileLayoutWorkaround)
+      .addOutputOperandWorkaround(tileLayoutWorkaround);
 }
 } // namespace mlir::tt::ttnn::wa

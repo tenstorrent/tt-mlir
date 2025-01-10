@@ -417,6 +417,7 @@ public:
 
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
+      // Workaround decompositions
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNAllReduceWorkarounds,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
@@ -436,6 +437,7 @@ public:
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
     if (layouotWorkaroundsEnabled) {
+      // Layout workarounds
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 
