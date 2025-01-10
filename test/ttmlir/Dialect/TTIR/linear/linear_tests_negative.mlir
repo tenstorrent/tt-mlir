@@ -1,7 +1,7 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
-// Negative tests for linear operation
+// Negative tests for linear operation.
 
-// Verify that the parsing fails if either of operands is a scalar
+// Verify that the parsing fails if either of operands is a scalar.
 module {
   func.func @linear_negative_1d_1d_scalar_a(%arg0: tensor<bf16>, %arg1: tensor<64xbf16>) -> tensor<1xbf16> {
     // CHECK: error: 'ttir.linear' op Input A must be at least a 1D tensor
@@ -31,7 +31,7 @@ module {
   }
 }
 
-// Verifty that the parsing fails if the output is a scalar
+// Verifty that the parsing fails if the output is a scalar.
 // -----
 module {
   func.func @linear_negative_1d_1d_scalar_output(%arg0: tensor<128xbf16>, %arg1: tensor<128xbf16>) -> tensor<bf16> {
@@ -52,7 +52,7 @@ module {
   }
 }
 
-// Inner dimension mismatch tests
+// Inner dimension mismatch tests.
 // -----
 module {
   func.func @linear_negative_1d_1d_inner_dimension_mismatch(%arg0: tensor<128xbf16>, %arg1: tensor<64xbf16>) -> tensor<1xbf16> {
@@ -103,7 +103,7 @@ module {
   }
 }
 
-// Batch dimension mismatch tests
+// Batch dimension mismatch tests.
 // -----
 module {
   func.func @linear_negative_nd_nd_same_rank_batch_broadcast_incompatible_1(%arg0: tensor<7x64x128xbf16>, %arg1: tensor<2x128x64xbf16>) -> tensor<7x64x64xbf16> {
@@ -134,7 +134,7 @@ module {
   }
 }
 
-// Bias shape mismatch tests
+// Bias shape mismatch tests.
 // -----
 module {
   func.func @linear_negative_matmul_bias_broadcast_incompatible(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<2x64xbf16>) -> tensor<64x64xbf16> {
@@ -155,7 +155,7 @@ module {
   }
 }
 
-// Output shape mismatch tests
+// Output shape mismatch tests.
 // -----
 module {
   func.func @linear_negative_2d_2d_output_shape_mismatch(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>) -> tensor<64xbf16> {
