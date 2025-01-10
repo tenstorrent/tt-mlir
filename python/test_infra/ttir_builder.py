@@ -389,6 +389,8 @@ class TTIRBuilder:
     ) -> OpView:
         return self.op_proxy(op_golden_function, op_ttir_function, inputs)
 
+    # TODO: implement `scatter`, `clamp`, `cbrt`, & `typecast`
+
     def exp(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0])
 
