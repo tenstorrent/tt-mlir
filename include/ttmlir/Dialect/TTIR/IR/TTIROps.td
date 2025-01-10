@@ -1656,7 +1656,9 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let results = (outs AnyRankedTensor:$result);
 
