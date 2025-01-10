@@ -301,9 +301,12 @@ table LinearOp {
 
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
-  in0: tt.target.ttnn.TensorRef;
-  in1: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
+  a: tt.target.TensorRef;
+  b: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  transpose_a: bool;
+  transpose_b: bool;
+
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
