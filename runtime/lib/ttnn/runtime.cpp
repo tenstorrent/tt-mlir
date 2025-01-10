@@ -545,7 +545,7 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
   // MeshDevice is unpacked to get the Device
   //
   assert(ttnnMeshDevice.get_devices().size() == 1);
-  ::ttnn::Device *ttnnDevice = ttnnMeshDevice.get_devices()[0];
+  ::ttnn::IDevice *ttnnDevice = ttnnMeshDevice.get_devices()[0];
 
   // Convert inputs to TTNN tensors using .as method
   //
@@ -562,7 +562,7 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
   // Get function from the shared object
   //
   using ForwardFunction = std::vector<::ttnn::Tensor> (*)(
-      std::vector<::ttnn::Tensor>, ::ttnn::Device *);
+      std::vector<::ttnn::Tensor>, ::ttnn::IDevice *);
   ForwardFunction forwardFunc =
       reinterpret_cast<ForwardFunction>(dlsym(so, func_name.c_str()));
 
