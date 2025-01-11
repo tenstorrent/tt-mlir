@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTNNTransforms
+add_mlir_dialect_library(TTMLIRTTNNTransforms
         Optimizer.cpp
         Passes.cpp
         TTNNLayout.cpp
@@ -16,7 +16,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         MLIRTTOpsIncGen
 
         LINK_LIBS PUBLIC
-        MLIRTTNNDialect
+        TTMLIRTTNNDialect
         )
 
-target_include_directories(MLIRTTNNTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)
+target_include_directories(TTMLIRTTNNTransforms PUBLIC ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common)

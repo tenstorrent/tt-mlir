@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTIRTransforms
+add_mlir_dialect_library(TTMLIRTTIRTransforms
         Allocate.cpp
         Constant.cpp
         Generic.cpp
