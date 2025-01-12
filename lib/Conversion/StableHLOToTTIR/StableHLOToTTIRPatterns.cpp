@@ -138,15 +138,14 @@ public:
 
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
-    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::DotGeneralOp>(
-        srcOp, outputTensor.getType(), adaptor.getLhs(), adaptor.getRhs(),
+        srcOp, outputType, adaptor.getLhs(), adaptor.getRhs(),
         adaptor.getDotDimensionNumbers().getLhsBatchingDimensions(),
         adaptor.getDotDimensionNumbers().getLhsContractingDimensions(),
         adaptor.getDotDimensionNumbers().getRhsBatchingDimensions(),
         adaptor.getDotDimensionNumbers().getRhsContractingDimensions());
+
     return success();
   }
 };
@@ -664,9 +663,6 @@ public:
     if (inputType.getRank() == outputType.getRank()) {
       // No unsqueeze is needed in this case and this broadcast can be
       // represented by broadcast op.
-      tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
-
       ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
 
@@ -674,9 +670,8 @@ public:
           ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
                                                          outputShape);
 
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
-          srcOp, outputTensor.getType(), adaptor.getOperand(), outputTensor,
-          broadcastShape);
+      ttmlir::utils::replaceOpWithNewDPSOp<mlir::tt::ttir::BroadcastOp>(
+          rewriter, srcOp, outputType, adaptor.getOperand(), broadcastShape);
     } else {
       // This stablehlo operation cannot be represented by a single TTIR
       // operation. It has to be split into ttir.reshape followed by a
@@ -693,24 +688,13 @@ public:
         }
       }
 
-      RankedTensorType unsqueezeOutputType =
-          RankedTensorType::get(unsqueezeShape, outputType.getElementType());
-
-      tensor::EmptyOp reshapeOutputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), unsqueezeOutputType.getShape(),
-          unsqueezeOutputType.getElementType());
-
       SmallVector<int32_t> reshapeDim(unsqueezeShape.begin(),
                                       unsqueezeShape.end());
       auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
 
-      mlir::tt::ttir::ReshapeOp reshape =
-          rewriter.create<mlir::tt::ttir::ReshapeOp>(
-              srcOp.getLoc(), unsqueezeOutputType, adaptor.getOperand(),
-              reshapeOutputTensor, reshapeDimAttr);
-
-      tensor::EmptyOp broadcastOutputTensor = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+      ttir::ReshapeOp reshapeOp = ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+          rewriter, srcOp.getLoc(), unsqueezeShape, outputType.getElementType(),
+          outputType.getEncoding(), adaptor.getOperand(), reshapeDimAttr);
 
       ::llvm::ArrayRef<int64_t> inputShape = unsqueezeShape;
       ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
@@ -719,9 +703,8 @@ public:
           ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
                                                          outputShape);
 
-      rewriter.replaceOpWithNewOp<mlir::tt::ttir::BroadcastOp>(
-          srcOp, broadcastOutputTensor.getType(), reshape.getResult(),
-          broadcastOutputTensor, broadcastShape);
+      ttmlir::utils::replaceOpWithNewDPSOp<ttir::BroadcastOp>(
+          rewriter, srcOp, outputType, reshapeOp, broadcastShape);
     }
 
     return success();
