@@ -6,12 +6,12 @@
 #define TT_RUNTIME_DETAIL_TTMETAL_H
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
-#include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
 #include "tt_metal/detail/reports/memory_reporter.hpp"
-#include "tt_metal/detail/tt_metal.hpp"
-#include "tt_metal/host_api.hpp"
+#include <tt-metalium/circular_buffer.hpp>
+#include <tt-metalium/host_api.hpp>
+#include <tt-metalium/mesh_device.hpp>
+#include <tt-metalium/tt_metal.hpp>
 
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"

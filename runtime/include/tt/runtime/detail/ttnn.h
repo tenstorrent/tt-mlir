@@ -6,8 +6,6 @@
 #define TT_RUNTIME_DETAIL_TTNN_H
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
-#include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
 #include "tt_metal/detail/reports/memory_reporter.hpp"
 #include "ttnn/device.hpp"
@@ -36,6 +34,8 @@
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
+#include <tt-metalium/host_api.hpp>
+#include <tt-metalium/mesh_device.hpp>
 
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
