@@ -17,7 +17,9 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace ttmlir::utils {
 template <typename T>
@@ -252,27 +254,28 @@ getPairOfInteger(mlir::Attribute attr) {
   return std::make_pair(x, y);
 }
 
+template <typename T>
+struct is_operand
+    : std::bool_constant<
+          (std::is_convertible_v<T, mlir::Value> ||
+           std::is_convertible_v<T, mlir::ValueRange>) &&
+          !std::is_convertible_v<T, mlir::TypedValue<mlir::tt::DeviceType>>> {};
+
+template <typename T>
+inline constexpr bool is_operand_v = is_operand<T>::value;
+
 template <typename... Args>
-struct count_consecutive;
+struct count_consecutive : std::integral_constant<size_t, 0> {};
 
 template <typename... Args>
 inline constexpr size_t count_consecutive_v = count_consecutive<Args...>::value;
 
-template <>
-struct count_consecutive<> {
-  static constexpr size_t value = 0;
-};
-
 template <typename First, typename... Rest>
-struct count_consecutive<First, Rest...> {
-  static constexpr size_t value =
-      (std::is_convertible_v<First, mlir::Value> ||
-       std::is_convertible_v<First, mlir::ValueRange>) &&
-              !std::is_convertible_v<First,
-                                     mlir::TypedValue<mlir::tt::DeviceType>>
-          ? 1 + count_consecutive_v<Rest...>
-          : 0;
-};
+struct count_consecutive<First, Rest...>
+    : std::conditional_t<
+          is_operand_v<First>,
+          std::integral_constant<size_t, 1 + count_consecutive_v<Rest...>>,
+          std::integral_constant<size_t, 0>> {};
 
 template <typename OpTy, typename IndexSeqFirst, typename IndexSeqRest>
 struct SplitCaller;
