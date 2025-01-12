@@ -1244,12 +1244,8 @@ public:
       // addOp(lhs, negOp(rhs))
 
     } else {
-      Value device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
-      tensor::EmptyOp negEmptyOp = rewriter.create<tensor::EmptyOp>(
-          srcOp.getLoc(), this->getTypeConverter()->convertType(rhsType),
-          device);
-      ttnn::NegOp negOp = rewriter.create<ttnn::NegOp>(
-          srcOp.getLoc(), adaptor.getInputs().back(), negEmptyOp);
+      ttnn::NegOp negOp = ttmlir::utils::createDPSOp<ttnn::NegOp>(
+          rewriter, srcOp.getLoc(), rhsType, adaptor.getInputs().back());
 
       rewriter.replaceOpWithNewOp<ttnn::AddOp>(
           srcOp, adaptor.getInputs().front(), negOp.getResults().front(),
