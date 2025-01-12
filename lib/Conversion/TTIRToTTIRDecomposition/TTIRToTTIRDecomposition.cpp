@@ -635,6 +635,9 @@ struct DotGeneralToMatmulConversionPattern
     SmallVector<int64_t> rhsBatchDims(op.getBatchDimsRhs());
     SmallVector<int64_t> rhsContractDims(op.getContractDimsRhs());
 
+    Type elementType = lhsType.getElementType();
+    Attribute encoding = lhsType.getEncoding();
+
     SmallVector<int64_t> lhsResultDims =
         getResultDims(lhsBatchDims, lhsContractDims, lhsRank);
     SmallVector<int64_t> rhsResultDims =
@@ -685,14 +688,10 @@ struct DotGeneralToMatmulConversionPattern
     matmulDestinationShape.push_back(
         computeProductOfDims(rhsType.getShape(), rhsResultDims));
 
-    auto matmulDestination = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), matmulDestinationShape, lhsType.getElementType());
-
     // Perform matmul operation.
-
-    auto matmul = rewriter.create<ttir::MatmulOp>(
-        op.getLoc(), matmulDestination.getType(), lhsMatmulInput,
-        rhsMatmulInput, matmulDestination);
+    auto matmulOp = ttmlir::utils::createDPSOp<ttir::MatmulOp>(
+        rewriter, op.getLoc(), matmulDestinationShape, elementType, encoding,
+        lhsMatmulInput, rhsMatmulInput);
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
     // lhsResultDims and likewise for rhsResultDims.
@@ -711,15 +710,9 @@ struct DotGeneralToMatmulConversionPattern
     llvm::SmallVector<int32_t> finalShapeI32(resultShape.begin(),
                                              resultShape.end());
 
-    auto finalDestination = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultShape, lhsType.getElementType());
-
-    ttir::ReshapeOp reshapeResult = rewriter.create<ttir::ReshapeOp>(
-        op.getLoc(),
-        mlir::RankedTensorType::get(resultShape, lhsType.getElementType()),
-        matmul, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
-
-    rewriter.replaceOp(op, reshapeResult);
+    ttmlir::utils::replaceOpWithNewDPSOp<ttir::ReshapeOp>(
+        rewriter, op, resultShape, elementType, encoding, matmulOp,
+        rewriter.getI32ArrayAttr(finalShapeI32));
 
     return success();
   }
@@ -776,13 +769,9 @@ private:
     SmallVector<int64_t> destinationShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
 
-    auto destination = rewriter.create<tensor::EmptyOp>(
-        loc, destinationShape, inputType.getElementType());
-
-    auto permute = rewriter.create<ttir::PermuteOp>(
-        loc, destination.getType(), input, destination, permutation);
-
-    return permute;
+    return ttmlir::utils::createDPSOp<ttir::PermuteOp>(
+        rewriter, loc, destinationShape, inputType.getElementType(),
+        inputType.getEncoding(), input, permutation);
   }
 
   SmallVector<int64_t>
@@ -816,14 +805,9 @@ private:
     llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
                                              finalShape.end());
 
-    auto finalDestination = rewriter.create<tensor::EmptyOp>(
-        loc, finalShape, type.getElementType());
-
-    auto finalOp = rewriter.create<ttir::ReshapeOp>(
-        loc, mlir::RankedTensorType::get(finalShape, type.getElementType()),
-        input, finalDestination, rewriter.getI32ArrayAttr(finalShapeI32));
-
-    return finalOp;
+    return ttmlir::utils::createDPSOp<ttir::ReshapeOp>(
+        rewriter, loc, finalShape, type.getElementType(), type.getEncoding(),
+        input, rewriter.getI32ArrayAttr(finalShapeI32));
   }
 
   int64_t computeProductOfDims(ArrayRef<int64_t> tensorShape,
@@ -1220,8 +1204,7 @@ public:
           arangeOutputType.getEncoding());
 
       output = ttmlir::utils::createDPSOp<ttir::TransposeOp>(
-          rewriter, op.getLoc(), transposeShape, transposeType.getElementType(),
-          transposeType.getEncoding(), output,
+          rewriter, op.getLoc(), transposeType, output,
           arangeDimensionNegative + transposeShape.size(),
           arangeOutputType.getRank() - 1);
 
@@ -1247,35 +1230,27 @@ public:
       outputShape = std::move(reshapeShape);
     }
 
-    // Must broadcast the rest of the dimensions
-    SmallVector<Attribute> broadcastDims;
+    // Must broadcast the rest of the dimensions.
     for (uint32_t i = 0; i < outputShape.size(); i++) {
-      if (i != arangeDimension && outputShape[i] != outputType.getShape()[i]) {
+      if (i != arangeDimension) {
         outputShape[i] = outputType.getShape()[i];
-        broadcastDims.push_back(rewriter.getI64IntegerAttr(i));
       }
     }
-    if (!broadcastDims.empty()) {
-      RankedTensorType broadcastType = RankedTensorType::get(
-          outputShape, outputType.getElementType(), outputType.getEncoding());
 
-      tensor::EmptyOp dpsOutput = rewriter.create<tensor::EmptyOp>(
-          op.getLoc(), outputShape, outputType.getElementType());
+    auto inputShape =
+        mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
 
-      auto inputShape =
-          mlir::cast<mlir::RankedTensorType>(output.getType()).getShape();
+    SmallVector<int32_t> broadcastShape =
+        ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape, outputShape);
 
-      SmallVector<int32_t> broadcastShape =
-          ttmlir::utils::getBroadcastDimensions<int32_t>(inputShape,
-                                                         outputShape);
+    output = ttmlir::utils::createDPSOp<ttir::BroadcastOp>(
+        rewriter, op.getLoc(), outputShape, outputType.getElementType(),
+        outputType.getEncoding(), output, broadcastShape);
 
-      output = rewriter.create<ttir::BroadcastOp>(
-          op.getLoc(), broadcastType, output, dpsOutput, broadcastShape);
+    assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
+               outputType.getShape() &&
+           "Output shape must match the shape of the input tensor");
 
-      assert(mlir::cast<RankedTensorType>(output.getType()).getShape() ==
-                 outputType.getShape() &&
-             "Output shape must match the shape of the input tensor");
-    }
     rewriter.replaceOp(op, output);
     return success();
   }
