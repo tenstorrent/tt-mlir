@@ -120,7 +120,74 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
-void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
+void createTTIRToTTIRDecompositionPassFromString(OpPassManager &pm,
+                                                 std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+}
+
+void createTTIRLoadSystemDescFromString(OpPassManager &pm,
+                                        std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  ttir::TTIRLoadSystemDescOptions systemDescOptions;
+  systemDescOptions.path = optionsStruct->systemDescPath;
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
+}
+
+void createInlinerPassFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  pm.addPass(mlir::createInlinerPass());
+}
+
+void createTTIRImplicitDeviceFromString(OpPassManager &pm,
+                                        std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
+  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
+      optionsStruct->meshShape.begin(), optionsStruct->meshShape.end());
+  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
+}
+
+void createTTNNLayoutFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  pm.addPass(createTTNNLayout());
+}
+
+void createConvertTTIRToTTNNPassFromString(OpPassManager &pm,
+                                           std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  pm.addPass(createConvertTTIRToTTNNPass());
+}
+
+void createRemoveDeadValuesPassFromString(OpPassManager &pm,
+                                          std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  pm.addPass(mlir::createRemoveDeadValuesPass());
+}
+
+void createTTNNWorkaroundsFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  TTNNWorkaroundsOptions workaroundOptions{
+      optionsStruct->layouotWorkaroundsEnabled,
+      optionsStruct->decompositionWorkaroundsEnabled};
+  pm.addPass(createTTNNWorkarounds(workaroundOptions));
+}
+
+void createCanonicalizerPassFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  pm.addPass(mlir::createCanonicalizerPass());
+}
+
+void createTTNNPipelineTTIRBroadcastFoldPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.implicitBroadcastFoldingEnabled) {
     pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());

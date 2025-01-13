@@ -178,6 +178,30 @@ void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
 void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
                                              std::string options);
 
+void createTTIRToTTIRDecompositionPassFromString(OpPassManager &pm,
+                                                 std::string options);
+
+void createTTIRLoadSystemDescFromString(OpPassManager &pm, std::string options);
+
+void createInlinerPassFromString(OpPassManager &pm, std::string options);
+
+void createTTIRImplicitDeviceFromString(OpPassManager &pm, std::string options);
+
+void createTTNNLayoutFromString(OpPassManager &pm, std::string options);
+
+void createConvertTTIRToTTNNPassFromString(OpPassManager &pm,
+                                           std::string options);
+
+void createRemoveDeadValuesPassFromString(OpPassManager &pm,
+                                          std::string options);
+
+void createTTNNWorkaroundsFromString(OpPassManager &pm, std::string options);
+
+void createCanonicalizerPassFromString(OpPassManager &pm, std::string options);
+
+void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
+                                                       std::string options);
+
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 

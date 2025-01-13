@@ -204,6 +204,12 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
     loc = ttrt.runtime.get_op_loc_info(op_context)
 
+    match = re.search(r'loc\("([^"]+)"\)', loc)
+    if match is None:
+        logging.debug("proper location could not be extracted from loc")
+        return
+
+    loc = match.group(1)
     op_golden_tensor = binary.get_debug_info_golden(loc)
 
     if op_golden_tensor is None:
