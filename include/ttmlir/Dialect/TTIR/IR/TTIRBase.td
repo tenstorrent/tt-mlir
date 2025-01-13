@@ -6,9 +6,8 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRDIALECT_TD
 
 include "mlir/IR/OpBase.td"
-include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
-
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // TTIR dialect definition.
