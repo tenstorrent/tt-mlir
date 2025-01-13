@@ -113,12 +113,28 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   TTNNOperandWorkarounds inputRowMajorInt32Workaround;
   inputRowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   inputRowMajorInt32Workaround.tensorDataTypeWorkaround = DataType::UInt32;
-  TTNNOperandWorkarounds weightWorkaround =
+  TTNNOperandWorkarounds bf16Workaround =
       TTNNOperandWorkarounds(DataType::BFloat16);
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
-      .addInputOperandWorkaround(weightWorkaround)
-      .addInputOperandWorkaround(weightWorkaround)
-      .addOutputOperandWorkaround(weightWorkaround);
+      .addInputOperandWorkaround(bf16Workaround)
+      .addInputOperandWorkaround(bf16Workaround)
+      .addOutputOperandWorkaround(bf16Workaround);
+}
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds() {
+  // Create input and weight workarounds.
+  TTNNOperandWorkarounds inputRowMajorInt32Workaround;
+  inputRowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputRowMajorInt32Workaround.tensorDataTypeWorkaround = DataType::UInt32;
+  TTNNOperandWorkarounds bf16Workaround =
+      TTNNOperandWorkarounds(DataType::BFloat16);
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
+      .addInputOperandWorkaround(inputRowMajorInt32Workaround)
+      .addInputOperandWorkaround(bf16Workaround)
+      .addInputOperandWorkaround(bf16Workaround)
+      .addInputOperandWorkaround(bf16Workaround)
+      .addOutputOperandWorkaround(bf16Workaround);
 }
 } // namespace mlir::tt::ttnn::wa
