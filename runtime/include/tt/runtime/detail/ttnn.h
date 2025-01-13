@@ -42,7 +42,7 @@
 namespace tt::runtime::ttnn {
 
 // Default L1 small size to use for the ttnn runtime (32kb).
-constexpr std::size_t kL1SmallSize = 1 << 15;
+constexpr std::size_t kL1SmallSize = 1 << 14;
 
 std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 
