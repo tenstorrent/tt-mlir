@@ -23,6 +23,12 @@ namespace mlir::tt::llvm_util {
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
 void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
+  // Remove existing terminator if present
+  if (auto terminator = dyn_cast<tt::CPUModuleTerminatorOp>(
+        moduleOp.getBody().front().getTerminator())) {
+    terminator->erase();
+  }
+
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
 
@@ -141,6 +147,9 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
     // Return the result
     builder.create<LLVM::ReturnOp>(func.getLoc(), ValueRange());
   }
+
+    builder.setInsertionPointToEnd(&moduleOp.getBody().front());
+    builder.create<tt::CPUModuleTerminatorOp>(moduleOp.getLoc());
 }
 
 class LLVMEmitHelperFuncs
@@ -150,6 +159,7 @@ class LLVMEmitHelperFuncs
   // using impl::createLLVMEmitHelperFuncs;
 
   void runOnOperation() final {
+    llvm::outs() << "LLVMEmitHelperFuncs::runOnOperation()\n";
     auto moduleOp = getOperation();
     // only run this on our hoisted cpu op modules
     // if (!moduleOp->getAttr("ttir.cpu_module")) {
