@@ -19,7 +19,7 @@ namespace mlir::tt::ttkernel {
 // TODO: Should generalize this to read kernel type from Attribute?
 void registerTensixKernelToCpp() {
   TranslateFromMLIRRegistration reg(
-      "tensixkernel-to-cpp", "translate tensix kernel to C++",
+      "ttkernel-to-cpp-tensix", "translate tensix kernel to C++",
       [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
         return translateTTKernelToCpp(op, os, tt::ttkernel::ThreadType::Tensix);
       },
@@ -34,7 +34,7 @@ void registerTensixKernelToCpp() {
 
 void registerNocKernelToCpp() {
   TranslateFromMLIRRegistration reg(
-      "nockernel-to-cpp", "translate noc kernel to C++",
+      "ttkernel-to-cpp-noc", "translate noc kernel to C++",
       [](Operation *op, llvm::raw_ostream &os) -> LogicalResult {
         return translateTTKernelToCpp(op, os, tt::ttkernel::ThreadType::Noc);
       },
