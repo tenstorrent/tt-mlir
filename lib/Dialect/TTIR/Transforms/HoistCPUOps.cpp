@@ -83,14 +83,13 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp sourceModule,
                                      tt::CPUModuleOp targetModule) {
 
-  llvm::outs() << "1\n";
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
+  const llvm::SmallString<16> localFunctionName = functionName.append("_decl");
 
   auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
-      sourceModule.lookupSymbol(functionName));
-  llvm::outs() << "2\n";
+      sourceModule.lookupSymbol(localFunctionName));
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
@@ -105,7 +104,6 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       resultTypes.push_back(result);
     }
 
-    llvm::outs() << "3\n";
     // Create the function signature.
     mlir::FunctionType funcType =
         mlir::FunctionType::get(context, operandTypes, resultTypes);
@@ -120,14 +118,11 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       cpuModuleBlock = &cpuModuleBody.front();
     }
 
-    llvm::outs() << "4\n";
-
     // Insert the function and the terminator
     auto hoistedFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
     cpuModuleBlock->push_back(
         hoistedFunc); // Add function inside CPUModuleOp region
-    llvm::outs() << "5\n";
 
     // Create the terminator
     // builder.create<tt::CPUModuleTerminatorOp>(
@@ -156,7 +151,7 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
 
     // Declare the function prototype in the source module.
     localFunc =
-        func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
+        func::FuncOp::create(opToHoist->getLoc(), localFunctionName, funcType);
     localFunc.setPrivate();
     sourceModule.push_back(localFunc);
 
@@ -218,8 +213,7 @@ public:
     const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
-    if (hoistOpSets.empty())
-    {
+    if (hoistOpSets.empty()) {
       return;
     }
 

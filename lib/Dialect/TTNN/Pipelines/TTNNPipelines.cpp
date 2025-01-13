@@ -4,11 +4,11 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
-#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
-#include "ttmlir/Conversion/LinalgToLLVM/LinalgToLLVM.h"
+#include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
@@ -29,7 +29,7 @@ void createTTNNPipelineTTIRPasses(
 
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.
-  // pm.addPass(mlir::createInlinerPass());
+  pm.addPass(mlir::createInlinerPass());
 
   pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
 
@@ -139,6 +139,7 @@ void createTTIRToTTNNBackendPipeline(
   pm.addPass(createConvertTTIRToLinalgPass());
   pm.addPass(createConvertLinalgToLLVMPass());
   pm.addPass(llvm_util::createLLVMEmitHelperFuncs());
+
   // ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
   // ttir::createLinalgToLLVMPipeline(pm, linalgToLLLVMOptions);
 
