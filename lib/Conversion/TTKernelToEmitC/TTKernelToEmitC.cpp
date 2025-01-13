@@ -604,7 +604,7 @@ emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
 
 LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,
                               const ttkernel::ThreadType &threadType) {
-  std::vector<func::FuncOp> ops;
+  llvm::SmallVector<func::FuncOp, 1> ops;
   op->walk([&](func::FuncOp entry) { ops.push_back(entry); });
 
   for (const auto &op : ops) {
