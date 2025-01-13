@@ -86,10 +86,12 @@ static void getDimsToBroadcastAndCollapse(
   }
 }
 
-// Conversion pattern of operations which have exactly 2 input and 1 output operands.
+// Conversion pattern of operations which have exactly 2 input and 1 output
+// operands.
 template <typename TTIROpTy, typename LinalgOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
-class ElementwiseBinaryOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+class ElementwiseBinaryOpConversionPattern
+    : public OpConversionPattern<TTIROpTy> {
 public:
   using OpConversionPattern<TTIROpTy>::OpConversionPattern;
 
@@ -100,13 +102,18 @@ public:
 
     // First, compute broadcasted shape from operands.
     SmallVector<Value, 3> inputs = adaptor.getInputs();
-    assert(inputs.size() == 2 && "binary element-wise operations must have 2 inputs!");
-    ArrayRef<int64_t> input0Shape = dyn_cast<RankedTensorType>(inputs[0].getType()).getShape();
-    ArrayRef<int64_t> input1Shape = dyn_cast<RankedTensorType>(inputs[1].getType()).getShape();
+    assert(inputs.size() == 2 &&
+           "binary element-wise operations must have 2 inputs!");
+    ArrayRef<int64_t> input0Shape =
+        dyn_cast<RankedTensorType>(inputs[0].getType()).getShape();
+    ArrayRef<int64_t> input1Shape =
+        dyn_cast<RankedTensorType>(inputs[1].getType()).getShape();
 
     SmallVector<int64_t, 4> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(input0Shape, input1Shape, broadcastedShape)) {
-      return rewriter.notifyMatchFailure(op, "Operands are not broadcastable--this should be impossible!");
+    if (!OpTrait::util::getBroadcastedShape(input0Shape, input1Shape,
+                                            broadcastedShape)) {
+      return rewriter.notifyMatchFailure(
+          op, "Operands are not broadcastable--this should be impossible!");
     }
 
     // Replace any inputs which aren't in target shape with broadcast results
@@ -166,9 +173,10 @@ namespace mlir::tt {
 
 void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter &typeConverter) {
-  patterns.add<ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
-               ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
-               ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>>(
+  patterns.add<
+      ElementwiseBinaryOpConversionPattern<ttir::AddOp, linalg::AddOp>,
+      ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, linalg::MulOp>,
+      ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, linalg::SubOp>>(
       typeConverter, ctx);
 }
 
