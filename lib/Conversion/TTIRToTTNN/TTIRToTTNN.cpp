@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+
 #include <cstdint>
 
 using namespace mlir;
@@ -63,33 +64,26 @@ public:
     ttnn::LayoutAttr tensorLayoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
 
-    // If the tensor is not going to device, we can create the op without
-    // device-specific attributes
+    // Device
     //
-    ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
-    if (!memLayout) {
-      rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-          op, this->getTypeConverter()->convertType(op.getType()), nullptr,
-          shapeAttr, dTypeAttr, tensorLayoutAttr, nullptr);
-
-      return success();
-    }
-
-    ttnn::BufferType bufferType = layoutAttr.getBufferType();
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     // Create MemoryConfigAttr
     //
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    llvm::SmallVector<int64_t> shardShape = layoutAttr.getShardShape();
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), ttnn::BufferTypeAttr::get(op.getContext(), bufferType),
-        ttnn::ShardSpecAttr::get(
-            op.getContext(), ttnn::ShapeAttr::get(op.getContext(), shardShape)),
-        memLayout);
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::ShardSpecAttr shardSpecAttr = ttnn::ShardSpecAttr::get(
+        op.getContext(),
+        ttnn::ShapeAttr::get(op.getContext(), layoutAttr.getShardShape()));
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), bufferTypeAttr,
+                                    shardSpecAttr, layoutAttr.getMemLayout());
 
+    // Replace op
+    //
     rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), device,
-        shapeAttr, dTypeAttr, tensorLayoutAttr, memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), shapeAttr,
+        dTypeAttr, tensorLayoutAttr, device, memoryConfigAttr);
 
     return success();
   }
@@ -250,7 +244,6 @@ private:
     // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
       if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
-          isa<ttir::EmbeddingOp>(user) ||
           (isa<ttir::EmbeddingBackwardOp>(user) &&
            (user->getOperand(0) == op || user->getOperand(1) == op))) {
         return true;
@@ -629,6 +622,25 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), shapeAttr);
+
+    return success();
+  }
+};
+
+class BroadcastOpConversionPattern
+    : public OpConversionPattern<ttir::BroadcastOp> {
+  using OpConversionPattern<ttir::BroadcastOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto shapeAttr = adaptor.getBroadcastDimensionsAttr();
+
+    rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), rewriter.getI32ArrayAttr(shapeAttr));
 
     return success();
   }
@@ -1120,6 +1132,23 @@ public:
     return success();
   }
 };
+
+class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
+public:
+  using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PermuteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getPermutationAttr(),
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+
+    return success();
+  }
+};
+
 } // namespace
 
 namespace mlir::tt {
@@ -1178,6 +1207,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
+           BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            SoftmaxOpConversionPattern,
@@ -1201,7 +1231,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            UpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterOpConversionPattern
+           ScatterOpConversionPattern,
+           PermuteOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

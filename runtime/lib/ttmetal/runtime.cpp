@@ -15,7 +15,7 @@ namespace tt::runtime::ttmetal {
 using ::tt::runtime::DeviceRuntime;
 constexpr inline std::size_t kHostBufferCommandQueueId = 0;
 using Events = std::vector<std::shared_ptr<::tt::tt_metal::Event>>;
-using DeviceList = std::vector<::tt::tt_metal::Device *>;
+using DeviceList = std::vector<::tt::tt_metal::IDevice *>;
 using MetalTensor =
     std::variant<TensorDesc, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
@@ -85,7 +85,7 @@ void closeDevice(Device device) {
           DeviceRuntime::TTMetal);
 
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::tt::tt_metal::Device *ttmetalDevice :
+  for (::tt::tt_metal::IDevice *ttmetalDevice :
        ttmetalMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
   }
@@ -98,8 +98,18 @@ void deallocateBuffers(Device deviceHandle) {
       deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
 
-  for (::tt::tt_metal::Device *device : meshDevice.get_devices()) {
+  for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
     device->deallocate_buffers();
+  }
+}
+
+void dumpMemoryReport(Device deviceHandle) {
+  ::tt::tt_metal::distributed::MeshDevice &meshDevice =
+      deviceHandle.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+
+  for (::tt::tt_metal::IDevice *device : meshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
   }
 }
 
@@ -120,7 +130,7 @@ void wait(std::vector<Tensor> const &tensors) {
 
 static std::pair<std::shared_ptr<::tt::tt_metal::Buffer>,
                  std::shared_ptr<::tt::tt_metal::Event>>
-prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
+prepareInput(::tt::tt_metal::IDevice *device, MetalTensor const &metalTensor,
              void *data, ::tt::target::TensorRef const *tensorRef) {
   if (std::holds_alternative<TensorDesc>(metalTensor)) {
     // todo assert that tensorDesc matches hostTensorDesc
@@ -146,7 +156,7 @@ prepareInput(::tt::tt_metal::Device *device, MetalTensor const &metalTensor,
 }
 
 static std::shared_ptr<::tt::tt_metal::Buffer>
-prepareOutput(::tt::tt_metal::Device *device, MetalTensor const *metalTensor,
+prepareOutput(::tt::tt_metal::IDevice *device, MetalTensor const *metalTensor,
               ::tt::target::TensorRef const *tensorRef) {
   LOG_ASSERT(metalTensor != nullptr);
   if (TensorDesc const *hostTensorDesc = std::get_if<TensorDesc>(metalTensor);
@@ -163,7 +173,7 @@ prepareOutput(::tt::tt_metal::Device *device, MetalTensor const *metalTensor,
   return nullptr;
 }
 
-Events maybeCopyHostOutputs(::tt::tt_metal::Device *device,
+Events maybeCopyHostOutputs(::tt::tt_metal::IDevice *device,
                             std::vector<Tensor> const &outputHandles,
                             std::vector<OutputBuffer> submitOutputs,
                             Events submitEvents) {
@@ -210,7 +220,7 @@ Event submit(Device deviceHandle, Binary executableHandle,
   LOG_ASSERT(program->device_programs()->size() == deviceList.size(),
              "Device programs size mismatch");
   for (std::size_t i = 0; i < program->device_programs()->size(); ++i) {
-    ::tt::tt_metal::Device *device = deviceList[i];
+    ::tt::tt_metal::IDevice *device = deviceList[i];
 
     ZoneScoped;
     std::string zoneName = "submit_" + std::string(program->name()->c_str()) +

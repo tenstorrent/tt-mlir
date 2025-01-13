@@ -18,10 +18,12 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
+#include <numeric>
 #include <string>
 
 #define GET_OP_CLASSES
@@ -379,6 +381,59 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
     return getOperand(0);
   }
   return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// BroadcastOp
+//===----------------------------------------------------------------------===//
+
+// BroadcastOp verification
+::mlir::LogicalResult mlir::tt::ttir::BroadcastOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getOutput().getType();
+
+  // Sanity check to make sure that input rank matches the rank of the output
+  // tensor.
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError() << "Input tensor rank of " << inputType.getRank()
+                         << " does not match output tensor rank of "
+                         << outputType.getRank();
+  }
+
+  ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  ::llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  // Verify that inputShape can be legally broadcasted to outputShape.
+  llvm::SmallVector<int64_t> broadcastedShape;
+  if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
+                                          broadcastedShape)) {
+    return emitOpError() << "Input tensor shape ("
+                         << ttmlir::utils::join(inputShape, ",")
+                         << ") is not broadcastable to output shape ("
+                         << ttmlir::utils::join(outputShape, ",") << ")";
+  }
+
+  auto broadcastDimensions = getBroadcastDimensions();
+
+  // Check that the shape size matches the rank of the output tensor.
+  if (static_cast<int64_t>(broadcastDimensions.size()) != inputType.getRank()) {
+    return emitOpError("Input tensor rank should match output tensor rank.");
+  }
+
+  // Verify that each dimension of the inputShape multiplied by corresponding
+  // broadcast dimension is equal to the outputShape dimension.
+  for (size_t i = 0; i < broadcastDimensions.size(); i++) {
+    int64_t dimValue = broadcastDimensions[i];
+    if (inputShape[i] * dimValue != outputShape[i]) {
+      return emitOpError() << "Input tensor shape ("
+                           << ttmlir::utils::join(inputShape, ",") << ") index "
+                           << i << " does not broadcast to output ("
+                           << ttmlir::utils::join(outputShape, ",")
+                           << ") using broadcast value " << dimValue;
+    }
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1580,6 +1635,42 @@ bool matchSimpleBlock(mlir::Region &region) {
 }
 
 //===----------------------------------------------------------------------===//
+// PermuteOp
+//===----------------------------------------------------------------------===//
+
+// PermuteOp verification
+::mlir::LogicalResult mlir::tt::ttir::PermuteOp::verify() {
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  const size_t inputRank = inputShape.size();
+  llvm::ArrayRef<int64_t> resultShape = getResult().getType().getShape();
+
+  // Check that given attribute `permutation` is a valid permutation of the
+  // dimensions.
+  llvm::ArrayRef<int64_t> permutation = getPermutation();
+  llvm::SmallVector<int64_t> dimensions(inputRank);
+  std::iota(dimensions.begin(), dimensions.end(), 0);
+  if (inputRank != permutation.size() ||
+      !std::is_permutation(permutation.begin(), permutation.end(),
+                           dimensions.begin())) {
+    return emitOpError("Expected a permutation of (")
+           << ttmlir::utils::join(dimensions, ", ")
+           << "), got (" + ttmlir::utils::join(permutation, ", ") << ")";
+  }
+
+  // Check that the result shape matches the shape of input tensor after
+  // permutation is applied.
+  llvm::SmallVector<int64_t> expectedResultShape =
+      ttmlir::utils::applyPermutation(inputShape, permutation);
+  if (!llvm::equal(expectedResultShape, resultShape)) {
+    return emitOpError("Expected result shape (")
+           << ttmlir::utils::join(expectedResultShape, ", ") << "), got ("
+           << ttmlir::utils::join(resultShape, ", ") << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GenericOp
 //===----------------------------------------------------------------------===//
 
@@ -1635,32 +1726,32 @@ static void buildGenericEltwiseUnaryRegion(::mlir::Location loc,
   opBuilder.create<mlir::tt::ttir::YieldOp>(loc, mlir::ValueRange({result}));
 }
 
-// AddOp generic region builder
+// AddOp generic region builder.
 void mlir::tt::ttir::AddOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   buildGenericEltwiseBinaryRegion<arith::AddFOp>(getLoc(), opBuilder, block);
 }
 
-// MultiplyOp generic region builder
+// MultiplyOp generic region builder.
 void mlir::tt::ttir::MultiplyOp::buildGenericRegion(
     ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
   buildGenericEltwiseBinaryRegion<arith::MulFOp>(getLoc(), opBuilder, block);
 }
 
-// ExpOp generic region builder
+// ExpOp generic region builder.
 void mlir::tt::ttir::ExpOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   buildGenericEltwiseUnaryRegion<math::ExpOp>(getLoc(), opBuilder, block);
 }
 
-// DivOp generic region builder
+// DivOp generic region builder.
 void mlir::tt::ttir::DivOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   return buildGenericEltwiseBinaryRegion<arith::DivFOp>(getLoc(), opBuilder,
                                                         block);
 }
 
-// MaximumOp generic region builder
+// MaximumOp generic region builder.
 void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                    ::mlir::Block *block) {
   buildGenericEltwiseBinaryRegion<arith::MaximumFOp>(getLoc(), opBuilder,
@@ -1671,7 +1762,7 @@ void mlir::tt::ttir::MaximumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 // KernelOp
 //===----------------------------------------------------------------------===//
 
-// KernelOp builders
+// KernelOp builders.
 static mlir::tt::ttir::KernelOp
 buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
               ::mlir::StringRef kernelName, ::mlir::StringRef kernelKind,
@@ -1680,7 +1771,7 @@ buildKernelOp(::mlir::OpBuilder &opBuilder, ::mlir::Location loc,
       loc, outputs.getTypes(), kernelName, kernelKind, inputs, outputs);
 }
 
-// Reduce op kernel builder
+// Reduce op kernel builder.
 static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
                            mlir::Location loc, ::mlir::StringRef kernelKind) {
   auto kernelOp = buildKernelOp(opBuilder, loc, "reduce", kernelKind,
@@ -1688,23 +1779,81 @@ static void createReduceOp(::mlir::OpBuilder &opBuilder, ::mlir::Block *block,
   opBuilder.create<mlir::tt::ttir::YieldOp>(loc, kernelOp->getResults());
 }
 
-// Sum op kernel builder
-void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
-                                               ::mlir::Block *block) {
-  // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "sum");
+// Common verifier for all Reduce ops.
+static mlir::LogicalResult
+verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
+               const std::optional<mlir::ArrayAttr> &reduceDims) {
+  if (!reduceDims) {
+    return mlir::success();
+  }
+
+  int64_t inputTensorRank = inputType.getRank();
+
+  llvm::SmallSet<int64_t, 4> uniqueReduceDims;
+  for (mlir::Attribute reduceDim : *reduceDims) {
+    int64_t reduceDimInt = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
+    if (reduceDimInt < -inputTensorRank || reduceDimInt >= inputTensorRank) {
+      return reduceOp->emitOpError("Reduce dimensions are out of range");
+    }
+    uniqueReduceDims.insert(reduceDimInt);
+  }
+
+  if (uniqueReduceDims.size() != reduceDims->size()) {
+    return reduceOp->emitOpError("Reduce dimensions are not unique");
+  }
+
+  // TODO(mrakita): Add a check that depending on inputShape, reduceDims and
+  // keepDim computes the expected output shape and checks if it matches the
+  // actual output shape. Tracked by:
+  // https://github.com/tenstorrent/tt-mlir/issues/1639
+
+  return mlir::success();
 }
 
-// Mean op kernel builder
+//===----------------------------------------------------------------------===//
+// MaxOp
+//===----------------------------------------------------------------------===//
+
+// MaxOp kernel builder.
+void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+                                               ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "max");
+}
+
+// MaxOp verification.
+::mlir::LogicalResult mlir::tt::ttir::MaxOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// MeanOp
+//===----------------------------------------------------------------------===//
+
+// MeanOp kernel builder.
 void mlir::tt::ttir::MeanOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                 ::mlir::Block *block) {
   // NOLINTNEXTLINE
   createReduceOp(opBuilder, block, getLoc(), "mean");
 }
 
-// Max op kernel builder
-void mlir::tt::ttir::MaxOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
+// MeanOp verification.
+::mlir::LogicalResult mlir::tt::ttir::MeanOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
+//===----------------------------------------------------------------------===//
+// SumOp
+//===----------------------------------------------------------------------===//
+
+// SumOp kernel builder.
+void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
                                                ::mlir::Block *block) {
   // NOLINTNEXTLINE
-  createReduceOp(opBuilder, block, getLoc(), "max");
+  createReduceOp(opBuilder, block, getLoc(), "sum");
+}
+
+// SumOp verification.
+::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }

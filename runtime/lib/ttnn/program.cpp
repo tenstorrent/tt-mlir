@@ -9,6 +9,8 @@
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/permute.h"
+#include "operations/data_movement/repeat.h"
 #include "operations/data_movement/reshape.h"
 #include "operations/data_movement/slice.h"
 #include "operations/data_movement/transpose.h"
@@ -202,11 +204,17 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), context);
   }
+  case ::tt::target::ttnn::OpType::PermuteOp: {
+    return operations::data_movement::run(op->type_as_PermuteOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(), context);
   }
   case ::tt::target::ttnn::OpType::SliceOp: {
     return operations::data_movement::run(op->type_as_SliceOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::RepeatOp: {
+    return operations::data_movement::run(op->type_as_RepeatOp(), context);
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), context);

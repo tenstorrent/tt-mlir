@@ -186,7 +186,7 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
       ::tt::tt_metal::DispatchCoreType::WORKER);
 
   bool enableAsync = debug::Env::get().enableAsyncTTNN;
-  for (::ttnn::Device *device : meshDevice->get_devices()) {
+  for (::ttnn::IDevice *device : meshDevice->get_devices()) {
     device->enable_async(enableAsync);
   }
 
@@ -198,7 +198,7 @@ void closeDevice(Device device) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
-  for (::ttnn::Device *ttnnDevice : ttnnMeshDevice.get_devices()) {
+  for (::ttnn::IDevice *ttnnDevice : ttnnMeshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttnnDevice);
   }
 #endif
@@ -209,8 +209,16 @@ void closeDevice(Device device) {
 void deallocateBuffers(Device deviceHandle) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  for (::ttnn::Device *device : meshDevice.get_devices()) {
+  for (::ttnn::IDevice *device : meshDevice.get_devices()) {
     device->deallocate_buffers();
+  }
+}
+
+void dumpMemoryReport(Device deviceHandle) {
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  for (::ttnn::IDevice *device : meshDevice.get_devices()) {
+    ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
   }
 }
 
@@ -240,7 +248,7 @@ Tensor toHost(Tensor tensor, bool untilize) {
   if (untilize) {
     hostTensor = std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
         *hostTensor, ::ttnn::Layout::ROW_MAJOR, std::nullopt, std::nullopt,
-        static_cast<::ttnn::Device *>(nullptr)));
+        static_cast<::ttnn::IDevice *>(nullptr)));
   }
 
   return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
@@ -460,7 +468,7 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
   ::ttnn::Tensor hostTensor = ::ttnn::from_device(*outPtr);
   ::ttnn::Tensor outCopy =
       ::ttnn::to_layout(hostTensor, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
-                        std::nullopt, static_cast<::ttnn::Device *>(nullptr));
+                        std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
 
   void *src = ::tt::tt_metal::get_raw_host_data_ptr(outCopy);
   std::uint32_t outCopySize = outCopy.volume() * outCopy.element_size();

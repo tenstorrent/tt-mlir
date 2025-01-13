@@ -77,7 +77,7 @@ createFullOnMultiDevice(ProgramContext &context, FullTensorConfig &config,
 static ::ttnn::Tensor
 createFullOnSingleDevice(ProgramContext &context, FullTensorConfig &config,
                          const ::tt::target::DeviceRef *deviceRef) {
-  std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
+  std::optional<std::reference_wrapper<::ttnn::IDevice>> device = std::nullopt;
   if (deviceRef) {
     ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(subMesh.num_devices() == 1);

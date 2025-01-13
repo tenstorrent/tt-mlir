@@ -79,7 +79,7 @@ createEmptyOnSingleDevice(ProgramContext &context, EmptyTensorConfig &config,
   if (deviceRef) {
     ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(subMesh.num_devices() == 1);
-    ::ttnn::Device *device = subMesh.get_device_index(0);
+    ::ttnn::IDevice *device = subMesh.get_device_index(0);
     return ::ttnn::empty(config.shape, config.dtype, config.layout, device,
                          config.memoryConfig.value());
   }

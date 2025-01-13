@@ -9,6 +9,7 @@
 #include "distributed/mesh_device.hpp"
 #include "impl/buffers/circular_buffer.hpp"
 #include "impl/event/event.hpp"
+#include "tt_metal/detail/reports/memory_reporter.hpp"
 #include "tt_metal/detail/tt_metal.hpp"
 #include "tt_metal/host_api.hpp"
 
@@ -40,6 +41,8 @@ void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
+void dumpMemoryReport(Device device);
+
 void wait(Event event);
 
 void wait(Tensor tensor);
@@ -67,7 +70,7 @@ using OutputBuffer =
     std::tuple<std::uint32_t, std::shared_ptr<::tt::tt_metal::Buffer>>;
 
 std::shared_ptr<::tt::tt_metal::Event>
-executeCommandQueue(::tt::tt_metal::Device *device,
+executeCommandQueue(::tt::tt_metal::IDevice *device,
                     ::tt::target::metal::CommandQueue const *cq,
                     std::size_t cq_id, std::vector<InputBuffer> const &inputs,
                     std::vector<OutputBuffer> const &outputs);
@@ -92,7 +95,7 @@ inline CoreRangeSet toCoreRangeSet(
 #pragma clang diagnostic ignored "-Wc++20-designator"
 
 inline std::shared_ptr<::tt::tt_metal::Buffer>
-createBufferFromTensorRef(::tt::tt_metal::Device *device,
+createBufferFromTensorRef(::tt::tt_metal::IDevice *device,
                           ::tt::target::TensorRef const *tensorRef) {
   ::tt::target::TensorDesc const *tensorDesc = tensorRef->desc();
   ::tt::target::LayoutDesc const *layout = tensorDesc->layout();

@@ -23,7 +23,7 @@ void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
 
   std::optional<::ttnn::DataType> dtype = std::optional<::ttnn::DataType>();
   std::optional<::ttnn::Layout> layout = std::optional<::ttnn::Layout>();
-  std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
+  std::optional<std::reference_wrapper<::ttnn::IDevice>> device = std::nullopt;
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       std::optional<::ttnn::MemoryConfig>();
 
@@ -38,10 +38,10 @@ void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
   if (op->device()) {
     DeviceVariant targetDevice =
         context.getTargetDevice(op->device()->global_id());
-    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::Device>>(
+    LOG_ASSERT(std::holds_alternative<std::reference_wrapper<::ttnn::IDevice>>(
                    targetDevice),
                "ttnn::ones does not support MeshDevice.");
-    device = std::get<std::reference_wrapper<::ttnn::Device>>(targetDevice);
+    device = std::get<std::reference_wrapper<::ttnn::IDevice>>(targetDevice);
   }
 
   if (op->memcfg()) {

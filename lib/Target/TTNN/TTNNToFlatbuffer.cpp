@@ -34,7 +34,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
-#include <fstream>
 #include <optional>
 
 namespace mlir::tt {
@@ -326,9 +325,9 @@ createDistributionStrategy(FlatbufferObjectCache &cache,
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
   ::tt::target::DataType dtype =
-      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype().value());
+      ::tt::mlir::ttnn::utils::toTargetDataType(op.getDtype());
   ::tt::target::TensorLayout layout =
-      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout().value());
+      ::tt::mlir::ttnn::utils::toTargetTensorLayout(op.getLayout());
 
   uint32_t numShards = 1;
   auto strategy = createDistributionStrategy(
@@ -336,19 +335,10 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
       numShards);
   auto output = getOperandThroughDPSOps(op.getResult());
 
-  // If the device is not set, we create on host
-  if (!op.getDevice()) {
-    return ::tt::target::ttnn::CreateEmptyOp(
-        *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
-        numShards, /* device */ 0, /* memcfg */ 0, strategy,
-        cache.getOrCreate(output, tensorValueToFlatbuffer,
-                          kHostAllocatedAddress, kHostAllocatedSize));
-  }
-
   auto device = getOperandThroughDPSOps(op.getDevice());
 
   auto memoryConfigDesc =
-      cache.getOrCreate(*op.getMemoryConfig(), memoryConfigToFlatbuffer);
+      cache.getOrCreate(op.getMemoryConfig(), memoryConfigToFlatbuffer);
 
   return ::tt::target::ttnn::CreateEmptyOp(
       *cache.fbb, cache.fbb->CreateVector<int64_t>(shape), dtype, layout,
@@ -515,6 +505,24 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
       static_cast<uint32_t>(op.getShardDirection()),
       static_cast<uint32_t>(op.getShardType()),
       cache.fbb->CreateVector<int64_t>(shardShape));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
+createOp(FlatbufferObjectCache &cache, PermuteOp op) {
+  flatbuffers::Offset<::tt::target::TensorRef> input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  flatbuffers::Offset<flatbuffers::Vector<int64_t>> permutation =
+      toFlatbuffer(cache, op.getPermutation());
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  float padValue = op.getPadValue().convertToFloat();
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  return ::tt::target::ttnn::CreatePermuteOp(
+      *cache.fbb, input, permutation,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0,
+      padValue, output);
 }
 
 template <typename EltwiseOp, typename EltwiseOpParams>
@@ -780,8 +788,8 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
   std::optional<::mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
       op.getMemoryConfig();
 
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
-                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto out = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
   return ::tt::target::ttnn::CreateEmbeddingBackwardOp(
       *cache.fbb, in0, in1, in2,
       dtype.has_value()
@@ -791,20 +799,32 @@ createEmbeddingBackwardOp(FlatbufferObjectCache &cache,
       memoryConfig.has_value()
           ? cache.getOrCreate(memoryConfig.value(), memoryConfigToFlatbuffer)
           : 0,
-      output);
+      out);
 }
 
-template <typename ReshapeOp>
 ::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
 createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
   auto in =
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto shape =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getShape());
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int32_t>(cache, op.getShape());
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                kHostAllocatedAddress, kHostAllocatedSize);
 
   return ::tt::target::ttnn::CreateReshapeOp(*cache.fbb, in, out, shape);
+}
+
+template <typename RepeatOp>
+::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
+createRepeatOp(FlatbufferObjectCache &cache, RepeatOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto shape =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, uint32_t>(cache, op.getShape());
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
+
+  return ::tt::target::ttnn::CreateRepeatOp(*cache.fbb, in, out, shape);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
@@ -1122,6 +1142,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
                            debugString, locInfo);
   }
+  if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {
+    return createOperation(cache, createRepeatOp(cache, repeatOp), debugString,
+                           locInfo);
+  }
   if (auto sliceOp = dyn_cast<SliceOp>(op); sliceOp) {
     return createOperation(cache, createSliceOp(cache, sliceOp), debugString,
                            locInfo);
@@ -1168,6 +1192,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto fillCacheOp = dyn_cast<FillCacheOp>(op); fillCacheOp) {
     return createOperation(cache, createOp(cache, fillCacheOp), debugString,
+                           locInfo);
+  }
+  if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
+    return createOperation(cache, createOp(cache, permuteOp), debugString,
                            locInfo);
   }
 

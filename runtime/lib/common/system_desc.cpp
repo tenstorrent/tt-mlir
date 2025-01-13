@@ -38,7 +38,7 @@ static ::tt::target::Arch toFlatbuffer(::tt::ARCH arch) {
 }
 
 static std::vector<::tt::target::ChipChannel>
-getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
+getAllDeviceConnections(const std::vector<::tt::tt_metal::IDevice *> &devices) {
   std::set<std::tuple<chip_id_t, CoreCoord, chip_id_t, CoreCoord>>
       connectionSet;
 
@@ -52,7 +52,7 @@ getAllDeviceConnections(const std::vector<::tt::tt_metal::Device *> &devices) {
     connectionSet.emplace(deviceId0, ethCoreCoord0, deviceId1, ethCoreCoord1);
   };
 
-  for (const ::tt::tt_metal::Device *device : devices) {
+  for (const ::tt::tt_metal::IDevice *device : devices) {
     std::unordered_set<CoreCoord> activeEthernetCores =
         device->get_active_ethernet_cores(true);
     for (const CoreCoord &ethernetCore : activeEthernetCores) {
@@ -87,7 +87,7 @@ static void sort(std::vector<::tt::target::Dim2d> &vec) {
 
 // Gather all physical cores by type for the device using metal device APIs
 static flatbuffers::Offset<::tt::target::ChipPhysicalCores>
-createChipPhysicalCores(const ::tt::tt_metal::Device *device,
+createChipPhysicalCores(const ::tt::tt_metal::IDevice *device,
                         flatbuffers::FlatBufferBuilder &fbb) {
 
   std::vector<::tt::target::Dim2d> worker_cores, dram_cores, eth_cores,
@@ -134,7 +134,7 @@ createChipPhysicalCores(const ::tt::tt_metal::Device *device,
 // upper region of memory is where kernel programs get allocated to.  This
 // function intends to estimate some conservative max number.
 static std::uint32_t
-calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
+calculateDRAMUnreservedEnd(const ::tt::tt_metal::IDevice *device) {
   CoreCoord deviceGridSize = device->logical_grid_size();
   CoreCoord dramGridSize = device->dram_grid_size();
   std::uint32_t totalCores = deviceGridSize.x * deviceGridSize.y +
@@ -158,10 +158,10 @@ calculateDRAMUnreservedEnd(const ::tt::tt_metal::Device *device) {
 
 static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
     const ::tt::tt_metal::distributed::MeshDevice &meshDevice) {
-  std::vector<::tt::tt_metal::Device *> devices = meshDevice.get_devices();
+  std::vector<::tt::tt_metal::IDevice *> devices = meshDevice.get_devices();
   std::sort(devices.begin(), devices.end(),
-            [](const ::tt::tt_metal::Device *a,
-               const ::tt::tt_metal::Device *b) { return a->id() < b->id(); });
+            [](const ::tt::tt_metal::IDevice *a,
+               const ::tt::tt_metal::IDevice *b) { return a->id() < b->id(); });
 
   std::vector<::flatbuffers::Offset<tt::target::ChipDesc>> chipDescs;
   std::vector<uint32_t> chipDescIndices;
@@ -172,7 +172,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       ::tt::target::ChipCoord(0, 0, 0, 0)};
   ::flatbuffers::FlatBufferBuilder fbb;
 
-  for (const ::tt::tt_metal::Device *device : devices) {
+  for (const ::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
         device->get_base_allocator_addr(::tt::tt_metal::HalMemType::L1);
     size_t dramUnreservedBase =

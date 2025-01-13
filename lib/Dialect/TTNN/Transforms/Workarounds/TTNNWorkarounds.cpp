@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkarounds.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceOpsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -23,9 +24,9 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <optional>
 #include <tuple>
@@ -57,7 +58,8 @@ static void revertOutputLayout(wa::TTNNWorkaroundInterface &op,
       op.getOperation(), newOpResult, rewriter,
       workaroundResults.tensorLayoutResult.previousValue,
       workaroundResults.tensorBufferTypeResult.previousValue,
-      workaroundResults.tensorMemoryLayoutResult.previousValue);
+      workaroundResults.tensorMemoryLayoutResult.previousValue,
+      workaroundResults.tensorDataTypeResult.previousValue);
 
   // Replace the new output result with the casted output result.
   rewriter.replaceUsesWithIf(
@@ -93,7 +95,8 @@ static bool workaroundInputOperand(
       op.getOperation(), inputValue, rewriter,
       inputWorkaroundResults.tensorLayoutResult.targetValue,
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
-      inputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
+      inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
+      inputWorkaroundResults.tensorDataTypeResult.targetValue);
 
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
@@ -136,7 +139,7 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   Type elementType = utils::getElementType(
       rewriter.getContext(),
       outputWorkaroundResults.tensorLayoutResult.targetValue,
-      opResultLayoutAttr.getDataType());
+      outputWorkaroundResults.tensorDataTypeResult.targetValue);
 
   // Get the input operand type.
   RankedTensorType opResultType =
@@ -150,16 +153,24 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
                 *outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
           : nullptr;
 
-  // Create the new output result type with the updated tensor layout, buffer
-  // type and memory layout.
+  // Create the new output layout attribute with the updated tensor layout,
+  // buffer type, memory layout and data type.
+  TTNNLayoutAttr newOutputLayoutAttr =
+      opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
+          .withBufferType(
+              rewriter.getContext(),
+              outputWorkaroundResults.tensorBufferTypeResult.targetValue)
+          .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr);
+
+  // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType =
       ttnn::utils::createRankedTensorTypeWithEncoding(
-          opResultType,
-          opResultLayoutAttr.withElementType(rewriter.getContext(), elementType)
-              .withBufferType(
+          ttnn::utils::createRankedTensorTypeWithElementType(
+              opResultType,
+              ttnn::utils::createRowMajorTypeFromDtype(
                   rewriter.getContext(),
-                  outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-              .withMemoryLayout(rewriter.getContext(), outputMemLayoutAttr));
+                  outputWorkaroundResults.tensorDataTypeResult.targetValue)),
+          newOutputLayoutAttr);
 
   // Update the type of result with applied workarounds.
   rewriter.modifyOpInPlace(op, [&]() {
@@ -173,6 +184,13 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
       LayoutAttr updatedLayoutAttr = rewriter.getAttr<LayoutAttr>(
           outputWorkaroundResults.tensorLayoutResult.targetValue);
       op->setAttr("layout", updatedLayoutAttr);
+    }
+
+    if (outputWorkaroundResults.tensorDataTypeResult.isModified() &&
+        op->getAttrDictionary().get("dtype")) {
+      DataTypeAttr updatedDataTypeAttr = rewriter.getAttr<DataTypeAttr>(
+          outputWorkaroundResults.tensorDataTypeResult.targetValue);
+      op->setAttr("dtype", updatedDataTypeAttr);
     }
 
     if ((outputWorkaroundResults.tensorBufferTypeResult.isModified() ||
@@ -399,44 +417,55 @@ public:
 
   void runOnOperation() final {
     if (decompositionWorkaroundsEnabled) {
-      // Placeholder for workaround decomposition patterns.
       RewritePatternSet patterns(&getContext());
-      patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      patterns.add<TTNNAllReduceWorkarounds,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::SumOp>,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::MaxOp>,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::MeanOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::SumOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::MaxOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::MeanOp>>(&getContext());
 
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      config.useTopDownTraversal = true;
-      config.maxIterations = GreedyRewriteConfig::kNoLimit;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
+      runRewritePatterns(std::move(patterns),
+                         GreedyRewriteConfig::kNoLimit /*maxIterations*/);
     }
     if (layouotWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<TTNNOperandsWorkaroundsRewriter>(&getContext());
 
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      GreedyRewriteConfig config = GreedyRewriteConfig();
-      // This configuration specifies that the rewriter should traverse the IR
-      // in a top-down order.
-      config.useTopDownTraversal = true;
-      // This configuration specifies the maximum number of iterations the
-      // rewriter will perform on the IR. The rewriter will iterate through the
-      // IR until a fixpoint is reached. All workarounds should be applied
-      // during the first iteration. If the workarounds are not applied in the
-      // first iteration, it indicates a bug in the workarounds implementation.
-      // Although the workarounds are applied in the first iteration, the
-      // rewriter must iterate through the IR once more to confirm that the
-      // fixpoint is reached. If the fixpoint is not reached in the second
-      // iteration, it indicates a bug in the workarounds implementation.
-      config.maxIterations = 2;
-      if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet,
-                                              config))) {
-        signalPassFailure();
-        return;
-      }
+      // All layout workarounds should be applied during the first iteration. If
+      // the workarounds are not applied in the first iteration, it indicates a
+      // bug in the workarounds implementation. Although the workarounds are
+      // applied in the first iteration, the rewriter must iterate through the
+      // IR once more to confirm that the fixpoint is reached. If the fixpoint
+      // is not reached in the second iteration, it indicates a bug in the
+      // workarounds implementation.
+      const int64_t maxIterations = 2;
+      runRewritePatterns(std::move(patterns), maxIterations);
+    }
+  }
+
+private:
+  // Runs rewrite patterns with specified maximum number of iterations the
+  // rewriter will perform on the IR. The rewriter will iterate through the IR
+  // until a fixpoint is reached.
+  void runRewritePatterns(RewritePatternSet &&patterns, int64_t maxIterations) {
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    GreedyRewriteConfig config = GreedyRewriteConfig();
+    config.maxIterations = maxIterations;
+    // This configuration specifies that the rewriter should traverse the IR
+    // in a top-down order.
+    config.useTopDownTraversal = true;
+    if (failed(
+            applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+      signalPassFailure();
+      return;
     }
   }
 };

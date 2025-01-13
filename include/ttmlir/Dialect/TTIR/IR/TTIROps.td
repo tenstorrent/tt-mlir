@@ -153,6 +153,26 @@ def TTIR_AllocOp : TTIR_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
+def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
+    let summary = "Dot general operation.";
+    let description = [{
+      Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+      dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+      where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+      From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         DenseI64ArrayAttr:$batch_dims_lhs,
+                         DenseI64ArrayAttr:$contract_dims_lhs,
+                         DenseI64ArrayAttr:$batch_dims_rhs,
+                         DenseI64ArrayAttr:$contract_dims_rhs);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
+
 def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
     let summary = "Dealloc op.";
     let description = [{
@@ -651,6 +671,8 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};}
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
@@ -813,18 +835,25 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
 def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
-      Broadcast op.
+      Broadcasts each dimension of the input tensor based on the broadcast dimensions.
+
+      Example:
+      // %arg0: tensor<1x1x32xf32>
+      %0 = tensor.empty() : tensor<1x16x32xf32>
+      %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ArrayAttr:$dimension);
+                         DenseI32ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
@@ -1307,6 +1336,33 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let hasVerifier = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
+
+def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
+    let summary = "Permute operation.";
+    let description = [{
+      Permute input tensor dimensions.
+
+      Attributes:
+        - `permutation` array<i64>: The permutation of the input tensor dimensions.
+
+      Example:
+      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %output = tensor.empty() : () -> tensor<3x4x2xi32>
+      %0 = "ttir.permute"(%a, %output) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>, tensor<3x4x2xi32>) -> tensor<3x4x2xi32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$permutation);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
 
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
