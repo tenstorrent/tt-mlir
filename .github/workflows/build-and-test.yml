@@ -584,7 +584,13 @@ jobs:
     - name: Download Tests
       uses: actions/download-artifact@v4
       with:
-        name: ${{ matrix.build.name }}-test
+        name: build-artifact-${{ matrix.build.name }}
+        path: ${{ steps.strings.outputs.build-output-dir }}
+
+    - name: 'Untar build directory'
+      shell: bash
+      working-directory: ${{ steps.strings.outputs.install-output-dir }}
+      run: tar xvf artifact.tar
 
     - name: Run tt-explorer tests
       shell: bash
