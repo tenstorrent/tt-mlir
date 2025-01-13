@@ -41,7 +41,7 @@ def test_logical_not(in0: Operand, builder: TTIRBuilder):
 
 
 # TODO: uncomment once we have control over generated input types (bitwise ops
-# don't support floats)
+# don't support floats) (see issue #1765)
 # @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 # def test_bitwise_not(in0: Operand, builder: TTIRBuilder):
 #    return builder.bitwise_not(in0)
@@ -191,7 +191,7 @@ def test_logical_xor(in0: Operand, in1: Operand, builder: TTIRBuilder):
 
 
 # TODO: uncomment once we have control over generated input types (bitwise ops
-# don't support floats)
+# don't support floats) (see issue #1765)
 # @compile_to_flatbuffer(
 #    [
 #        (64, 64),
