@@ -803,6 +803,34 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
     let hasVerifier = 1;
 }
 
+def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
+    let summary = "Repeat interleave op.";
+    let description = [{
+      Repeats elements of a tensor along a specified dimension.
+      It allows for flexible repetition patterns, where each element can be repeated a different number of times.
+      This is particularly useful for tasks that require duplicating elements in a non-uniform manner.
+
+      Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of repetitions for each element, each element is repeated that number of times.
+      - `dim` (int, optional): The dimension along which to repeat values. If not specified, the input tensor is flattened,
+        and the output will be a flat tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         UI32Attr:$repeats,
+                         SI32Attr:$dim);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_UpdateCacheOp : TTIR_DPSOp<"update_cache"> {
   let summary = "Update static cache tensor.";
   let description = [{
