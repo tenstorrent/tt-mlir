@@ -188,8 +188,8 @@ class TTKernelBuilder(ast.NodeVisitor):
             entry_block = self.emit_entry_func(node)
             with InsertionPoint(entry_block), Location.unknown():
                 # Always emit constant 0 and 1 for now
-                self.get_constant(0)
-                self.get_constant(1)
+                # self.get_constant(0)
+                # self.get_constant(1)
                 for stmt in node.body:
                     self.visit(stmt)
         elif isinstance(node, ast.For):
@@ -233,7 +233,7 @@ def ttkernel_compile(f):
         arg_dtypes = [to_data_type(arg.dtype) for arg in args]
         m = ast.parse(inspect.getsource(f))
         b = TTKernelBuilder(f.__name__, arg_shapes, arg_dtypes)
-        # print(ast.dump(m, indent=4))
+        # print(ast.dump(m, indent=4) + "\n")
         b.visit(m)
         # CHECK: "func.func"[[C:.*]]
         # CHECK: %[[C:.*]] = "arith.constant"[[C:.*]]
