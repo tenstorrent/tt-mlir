@@ -11,6 +11,9 @@
 #include "operations/core/core.hpp"
 #include "operations/creation.hpp"
 #include "operations/eltwise/binary/binary.hpp"
+#include "operations/embedding/embedding.hpp"
+#include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/matmul/matmul.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
 #include "types.hpp"
@@ -27,8 +30,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static ttnn::Device *getInstance() {
-    static ttnn::Device *instance = &ttnn::open_device(0);
+  static ttnn::IDevice *getInstance() {
+    static ttnn::IDevice *instance = &ttnn::open_device(0);
 
     return instance;
   }
@@ -40,7 +43,7 @@ public:
   DeviceGetter(DeviceGetter const &) = delete;
   void operator=(DeviceGetter const &) = delete;
 
-  ttnn::Device *device;
+  ttnn::IDevice *device;
 };
 
 } // namespace ttnn

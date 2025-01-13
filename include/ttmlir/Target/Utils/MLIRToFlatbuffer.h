@@ -5,15 +5,17 @@
 #ifndef TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 #define TTMLIR_TARGET_UTILS_MLIRTOFLATBUFFER_H
 
-#include <numeric>
-#include <type_traits>
-
-#include "flatbuffers/flatbuffers.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TT/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Utils.h"
+
+#include "flatbuffers/flatbuffers.h"
+
+#include <numeric>
+#include <type_traits>
 
 namespace mlir::tt {
 
@@ -134,6 +136,35 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
   case DataType::UInt8:
     return ::tt::target::DataType::UInt8;
   }
+}
+
+inline ::flatbuffers::Optional<::tt::target::DataType>
+toFlatbufferOptional(FlatbufferObjectCache &cache,
+                     ::std::optional<::mlir::tt::DataType> dataType) {
+  return dataType.has_value() ? ::flatbuffers::Optional<::tt::target::DataType>(
+                                    toFlatbuffer(cache, dataType.value()))
+                              : ::flatbuffers::nullopt;
+}
+
+inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
+                                               ttnn::Layout layout) {
+  switch (layout) {
+  case ttnn::Layout::RowMajor:
+    return ::tt::target::TensorLayout::RowMajor;
+  case ttnn::Layout::Tile:
+    return ::tt::target::TensorLayout::Tile;
+  case ttnn::Layout::Invalid:
+    return ::tt::target::TensorLayout::Invalid;
+  }
+}
+
+inline ::flatbuffers::Optional<::tt::target::TensorLayout>
+toFlatbufferOptional(FlatbufferObjectCache &cache,
+                     ::std::optional<mlir::tt::ttnn::Layout> layout) {
+  return layout.has_value()
+             ? ::flatbuffers::Optional<::tt::target::TensorLayout>(
+                   toFlatbuffer(cache, layout.value()))
+             : ::flatbuffers::nullopt;
 }
 
 inline ::tt::target::MemorySpace toFlatbuffer(FlatbufferObjectCache &,
@@ -338,47 +369,18 @@ inline std::vector<::tt::target::Dim2dRange>
 toFlatbuffer(FlatbufferObjectCache &cache, GridAttr tensorGrid,
              GridAttr deviceGrid) {
   std::vector<::tt::target::Dim2dRange> coreRangeSet;
-  SmallVector<std::int64_t> tensorGridShape(tensorGrid.getShape());
-  AffineMap mapping = deviceGrid.getMapping();
-  ::ttmlir::utils::sample(
-      tensorGridShape, [&](ArrayRef<std::int64_t> virtualCoreCoord) {
-        SmallVector<std::int64_t> coreCoord = mapping.compose(virtualCoreCoord);
-        assert(coreCoord.size() == PhysGridResultIdx::NumIndices &&
-               "expected a 2D core");
-        assert(coreCoord[PhysGridResultIdx::DeviceIdx] == 0 &&
-               "expected single device");
-        if (!coreRangeSet.empty() &&
-            ((coreRangeSet.back().loc().y() ==
-              coreCoord[PhysGridResultIdx::CoreCoordY]) &&
-             (coreRangeSet.back().loc().x() + coreRangeSet.back().size().x()) ==
-                 coreCoord[PhysGridResultIdx::CoreCoordX])) {
-          coreRangeSet.back() = ::tt::target::Dim2dRange(
-              coreRangeSet.back().loc(),
-              ::tt::target::Dim2d(coreRangeSet.back().size().y(),
-                                  coreRangeSet.back().size().x() + 1));
-        } else {
-          coreRangeSet.push_back(::tt::target::Dim2dRange(
-              ::tt::target::Dim2d(coreCoord[PhysGridResultIdx::CoreCoordY],
-                                  coreCoord[PhysGridResultIdx::CoreCoordX]),
-              ::tt::target::Dim2d(1, 1)));
-        }
-        if (coreRangeSet.size() > 1 &&
-            (coreRangeSet[coreRangeSet.size() - 2].loc().x() ==
-             coreRangeSet.back().loc().x()) &&
-            (coreRangeSet[coreRangeSet.size() - 2].size().x() ==
-             coreRangeSet.back().size().x()) &&
-            ((coreRangeSet[coreRangeSet.size() - 2].loc().y() +
-              coreRangeSet[coreRangeSet.size() - 2].size().y()) ==
-             coreRangeSet.back().loc().y())) {
-          assert(coreRangeSet.back().size().y() == 1);
-          coreRangeSet[coreRangeSet.size() - 2] = ::tt::target::Dim2dRange(
-              coreRangeSet[coreRangeSet.size() - 2].loc(),
-              ::tt::target::Dim2d(
-                  coreRangeSet[coreRangeSet.size() - 2].size().y() + 1,
-                  coreRangeSet[coreRangeSet.size() - 2].size().x()));
-          coreRangeSet.pop_back();
-        }
-      });
+
+  auto mapping = (tensorGrid.getMapping().isEmpty() == true)
+                     ? deviceGrid.getMapping()
+                     : tensorGrid.getMapping();
+  for (const auto &locsize2d :
+       utils::toCoreRangeSet(tensorGrid.getShape(), mapping)) {
+    const auto &[loc, size] = locsize2d;
+    coreRangeSet.push_back(
+        ::tt::target::Dim2dRange(::tt::target::Dim2d(loc[1], loc[0]),
+                                 ::tt::target::Dim2d(size[1], size[0])));
+  }
+
   return coreRangeSet;
 }
 

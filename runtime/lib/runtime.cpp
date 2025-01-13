@@ -44,6 +44,22 @@ void deallocateBuffers(Device device) {
 #endif
   LOG_FATAL("runtime is not enabled");
 }
+
+void dumpMemoryReport(Device device) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::dumpMemoryReport(device);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::dumpMemoryReport(device);
+  }
+#endif
+
+  LOG_FATAL("runtime is not enabled");
+}
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
@@ -456,11 +472,8 @@ Event submit(Device deviceHandle, Binary executableHandle,
              std::vector<Tensor> const &outputHandles) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    LOG_WARNING("This submit API will soon be deprecated. Please switch to the "
-                "new API.");
-    return ::tt::runtime::ttnn::legacy::submit(deviceHandle, executableHandle,
-                                               programIndex, inputHandles,
-                                               outputHandles);
+    LOG_FATAL("This submit API is deprecated for TTNN. Please switch to the "
+              "new API.");
   }
 #endif
 

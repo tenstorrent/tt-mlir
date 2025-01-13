@@ -10,7 +10,7 @@ add_subdirectory(Scheduler)
 
 # Shared library will include runtime code
 # so we only build it if runtime is enabled
-if (TTMLIR_ENABLE_RUNTIME)
+if (TTMLIR_ENABLE_SHARED_LIB)
     add_subdirectory(SharedLib)
 endif()
 

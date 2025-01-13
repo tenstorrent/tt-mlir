@@ -9,6 +9,7 @@
 #include "distributed/mesh_device.hpp"
 #include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
+#include "tt_metal/detail/reports/memory_reporter.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
@@ -18,6 +19,7 @@
 #include "ttnn/operations/data_movement/clone/clone.hpp"
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
+#include "ttnn/operations/data_movement/repeat/repeat.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
@@ -90,6 +92,8 @@ void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
+void dumpMemoryReport(Device device);
+
 void wait(Event event);
 
 void wait(Tensor tensor);
@@ -117,19 +121,6 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
                          CallbackContext programContextHandle);
 
 std::vector<float> getTensorData(Tensor tensor);
-
-namespace legacy {
-/* Will be deprecated soon once FEs migrate to new API */
-
-Event submit(Device deviceHandle, Binary executableHandle,
-             std::uint32_t programIndex, std::vector<Tensor> const &inputs,
-             std::vector<Tensor> const &outputs);
-
-void runProgram(::ttnn::MeshDevice &meshDevice, Binary &executableHandle,
-                std::uint32_t programIndex,
-                std::vector<::ttnn::Tensor *> const &inputs,
-                std::vector<::ttnn::Tensor *> const &outputs);
-} // namespace legacy
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

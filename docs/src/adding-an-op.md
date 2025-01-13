@@ -53,18 +53,13 @@ There are many things to break down here, starting from the top:
   be critical for modeling buffer allocation / lifetimes. Note the 3rd argument
   `AnyRankedTensor:$output`.
 - Next we have a list of `arguments`.  These arguments consist of a mixture of
-  `Type`s (i.e. `AnyRankedTensor`) and `Attribute`s (i.e. `TT_OperandConstraintArrayAttr`).
+  `Type`s (i.e. `AnyRankedTensor`) and `Attribute`s.
   [Read more about Types & Attributes
   here](https://mlir.llvm.org/docs/DefiningDialects/AttributesAndTypes/#attributes).
     - `AnyRankedTensor` is part of a tablegen standard library which type
       aliases to MLIR's builtin Tensor type, with the added constraint that the
       tensor has a static rank.  As much as possible we want to use the builtin
       types and infrastructure provided by MLIR.
-    - `TT_OperandConstraintArrayAttr` is a custom attribute that we have defined
-      in the [`TT`](./autogen/md/Dialect/TTDialect.md) dialect.  This attribute is
-      used to specify constraints on the
-      operands of the operation.  For example, the `TTIR_MatmulOp` requires that
-      the input tensors be in tile layout, this attribute captures this constraint.
 - Next we have a list of `results` in this case just 1, which aliases the
   `output` tensor.  One drawback of DPS is that the result tensor and the
   output tensor will appear to have different SSA names in the IR, but they

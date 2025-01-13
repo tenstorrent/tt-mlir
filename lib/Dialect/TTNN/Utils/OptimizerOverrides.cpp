@@ -22,6 +22,7 @@ void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
 }
 void OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy(
     MemoryLayoutAnalysisPolicyType value) {
+  enableMemoryLayoutAnalysisPolicy = true;
   memoryLayoutAnalysisPolicy = value;
 }
 
@@ -198,13 +199,9 @@ void OptimizerOverridesHandler::addInputLayoutOverridePybindWrapper(
 }
 
 void OptimizerOverridesHandler::addOutputLayoutOverridePybindWrapper(
-    std::string opName, std::vector<int64_t> &grid, BufferType bufferType,
-    TensorMemoryLayout tensorMemoryLayout, tt::ttnn::Layout memoryLayout,
-    tt::DataType dataType) {
+    std::string opName, OutputLayoutOverrideParams overrideParams) {
   StringRef opNameStringRef(opName);
-  SmallVector<int64_t> gridSmallVector(grid.begin(), grid.end());
-  addOutputLayoutOverride(opNameStringRef, gridSmallVector, bufferType,
-                          tensorMemoryLayout, memoryLayout, dataType);
+  addOutputLayoutOverride(opNameStringRef, overrideParams);
 }
 
 } // namespace mlir::tt::ttnn

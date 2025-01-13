@@ -13,16 +13,6 @@ def TTIROpInterface : OpInterface<"TTIROp"> {
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
-        Return the constraints on the operands of this operation.
-      }],
-      /*retTy=*/"::mlir::ArrayAttr",
-      /*methodName=*/"getOperandConstraints",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/""
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
         Get the device of the current scope.
       }],
       /*retTy=*/"::mlir::tt::SystemDescAttr",

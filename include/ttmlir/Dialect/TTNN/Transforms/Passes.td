@@ -34,6 +34,17 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
     This pass applies necessary TTNN workarounds to the IR in order to create
     a valid and functional IR that can be executed on the hardware.
   }];
+
+  let options = [
+      Option<"layouotWorkaroundsEnabled",
+             "ttnn-enable-layout-workaround-pass",
+             "bool", /*default=*/"true",
+             "TTNN Layout Workarounds Pass">,
+      Option<"decompositionWorkaroundsEnabled",
+             "ttnn-enable-decomposition-workaround-pass",
+             "bool", /*default=*/"true",
+             "TTNN Decompsition Workarounds Pass">,
+  ];
 }
 
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
@@ -70,6 +81,49 @@ def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"
       %1 = call @add(%0#0, %0#1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       %c0_i32 = arith.constant 0 : i32
       return %c0_i32 : i32
+    }
+    ```
+  }];
+}
+
+def TTNNModifySignaturesForDylib: Pass<"ttnn-modify-signatures-for-dylib", "::mlir::ModuleOp"> {
+  let summary = "Modify signatures of the functions for dylib path.";
+  let description = [{
+    This pass is intended to be used only when the end result is a dylib!
+
+    It modifies signatures of forward functions so that they take a canonical
+    form. Essentially, input tensors are packed into a tuple and then accessed
+    in the function body. This allows for easier interfacing with the generated
+    dylib as the signatures are then uniform across all forward functions.
+    Device object is hoisted from func body to the signature as well. Return
+    type is also modified to be a tuple.
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
+      %0 = "ttnn.get_device"() : () -> !tt.device<#device>
+      %1 = "ttnn.to_device"(%arg0, %0) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%arg1, %0) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %3 = "ttnn.add"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      return %3 : tensor<32x32xbf16>
+    }
+    ```
+
+    The pass will modify the signature such that:
+    - input tensors are packed into a tuple
+    - get_device op is removed and device object is hoisted to the signature
+    - return type is modified to be a tuple
+
+    ```mlir
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !tt.device<#device>) -> tuple<tensor<32x32xbf16>> {
+      %0 = tt.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = tt.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !tt.device<#device>) -> tensor<32x32xbf16>
+      %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %5 = tt.tuple %4 : tuple<tensor<32x32xbf16>>
+      return %5 : tuple<tensor<32x32xbf16>>
     }
     ```
   }];

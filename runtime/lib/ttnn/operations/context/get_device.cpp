@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "get_device.h"
+#include "operations/context/get_device.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -20,7 +20,7 @@ calculateMeshOffset(const ::ttnn::MeshDevice &parentMesh,
                     const ::tt::target::Dim2d *subMeshShape) {
   for (size_t row = 0; row < parentMesh.num_rows(); row++) {
     for (size_t col = 0; col < parentMesh.num_cols(); col++) {
-      const ::ttnn::Device *currDevice = parentMesh.get_device(row, col);
+      const ::ttnn::IDevice *currDevice = parentMesh.get_device(row, col);
       if (desiredDeviceIds.contains(currDevice->id())) {
         return MeshOffset(row, col);
       }

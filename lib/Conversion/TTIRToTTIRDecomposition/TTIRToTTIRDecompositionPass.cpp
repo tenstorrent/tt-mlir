@@ -52,6 +52,7 @@ struct TTIRToTTIRDecompositionPass
     target.addIllegalOp<ttir::PoolingOp>();
     target.addIllegalOp<ttir::GatherOp>();
     target.addIllegalOp<ttir::SelectOp>();
+    target.addIllegalOp<ttir::DotGeneralOp>();
 
     // These are the ops that must satisfy some conditions after this pass
     target.addDynamicallyLegalOp<ttir::ArangeOp>([&](ttir::ArangeOp op) {

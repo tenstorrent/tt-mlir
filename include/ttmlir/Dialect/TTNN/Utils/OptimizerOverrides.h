@@ -76,9 +76,8 @@ public:
 
   // Wrapper methods we use to expose the adders to the python bindings
   void addInputLayoutOverridePybindWrapper(std::string, std::vector<int64_t> &);
-  void addOutputLayoutOverridePybindWrapper(std::string, std::vector<int64_t> &,
-                                            BufferType, TensorMemoryLayout,
-                                            tt::ttnn::Layout, tt::DataType);
+  void addOutputLayoutOverridePybindWrapper(std::string,
+                                            OutputLayoutOverrideParams);
 
 private:
   // Flags for enabling/disabling the optimizer passes

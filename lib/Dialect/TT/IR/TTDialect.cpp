@@ -31,21 +31,6 @@ struct TTOpAsmDialectInterface : public OpAsmDialectInterface {
       os << mlir::cast<IteratorTypeAttr>(attr).getValue();
       return AliasResult::OverridableAlias;
     }
-    if (llvm::isa<OperandConstraintAttr>(attr)) {
-      auto value = mlir::cast<OperandConstraintAttr>(attr).getValue();
-      if (value == OperandConstraint::Any) {
-        os << "any";
-      } else if (value == OperandConstraint::AnyDevice) {
-        os << "any_device";
-      } else if (value == OperandConstraint::AnyDeviceTile) {
-        os << "any_device_tile";
-      } else if (value == OperandConstraint::L1BlockSharded) {
-        os << "l1_block_sharded";
-      } else {
-        os << "operand_constraint";
-      }
-      return AliasResult::OverridableAlias;
-    }
     if (llvm::isa<DeviceAttr>(attr)) {
       os << "device";
       return AliasResult::OverridableAlias;

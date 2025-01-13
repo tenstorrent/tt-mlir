@@ -22,7 +22,8 @@ PYBIND11_MODULE(_C, m) {
   m.doc() = "ttrt.runtime python extension for interacting with the "
             "Tenstorrent devices";
   py::class_<tt::runtime::Device>(m, "Device")
-      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers);
+      .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
+      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
   py::class_<tt::runtime::Layout>(m, "Layout");
@@ -222,4 +223,14 @@ PYBIND11_MODULE(_C, m) {
               &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
 #endif
+
+  /**
+   * Cleanup code to force a well ordered destruction w.r.t. the GIL
+   */
+  auto cleanup_callback = []() {
+    ::tt::runtime::debug::Hooks::get().unregisterHooks();
+  };
+  m.add_object("_cleanup", py::capsule(cleanup_callback));
+  m.def("unregister_hooks",
+        []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
 }

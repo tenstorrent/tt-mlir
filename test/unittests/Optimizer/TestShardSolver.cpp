@@ -47,9 +47,9 @@ public:
 
   mlir::Value createEmptyTensor() {
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
-    return builder.create<EmptyOp>(builder.getUnknownLoc(),
-                                   getTensorRankedType(), nullptr, shapeAttr,
-                                   nullptr, nullptr, nullptr);
+    return builder.create<OnesOp>(builder.getUnknownLoc(),
+                                  getTensorRankedType(), shapeAttr, nullptr,
+                                  nullptr, nullptr, nullptr);
   }
 
   mlir::func::FuncOp createFuncOp() {
@@ -217,8 +217,26 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
   addLayoutForOp(op, legalLayouts, BufferType::L1,
                  TensorMemoryLayout::BlockSharded, 1, 1);
 
+  // Create custom checkShardCompatible function.
+  //
+  std::function<bool(mlir::Operation *, TTNNLayoutAttr const &,
+                     mlir::Operation *, TTNNLayoutAttr const &)>
+      checkShardCompatible = [](mlir::Operation *producerOp,
+                                TTNNLayoutAttr const &producerLayout,
+                                mlir::Operation *consumerOp,
+                                TTNNLayoutAttr const &consumerLayout) {
+        // Simple shard compat assumption. Try to keep same shard layout.
+        //
+        if (producerLayout.getMemLayout() != consumerLayout.getMemLayout()) {
+          return false;
+        }
+
+        return true;
+      };
+
   ShardSolver shardSolver(legalLayouts, opL1MemSpecs, l1ChainedOps,
-                          usableL1CacheSize, overrideReshardEdges);
+                          usableL1CacheSize, overrideReshardEdges,
+                          checkShardCompatible);
 
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<float, 64>>
       accMaxCoreUsage = shardSolver.produceMaxCoreUsage();

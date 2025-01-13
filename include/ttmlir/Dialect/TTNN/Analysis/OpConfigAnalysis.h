@@ -11,22 +11,22 @@
 namespace mlir::tt::ttnn {
 
 struct OpConfigAnalysisInput {
-  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalGrids;
+  llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>> legalLayouts;
 
-  OpConfigAnalysisInput() : legalGrids() {}
-
-  OpConfigAnalysisInput(
-      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &&legalGrids)
-      : legalGrids(std::move(legalGrids)) {}
+  OpConfigAnalysisInput() : legalLayouts() {}
 
   OpConfigAnalysisInput(
       const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
-          &legalGrids)
-      : legalGrids(legalGrids) {}
+          &&legalLayouts)
+      : legalLayouts(std::move(legalLayouts)) {}
+
+  OpConfigAnalysisInput(
+      const llvm::DenseMap<Operation *, std::vector<TTNNLayoutAttr>>
+          &legalLayouts)
+      : legalLayouts(legalLayouts) {}
 
   bool operator==(const OpConfigAnalysisInput &rhs) const {
-    return legalGrids == rhs.legalGrids;
+    return legalLayouts == rhs.legalLayouts;
   }
 
   bool operator!=(const OpConfigAnalysisInput &rhs) const {

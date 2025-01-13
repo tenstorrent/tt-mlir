@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "conv2d.h"
+#include "operations/conv/conv2d.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/operations/utils.h"
@@ -24,6 +24,10 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   auto config = ::ttnn::operations::conv::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
+
+  // Use defaults for now, until compiler drives this.
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
+
   ::ttnn::MemoryConfig outMemConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   DeviceVariant targetDevice =
@@ -37,7 +41,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
             {op->stride_height(), op->stride_width()},
             {op->padding_height(), op->padding_width()},
             {op->dilation_height(), op->dilation_width()}, op->groups(), bias,
-            config, outMemConfig));
+            config, computeConfig, outMemConfig));
       },
       targetDevice);
 

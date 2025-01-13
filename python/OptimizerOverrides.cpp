@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
+#include <optional>
 
 namespace mlir::ttmlir::python {
 
@@ -71,8 +72,10 @@ void populateOptimizerOverridesModule(py::module &m) {
   py::enum_<mlir::tt::MemoryLayoutAnalysisPolicyType>(
       m, "MemoryLayoutAnalysisPolicyType")
       .value("DFSharding", mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding)
-      .value("L1Interleaved",
-             mlir::tt::MemoryLayoutAnalysisPolicyType::L1Interleaved);
+      .value("GreedyL1Interleaved",
+             mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved)
+      .value("BFInterleaved",
+             mlir::tt::MemoryLayoutAnalysisPolicyType::BFInterleaved);
 
   py::enum_<mlir::tt::ttnn::BufferType>(m, "BufferType")
       .value("DRAM", mlir::tt::ttnn::BufferType::DRAM)
@@ -131,13 +134,21 @@ void populateOptimizerOverridesModule(py::module &m) {
           "grid",
           [](const mlir::tt::ttnn::OutputLayoutOverrideParams &obj) {
             // Getter: Convert SmallVector to std::vector
-            return std::vector<int64_t>(obj.grid.begin(), obj.grid.end());
+            if (obj.grid.has_value()) {
+              return std::make_optional<std::vector<int64_t>>(obj.grid->begin(),
+                                                              obj.grid->end());
+            }
+            return std::make_optional<std::vector<int64_t>>();
           },
           [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
              const std::vector<int64_t> &input) {
             // Setter: Convert std::vector to SmallVector
-            obj.grid.clear();
-            obj.grid.append(input.begin(), input.end());
+            if (!obj.grid.has_value()) {
+              obj.grid = SmallVector<int64_t, 2>();
+            } else {
+              obj.grid->clear();
+            }
+            obj.grid->append(input.begin(), input.end());
           })
       .def_readwrite("buffer_type",
                      &mlir::tt::ttnn::OutputLayoutOverrideParams::bufferType)
@@ -147,7 +158,45 @@ void populateOptimizerOverridesModule(py::module &m) {
       .def_readwrite("memory_layout",
                      &mlir::tt::ttnn::OutputLayoutOverrideParams::memoryLayout)
       .def_readwrite("data_type",
-                     &mlir::tt::ttnn::OutputLayoutOverrideParams::dataType);
+                     &mlir::tt::ttnn::OutputLayoutOverrideParams::dataType)
+      .def("set_buffer_type_from_str",
+           [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
+              const std::string &value) {
+             if (auto bufferType = mlir::tt::ttnn::symbolizeBufferType(value)) {
+               obj.bufferType = bufferType;
+             } else {
+               throw std::invalid_argument("Invalid buffer type: " + value);
+             }
+           })
+      .def("set_tensor_memory_layout_from_str",
+           [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
+              const std::string &value) {
+             if (auto tensorMemoryLayout =
+                     mlir::tt::ttnn::symbolizeTensorMemoryLayout(value)) {
+               obj.tensorMemoryLayout = tensorMemoryLayout;
+             } else {
+               throw std::invalid_argument("Invalid tensor memory layout: " +
+                                           value);
+             }
+           })
+      .def("set_memory_layout_from_str",
+           [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
+              const std::string &value) {
+             if (auto memoryLayout = mlir::tt::ttnn::symbolizeLayout(value)) {
+               obj.memoryLayout = memoryLayout;
+             } else {
+               throw std::invalid_argument("Invalid memory layout: " + value);
+             }
+           })
+      .def("set_data_type_from_str",
+           [](mlir::tt::ttnn::OutputLayoutOverrideParams &obj,
+              const std::string &value) {
+             if (auto dataType = mlir::tt::DataTypeStringToEnum(value)) {
+               obj.dataType = dataType;
+             } else {
+               throw std::invalid_argument("Invalid data type: " + value);
+             }
+           });
 }
 
 } // namespace mlir::ttmlir::python

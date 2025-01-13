@@ -24,7 +24,7 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Determine and set max valid grid for Op execution."),
       llvm::cl::init(false)};
 
-  // Option to manually insert TTIR_ToLayoutOp for specific op's operand.
+  // Option to manually insert TTNN_ToLayoutOp for specific op's operand.
   // The format is a comma separated list of op names and operand index
   // separated by ':' separator.
   //
@@ -43,9 +43,13 @@ struct TTIRToTTNNBackendPipelineOptions
               "Manually insert memory reconfig op for specific op's operand."),
           llvm::cl::init(llvm::StringMap<InputLayoutOverrideParams>())};
 
-  // Option to override output layout for specific ops.
-  // The format is a comma separated list of op names equal to the output layout
-  // params separated by ":"
+  // Option to override output layout for specific operations. You can
+  // override any number or combination of layout parameters. If not all are
+  // overridden, the remaining ones will be inferred with all possible
+  // combinations generated in LegalLayoutAnalysis. The format is a
+  // comma-separated list of operation names followed by the output layout
+  // parameters, separated by :. The order of parameters does not matter; the
+  // parser will deduce which one is being overridden based on its value.
   //
   // op_name=grid_size:memory_space:tensor_memory_layout:memory_layout:data_type
   //
@@ -58,7 +62,9 @@ struct TTIRToTTNNBackendPipelineOptions
   //   bfp_bf2, u32, u16, u8
   //
   // Full Example:
-  // "op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:fp16"
+  // "op1=2x2:dram:interleaved:tile:fp32,op2=4x4:l1:block_sharded:row_major:f16"
+  // Partial Example:
+  // "op1=2x2:block_sharded"
   //
   //
   // Note: This option is only valid if optimizerPassEnabled is true.
@@ -101,23 +107,35 @@ struct TTIRToTTNNBackendPipelineOptions
           "Pass in a system descriptor flatbuffer to compile against."),
       llvm::cl::init("")};
 
-  // Option to override maximum number of legal layouts for grid analysis
+  // Option to override maximum number of sharded layouts to be generated in
+  // legal layout analysis.
   //
   Option<int64_t> maxLegalLayouts{
       *this, OptionNames::maxLegalLayouts,
-      llvm::cl::desc(
-          "Override maximum number of legal layouts for grid analysis."),
+      llvm::cl::desc("Override maximum number of sharded layouts for legal "
+                     "layout analysis."),
       llvm::cl::init(64)};
 
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  Option<bool> rowMajorEnabled{
+      *this, "row-major-enabled",
+      llvm::cl::desc(
+          "Enable row major layout generation in legal layout analysis."),
+      llvm::cl::init(false)};
+
   // Option to enable/disable the workaround pass.
   //
-  Option<bool> workaroundPassEnabled{*this, "enable-workaround-pass",
-                                     llvm::cl::desc("Enable workaround pass."),
-                                     llvm::cl::init(false)};
+  Option<bool> layouotWorkaroundsEnabled{
+      *this, "enable-layout-workaround-pass",
+      llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(true)};
+
+  Option<bool> decompositionWorkaroundsEnabled{
+      *this, "enable-decomposition-workaround-pass",
+      llvm::cl::desc("Enable decomposition workaround pass."),
+      llvm::cl::init(true)};
 };
 
 // TTIR to EmitC pipeline options.

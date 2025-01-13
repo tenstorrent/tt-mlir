@@ -61,6 +61,8 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          Optional<TT_Device>:$device);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasCanonicalizeMethod = 1;
 }
 
 def TTNN_TypecastOp : TTNN_Op<"typecast"> {
@@ -174,17 +176,6 @@ def TTNN_AbsOp : TTNN_ElementwiseUnaryOp<"abs"> {
     let description = [{
       Eltwise absolute operation.
     }];
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds tileLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::Tile);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addInputOperandWorkaround(tileLayoutWorkaround)
-        .addInputOperandWorkaround(tileLayoutWorkaround)
-        .addOutputOperandWorkaround(tileLayoutWorkaround);
-      }
-    }];
 }
 
 def TTNN_CbrtOp : TTNN_ElementwiseUnaryOp<"cbrt"> {
@@ -255,6 +246,19 @@ def TTNN_LogicalNotOp: TTNN_ElementwiseUnaryOp<"logical_not"> {
     }];
 }
 
+def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
+    let summary = "Eltwise bitwise NOT.";
+    let description = [{
+        Performs element-wise NOT of tensor `operand` and produces a `result` tensor.
+
+        Example:
+            // Bitwise operation with with integer tensors
+            // %operand: [[1, 2], [3, 4]]
+            %result = "ttnn.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[-2, -3], [-4, -5]]
+    }];
+}
+
 def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
     let summary = "Eltwise negate.";
     let description = [{
@@ -284,7 +288,7 @@ def TTNN_ReciprocalOp : TTNN_ElementwiseUnaryOp<"reciprocal"> {
 }
 
 def TTNN_ReluOp : TTNN_ElementwiseUnaryOp<"relu",
-      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpPerfCycles", "getOpL1Usage", "isOpLegal"]>]
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints"]>]
       > {
     let summary = "Eltwise ReLU.";
     let description = [{
@@ -393,7 +397,10 @@ def TTNN_LeakyReluOp : TTNN_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
     }];
 }
 
-def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
+def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints"]>]
+      > {
+
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
@@ -470,6 +477,48 @@ def TTNN_LogicalXorOp : TTNN_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
+def TTNN_BitwiseAndOp : TTNN_ElementwiseBinaryOp<"bitwise_and"> {
+    let summary = "Eltwise bitwise AND.";
+    let description = [{
+        Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttnn.bitwise_and"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[1, 2], [3, 0]]
+    }];
+}
+
+def TTNN_BitwiseOrOp : TTNN_ElementwiseBinaryOp<"bitwise_or"> {
+    let summary = "Eltwise bitwise OR.";
+    let description = [{
+        Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttnn.bitwise_or"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[5, 6], [7, 12]]
+    }];
+}
+
+def TTNN_BitwiseXorOp : TTNN_ElementwiseBinaryOp<"bitwise_xor"> {
+    let summary = "Eltwise bitwise XOR.";
+    let description = [{
+        Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+          // %lhs: [[1, 2], [3, 4]]
+          // %rhs: [[5, 6], [7, 8]]
+          %result = "ttnn.bitwise_xor"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+          // %result: [[4, 4], [4, 12]]
+    }];
+}
+
 def TTNN_MaximumOp :  TTNN_ElementwiseBinaryOp<"maximum"> {
     let summary = "Eltwise maximum OP.";
     let description = [{
@@ -535,6 +584,8 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
@@ -565,13 +616,16 @@ def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
-                         AnyRankedTensor:$weight);
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds();
+      }
     }];
 
     let hasVerifier = 1;
@@ -604,7 +658,32 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let hasVerifier = 1;
 }
 
-def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
+def TTNN_EmbeddingBackwardOp : TTNN_NamedDPSOp<"embedding_bw"> {
+    let summary = "Embedding backward op.";
+    let description = [{
+      Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$in_gradient,
+                         OptionalAttr<TT_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SoftmaxOp : TTNN_Op<"softmax",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints"]>]
+      > {
+
     let summary = "Softmax op.";
     let description = [{
       Softmax operation.
@@ -666,6 +745,20 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
     let hasVerifier = 1;
 }
 
+def TTNN_RepeatOp : TTNN_Op<"repeat"> {
+    let summary = "Repeat op.";
+    let description = [{
+      Repeat the input tensor according to number of times specified in repeat_dimensions.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         I32ArrayAttr:$shape);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SliceOp: TTNN_NamedDPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
@@ -717,7 +810,9 @@ def TTNN_LinearOp : TTNN_NamedDPSOp<"linear"> {
 
 
 // ANCHOR: adding_an_op_matmul_ttnn
-def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul"> {
+def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
+      [DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints"]>]
+      > {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          AnyRankedTensor:$output);
@@ -793,6 +888,9 @@ def TTNN_MaxPool2dOp : TTNN_NamedDPSOp<"max_pool2d"> {
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMaxPool2DOpOperandsWorkarounds();
+      }
     }];
 
     let hasVerifier = 1;
@@ -827,20 +925,13 @@ def TTNN_EmptyOp : TTNN_Op<"empty"> {
       Tensor empty operation
     }];
 
-    let arguments = (ins Optional<TT_Device>:$device,
-                         TTNN_ShapeAttr:$shape,
-                         OptionalAttr<TT_DataTypeAttr>:$dtype,
-                         OptionalAttr<TTNN_LayoutAttr>:$layout,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
-    let results = (outs AnyRankedTensor:$result);
+    let arguments = (ins TTNN_ShapeAttr:$shape,
+                         TT_DataTypeAttr:$dtype,
+                         TTNN_LayoutAttr:$layout,
+                         TT_Device:$device,
+                         TTNN_MemoryConfigAttr:$memory_config);
 
-    let extraClassDeclaration = [{
-      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-        wa::TTNNOperandWorkarounds rowMajorLayoutWorkaround = wa::TTNNOperandWorkarounds(Layout::RowMajor);
-        return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-        .addOutputOperandWorkaround(rowMajorLayoutWorkaround);
-      }
-    }];
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -869,6 +960,27 @@ def TTNN_ArangeOp : TTNN_Op<"arange"> {
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
+}
+
+def TTNN_OnesOp : TTNN_Op<"ones"> {
+  let summary = "Creates a tensor filled with ones.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones.
+
+    Given a ShapeAttr `shape`, produces a tensor with the same shape, filled with ones.
+
+    Example:
+      %0 = "ttnn.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+
+  let arguments = (ins TTNN_ShapeAttr:$shape,
+                       OptionalAttr<TT_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_LayoutAttr>:$layout,
+                       Optional<TT_Device>:$device,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
 }
 
 def TTNN_FullOp : TTNN_Op<"full"> {
@@ -903,6 +1015,13 @@ def TTNN_DeallocateOp : TTNN_Op<"deallocate"> {
                          DefaultValuedAttr<BoolAttr, "false">:$force);
 }
 
+def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
+    let summary = "Scatter op.";
+    let description = [{
+      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
+      }];
+}
+
 def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let summary = "All gather op.";
     let description = [{
@@ -910,19 +1029,13 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
                          SI32Attr:$dim,
                          DefaultValuedAttr<SI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-def TTNN_ScatterOp: TTNN_ElementwiseBinaryOp<"scatter"> {
-    let summary = "Scatter op.";
-    let description = [{
-      Embeds the values of the 'update' tensor into 'input' at the given index and puts the value in the 'output' tensor.
-      }];
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
@@ -932,9 +1045,69 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
                          SI32Attr:$scatter_split_dim,
-                         TTNN_ReduceType:$math_op,
+                         TT_ReduceTypeAttr:$math_op,
                          DefaultValuedAttr<SI32Attr, "1">:$num_links);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce"> {
+    let summary = "All reduce op.";
+    let description = [{
+        Tensor All Reduce operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         SI32Attr:$scatter_dim,
+                         SI32Attr:$scatter_num,
+                         TT_ReduceTypeAttr:$math_op,
+                         DefaultValuedAttr<SI32Attr, "1">:$num_links);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
+    let summary = "Mesh shard op.";
+    let description = [{
+        Tensor Mesh Shard operation
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TT_Device:$device,
+                         TT_MeshShardDirectionAttr:$shard_direction,
+                         TT_MeshShardTypeAttr:$shard_type,
+                         TT_GridAttr:$shard_shape);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_PermuteOp : TTNN_Op<"permute"> {
+    let summary = "Permute operation.";
+    let description = [{
+      Permute input tensor dimensions.
+
+      Attributes:
+        - `permutation` array<i64>: The permutation of the input tensor dimensions.
+
+      Example:
+      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %0 = "ttir.permute"(%a) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>) -> tensor<3x4x2xi32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI64ArrayAttr:$permutation,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         DefaultValuedOptionalAttr<F32Attr, "0.0f">:$pad_value);
+
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;

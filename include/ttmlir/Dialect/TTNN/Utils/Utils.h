@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
 #include <llvm/Support/CommandLine.h>
+#include <mlir/IR/Value.h>
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -35,18 +36,31 @@ mlir::tt::TensorMemoryLayout toTTTensorMemoryLayout(
 mlir::tt::MemorySpace
 toTTMemorySpace(const mlir::tt::ttnn::BufferType bufferType);
 
-// Get Layout from MemRefType
-//
-Layout getLayoutFromMemRef(mlir::MemRefType memref);
-
 mlir::Type createRowMajorTypeFromDtype(::mlir::MLIRContext *context,
                                        DataType dtype);
 
-// Helper method to create a RankedTensorType with the given encoding
+// Helper method to create a RankedTensorType with the given encoding.
 RankedTensorType
 createRankedTensorTypeWithEncoding(RankedTensorType tensorType,
                                    ttnn::TTNNLayoutAttr encoding);
 
+// Helper method to create a RankedTensorType with the given element type.
+RankedTensorType
+createRankedTensorTypeWithElementType(RankedTensorType tensorType,
+                                      Type elementType);
+
+// Return the L1 memory usage of the output tensor of the given op.
+// Used within L1 interleaved policies.
+//
+uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
+
+// Helper method to get the tensor layout attribute from the tensor value.
+TTNNLayoutAttr
+getLayoutAttrFromTensor(mlir::TypedValue<RankedTensorType> tensorValue);
+
+// Helper method to get the element type for the given tensor layout and data.
+Type getElementType(MLIRContext *context, Layout tensorLayout,
+                    DataType dataType);
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

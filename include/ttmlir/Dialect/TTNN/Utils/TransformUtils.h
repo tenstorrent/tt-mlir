@@ -5,13 +5,26 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_TRANSFORMUTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_TRANSFORMUTILS_H
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 
 namespace mlir::tt::ttnn::utils {
 // Get or insert device for the given operation.
-mlir::Value getOrInsertDevice(mlir::PatternRewriter &rewriter,
+GetDeviceOp getOrInsertDevice(mlir::PatternRewriter &rewriter,
                               mlir::Operation *op);
+
+// Helper method to insert a ToLayoutOp to convert the input operand to the
+// desired tensor layout, buffer type and memory layout.
+ToLayoutOp
+createToLayoutOp(mlir::Operation *op,
+                 mlir::TypedValue<RankedTensorType> inputValue,
+                 PatternRewriter &rewriter, Layout targetTensorLayout,
+                 BufferType targetTensorBufferType,
+                 std::optional<TensorMemoryLayout> targetTensorMemoryLayout,
+                 DataType targetTensorDataType);
 } // namespace mlir::tt::ttnn::utils
 
 #endif

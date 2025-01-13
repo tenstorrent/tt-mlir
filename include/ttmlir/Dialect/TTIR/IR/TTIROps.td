@@ -62,7 +62,6 @@ def TTIR_GenericOp : TTIR_DPSOp<"generic", [AttrSizedOperandSegments]> {
                          TT_GridAttr:$grid,
                          AffineMapArrayAttr:$indexing_maps,
                          TT_IteratorTypeArrayAttr:$iterator_types,
-                         TT_OperandConstraintArrayAttr:$operand_constraints,
                          DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$operand_cb_mapping); // index of input operand and index of cb go together
     let results = (outs Variadic<AnyRankedTensor>:$results);
     let regions = (region AnyRegion:$region);
@@ -126,11 +125,6 @@ def TTIR_ToLayoutOp : TTIR_Op<"to_layout", [DestinationStyleOpInterface, TTIROpI
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-      ArrayAttr getOperandConstraints() {
-        return nullptr;
-        // TODO return below, but we need a way to properly create an ArrayAttr:
-        // return {OperandConstraint::Any, OperandConstraint::Any};
-      }
 
       struct CompoundComponents {
         bool isLayoutChange;
@@ -159,6 +153,26 @@ def TTIR_AllocOp : TTIR_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
+def TTIR_DotGeneralOp : TTIR_Op<"dot_general"> {
+    let summary = "Dot general operation.";
+    let description = [{
+      Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
+      dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
+      where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
+      From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         DenseI64ArrayAttr:$batch_dims_lhs,
+                         DenseI64ArrayAttr:$contract_dims_lhs,
+                         DenseI64ArrayAttr:$batch_dims_rhs,
+                         DenseI64ArrayAttr:$contract_dims_rhs);
+
+    let results = (outs AnyRankedTensor:$result);
+}
+
+
 def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
     let summary = "Dealloc op.";
     let description = [{
@@ -185,8 +199,7 @@ class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         Variadic<AnyRankedTensor>:$outputs,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         Variadic<AnyRankedTensor>:$outputs);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 }
 
@@ -199,9 +212,9 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out, "ArrayAttr": $operand_constraints),
+      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $out),
       [{
-        build($_builder, $_state, {out.getType()}, {first, second, third}, out, operand_constraints);
+        build($_builder, $_state, {out.getType()}, {first, second, third}, out);
       }]>
     ];
 }
@@ -222,9 +235,9 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out, "ArrayAttr": $operand_constraints),
+      OpBuilder<(ins "Value": $in, "Value": $out),
       [{
-        build($_builder, $_state, {out.getType()}, in, out, operand_constraints);
+        build($_builder, $_state, {out.getType()}, in, out);
       }]>
     ];
 }
@@ -282,6 +295,19 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
     let summary = "Eltwise logical not op.";
     let description = [{
       Eltwise logical not operation.
+    }];
+}
+
+def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not"> {
+    let summary = "Eltwise bitwise NOT.";
+    let description = [{
+        Performs element-wise NOT of tensor `operand` and produces a `result` tensor.
+
+        Example:
+            // Bitwise operation with with integer tensors
+            // %operand: [[1, 2], [3, 4]]
+            %result = "ttir.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[-2, -3], [-4, -5]]
     }];
 }
 
@@ -365,6 +391,8 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let description = [{
       Eltwise cast operation.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
@@ -406,14 +434,13 @@ class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          Variadic<AnyRankedTensor>:$outputs,
-                         F32Attr:$parameter,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         F32Attr:$parameter);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter, "ArrayAttr": $operand_constraints),
+      OpBuilder<(ins "Value": $in, "Value": $out, "FloatAttr":$parameter),
       [{
-        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter, operand_constraints);
+        build($_builder, $_state, {out.getType()}, {in}, {out}, parameter);
       }]>
     ];
 }
@@ -450,9 +477,9 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
     let builders =
     [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out, "ArrayAttr": $operand_constraints),
+      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $out),
       [{
-        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out, operand_constraints);
+        build($_builder, $_state, {out.getType()}, {lhs, rhs}, out);
       }]>
     ];
 }
@@ -520,6 +547,48 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
     }];
 }
 
+def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and"> {
+    let summary = "Eltwise bitwise AND.";
+    let description = [{
+        Performs element-wise bitwise AND of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttir.bitwise_and"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[1, 2], [3, 0]]
+    }];
+}
+
+def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or"> {
+    let summary = "Eltwise bitwise OR.";
+    let description = [{
+        Performs element-wise bitwise OR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+            // %lhs: [[1, 2], [3, 4]]
+            // %rhs: [[5, 6], [7, 8]]
+            %result = "ttir.bitwise_or"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+            // %result: [[5, 6], [7, 12]]
+    }];
+}
+
+def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
+    let summary = "Eltwise bitwise XOR.";
+    let description = [{
+        Performs element-wise bitwise XOR of two tensors `lhs` and `rhs`
+        and produces a `result` tensor.
+
+        Example:
+          // %lhs: [[1, 2], [3, 4]]
+          // %rhs: [[5, 6], [7, 8]]
+          %result = "ttir.bitwise_xor"(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+          // %result: [[4, 4], [4, 12]]
+    }];
+}
+
 def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum"> {
     let summary = "Eltwise minimum OP.";
     let description = [{
@@ -566,8 +635,7 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          BoolAttr:$keep_dim,
-                         OptionalAttr<I32ArrayAttr>:$dim_arg,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         OptionalAttr<I32ArrayAttr>:$dim_arg);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -603,6 +671,8 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
         return {builder.getAffineMapArrayAttr(indexingMaps),
                 builder.getArrayAttr(iteratorTypes)};}
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
@@ -634,8 +704,27 @@ def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
-                         AnyRankedTensor:$output,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         AnyRankedTensor:$output);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTIR_EmbeddingBackwardOp : TTIR_DPSOp<"embedding_backward"> {
+    let summary = "Embedding backward op.";
+    let description = [{
+      Embedding backward operation. Generates the gradient of the embedding operation with respect to the input.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         AnyRankedTensor:$in_gradient,
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -654,8 +743,7 @@ def TTIR_SoftmaxOp : TTIR_DPSOp<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dimension,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$dimension);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -675,8 +763,7 @@ def TTIR_TransposeOp : TTIR_DPSOp<"transpose"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          SI32Attr:$dim0,
-                         SI32Attr:$dim1,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$dim1);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -695,8 +782,7 @@ def TTIR_ConcatOp : TTIR_DPSOp<"concat"> {
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -716,8 +802,7 @@ def TTIR_UpdateCacheOp : TTIR_DPSOp<"update_cache"> {
   let arguments = (ins AnyRankedTensor:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
-                       I32Attr:$batch_offset,
-                       TT_OperandConstraintArrayAttr:$operand_constraints);
+                       I32Attr:$batch_offset);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -736,8 +821,7 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
 
   let arguments = (ins AnyRankedTensor:$cache,
                        AnyRankedTensor:$input,
-                       I32Attr:$batch_offset,
-                       TT_OperandConstraintArrayAttr:$operand_constraints);
+                       I32Attr:$batch_offset);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -751,19 +835,25 @@ def TTIR_FillCacheOp : TTIR_DPSOp<"fill_cache"> {
 def TTIR_BroadcastOp : TTIR_DPSOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
-      Broadcast op.
+      Broadcasts each dimension of the input tensor based on the broadcast dimensions.
+
+      Example:
+      // %arg0: tensor<1x1x32xf32>
+      %0 = tensor.empty() : tensor<1x16x32xf32>
+      %1 = "ttir.broadcast"(%arg0, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I64ArrayAttr:$dimension,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         DenseI32ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
@@ -784,8 +874,7 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
                          SI32Attr:$padding_left,
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$padding_bottom);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -818,8 +907,7 @@ def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
     DenseBoolArrayAttr:$window_reversal,
     TTIR_ConvolutionLayoutAttr:$convolution_layout,
     ConfinedAttr<I64Attr, [IntPositive]>:$feature_group_count,
-    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count,
-    TT_OperandConstraintArrayAttr:$operand_constraints
+    ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count
   );
 
   let results = (outs AnyRankedTensor);
@@ -846,8 +934,7 @@ def TTIR_GatherOp: TTIR_DPSOp<"gather"> {
                          DenseI64ArrayAttr:$start_index_map,
                          SI64Attr:$index_vector_dim,
                          DenseI64ArrayAttr:$slice_sizes,
-                         BoolAttr:$indices_are_sorted,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         BoolAttr:$indices_are_sorted);
     let results = (outs AnyRankedTensor:$result);
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -868,8 +955,7 @@ def TTIR_PoolingOp : TTIR_DPSOp<"pooling", [AttrSizedOperandSegments]> {
     DenseI64ArrayAttr:$window_strides,
     DenseI64ArrayAttr:$base_dilations,
     DenseI64ArrayAttr:$window_dilations,
-    DenseI64ArrayAttr:$padding,
-    TT_OperandConstraintArrayAttr:$operand_constraints
+    DenseI64ArrayAttr:$padding
   );
 
   let results = (outs Variadic<AnyRankedTensor>);
@@ -895,8 +981,7 @@ def TTIR_MaxPool2dOp : TTIR_DPSOp<"max_pool2d"> {
                          SI32Attr:$padding_left,
                          SI32Attr:$padding_right,
                          SI32Attr:$padding_top,
-                         SI32Attr:$padding_bottom,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$padding_bottom);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -915,8 +1000,7 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32ArrayAttr:$shape,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         I32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -941,8 +1025,7 @@ def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
                          AnyRankedTensor:$output,
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
-                         I32ArrayAttr:$step,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         I32ArrayAttr:$step);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -968,8 +1051,7 @@ def TTIR_SelectOp: TTIR_DPSOp<"select"> {
                          SI32Attr:$dim,
                          SI32Attr:$begin,
                          SI32Attr:$length,
-                         DefaultValuedOptionalAttr<SI32Attr, "0">:$stride,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         DefaultValuedOptionalAttr<SI32Attr, "0">:$stride);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -994,8 +1076,7 @@ def TTIR_IndexOp: TTIR_DPSOp<"index"> {
                          I32Attr:$dim,
                          I32Attr:$begin,
                          I32Attr:$end,
-                         I32Attr:$step,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         I32Attr:$step);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1015,8 +1096,7 @@ def TTIR_SqueezeOp : TTIR_DPSOp<"squeeze"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1035,8 +1115,7 @@ def TTIR_UnsqueezeOp : TTIR_DPSOp<"unsqueeze"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1064,8 +1143,7 @@ def TTIR_ClampOp : TTIR_DPSOp<"clamp"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
                          F32Attr:$min,
-                         F32Attr:$max,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         F32Attr:$max);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -1118,6 +1196,57 @@ def TTIR_ArangeOp : TTIR_Op<"arange"> {
   let hasVerifier = 1;
 }
 
+def TTIR_OnesOp : TTIR_Op<"ones"> {
+  let summary = "Creates a tensor filled with ones.";
+  let description = [{
+    Tensor operation to create a tensor filled with ones.
+
+    Given a `shape`, produces a tensor with the shape, filled with ones.
+
+    Example:
+      %0 = "ttir.ones"() <{shape = array<i32:64, 28, 28>}> : () -> tensor<64x28x28xbf16>
+      // %0: [[[1, 1, 1, ..., 1], [1, 1, 1, ..., 1], ..., [1, 1, 1, ..., 1]]]
+  }];
+
+  let arguments = (ins DenseI32ArrayAttr:$shape);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
+def TTIR_ReverseOp : TTIR_DPSOp<"reverse", [AllShapesMatch<["input", "result"]>]> {
+  let summary = "Reverse operation.";
+
+  let description = [{
+      Reverses the order of elements in the `operand` along the specified
+      `dimensions` and produces a `result` tensor.
+
+      Examples:
+        // %operand = [[1, 2], [3, 4], [5, 6]]
+        %result = "ttir.reverse"(%operand) {
+          dimensions = array<i64: 1>
+        } : (tensor<3x2xi32>) -> tensor<3x2xi32>
+        // %result: [[2, 1], [4, 3], [6, 5]]
+
+        // %operand = [[1, 2], [3, 4], [5, 6]]
+        %result = "ttir.reverse"(%operand) {
+          dimensions = array<i64: 1, 0>
+        } : (tensor<3x2xi64>) -> tensor<3x2xi64>
+        // %result: [[6, 5], [4, 3], [2, 1]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$dimensions);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ConstantOp : TTIR_Op<"constant", [ConstantLike,
                                            AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
@@ -1151,8 +1280,7 @@ def TTIR_FillOp : TTIR_DPSOp<"fill", [AllShapesMatch<["value", "result"]>]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$output,
-                         ElementsAttr:$value,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         ElementsAttr:$value);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1177,8 +1305,7 @@ def TTIR_LinearOp : TTIR_DPSOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1198,8 +1325,7 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         AnyRankedTensor:$output);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1210,6 +1336,33 @@ def TTIR_MatmulOp : TTIR_DPSOp<"matmul"> {
     let hasVerifier = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttir
+
+def TTIR_PermuteOp : TTIR_DPSOp<"permute"> {
+    let summary = "Permute operation.";
+    let description = [{
+      Permute input tensor dimensions.
+
+      Attributes:
+        - `permutation` array<i64>: The permutation of the input tensor dimensions.
+
+      Example:
+      %a = tensor.empty() : () -> tensor<2x3x4xi32>
+      %output = tensor.empty() : () -> tensor<3x4x2xi32>
+      %0 = "ttir.permute"(%a, %output) {permutation = array<i64: 1, 2, 0>} : (tensor<2x3x4xi32>, tensor<3x4x2xi32>) -> tensor<3x4x2xi32>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$permutation);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
 
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
@@ -1322,8 +1475,7 @@ def TTIR_ScatterOp: TTIR_DPSOp<"scatter"> {
                        I32Attr:$index_vector_dim,
                        BoolAttr:$indices_are_sorted,
                        BoolAttr:$unique_indices,
-                       AnyRankedTensor:$output,
-                       TT_OperandConstraintArrayAttr:$operand_constraints);
+                       AnyRankedTensor:$output);
 
   let regions = (region SizedRegion<1>:$update_computation);
 
@@ -1351,8 +1503,7 @@ def TTIR_KernelOp : TTIR_DPSOp<"kernel", [AttrSizedOperandSegments]> {
     let arguments = (ins FlatSymbolRefAttr:$op,
                          FlatSymbolRefAttr:$kind,
                          Variadic<AnyRankedTensorOrMemRef>:$inputs,
-                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs);
     let results = (outs Variadic<AnyRankedTensorOrMemRef>:$results);
 }
 
@@ -1377,8 +1528,7 @@ def TTIR_AllGatherOp : TTIR_DPSOp<"all_gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         SI32Attr:$dim,
-                         TT_OperandConstraintArrayAttr:$operand_constraints);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1402,8 +1552,7 @@ def TTIR_AllReduceOp : TTIR_DPSOp<"all_reduce"> {
       SI32Attr:$dim,
       OptionalAttr<SI32Attr>:$channel_handle,
       UnitAttr:$use_global_device_ids,
-      TT_ReduceTypeAttr:$reduce_type,
-      TT_OperandConstraintArrayAttr:$operand_constraints
+      TT_ReduceTypeAttr:$reduce_type
     );
 
     let results = (outs Variadic<AnyRankedTensor>:$results);
@@ -1450,8 +1599,7 @@ def TTIR_MeshShardOp : TTIR_DPSOp<"mesh_shard"> {
       AnyRankedTensor:$output,
       TT_MeshShardTypeAttr:$shard_type,
       TT_MeshShardDirectionAttr:$shard_direction,
-      TT_GridAttr:$shard_shape,
-      TT_OperandConstraintArrayAttr:$operand_constraints
+      TT_GridAttr:$shard_shape
     );
 
     let results = (outs AnyRankedTensor:$result);

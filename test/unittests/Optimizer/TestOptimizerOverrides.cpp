@@ -2,13 +2,128 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+#include "llvm/Support/CommandLine.h"
 #include <gtest/gtest.h>
 
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 using namespace mlir::tt::ttnn;
 
-class TestOptimizerOverrides : public ::testing::Test {
+class OutputLayoutOverrideTest : public ::testing::Test {
+protected:
+  llvm::cl::opt<std::string> OverrideOutputLayoutOption{
+      "override-output-layout"};
+  OutputLayoutOverrideParser parser{OverrideOutputLayoutOption};
+  llvm::StringMap<OutputLayoutOverrideParams> parsedOverride;
+};
+
+TEST_F(OutputLayoutOverrideTest, ParseFullOutputLayoutOverride) {
+  std::string arg = "op1=2x2:dram:interleaved:tile:f32";
+
+  bool result = parser.parse(OverrideOutputLayoutOption,
+                             "override-output-layout", arg, parsedOverride);
+  ASSERT_FALSE(result);
+  ASSERT_EQ(parsedOverride.size(), 1);
+  ASSERT_TRUE(parsedOverride.count("op1"));
+
+  const auto &params = parsedOverride["op1"];
+  ASSERT_TRUE(params.grid.has_value());
+  ASSERT_EQ(params.grid->size(), 2);
+  ASSERT_EQ((*params.grid)[0], 2);
+  ASSERT_EQ((*params.grid)[1], 2);
+  ASSERT_TRUE(params.bufferType.has_value());
+  ASSERT_EQ(params.bufferType.value(), BufferType::DRAM);
+  ASSERT_TRUE(params.tensorMemoryLayout.has_value());
+  ASSERT_EQ(params.tensorMemoryLayout.value(), TensorMemoryLayout::Interleaved);
+  ASSERT_TRUE(params.memoryLayout.has_value());
+  ASSERT_EQ(params.memoryLayout.value(), Layout::Tile);
+  ASSERT_TRUE(params.dataType.has_value());
+  ASSERT_EQ(params.dataType.value(), mlir::tt::DataType::Float32);
+}
+
+TEST_F(OutputLayoutOverrideTest, ParsePartialOutputLayoutOverride) {
+  std::string arg = "op1=2x2:block_sharded";
+
+  bool result = parser.parse(OverrideOutputLayoutOption,
+                             "override-output-layout", arg, parsedOverride);
+  ASSERT_FALSE(result);
+  ASSERT_EQ(parsedOverride.size(), 1);
+  ASSERT_TRUE(parsedOverride.count("op1"));
+
+  const auto &params = parsedOverride["op1"];
+  ASSERT_TRUE(params.grid.has_value());
+  ASSERT_EQ(params.grid->size(), 2);
+  ASSERT_EQ((*params.grid)[0], 2);
+  ASSERT_EQ((*params.grid)[1], 2);
+  ASSERT_FALSE(params.bufferType.has_value());
+  ASSERT_TRUE(params.tensorMemoryLayout.has_value());
+  ASSERT_EQ(params.tensorMemoryLayout.value(),
+            TensorMemoryLayout::BlockSharded);
+  ASSERT_FALSE(params.memoryLayout.has_value());
+  ASSERT_FALSE(params.dataType.has_value());
+}
+
+TEST_F(OutputLayoutOverrideTest, ParseInvalidOutputLayoutOverride) {
+  std::string arg = "op1=invalid_value";
+
+  bool result = parser.parse(OverrideOutputLayoutOption,
+                             "override-output-layout", arg, parsedOverride);
+  ASSERT_TRUE(result);
+}
+
+TEST_F(OutputLayoutOverrideTest, ParseMultipleInstancesOfSameParameter) {
+  std::string arg = "op1=2x2:2x2";
+
+  bool result = parser.parse(OverrideOutputLayoutOption,
+                             "override-output-layout", arg, parsedOverride);
+  ASSERT_TRUE(result);
+}
+
+TEST_F(OutputLayoutOverrideTest, ParseMultipleOps) {
+  std::string arg = "op1=2x2:dram:interleaved:tile:f32,op2=4x4:l1:block_"
+                    "sharded:row_major:f16";
+
+  bool result = parser.parse(OverrideOutputLayoutOption,
+                             "override-output-layout", arg, parsedOverride);
+  ASSERT_FALSE(result);
+  ASSERT_EQ(parsedOverride.size(), 2);
+  ASSERT_TRUE(parsedOverride.count("op1"));
+  ASSERT_TRUE(parsedOverride.count("op2"));
+
+  const auto &params1 = parsedOverride["op1"];
+  ASSERT_TRUE(params1.grid.has_value());
+  ASSERT_EQ(params1.grid->size(), 2);
+  ASSERT_EQ((*params1.grid)[0], 2);
+  ASSERT_EQ((*params1.grid)[1], 2);
+  ASSERT_TRUE(params1.bufferType.has_value());
+  ASSERT_EQ(params1.bufferType.value(), BufferType::DRAM);
+  ASSERT_TRUE(params1.tensorMemoryLayout.has_value());
+  ASSERT_EQ(params1.tensorMemoryLayout.value(),
+            TensorMemoryLayout::Interleaved);
+  ASSERT_TRUE(params1.memoryLayout.has_value());
+  ASSERT_EQ(params1.memoryLayout.value(), Layout::Tile);
+  ASSERT_TRUE(params1.dataType.has_value());
+  ASSERT_EQ(params1.dataType.value(), mlir::tt::DataType::Float32);
+
+  const auto &params2 = parsedOverride["op2"];
+  ASSERT_TRUE(params2.grid.has_value());
+  ASSERT_EQ(params2.grid->size(), 2);
+  ASSERT_EQ((*params2.grid)[0], 4);
+  ASSERT_EQ((*params2.grid)[1], 4);
+  ASSERT_TRUE(params2.bufferType.has_value());
+  ASSERT_EQ(params2.bufferType.value(), BufferType::L1);
+  ASSERT_TRUE(params2.tensorMemoryLayout.has_value());
+  ASSERT_EQ(params2.tensorMemoryLayout.value(),
+            TensorMemoryLayout::BlockSharded);
+  ASSERT_TRUE(params2.memoryLayout.has_value());
+  ASSERT_EQ(params2.memoryLayout.value(), Layout::RowMajor);
+  ASSERT_TRUE(params2.dataType.has_value());
+  ASSERT_EQ(params2.dataType.value(), mlir::tt::DataType::Float16);
+}
+
+class TestOptimizerOverrideHandler : public ::testing::Test {
 
 public:
   OptimizerOverridesHandler optimizerOverridesHandler;
@@ -73,8 +188,7 @@ public:
     //      - tensor memory layout interleaved
     //      - memory layout tile
     //      - data type fp16.
-    outputLayoutOverrideParams.grid.push_back(2);
-    outputLayoutOverrideParams.grid.push_back(2);
+    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({2, 2});
     outputLayoutOverrideParams.bufferType = BufferType::DRAM;
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::Interleaved;
@@ -102,8 +216,7 @@ public:
     //      - tensor memory layout block_sharded
     //      - memory layout row_major
     //      - data type fp16.
-    outputLayoutOverrideParams.grid.push_back(8);
-    outputLayoutOverrideParams.grid.push_back(4);
+    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({8, 4});
     outputLayoutOverrideParams.bufferType = BufferType::L1;
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::BlockSharded;
@@ -131,8 +244,7 @@ public:
     //      - tensor memory layout height_sharded
     //      - memory layout tile
     //      - data type fp16.
-    outputLayoutOverrideParams.grid.push_back(3);
-    outputLayoutOverrideParams.grid.push_back(6);
+    outputLayoutOverrideParams.grid = llvm::SmallVector<int64_t, 2>({3, 6});
     outputLayoutOverrideParams.bufferType = BufferType::SystemMemory;
     outputLayoutOverrideParams.tensorMemoryLayout =
         TensorMemoryLayout::HeightSharded;
@@ -196,7 +308,7 @@ public:
 };
 
 // Test the setEnableOptimizer method
-TEST_F(TestOptimizerOverrides, TestSetOptimizerPass) {
+TEST_F(TestOptimizerOverrideHandler, TestSetOptimizerPass) {
 
   optimizerOverridesHandler.setEnableOptimizer(true);
   ASSERT_TRUE(optimizerOverridesHandler.getEnableOptimizer());
@@ -206,7 +318,7 @@ TEST_F(TestOptimizerOverrides, TestSetOptimizerPass) {
 }
 
 // Test the setMemoryConfig method
-TEST_F(TestOptimizerOverrides, TestSetMemoryConfig) {
+TEST_F(TestOptimizerOverrideHandler, TestSetMemoryConfig) {
 
   optimizerOverridesHandler.setMemoryReconfig(true);
   ASSERT_TRUE(optimizerOverridesHandler.getMemoryReconfig());
@@ -216,7 +328,7 @@ TEST_F(TestOptimizerOverrides, TestSetMemoryConfig) {
 }
 
 // Test the setMemoryLayoutAnalysis method
-TEST_F(TestOptimizerOverrides, TestSetMemoryLayoutAnalysis) {
+TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysis) {
 
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
   ASSERT_TRUE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
@@ -226,7 +338,7 @@ TEST_F(TestOptimizerOverrides, TestSetMemoryLayoutAnalysis) {
 }
 
 // Test the setEnableMemoryLayoutAnalysisPolicy method
-TEST_F(TestOptimizerOverrides, TestSetEnableMemoryLayoutAnalysisPolicy) {
+TEST_F(TestOptimizerOverrideHandler, TestSetEnableMemoryLayoutAnalysisPolicy) {
 
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysisPolicy(true);
   ASSERT_TRUE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysisPolicy());
@@ -236,7 +348,7 @@ TEST_F(TestOptimizerOverrides, TestSetEnableMemoryLayoutAnalysisPolicy) {
 }
 
 // Test the setMemoryLayoutAnalysisPolicy method
-TEST_F(TestOptimizerOverrides, TestSetMemoryLayoutAnalysisPolicy) {
+TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysisPolicy) {
 
   optimizerOverridesHandler.setMemoryLayoutAnalysisPolicy(
       mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding);
@@ -244,13 +356,13 @@ TEST_F(TestOptimizerOverrides, TestSetMemoryLayoutAnalysisPolicy) {
             mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding);
 
   optimizerOverridesHandler.setMemoryLayoutAnalysisPolicy(
-      mlir::tt::MemoryLayoutAnalysisPolicyType::L1Interleaved);
+      mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
   ASSERT_EQ(optimizerOverridesHandler.getMemoryLayoutAnalysisPolicy(),
-            mlir::tt::MemoryLayoutAnalysisPolicyType::L1Interleaved);
+            mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
 }
 
 // Test the setInputLayoutOverrides method
-TEST_F(TestOptimizerOverrides, TestSetInputLayoutOverrides) {
+TEST_F(TestOptimizerOverrideHandler, TestSetInputLayoutOverrides) {
 
   llvm::StringMap<InputLayoutOverrideParams> inputLayoutOverrides =
       createInputLayoutOverrides();
@@ -262,7 +374,7 @@ TEST_F(TestOptimizerOverrides, TestSetInputLayoutOverrides) {
 }
 
 // Test the setOutputLayoutOverrides method
-TEST_F(TestOptimizerOverrides, TestSetOutputLayoutOverrides) {
+TEST_F(TestOptimizerOverrideHandler, TestSetOutputLayoutOverrides) {
 
   llvm::StringMap<OutputLayoutOverrideParams> outputLayoutOverrides =
       createOutputLayoutOverrides();
@@ -274,7 +386,7 @@ TEST_F(TestOptimizerOverrides, TestSetOutputLayoutOverrides) {
 }
 
 // Test the addInputLayoutOverride method passing the whole object
-TEST_F(TestOptimizerOverrides, TestAddInputLayoutOverrideObject) {
+TEST_F(TestOptimizerOverrideHandler, TestAddInputLayoutOverrideObject) {
 
   // This method is implemented across two functions in the
   // OptimizerOverridesHandler class. The first function takes the whole object
@@ -299,7 +411,7 @@ TEST_F(TestOptimizerOverrides, TestAddInputLayoutOverrideObject) {
 }
 
 // Test the addInputLayoutOverride method passing the individual parameters
-TEST_F(TestOptimizerOverrides, TestAddInputLayoutOverrideParams) {
+TEST_F(TestOptimizerOverrideHandler, TestAddInputLayoutOverrideParams) {
 
   // This method is implemented across two functions in the
   // OptimizerOverridesHandler class. The first function takes the whole object
@@ -324,7 +436,7 @@ TEST_F(TestOptimizerOverrides, TestAddInputLayoutOverrideParams) {
 }
 
 // Test the addOutputLayoutOverride method passing the whole object
-TEST_F(TestOptimizerOverrides, TestAddOutputLayoutOverrideObject) {
+TEST_F(TestOptimizerOverrideHandler, TestAddOutputLayoutOverrideObject) {
 
   // This method is implemented across two functions in the
   // OptimizerOverridesHandler class. The first function takes the whole object
@@ -349,7 +461,7 @@ TEST_F(TestOptimizerOverrides, TestAddOutputLayoutOverrideObject) {
 }
 
 // Test the addOutputLayoutOverride method passing the individual parameters
-TEST_F(TestOptimizerOverrides, TestAddOutputLayoutOverrideParams) {
+TEST_F(TestOptimizerOverrideHandler, TestAddOutputLayoutOverrideParams) {
 
   // This method is implemented across two functions in the
   // OptimizerOverridesHandler class. The first function takes the whole object
@@ -381,21 +493,21 @@ TEST_F(TestOptimizerOverrides, TestAddOutputLayoutOverrideParams) {
 }
 
 // Test the setSystemDescPath method
-TEST_F(TestOptimizerOverrides, TestSetSystemDescPath) {
+TEST_F(TestOptimizerOverrideHandler, TestSetSystemDescPath) {
 
   optimizerOverridesHandler.setSystemDescPath("system_desc_path");
   ASSERT_EQ(optimizerOverridesHandler.getSystemDescPath(), "system_desc_path");
 }
 
 // Test the setMaxLegalLayouts method
-TEST_F(TestOptimizerOverrides, TestSetMaxLegalLayouts) {
+TEST_F(TestOptimizerOverrideHandler, TestSetMaxLegalLayouts) {
 
   optimizerOverridesHandler.setMaxLegalLayouts(10);
   ASSERT_EQ(optimizerOverridesHandler.getMaxLegalLayouts(), 10);
 }
 
 // Test the setMeshShape method
-TEST_F(TestOptimizerOverrides, TestSetMeshShape) {
+TEST_F(TestOptimizerOverrideHandler, TestSetMeshShape) {
 
   std::vector<int64_t> meshShape;
   meshShape.push_back(1);
@@ -407,7 +519,7 @@ TEST_F(TestOptimizerOverrides, TestSetMeshShape) {
 }
 
 // Test the toString method
-TEST_F(TestOptimizerOverrides, TestToString) {
+TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
   std::string options;
   options +=

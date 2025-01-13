@@ -46,11 +46,7 @@ public:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
-        ValueRange(outputTensor),
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        ValueRange(outputTensor));
     return success();
   }
 
@@ -81,6 +77,48 @@ private:
   }
 };
 
+class TosaToTTIRClampOpConversionPattern
+    : public OpConversionPattern<tosa::ClampOp> {
+  using OpConversionPattern<tosa::ClampOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ClampOp srcOp, tosa::ClampOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ClampOp>(
+        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands()[0],
+        outputTensor, adaptor.getMinFp(), adaptor.getMaxFp());
+    return success();
+  }
+};
+
+class TosaToTTIRConcatOpConversionPattern
+    : public OpConversionPattern<tosa::ConcatOp> {
+  using OpConversionPattern<tosa::ConcatOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConcatOp srcOp, tosa::ConcatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ConcatOp>(
+        srcOp, TypeRange(outputTensor.getType()), adaptor.getOperands(),
+        Value(outputTensor), adaptor.getAxis());
+    return success();
+  }
+};
+
 class TosaToTTIRMatmulOpConversionPattern
     : public OpConversionPattern<tosa::MatMulOp> {
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -103,11 +141,7 @@ public:
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MatmulOp>(
         srcOp, TypeRange(outputTensor.getType()), operands[0], operands[1],
-        outputTensor,
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        outputTensor);
     return success();
   }
 
@@ -140,11 +174,8 @@ public:
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputTensor.getType(), adaptor.getInput(), outputTensor,
         true /*keepdim*/,
-        rewriter.getArrayAttr(SmallVector<Attribute>(1, adaptor.getAxisAttr())),
         rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+            SmallVector<Attribute>(1, adaptor.getAxisAttr())));
     return success();
   }
 };
@@ -169,11 +200,7 @@ public:
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::MaxPool2dOp>(
         srcOp, TypeRange(outputTensor.getType()), adaptor.getInput(),
         outputTensor, dims[0], dims[1], strides[0], strides[1], 1, 1, false,
-        pad[2], pad[3], pad[0], pad[1],
-        rewriter.getArrayAttr(
-            SmallVector<Attribute>(adaptor.getOperands().size() + 1,
-                                   rewriter.getAttr<OperandConstraintAttr>(
-                                       OperandConstraint::AnyDeviceTile))));
+        pad[2], pad[3], pad[0], pad[1]);
     return success();
   }
 };
@@ -181,7 +208,6 @@ public:
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
-
   patterns.add<TosaToTTIRDefaultDPSOpConversionPattern<tosa::AbsOp,
                                                        mlir::tt::ttir::AbsOp>>(
       typeConverter, ctx);
@@ -295,6 +321,9 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+
+  patterns.add<TosaToTTIRClampOpConversionPattern,
+               TosaToTTIRConcatOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

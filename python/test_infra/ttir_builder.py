@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
-import inspect
 
+import inspect
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict
 from ttmlir.ir import *
-from ttmlir.dialects import ttir, tt, func, tensor
+from ttmlir.dialects import ttir, tt, tensor
 from ttmlir.passes import create_golden_tensor, DataType
 import torch
 
@@ -17,7 +17,50 @@ import torch
 Operand = Union[Value, OpView, Operation]
 
 # Convenience alias for shape
-Shape = Union[List[int], Tuple[int]]
+Shape = Union[List[int], Tuple[int, ...]]
+
+
+def get_loc_of_extra_file_callee(id: int = 0) -> Location:
+    """When called, this function returns a `Location` referring to first
+    callee outside the file of the caller of this function. E.G., if a function
+    in `foo.py` called a function in `bar.py` that then called this function,
+    the location would be pointing to the call in `foo.py`.
+
+    NOTE: this location is _NOT_ in the form of
+    {filename}:{line_number}:{col_number}, but instead in the form:
+    {filename}:{line_number}:id({id}), where id is supplied to this function as
+    a disambiguator for calls that happen on the same line
+
+    Arguments
+    ---------
+
+    id : int
+        An optional variable that defaults to 0 to be appended to the location,
+        disambiguating calls on the same line.
+
+    Returns
+    -------
+
+    A `Location` referring to the first extra file callee of the caller of this function
+
+    """
+
+    stack = inspect.stack()
+
+    # find the innermost frame outside of this file
+    caller_filename = stack[1].filename
+
+    while len(stack) > 0 and stack[0].filename == caller_filename:
+        stack = stack[1:]
+
+    assert (
+        len(stack) > 0
+    ), "Top of callstack to builder funcs must be outside the caller's file"
+
+    # FIXME: this should be a `Location.file`, but for some reason it causes
+    # strange decomposition inheritance behaviour that breaks using this as
+    # a key into the golden map
+    return Location.name(f"{stack[0].filename}:{str(stack[0].lineno)}:id({str(id)})")
 
 
 @dataclass(frozen=True)
@@ -192,33 +235,6 @@ class TTIRBuilder:
     def _get_golden_tensor(self, operand: Operand) -> torch.Tensor:
         return self._get_golden(operand).tensor
 
-    def _get_operand_constraint_attr(
-        self,
-        num_operands: int,
-        operand_constraints: Optional[List[tt.OperandConstraint]] = None,
-    ) -> tt.ir.OperandConstraintAttr:
-        """
-        Helper method to prepack operand constraints given as a list of enums
-        to a list of tt.ir.OperandConstraintAttr and wrap that list in an
-        tt.ir.OperandConstraintAttr.
-
-        If no `operand_constraints` are passed, `tt.OperandConstraint.Any` will
-        be used for each operand.
-        """
-        operand_constraints = (
-            operand_constraints
-            if operand_constraints is not None
-            else [tt.OperandConstraint.Any for _ in range(num_operands)]
-        )
-
-        return tt.ir.OperandConstraintAttr.get(
-            self._ctx,
-            [
-                tt.ir.OperandConstraintAttr.get(self._ctx, operand_constraint)
-                for operand_constraint in operand_constraints
-            ],
-        )
-
     @property
     def _default_dtype(self) -> Type:
         return F32Type.get(self._ctx)
@@ -271,13 +287,54 @@ class TTIRBuilder:
             return op
 
     # ----- TTIR op factories -----
-    def eltwise_proxy(
+    def _organize_eltwise_ttir(
+        self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
+    ):
+        return ([self._get_type(output)], inputs, [output])
+
+    def _organize_eltwise_golden(
+        self, inputs: List[Operand], output: OpView, output_shape: Optional[Shape]
+    ):
+        return [self._get_golden_tensor(inp) for inp in inputs]
+
+    def op_proxy(
         self,
         op_golden_function: Callable,
         op_ttir_function: Callable,
         inputs: List[Operand],
-    ) -> OpView:
+        organize_ttir_args: Optional[Callable] = None,
+        organize_golden_args: Optional[Callable] = None,
+        output_shape: Optional[Shape] = None,
+        golden_kwargs: dict = {},
+        ttir_kwargs: dict = {},
+    ) -> Any:
+        """
+        Provides a general interface for proxy-ing OPs and creating them.
 
+        Parameters:
+        - op_golden_function (Callable): A function that creates the OP using a golden approach.
+        - op_ttir_function (Callable): A function that creates the OP using a TTIR approach.
+        - inputs (List[Operand]): A list of operands serving as inputs to the OP.
+        - organize_ttir_args (Callable): A function that organizes the inputs and other positional arguments for the TTIR approach.
+            - Function signature:
+
+                def organize_ttir_args(inputs: List[Operand], output: OpView, output_shape: Optional[Shape]) -> List/Tuple
+
+                The list/tuple will then be unpacked as the positional arguments for the op_ttir_function
+
+        - organize_golden_args (Callable): A function that organizes the inputs and other arguments for the golden approach.
+            - Function signature:
+
+                def organize_golden_args(inputs: List[Operand], output: OpView, output_shape: Optional[Shape]) -> List/Tuple
+
+                The list/tuple will then be unpacked as the positional arugments for the op_golden_function
+        - output_shape (Optional[Shape]): An optional argument specifying the shape of the output of the OP.
+        - golden_kwargs (dict): Additional keyword arguments for the `op_golden_function`.
+        - ttir_kwargs (dict): Additional keyword arguments for the `op_ttir_function`.
+
+        Returns:
+        - OpView: The created op
+        """
         # Snoop the location of the first caller outside of this file to
         # annotate the MLIR with. NOTE that this location is _NOT_ row:col, but
         # instead row:id, where id is a unique id given to all calls to builder
@@ -294,29 +351,43 @@ class TTIRBuilder:
             len(stack) > 0
         ), "Top of callstack to builder funcs must be outside this file"
 
+        if organize_ttir_args is None:
+            organize_ttir_args = self._organize_eltwise_ttir
+
+        if organize_golden_args is None:
+            organize_golden_args = self._organize_eltwise_golden
+
         with self._ctx, self._loc:
-            output = self.empty(self.get_shape(inputs[0]))
+            shape = self.get_shape(inputs[0]) if not output_shape else output_shape
+            output = self.empty(shape)
 
             id = self.get_next_global_id()
+            loc = get_loc_of_extra_file_callee(id=id)
 
             op = op_ttir_function(
-                [self._get_type(output)],
-                inputs,
-                [output],
-                self._get_operand_constraint_attr(3),
-                loc=Location.name(str(id)),
+                *organize_ttir_args(inputs, output, output_shape),
+                loc=loc,
+                **ttir_kwargs,
             )
 
-            goldens = []
-            for input in inputs:
-                goldens.append(self._get_golden_tensor(input))
-
-            golden = Golden(op_golden_function(*goldens))
-            self.id_golden_map[str(id)] = golden
+            golden = Golden(
+                op_golden_function(
+                    *organize_golden_args(inputs, output, output_shape), **golden_kwargs
+                )
+            )
+            self.id_golden_map[str(loc)] = golden
             self._store_golden(op, golden)
             self._override_golden(output, golden)
 
             return op
+
+    def eltwise_proxy(
+        self,
+        op_golden_function: Callable,
+        op_ttir_function: Callable,
+        inputs: List[Operand],
+    ) -> OpView:
+        return self.op_proxy(op_golden_function, op_ttir_function, inputs)
 
     def exp(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.exp, ttir.ExpOp, [in0])
@@ -383,3 +454,37 @@ class TTIRBuilder:
 
     def maximum(self, in0: Operand, in1: Operand) -> OpView:
         return self.eltwise_proxy(torch.maximum, ttir.MaximumOp, [in0, in1])
+
+    def matmul(
+        self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
+    ) -> OpView:
+        # Calculate the output shape for Matmul
+        inputs = [in0, in1]
+        if bias:
+            inputs.append(bias)
+        shapes = [self.get_shape(x) for x in inputs]
+        shape = (shapes[0][0], shapes[1][1])
+        assert (
+            shapes[0][1] == shapes[1][0]
+        ), "Input Shapes not compatible for Matrix Multiplication"
+        return self.op_proxy(
+            torch.matmul,
+            ttir.MatmulOp,
+            inputs,
+            output_shape=shape,
+            organize_ttir_args=lambda i, o, shape: (self._get_type(o), i[0], i[1], o),
+        )
+
+    def softmax(self, in0: Operand, dimension: int = 1) -> OpView:
+        return self.op_proxy(
+            torch.softmax,
+            ttir.SoftmaxOp,
+            [in0],
+            golden_kwargs={"dim": dimension},
+            organize_ttir_args=lambda i, o, shape: (
+                self._get_type(o),
+                i[0],
+                o,
+                dimension,
+            ),
+        )
