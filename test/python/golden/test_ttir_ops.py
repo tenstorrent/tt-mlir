@@ -7,7 +7,7 @@
 import inspect
 
 from ttmlir.test_utils import compile_to_flatbuffer
-from ttmlir.ttir_builder import Operand, TTIRBuilder
+from ttmlir.ttir_builder import Operand, TTIRBuilder, Attribute
 
 
 @compile_to_flatbuffer([(128, 128)])
@@ -97,15 +97,24 @@ def test_gelu(in0: Operand, builder: TTIRBuilder):
     return builder.gelu(in0)
 
 
-# TODO: figured out required param `parameter` in `LeakyReluOp.__init__`
-# @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
-# def test_leaky_relu(in0: Operand, builder: TTIRBuilder):
-#    return builder.leaky_relu(in0)
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_clamp(in0: Operand, builder: TTIRBuilder):
+    return builder.clamp(in0, max_arg=1.0, min_arg=0.0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_leaky_relu(in0: Operand, builder: TTIRBuilder):
+    return builder.leaky_relu(in0)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
 def test_sqrt(in0: Operand, builder: TTIRBuilder):
     return builder.sqrt(in0)
+
+
+@compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
+def test_cbrt(in0: Operand, builder: TTIRBuilder):
+    return builder.cbrt(in0)
 
 
 @compile_to_flatbuffer([(128, 128)], targets=["ttnn"])
