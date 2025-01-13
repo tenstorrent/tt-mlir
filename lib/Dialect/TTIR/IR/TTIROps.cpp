@@ -67,8 +67,9 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 
 // BroadcastOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
-  // If the input is a constant, we can fold the operation.
-  if (getInput().getType() == getResult().getType()) {
+  // If the input doesn't change the shape, we can fold the operation.
+  if (llvm::all_of(getBroadcastDimensions(),
+                   [](const int32_t dim) { return dim == 1; })) {
     return getInput();
   }
   return {};
@@ -450,7 +451,7 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   // Verify that inputShape can be legally broadcasted to outputShape.
   llvm::SmallVector<int64_t> broadcastedShape;
   if (!mlir::OpTrait::util::getBroadcastedShape(inputShape, outputShape,
-                                          broadcastedShape)) {
+                                                broadcastedShape)) {
     return emitOpError() << "Input tensor shape ("
                          << ttmlir::utils::join(inputShape, ",")
                          << ") is not broadcastable to output shape ("
