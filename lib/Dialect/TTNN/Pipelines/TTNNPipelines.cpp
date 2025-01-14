@@ -67,7 +67,7 @@ void createTTNNPipelineLoweringPasses(
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   TTNNWorkaroundsOptions workaroundOptions{
-      options.layouotWorkaroundsEnabled,
+      options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
   pm.addPass(mlir::createCanonicalizerPass());

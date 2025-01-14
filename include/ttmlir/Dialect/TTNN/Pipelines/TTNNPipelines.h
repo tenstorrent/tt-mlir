@@ -128,7 +128,7 @@ struct TTIRToTTNNBackendPipelineOptions
 
   // Option to enable/disable the workaround pass.
   //
-  Option<bool> layouotWorkaroundsEnabled{
+  Option<bool> layoutWorkaroundsEnabled{
       *this, "enable-layout-workaround-pass",
       llvm::cl::desc("Enable layout workaround pass."), llvm::cl::init(true)};
 
