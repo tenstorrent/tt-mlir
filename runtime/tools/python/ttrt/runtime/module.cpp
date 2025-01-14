@@ -9,6 +9,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
+#include "tt/runtime/test/dylib.h"
 #include "tt/runtime/test/utils.h"
 #endif
 
@@ -175,12 +176,12 @@ PYBIND11_MODULE(_C, m) {
       "Copy the data from src tensor to dst tensor");
   m.def("deallocate_tensor", &tt::runtime::deallocateTensor, py::arg("tensor"),
         py::arg("force") = false, "Deallocate the tensor memory");
-  m.def("open_so", &tt::runtime::openSo, py::arg("path"),
+  m.def("open_so", &tt::runtime::ttnn::test::openSo, py::arg("path"),
         "Open a shared object file");
-  m.def("run_so_program", &tt::runtime::runSoProgram, py::arg("so"),
-        py::arg("name"), py::arg("inputs"), py::arg("device"),
+  m.def("run_so_program", &tt::runtime::ttnn::test::runSoProgram, py::arg("so"),
+        py::arg("func_name"), py::arg("inputs"), py::arg("device"),
         "Run a program from a shared object file");
-  m.def("compare_outs", &tt::runtime::compareOuts, py::arg("lhs"),
+  m.def("compare_outs", &tt::runtime::ttnn::test::compareOuts, py::arg("lhs"),
         py::arg("rhs"));
   py::class_<tt::runtime::debug::Env>(m, "DebugEnv")
       .def_static("get", &tt::runtime::debug::Env::get)
