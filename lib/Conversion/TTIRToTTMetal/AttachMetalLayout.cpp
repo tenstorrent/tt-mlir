@@ -7,79 +7,101 @@
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Rewrite/FrozenRewritePatternSet.h>
+#include <mlir/Transforms/DialectConversion.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRATTACHMETALLAYOUT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
+class TTIRLayoutTensorTypeConverter : public TypeConverter {
+public:
+  TTIRLayoutTensorTypeConverter(MLIRContext *ctx, MemorySpace initMemorySpace,
+                                GridAttr deviceGrid) {
+    addConversion([](Type type) { return type; });
+    addConversion(
+        [ctx, initMemorySpace, deviceGrid](RankedTensorType type) -> Type {
+          auto layout = type.getEncoding();
+          if (layout) {
+            return type;
+          }
+          std::int64_t deviceGridRank = deviceGrid.getShape().size();
+          // Default to single core grid
+          auto tensorGrid = GridAttr::get(ctx, deviceGridRank);
+          // Default to initMemorySpace, the optimizer might decide otherwise
+          auto newLayout =
+              MetalLayoutAttr::get(ctx, type, initMemorySpace, tensorGrid);
+          return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                       newLayout);
+        });
+  }
+};
 
-class TTIRAttachMetalLayoutRewriter : public OpRewritePattern<func::FuncOp> {
-  using OpRewritePattern<func::FuncOp>::OpRewritePattern;
+class TTIRLayoutTensorTypeRewriter : public RewritePattern {
+public:
+  TTIRLayoutTensorTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
+        converter(&converter) {}
 
-  LogicalResult matchAndRewrite(func::FuncOp op,
-                                PatternRewriter &rewriter) const final {
-    if (mlir::isa<GenericOp>(op.getOperation()->getParentOp())) {
-      return failure();
-    } // might not be necessary
-
-    for (auto operand : op.getFunctionType().getInputs()) {
-      if (isa<RankedTensorType>(operand)) {
-        auto operandType = mlir::cast<RankedTensorType>(operand);
-        if (operandType.getEncoding()) {
-          return failure();
-        }
+  template <typename ValueRange>
+  bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
+    bool updated = false;
+    auto result = converter->convertTypes(valueRange.getTypes(), newTypes);
+    if (result.failed()) {
+      return false;
+    }
+    for (auto [operand, newType] : llvm::zip(valueRange, newTypes)) {
+      if (operand.getType() == newType) {
+        continue;
       }
+      operand.setType(newType);
+      updated = true;
+    }
+    return updated;
+  }
+
+  bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
+    auto funcOp = dyn_cast<func::FuncOp>(op);
+    if (not funcOp) {
+      return false;
+    }
+    SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
+    SmallVector<Type> outputTypes(funcOp.getResultTypes());
+    for (Type &ty : inputTypes) {
+      ty = converter->convertType(ty);
+    }
+    for (Type &ty : outputTypes) {
+      ty = converter->convertType(ty);
+    }
+    auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
+    if (funcOp.getFunctionType() == newType) {
+      return false;
+    }
+    funcOp.setFunctionType(newType);
+
+    Block &entryBlock = funcOp.getBody().front();
+    for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
+      entryBlock.getArgument(i).setType(inputTypes[i]);
     }
 
-    auto appendLayoutToType = [&](Type type) -> Type {
-      auto operandType = mlir::cast<RankedTensorType>(type);
-      auto layout = rewriter.getAttr<MetalLayoutAttr>(
-          operandType, MemorySpace::DeviceL1, GridAttr());
-      auto newTensorType = RankedTensorType::get(
-          operandType.getShape(), operandType.getElementType(), layout);
-      return newTensorType;
-    };
-
-    auto appendLayoutToValue = [&](Value operand) {
-      if (isa<RankedTensorType>(operand.getType())) {
-        auto operandType = mlir::cast<RankedTensorType>(operand.getType());
-        auto layout = rewriter.getAttr<MetalLayoutAttr>(
-            operandType, MemorySpace::DeviceL1, GridAttr());
-        operand.setType(RankedTensorType::get(
-            operandType.getShape(), operandType.getElementType(), layout));
-      }
-    };
-
-    op.walk([&](Operation *op) {
-      if (isa<func::FuncOp>(op)) {
-        auto funcOp = mlir::cast<func::FuncOp>(op);
-        std::vector inputs = std::vector<Type>();
-        std::vector results = std::vector<Type>();
-        for (auto operand : funcOp.getFunctionType().getInputs()) {
-          if (isa<RankedTensorType>(operand)) {
-            inputs.push_back(appendLayoutToType(operand));
-          }
-        }
-        for (auto result : funcOp.getFunctionType().getResults()) {
-          if (isa<RankedTensorType>(result)) {
-            results.push_back(appendLayoutToType(result));
-          }
-        }
-        mlir::FunctionType newFuncType =
-            FunctionType::get(funcOp.getContext(), inputs, results);
-        funcOp.setFunctionType(newFuncType);
-        return;
-      }
-      for (auto operand : op->getOperands()) {
-        appendLayoutToValue(operand);
-      }
-      for (auto result : op->getResults()) {
-        appendLayoutToValue(result);
-      }
-    });
-
-    return success();
+    return true;
   }
+
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    // Skip if we're inside a GenericOp
+    if (mlir::isa<GenericOp>(op->getParentOp())) {
+      return failure();
+    }
+    bool updated = false;
+    SmallVector<Type> operands;
+    SmallVector<Type> results;
+    updated |= convertTypes(op->getOperands(), operands);
+    updated |= convertTypes(op->getResults(), results);
+    updated |= convertFuncType(op, rewriter);
+    return updated ? success() : failure();
+  }
+
+  const TypeConverter *converter;
 };
 
 class TTIRAttachMetalLayout
@@ -89,11 +111,16 @@ class TTIRAttachMetalLayout
       TTIRAttachMetalLayout>::TTIRAttachMetalLayoutBase;
 
   void runOnOperation() final {
+    auto device = getCurrentScopeDevice(getOperation());
+    assert(device && "Device not found");
+    TTIRLayoutTensorTypeConverter typeConverter(&getContext(), initMemorySpace,
+                                                device.getWorkerGrid());
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRAttachMetalLayoutRewriter>(&getContext());
+    patterns.add<TTIRLayoutTensorTypeRewriter>(typeConverter, &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
       signalPassFailure();
+      return;
     }
   }
 
