@@ -24,12 +24,12 @@ void populatePassesModule(py::module &m) {
   mlir::tt::ttnn::registerTTNNToFlatbuffer();
 
   m.def(
-      "ttnn_pipeline_ttir_passes",
+      "ttnn_decompose_layouts",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
 
-        tt::ttnn::createTTNNPipelineTTIRPassesFromString(pm, options);
+        tt::ttnn::createTTNNDecomposeLayoutsHelperFromString(pm, options);
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
@@ -38,12 +38,110 @@ void populatePassesModule(py::module &m) {
       py::arg("module"), py::arg("options") = "");
 
   m.def(
-      "ttnn_pipeline_analysis_passes",
+      "ttnn_deallocate",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
 
-        tt::ttnn::createTTNNPipelineAnalysisPassesFromString(pm, options);
+        tt::ttnn::createTTNNDeallocateHelperFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttir_to_ttir_decomposition_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTIRToTTIRDecompositionPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "inliner_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createInlinerPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttir_load_system_desc",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTIRLoadSystemDescFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttir_implicit_device",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTIRImplicitDeviceFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_layout",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNLayoutFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "convert_ttir_to_ttnn_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createConvertTTIRToTTNNPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "remove_dead_values_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createRemoveDeadValuesPassFromString(pm, options);
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
@@ -66,13 +164,12 @@ void populatePassesModule(py::module &m) {
       py::arg("module"), py::arg("options") = "");
 
   m.def(
-      "ttnn_pipeline_layout_decomposition_pass",
+      "ttnn_pipeline_ttir_passes",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
 
-        tt::ttnn::createTTNNPipelineLayoutDecompositionPassFromString(pm,
-                                                                      options);
+        tt::ttnn::createTTNNPipelineTTIRPassesFromString(pm, options);
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
@@ -81,12 +178,54 @@ void populatePassesModule(py::module &m) {
       py::arg("module"), py::arg("options") = "");
 
   m.def(
-      "ttnn_pipeline_dealloc_pass",
+      "ttnn_workarounds",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         mlir::PassManager pm(moduleOp->getContext());
 
-        tt::ttnn::createTTNNPipelineDeallocPassFromString(pm, options);
+        tt::ttnn::createTTNNWorkaroundsFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "canonicalizer_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createCanonicalizerPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_pipeline_workaround_pass",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNPipelineWorkaroundPassFromString(pm, options);
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
+
+  m.def(
+      "ttnn_optimizer",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        tt::ttnn::createTTNNOptimizerFromString(pm, options);
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");

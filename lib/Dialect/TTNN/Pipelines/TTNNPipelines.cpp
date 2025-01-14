@@ -17,26 +17,7 @@ namespace mlir::tt::ttnn {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
-void createTTNNPipelineTTIRPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  ttir::TTIRLoadSystemDescOptions systemDescOptions;
-  systemDescOptions.path = options.systemDescPath;
-
-  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
-
-  // Inlines all private functions. I.e flattens the program into the main
-  // function. Removes all private functions.
-  pm.addPass(mlir::createInlinerPass());
-
-  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
-
-  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
-  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
-      options.meshShape.begin(), options.meshShape.end());
-  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
-}
-
-void createTTNNPipelineAnalysisPasses(
+void createTTNNOptimizerHelper(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   if (options.optimizerPassEnabled) {
     ttnn::TTNNOptimizerOptions optimizerOptions;
@@ -53,48 +34,167 @@ void createTTNNPipelineAnalysisPasses(
   }
 }
 
-void createTTNNPipelineLoweringPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  // Add pass to add layout information.
-  pm.addPass(createTTNNLayout());
-  // Add pass to convert TTIR to TTNN.
-  pm.addPass(createConvertTTIRToTTNNPass());
-  // Add pass to remove unused values.
-  pm.addPass(mlir::createRemoveDeadValuesPass());
-}
-
-// Create a pass to workaround issues in the TTNN dialect.
-void createTTNNPipelineWorkaroundPass(
+void createTTNNWorkaroundsHelper(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   TTNNWorkaroundsOptions workaroundOptions{
       options.layouotWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
-  pm.addPass(mlir::createCanonicalizerPass());
 }
 
-void createTTNNPipelineLayoutDecompositionPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(createTTNNDecomposeLayouts());
-}
-
-void createTTNNPipelineDeallocPass(
+void createTTNNDeallocateHelper(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   pm.addPass(createTTNNDeallocate());
 }
 
-void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
-                                            std::string options) {
-  auto optionsStruct =
-      TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineTTIRPasses(pm, *optionsStruct);
+void createTTIRImplicitDeviceHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  ttir::TTIRImplicitDeviceOptions implicitDeviceOptions;
+  implicitDeviceOptions.meshShape = ::llvm::SmallVector<int64_t>(
+      options.meshShape.begin(), options.meshShape.end());
+  pm.addPass(mlir::tt::ttir::createTTIRImplicitDevice(implicitDeviceOptions));
 }
 
-void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
+void createTTIRToTTIRDecompositionPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+}
+
+void createInlinerPassHelper(OpPassManager &pm,
+                             const TTIRToTTNNBackendPipelineOptions &options) {
+  // Inlines all private functions. I.e flattens the program into the main
+  // function. Removes all private functions.
+  pm.addPass(mlir::createInlinerPass());
+}
+
+void createTTIRLoadSystemDescHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  ttir::TTIRLoadSystemDescOptions systemDescOptions;
+  systemDescOptions.path = options.systemDescPath;
+  pm.addPass(mlir::tt::ttir::createTTIRLoadSystemDesc(systemDescOptions));
+}
+
+void createTTNNLayoutHelper(OpPassManager &pm,
+                            const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNLayout());
+}
+
+void createConvertTTIRToTTNNPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createConvertTTIRToTTNNPass());
+}
+
+void createRemoveDeadValuesPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::createRemoveDeadValuesPass());
+}
+
+void createCanonicalizerPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(mlir::createCanonicalizerPass());
+}
+
+void createConvertTTNNToEmitCPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createConvertTTNNToEmitCPass());
+}
+
+void createTTNNDecomposeLayoutsHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  pm.addPass(createTTNNDecomposeLayouts());
+}
+
+void createTTNNPipelineLoweringPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTNNLayoutHelper(pm, options);
+  createConvertTTIRToTTNNPassHelper(pm, options);
+  createRemoveDeadValuesPassHelper(pm, options);
+}
+
+void createTTNNPipelineTTIRPasses(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTIRToTTIRDecompositionPassHelper(pm, options);
+  createInlinerPassHelper(pm, options);
+  createTTIRLoadSystemDescHelper(pm, options);
+  createTTIRImplicitDeviceHelper(pm, options);
+}
+
+// Create a pass to workaround issues in the TTNN dialect.
+void createTTNNPipelineWorkaroundPass(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTNNWorkaroundsHelper(pm, options);
+  createCanonicalizerPassHelper(pm, options);
+}
+
+void createTTIRToTTNNBackendPipeline(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  createTTNNPipelineTTIRPasses(pm, options);
+  createTTNNPipelineLoweringPasses(pm, options);
+  createTTNNPipelineWorkaroundPass(pm, options);
+  createTTNNOptimizerHelper(pm, options);
+  createTTNNDecomposeLayoutsHelper(pm, options);
+  createTTNNDeallocateHelper(pm, options);
+}
+
+void createTTNNDecomposeLayoutsHelperFromString(OpPassManager &pm,
                                                 std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineAnalysisPasses(pm, *optionsStruct);
+  createTTNNDecomposeLayoutsHelper(pm, *optionsStruct);
+}
+
+void createTTNNDeallocateHelperFromString(OpPassManager &pm,
+                                          std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNDeallocateHelper(pm, *optionsStruct);
+}
+
+void createTTIRToTTIRDecompositionPassFromString(OpPassManager &pm,
+                                                 std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTIRToTTIRDecompositionPassHelper(pm, *optionsStruct);
+}
+
+void createInlinerPassFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createInlinerPassHelper(pm, *optionsStruct);
+}
+
+void createTTIRLoadSystemDescFromString(OpPassManager &pm,
+                                        std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTIRLoadSystemDescHelper(pm, *optionsStruct);
+}
+
+void createTTIRImplicitDeviceFromString(OpPassManager &pm,
+                                        std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTIRImplicitDeviceHelper(pm, *optionsStruct);
+}
+
+void createTTNNLayoutFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNLayoutHelper(pm, *optionsStruct);
+}
+
+void createConvertTTIRToTTNNPassFromString(OpPassManager &pm,
+                                           std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createConvertTTIRToTTNNPassHelper(pm, *optionsStruct);
+}
+
+void createRemoveDeadValuesPassFromString(OpPassManager &pm,
+                                          std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createRemoveDeadValuesPassHelper(pm, *optionsStruct);
 }
 
 void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
@@ -104,28 +204,36 @@ void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
   createTTNNPipelineLoweringPasses(pm, *optionsStruct);
 }
 
-void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
-                                                         std::string options) {
+void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
+                                            std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineLayoutDecompositionPass(pm, *optionsStruct);
+  createTTNNPipelineTTIRPasses(pm, *optionsStruct);
 }
 
-void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
-                                             std::string options) {
+void createTTNNWorkaroundsFromString(OpPassManager &pm, std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineDeallocPass(pm, *optionsStruct);
+  createTTNNWorkaroundsHelper(pm, *optionsStruct);
 }
 
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineLoweringPasses(pm, options);
-  createTTNNPipelineWorkaroundPass(pm, options);
-  createTTNNPipelineAnalysisPasses(pm, options);
-  createTTNNPipelineLayoutDecompositionPass(pm, options);
-  createTTNNPipelineDeallocPass(pm, options);
+void createCanonicalizerPassFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createCanonicalizerPassHelper(pm, *optionsStruct);
+}
+
+void createTTNNPipelineWorkaroundPassFromString(OpPassManager &pm,
+                                                std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNPipelineWorkaroundPass(pm, *optionsStruct);
+}
+
+void createTTNNOptimizerFromString(OpPassManager &pm, std::string options) {
+  auto optionsStruct =
+      TTIRToTTNNBackendPipelineOptions::createFromString(options);
+  createTTNNOptimizerHelper(pm, *optionsStruct);
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
