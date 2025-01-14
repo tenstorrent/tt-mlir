@@ -35,7 +35,10 @@ class AttrHandler:
     @staticmethod
     def parse_attr(attr):
         if attr.name in AttrHandler.ATTR_HANDLERS:
-            return AttrHandler.ATTR_HANDLERS[attr.name](attr.attr)
+            try:
+                return AttrHandler.ATTR_HANDLERS[attr.name](attr.attr)
+            except:
+                return AttrHandler.default_parser(attr)
         else:
             # Unknown Attr Type, return default parser
             return AttrHandler.default_parser(attr)
