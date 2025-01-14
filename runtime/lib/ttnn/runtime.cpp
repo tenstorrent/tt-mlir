@@ -19,7 +19,6 @@
 #include <dlfcn.h>
 #include <memory>
 #include <string>
-#include <ttnn/tensor/tensor.hpp>
 
 namespace tt::runtime::ttnn {
 
@@ -571,8 +570,7 @@ std::vector<Tensor> runSoProgram(void *so, std::string func_name,
   const char *dlsym_error = dlerror();
   if (dlsym_error) {
     dlclose(so);
-    throw std::runtime_error(
-        fmt::format("Failed to load symbol: {}", dlsym_error));
+    LOG_FATAL("Failed to load symbol: ", dlsym_error);
   }
 
   // Call program/function
@@ -608,27 +606,21 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     // Compare various tensor properties
     //
     LOG_ASSERT(lhsTensor->get_dtype() == rhsTensor->get_dtype(),
-               fmt::format("DType: {}, {}\n",
-                           static_cast<int>(lhsTensor->get_dtype()),
-                           static_cast<int>(rhsTensor->get_dtype())));
+               "DType: ", static_cast<int>(lhsTensor->get_dtype()), ", ",
+               static_cast<int>(rhsTensor->get_dtype()));
     LOG_ASSERT(lhsTensor->get_shape() == rhsTensor->get_shape(),
-               fmt::format("Shape: {}, {}\n", lhsTensor->get_shape(),
-                           rhsTensor->get_shape()));
+               "Shape: ", lhsTensor->get_shape(), ", ", rhsTensor->get_shape());
     LOG_ASSERT(lhsTensor->get_layout() == rhsTensor->get_layout(),
-               fmt::format("Layout: {}, {}\n",
-                           static_cast<int>(lhsTensor->get_layout()),
-                           static_cast<int>(rhsTensor->get_layout())));
+               "Layout: ", static_cast<int>(lhsTensor->get_layout()), ", ",
+               static_cast<int>(rhsTensor->get_layout()));
     LOG_ASSERT(lhsTensor->get_logical_shape() == rhsTensor->get_logical_shape(),
-               fmt::format("Logical shape: {}, {}\n",
-                           lhsTensor->get_logical_shape(),
-                           rhsTensor->get_logical_shape()));
+               "Logical shape: ", lhsTensor->get_logical_shape(), ", ",
+               rhsTensor->get_logical_shape());
     LOG_ASSERT(lhsTensor->volume() == rhsTensor->volume(),
-               fmt::format("Volume: {}, {}\n", lhsTensor->volume(),
-                           rhsTensor->volume()));
+               "Volume: ", lhsTensor->volume(), ", ", rhsTensor->volume());
     LOG_ASSERT(lhsTensor->element_size() == rhsTensor->element_size(),
-               fmt::format("Element size in bytes: {}, {}\n",
-                           lhsTensor->element_size(),
-                           rhsTensor->element_size()));
+               "Element size in bytes: ", lhsTensor->element_size(), ", ",
+               rhsTensor->element_size());
 
     // Compare tensor data
     //
@@ -639,9 +631,9 @@ bool compareOuts(std::vector<Tensor> &lhs, std::vector<Tensor> &rhs) {
     for (size_t i = 0; i < lhsTensor->volume() * lhsTensor->element_size();
          i++) {
       if (lhsData[i] != rhsData[i]) {
-        LOG_ASSERT(false, fmt::format("Mismatch at byte number: {}: {} != {}",
-                                      i, static_cast<int>(lhsData[i]),
-                                      static_cast<int>(rhsData[i])));
+        LOG_FATAL("Mismatch at byte number: ", i, ": ",
+                  static_cast<int>(lhsData[i]),
+                  " != ", static_cast<int>(rhsData[i]));
         return false;
       }
     }

@@ -492,13 +492,17 @@ Event submit(Device deviceHandle, Binary executableHandle,
 void *openSo(std::string path) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    // Open handle to shared object
+    //
     void *handle = dlopen(path.c_str(), RTLD_LAZY);
     if (!handle) {
-      std::cerr << "Failed to load shared object: " << dlerror() << std::endl;
-      throw std::runtime_error("Failed to load shared object");
+      LOG_FATAL("Failed to load shared object: ", dlerror());
     }
 
+    // Clear any existing errors
+    //
     dlerror();
+
     return handle;
   }
 #endif
