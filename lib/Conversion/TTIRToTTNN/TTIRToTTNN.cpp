@@ -770,7 +770,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getBias(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getBias(), adaptor.getOutput(),
+        adaptor.getTransposeA(), adaptor.getTransposeB());
     return success();
   }
 };
@@ -785,7 +786,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
-        adaptor.getB(), adaptor.getOutput());
+        adaptor.getB(), adaptor.getOutput(), adaptor.getTransposeA(),
+        adaptor.getTransposeB());
     return success();
   }
 };
