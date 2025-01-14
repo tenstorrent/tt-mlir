@@ -1203,7 +1203,7 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 // RepeatInterleaveOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::RepeatInterleaveOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
   uint32_t repeats = getRepeats();
   int32_t dim = getDim();
 

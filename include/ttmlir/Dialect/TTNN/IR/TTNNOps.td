@@ -712,7 +712,7 @@ def TTNN_TransposeOp : TTNN_Op<"transpose"> {
     let hasVerifier = 1;
 }
 
-def TTNN_RepeatInterleaveOp : TTNN_NamedDPSOp<"repeat_interleave"> {
+def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
     let summary = "Repeat interleave op.";
     let description = [{
       Repeats elements of a tensor along a specified dimension.
@@ -727,15 +727,10 @@ def TTNN_RepeatInterleaveOp : TTNN_NamedDPSOp<"repeat_interleave"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          UI32Attr:$repeats,
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
-    }];
 
     let hasVerifier = 1;
 }
