@@ -88,6 +88,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::MinOp>(srcOp, adaptor,
                                                             rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::MulOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ProdOp>(srcOp, adaptor,
+                                                             rewriter);
+    }
 
     return failure();
   }
@@ -106,6 +110,29 @@ private:
       return rewriter.notifyMatchFailure(
           srcOp,
           "Expecting StableHLO Reduce OP to have a body operation defined.");
+    }
+
+    mlir::Operation &innerOp = srcOp.getBody().front().front();
+    if (mlir::isa<mlir::stablehlo::MulOp>(innerOp)) {
+      RankedTensorType inputType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
+      int64_t inputTensorRank = inputType.getRank();
+      int64_t numDims = srcOp.getDimensions().size();
+      mlir::Type elementType = inputType.getElementType();
+      if (inputTensorRank > 4) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Input tensor rank is greater than 4 for reduce(product).");
+      }
+      if ((numDims > 1) && (numDims != inputTensorRank)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "TTNN only supports reduce(prod) along one dimension or all "
+                   "dimensions.");
+      }
+      if ((numDims == inputTensorRank) && !elementType.isBF16()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "TTNN only supports Reduce(prod) along all dimensions for "
+                   "bfloat16 datatype.");
+      }
     }
 
     return success();

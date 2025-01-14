@@ -32,6 +32,7 @@
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/generic/generic_pools.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
+#include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/host_buffer/owned_buffer.hpp"
 #include "ttnn/tensor/shape/shape.hpp"

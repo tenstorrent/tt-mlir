@@ -1582,4 +1582,13 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
 
+//===----------------------------------------------------------------------===//
+// Reduce ProdOp
+//===----------------------------------------------------------------------===//
+
+// ProdOp verification.
+::mlir::LogicalResult ProdOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
+
 } // namespace mlir::tt::ttnn

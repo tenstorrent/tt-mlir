@@ -169,6 +169,7 @@ enum ReductionOpType: uint32 {
   Mean,
   Max,
   Min,
+  Prod,
 }
 
 table ReductionOp {

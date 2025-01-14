@@ -725,6 +725,13 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
   }];
 }
 
+def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    Product reduction op.
+  }];
+}
+
 def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{

@@ -427,6 +427,8 @@ public:
                        ttnn::MeanOp>,
                    workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
                        ttnn::MinOp>,
+                   workarounds::decomposition::ReduceOpsKeepDimRewritePattern<
+                       ttnn::ProdOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::SumOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
@@ -434,7 +436,9 @@ public:
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
                        ttnn::MeanOp>,
                    workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
-                       ttnn::MinOp>>(&getContext());
+                       ttnn::MinOp>,
+                   workarounds::decomposition::ReduceOpsAllDimsRewritePattern<
+                       ttnn::ProdOp>>(&getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
