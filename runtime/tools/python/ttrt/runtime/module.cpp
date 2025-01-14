@@ -99,6 +99,7 @@ PYBIND11_MODULE(_C, m) {
         "Get the number of available devices");
   m.def("open_device", &tt::runtime::openDevice, py::arg("device_ids"),
         py::arg("num_hw_cqs") = size_t{1},
+        py::arg("l1_small_size") = py::none(),
         "Open a mesh of devices for execution");
   m.def("close_device", &tt::runtime::closeDevice, "Close a mesh device");
   m.def("to_host", &tt::runtime::toHost, py::arg("tensor"),
