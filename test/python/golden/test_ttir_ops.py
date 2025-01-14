@@ -346,6 +346,14 @@ def test_minimum(in0: Operand, in1: Operand, builder: TTIRBuilder):
     return builder.minimum(in0, in1)
 
 
+@compile_to_flatbuffer(
+    [(64, 32)],
+    targets=["ttnn"],
+)
+def test_transpose(in0: Operand, builder: TTIRBuilder):
+    return builder.transpose(in0, dim0=0, dim1=1)
+
+
 # TODO: uncomment when we have control over the input types
 # @compile_to_flatbuffer(
 #    [
