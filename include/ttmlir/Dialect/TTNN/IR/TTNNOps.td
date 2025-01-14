@@ -609,6 +609,13 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
+def TTNN_ProdOp : TTNN_ReductionOp<"prod"> {
+  let summary = "Product reduction op.";
+  let description = [{
+    Product reduction op.
+  }];
+}
+
 def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
