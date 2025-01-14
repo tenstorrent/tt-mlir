@@ -1640,9 +1640,9 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
 
   // Check that the dim is within the bounds of the input tensor
   if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
-    return emitOpError(std::to_string(dim))
-           << " is not a valid dimension for the input tensor with rank "
-           << ttmlir::utils::join(inputType.getShape(), ",") << ")";
+    return emitOpError("Dimension attribute must be within the bounds")
+           << "(" << -inputType.getRank() << ", " << inputType.getRank() << ")"
+           << ", got " << inputType.getRank();
   }
 
   // Compute the expected output shape
@@ -1652,8 +1652,9 @@ mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
   // Verify that the output shape matches the expected shape
   if (outputType.getShape() != ::llvm::ArrayRef(expectedOutputShape)) {
     return emitOpError("Output shape ")
-           << outputType.getShape() << " does not match the expected shape "
-           << ttmlir::utils::join(expectedOutputShape, ",") << ")";
+           << "[" << ttmlir::utils::join(outputType.getShape(), ",") << "]"
+           << " does not match the expected shape "
+           << "[" << ttmlir::utils::join(expectedOutputShape, ",") << "]";
   }
 
   return success();
