@@ -548,6 +548,27 @@ class TTIRBuilder:
             organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o),
         )
 
+    def transpose(self, in0: Operand, dim0: int, dim1: int) -> OpView:
+        kwargs = {"dim0": dim0, "dim1": dim1}
+        shape = self.get_shape(in0)
+        rank = len(shape)
+
+        # make sure the dims make sense given the rank of the input tensor
+        assert dim0 in range(0, rank) and dim1 in range(0, rank)
+
+        # create the output shape by swapping dim0 w/ dim1
+        out_shape = list(shape)
+        out_shape[dim0], out_shape[dim1] = out_shape[dim1], out_shape[dim0]
+
+        return self.op_proxy(
+            torch.transpose,
+            ttir.TransposeOp,
+            [in0],
+            golden_kwargs=kwargs,
+            output_shape=out_shape,
+            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], o, dim0, dim1),
+        )
+
     def matmul(
         self, in0: Operand, in1: Operand, bias: Optional[Operand] = None
     ) -> OpView:
