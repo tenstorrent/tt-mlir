@@ -820,6 +820,9 @@ def TTNN_MatmulOp : TTNN_NamedDPSOp<"matmul",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMatmulOpOperandsWorkarounds();
+      }
     }];
 
     let hasVerifier = 1;

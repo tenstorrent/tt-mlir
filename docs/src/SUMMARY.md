@@ -25,6 +25,7 @@
 - [Coding Guidelines](./coding-guidelines.md)
 - [Adding an op](./adding-an-op.md)
 - [Decomposing an op in TTIR](./decomposing-an-op-in-ttir.md)
+- [TTNN Workarounds](./ttnn-workarounds.md)
 - [Doxygen](./doxygen.md)
 - [Specifications](./specs/specs.md)
   - [Runtime Stitching](./specs/runtime-stitching.md)
