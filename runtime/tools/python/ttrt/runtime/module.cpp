@@ -21,14 +21,32 @@ namespace py = pybind11;
 PYBIND11_MODULE(_C, m) {
   m.doc() = "ttrt.runtime python extension for interacting with the "
             "Tenstorrent devices";
+  py::class_<tt::runtime::MemoryView>(m, "MemoryView")
+      .def_readonly("num_banks", &tt::runtime::MemoryView::numBanks)
+      .def_readonly("total_bytes_per_bank",
+                    &tt::runtime::MemoryView::totalBytesPerBank)
+      .def_readonly("total_bytes_allocated_per_bank",
+                    &tt::runtime::MemoryView::totalBytesAllocatedPerBank)
+      .def_readonly("total_bytes_free_per_bank",
+                    &tt::runtime::MemoryView::totalBytesFreePerBank)
+      .def_readonly("largest_contiguous_bytes_free_per_bank",
+                    &tt::runtime::MemoryView::largestContiguousBytesFreePerBank)
+      .def_readonly("block_table", &tt::runtime::MemoryView::blockTable);
   py::class_<tt::runtime::Device>(m, "Device")
       .def("deallocate_buffers", &tt::runtime::detail::deallocateBuffers)
-      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport);
+      .def("dump_memory_report", &tt::runtime::detail::dumpMemoryReport)
+      .def("get_memory_view", &tt::runtime::detail::getMemoryView,
+           py::arg("device_id") = 0);
   py::class_<tt::runtime::Event>(m, "Event");
   py::class_<tt::runtime::Tensor>(m, "Tensor");
   py::class_<tt::runtime::Layout>(m, "Layout");
   py::class_<tt::runtime::OpContext>(m, "OpContext");
   py::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
+  py::enum_<tt::runtime::MemoryBufferType>(m, "MemoryBufferType")
+      .value("DRAM", tt::runtime::MemoryBufferType::DRAM)
+      .value("L1", tt::runtime::MemoryBufferType::L1)
+      .value("L1_SMALL", tt::runtime::MemoryBufferType::L1_SMALL)
+      .value("TRACE", tt::runtime::MemoryBufferType::TRACE);
   py::enum_<::tt::target::DataType>(m, "DataType")
       .value("Float32", ::tt::target::DataType::Float32)
       .value("Float16", ::tt::target::DataType::Float16)

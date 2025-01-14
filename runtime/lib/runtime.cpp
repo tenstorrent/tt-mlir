@@ -60,6 +60,23 @@ void dumpMemoryReport(Device device) {
 
   LOG_FATAL("runtime is not enabled");
 }
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device, int deviceID) {
+#if defined(TT_RUNTIME_ENABLE_TTNN)
+  if (getCurrentRuntime() == DeviceRuntime::TTNN) {
+    return ::tt::runtime::ttnn::getMemoryView(device, deviceID);
+  }
+#endif
+
+#if defined(TT_RUNTIME_ENABLE_TTMETAL)
+  if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
+    return ::tt::runtime::ttmetal::getMemoryView(device, deviceID);
+  }
+#endif
+
+  LOG_FATAL("runtime is not enabled");
+}
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime() {
