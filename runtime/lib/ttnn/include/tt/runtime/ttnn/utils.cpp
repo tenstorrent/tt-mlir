@@ -200,7 +200,7 @@ createMemoryConfig(const ::tt::target::TensorRef *tensorRef) {
 
   ::tt::tt_metal::ShardSpec shardSpec(
       ttnnCoreRangeSet, ttnnShardShape,
-      ::tt::tt_metal::ShardOrientation::ROW_MAJOR, false);
+      ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 
   std::optional<::tt::tt_metal::ShardSpec> shardSpecOpt =
       ttnnMemLayout == tt_metal::TensorMemoryLayout::INTERLEAVED
