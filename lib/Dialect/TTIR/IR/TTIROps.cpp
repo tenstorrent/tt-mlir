@@ -62,20 +62,6 @@ void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
-// BroadcastOp
-//===----------------------------------------------------------------------===//
-
-// BroadcastOp folder
-::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
-  // If the input doesn't change the shape, we can fold the operation.
-  if (llvm::all_of(getBroadcastDimensions(),
-                   [](const int32_t dim) { return dim == 1; })) {
-    return getInput();
-  }
-  return {};
-}
-
-//===----------------------------------------------------------------------===//
 // ClampOp
 //===----------------------------------------------------------------------===//
 
@@ -479,6 +465,16 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   return success();
+}
+
+// BroadcastOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
+  // If the input doesn't change the shape, we can fold the operation.
+  if (llvm::all_of(getBroadcastDimensions(),
+                   [](const int32_t dim) { return dim == 1; })) {
+    return getInput();
+  }
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
