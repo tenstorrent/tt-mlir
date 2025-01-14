@@ -433,7 +433,9 @@ class Run:
                             emitc_dylib_path = bin.file_path.replace(".ttnn", ".so")
 
                             # Open the dylib
-                            emitc_dylib_handle = ttrt.runtime.open_so(emitc_dylib_path)
+                            emitc_dylib_handle = ttrt.runtime.testing.open_so(
+                                emitc_dylib_path
+                            )
                             self.logging.debug(f"opened emitc dylib={emitc_dylib_path}")
 
                         program_indices = []
@@ -567,7 +569,7 @@ class Run:
                                 fwd_func_sym = f"_Z{fwd_func_name_len}{fwd_func_name}St6vectorIN2tt8tt_metal6TensorESaIS2_EEPNS1_2v07IDeviceE"
 
                                 for loop in range(self["--loops"]):
-                                    emitc_outs = ttrt.runtime.run_so_program(
+                                    emitc_outs = ttrt.runtime.testing.run_so_program(
                                         emitc_dylib_handle,
                                         fwd_func_sym,
                                         total_inputs[loop],
@@ -577,8 +579,10 @@ class Run:
                                         f"got emitc outputs for program_index={program_index}, loop={loop}"
                                     )
 
-                                    all_tensors_match = ttrt.runtime.compare_outs(
-                                        total_outputs[0], emitc_outs
+                                    all_tensors_match = (
+                                        ttrt.runtime.testing.compare_outs(
+                                            total_outputs[0], emitc_outs
+                                        )
                                     )
 
                                     if not all_tensors_match:
