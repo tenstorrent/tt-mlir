@@ -7,10 +7,9 @@
 
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LogicalResult.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 namespace mlir::tt::ttkernel {
-
-enum class ThreadType : uint32_t;
 
 // Translates a TTKernel operation to C++ and writes it to the given
 // stream.
