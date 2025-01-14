@@ -11,8 +11,6 @@
 #if defined(TT_RUNTIME_ENABLE_TTNN)
 #include "tt/runtime/detail/ttnn.h"
 #include "tt/runtime/ttnn/types.h"
-
-#include <dlfcn.h>
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
@@ -488,5 +486,4 @@ Event submit(Device deviceHandle, Binary executableHandle,
 #endif
   LOG_FATAL("runtime is not enabled");
 }
-
 } // namespace tt::runtime
