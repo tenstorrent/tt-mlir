@@ -99,6 +99,8 @@ section for details, the process is the same.
 {{#include ../../../lib/Dialect/TTNN/IR/TTNNOps.cpp:adding_an_op_matmul_ttnn_verify}}
 ```
 
+For more details on adding ops to the TTNN dialect, refer to [TTNN Dialect Contribution Guidelines](./ttnn-dialect-guidelines.md).
+
 ## 3. Convert / Implement the Op in the TTNN passes
 
 Next we will implement the conversion from the TTIR `matmul` Op to the TTNN `matmul` Op.
