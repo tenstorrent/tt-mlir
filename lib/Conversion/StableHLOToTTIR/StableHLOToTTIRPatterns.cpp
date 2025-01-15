@@ -291,16 +291,24 @@ private:
         return rebuildValueAttr<bool>(valueAttr, 1);
       }
       case 8: {
-        return rebuildValueAttr<int8_t>(valueAttr, 8);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint8_t>(valueAttr, 8)
+                   : rebuildValueAttr<int8_t>(valueAttr, 8);
       }
       case 16: {
-        return rebuildValueAttr<int16_t>(valueAttr, 16);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint16_t>(valueAttr, 16)
+                   : rebuildValueAttr<int16_t>(valueAttr, 16);
       }
       case 32: {
-        return rebuildValueAttr<int32_t>(valueAttr, 32);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint32_t>(valueAttr, 32)
+                   : rebuildValueAttr<int32_t>(valueAttr, 32);
       }
       case 64: {
-        return rebuildValueAttr<int64_t>(valueAttr, 32);
+        return elementType.isUnsignedInteger()
+                   ? rebuildValueAttr<uint64_t>(valueAttr, 32)
+                   : rebuildValueAttr<int64_t>(valueAttr, 32);
       }
       default: {
         assert(false && "Unsupported integer type.");
