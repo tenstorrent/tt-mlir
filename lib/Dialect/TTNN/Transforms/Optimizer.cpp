@@ -224,6 +224,22 @@ public:
       // If schedule is set, apply order of operations to func.
       //
       if (opSchedule[func].size() > 1) {
+        // TODO (#0000): This is a temporary solution - when defaulting to dram
+        // tile input/output layout, GetDeviceOp can randomly appear as the last
+        // op in the graph instead of the first. This workaround ensures
+        // getDeviceOp is always in the beginning of the schedule.
+        // To reproduce, remove this workaround and run
+        // Silicon/TTNN/optimizer/mnist_sharding.mlir multiple times (as it is
+        // non-deterministic).
+        Operation **it =
+            std::find_if(opSchedule[func].begin(), opSchedule[func].end(),
+                         [](Operation *op) { return isa<GetDeviceOp>(op); });
+        if (it != opSchedule[func].end()) {
+          GetDeviceOp deviceOp = mlir::cast<GetDeviceOp>(*it);
+          opSchedule[func].erase(it);
+          opSchedule[func].insert(opSchedule[func].begin(), deviceOp);
+        }
+
         for (size_t i = 0; i < opSchedule[func].size() - 1; i++) {
           Operation *op = opSchedule[func][i];
 

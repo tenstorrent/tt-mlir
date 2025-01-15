@@ -18,8 +18,8 @@ namespace tt::runtime::ttnn::operations::creation {
 void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Shape shape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
-      ::tt::runtime::ttnn::utils::toShapeFromFBShape(*op->shape())));
+  const ::ttnn::Shape shape =
+      ::tt::runtime::ttnn::operations::utils::toTTNNShape(*op->shape());
 
   std::optional<::ttnn::DataType> dtype = std::optional<::ttnn::DataType>();
   std::optional<::ttnn::Layout> layout = std::optional<::ttnn::Layout>();

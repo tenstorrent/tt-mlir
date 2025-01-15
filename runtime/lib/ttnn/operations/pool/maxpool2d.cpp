@@ -19,9 +19,9 @@ template <typename DeviceType>
 static ::ttnn::Tensor
 preshardForMaxPool2d(const ::tt::target::ttnn::MaxPool2dOp *op,
                      DeviceType &device, const ::ttnn::Tensor &input) {
-  const ::ttnn::Shape inputShape = ::ttnn::Shape(::tt::tt_metal::LegacyShape(
-      ::tt::runtime::ttnn::utils::toShapeFromFBShape(
-          *op->in()->desc()->shape())));
+  const ::ttnn::Shape inputShape =
+      ::tt::runtime::ttnn::operations::utils::toTTNNShape(
+          *op->in()->desc()->shape());
   uint32_t output_height =
       1 + (op->input_height() + 2 * op->padding_height() -
            op->dilation_height() * (op->kernel_height() - 1) - 1) /

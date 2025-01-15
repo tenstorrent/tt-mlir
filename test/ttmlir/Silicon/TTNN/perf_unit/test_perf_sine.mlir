@@ -4,7 +4,7 @@
 func.func @sine(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %0 = tensor.empty() : tensor<64x128xf32>
   // CHECK: [[VAL0:%[0-9]+]] = "ttnn.empty"(%{{[0-9]+}})
-  // CHECK: %{{[0-9]+}} = "ttnn.sin"(%{{[0-9]+}}, [[VAL0]])
+  // CHECK: %{{[0-9]+}} = "ttnn.sin"(%arg0, [[VAL0]])
   %1 = "ttir.sin"(%arg0, %0) <{operandSegmentSizes = array<i32: 1, 1>}> : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
