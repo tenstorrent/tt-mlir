@@ -79,27 +79,3 @@ void mlir::tt::registerAllPasses() {
   mlir::tt::ttnn::registerTTNNPipelines();
   mlir::tt::ttmetal::registerTTMetalPipelines();
 }
-
-// Create a larger MLIRModuleCache object which initializes the hook to cache
-// provided MLIRContext
-
-struct mlir::tt::MLIRModuleCacher {
-  mlir::MLIRContext *context;
-  llvm::StringMap<mlir::Operation *> moduleCache;
-
-  void attachContext(mlir::MLIRContext *ctx) {
-    context = ctx;
-
-    context->registerActionHandler([this](llvm::function_ref<void()> transform,
-                                          const mlir::tracing::Action &action) {
-      if (mlir::isa<mlir::PassExecutionAction>(action)) {
-        auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
-        // A Pass action has occured, need to store the previous module before
-        // transform is completed.
-        this->moduleCache[passAction.getPass().getName().str()] =
-            passAction.getOp();
-      }
-      transform(); // Run the transformation pass.
-    });
-  }
-};
