@@ -510,23 +510,12 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     return createNullTensor();
   }
 
-  ::ttnn::Tensor hostTensor = ::ttnn::from_device(*outPtr);
-  ::ttnn::Tensor outCopy =
-      ::ttnn::to_layout(hostTensor, ::ttnn::ROW_MAJOR_LAYOUT, std::nullopt,
-                        std::nullopt, static_cast<::ttnn::IDevice *>(nullptr));
+  std::shared_ptr<::ttnn::Tensor> hostTensor =
+      std::make_shared<::ttnn::Tensor>(::ttnn::to_layout(
+          ::ttnn::from_device(*outPtr), ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+          std::nullopt, static_cast<::ttnn::IDevice *>(nullptr)));
 
-  void *src = ::tt::tt_metal::get_raw_host_data_ptr(outCopy);
-  std::uint32_t outCopySize = outCopy.volume() * outCopy.element_size();
-  std::shared_ptr<void> data = ::tt::runtime::utils::malloc_shared(outCopySize);
-  std::memcpy(data.get(), src, outCopySize);
-
-  auto tensor = std::make_shared<::ttnn::Tensor>(
-      ttnn::createStorage<BorrowedStorage>(data.get(), outCopy.volume(),
-                                           ::tt::target::DataType::Float32),
-      outCopy.shape().value, ::ttnn::DataType::FLOAT32,
-      ::ttnn::Layout::ROW_MAJOR);
-
-  return Tensor(std::static_pointer_cast<void>(tensor), nullptr,
+  return Tensor(std::static_pointer_cast<void>(hostTensor), nullptr,
                 DeviceRuntime::TTNN);
 }
 
