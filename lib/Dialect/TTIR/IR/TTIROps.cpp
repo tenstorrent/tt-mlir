@@ -932,6 +932,27 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
         return mlir::success();
       });
 
+  // Rewrite a tranpose dims to a canonical form where the 'dim0' and 'dim1' are
+  // in range [0, N), where N is a rank of input tensor.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        int64_t rank = op.getInput().getType().getRank();
+        int32_t dim0 = op.getDim0();
+        int32_t dim1 = op.getDim1();
+
+        if (dim0 >= 0 && dim1 >= 0) {
+          return mlir::failure();
+        }
+
+        if (dim0 < 0) {
+          op.setDim0(dim0 + rank);
+        }
+        if (dim1 < 0) {
+          op.setDim1(dim1 + rank);
+        }
+        return mlir::success();
+      });
+
   // Transposing twice in the row over the same dimensions results in identity,
   // hence y = T(T(x)) can be replaced with y = x.
   patterns.add(
