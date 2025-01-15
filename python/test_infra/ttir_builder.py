@@ -404,7 +404,7 @@ class TTIRBuilder:
         return self.eltwise_proxy(torch.bitwise_not, ttir.BitwiseNotOp, [in0])
 
     def ceil(self, in0: Operand) -> OpView:
-        return self.eltwise_proxy(torch.log, ttir.CeilOp, [in0])
+        return self.eltwise_proxy(torch.ceil, ttir.CeilOp, [in0])
 
     def sin(self, in0: Operand) -> OpView:
         return self.eltwise_proxy(torch.sin, ttir.SinOp, [in0])
