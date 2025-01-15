@@ -216,16 +216,17 @@ size_t getNumAvailableDevices() {
   LOG_FATAL("runtime is not enabled");
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize) {
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
-    return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs);
+    return ::tt::runtime::ttnn::openDevice(deviceIds, numHWCQs, l1SmallSize);
   }
 #endif
 
 #if defined(TT_RUNTIME_ENABLE_TTMETAL)
   if (getCurrentRuntime() == DeviceRuntime::TTMetal) {
-    return ::tt::runtime::ttmetal::openDevice(deviceIds, numHWCQs);
+    return ::tt::runtime::ttmetal::openDevice(deviceIds, numHWCQs, l1SmallSize);
   }
 #endif
   LOG_FATAL("runtime is not enabled");

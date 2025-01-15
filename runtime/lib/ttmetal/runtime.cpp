@@ -66,13 +66,15 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
 
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
+  size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          grid, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
+          grid, l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
           ::tt::tt_metal::DispatchCoreType::WORKER);
 
   return Device(std::static_pointer_cast<void>(meshDevice),
