@@ -1,8 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
-// UNSUPPORTED: true
-// Issue with metal uplift: https://github.com/tenstorrent/tt-metal/issues/16312
 module {
   func.func @forward(%arg0: tensor<1x32x64x512xbf16>, %arg1: tensor<1x32x1x512xbf16>) -> tensor<1x32x64x512xbf16> {
     // CHECK: "ttnn.update_cache"[[C:.*]]
