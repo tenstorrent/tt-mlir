@@ -143,38 +143,91 @@ struct TTIRToTTNNBackendPipelineOptions
 //
 struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions {};
 
-void createTTNNPipelineTTIRPasses(
+void createTTNNOptimizerHelper(OpPassManager &pm,
+                               const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNWorkaroundsHelper(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
-void createTTNNPipelineAnalysisPasses(
+void createTTNNDeallocateHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTIRImplicitDeviceHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTIRToTTIRDecompositionPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createInlinerPassHelper(OpPassManager &pm,
+                             const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTIRLoadSystemDescHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNLayoutHelper(OpPassManager &pm,
+                            const TTIRToTTNNBackendPipelineOptions &options);
+
+void createConvertTTIRToTTNNPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createRemoveDeadValuesPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createCanonicalizerPassHelper(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+
+void createTTNNDecomposeLayoutsHelper(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
 void createTTNNPipelineLoweringPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
-void createTTNNPipelineLayoutDecompositionPass(
+void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
-void createTTNNPipelineDeallocPass(
+void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
-void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
-                                            std::string options);
+void createTTIRToTTNNBackendPipeline(
+    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
-void createTTNNPipelineAnalysisPassesFromString(OpPassManager &pm,
+void createTTNNDecomposeLayoutsHelperFromString(OpPassManager &pm,
                                                 std::string options);
+
+void createTTNNDeallocateHelperFromString(OpPassManager &pm,
+                                          std::string options);
+
+void createTTIRToTTIRDecompositionPassFromString(OpPassManager &pm,
+                                                 std::string options);
+
+void createInlinerPassFromString(OpPassManager &pm, std::string options);
+
+void createTTIRLoadSystemDescFromString(OpPassManager &pm, std::string options);
+
+void createTTIRImplicitDeviceFromString(OpPassManager &pm, std::string options);
+
+void createTTNNLayoutFromString(OpPassManager &pm, std::string options);
+
+void createConvertTTIRToTTNNPassFromString(OpPassManager &pm,
+                                           std::string options);
+
+void createRemoveDeadValuesPassFromString(OpPassManager &pm,
+                                          std::string options);
 
 void createTTNNPipelineLoweringPassesFromString(OpPassManager &pm,
                                                 std::string options);
 
-void createTTNNPipelineLayoutDecompositionPassFromString(OpPassManager &pm,
-                                                         std::string options);
+void createTTNNPipelineTTIRPassesFromString(OpPassManager &pm,
+                                            std::string options);
 
-void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
-                                             std::string options);
+void createTTNNWorkaroundsFromString(OpPassManager &pm, std::string options);
 
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
+void createCanonicalizerPassFromString(OpPassManager &pm, std::string options);
+
+void createTTNNPipelineWorkaroundPassFromString(OpPassManager &pm,
+                                                std::string options);
+
+void createTTNNOptimizerFromString(OpPassManager &pm, std::string options);
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
