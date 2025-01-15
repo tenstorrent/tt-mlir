@@ -17,6 +17,8 @@ void registerAllDialects(mlir::DialectRegistry &registry);
 void registerAllExtensions(mlir::DialectRegistry &registry);
 void registerAllPasses();
 
+struct MLIRModuleCacher;
+
 } // namespace mlir::tt
 
 #endif
