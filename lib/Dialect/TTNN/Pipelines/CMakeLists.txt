@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRTTNNPipelines
 
   LINK_LIBS PUBLIC
   TTMLIRConversions
+  MLIRLLVMTransforms
   MLIRTTIRDialect
   MLIRTTNNDialect
   MLIRTTIRTransforms

@@ -46,8 +46,7 @@ getOperandTensorRanks(mlir::Operation *op) {
 static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Start building the unique function name
   llvm::SmallString<16> uniqueName("hoisted_");
-  uniqueName.append(op->getName().getStringRef().begin(),
-                    op->getName().getStringRef().end());
+  uniqueName.append(op->getName().getStringRef());
 
   // Iterate over operands to extract tensor shapes and types
   for (auto operand : op->getOperands()) {
@@ -73,6 +72,8 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
   // Add suffix to indicate it's a function
   uniqueName += "_func";
 
+  std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
+
   return uniqueName;
 }
 
@@ -86,10 +87,10 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
 
   const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
-  const llvm::SmallString<16> localFunctionName = functionName.append("_decl");
+  const llvm::Twine localFunctionName = functionName + "_decl";
 
   auto localFunc = llvm::dyn_cast_or_null<func::FuncOp>(
-      sourceModule.lookupSymbol(localFunctionName));
+      sourceModule.lookupSymbol(localFunctionName.str()));
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
@@ -150,8 +151,8 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                          clonedOp->getResults());
 
     // Declare the function prototype in the source module.
-    localFunc =
-        func::FuncOp::create(opToHoist->getLoc(), localFunctionName, funcType);
+    localFunc = func::FuncOp::create(opToHoist->getLoc(),
+                                     localFunctionName.str(), funcType);
     localFunc.setPrivate();
     sourceModule.push_back(localFunc);
 

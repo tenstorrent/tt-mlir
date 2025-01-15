@@ -10,8 +10,8 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -63,17 +63,17 @@ llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
 }
 
 // Function to convert MLIR ModuleOp to LLVM Module
-std::unique_ptr<llvm::Module> convertToLLVMModule(CPUModuleOp cpuModule, 
-                                                 llvm::LLVMContext &llvmContext) {
+std::unique_ptr<llvm::Module>
+convertToLLVMModule(CPUModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
   mlir::registerLLVMDialectTranslation(*cpuModule.getContext());
   // Create a new MLIR module
   mlir::OpBuilder builder(cpuModule.getContext());
   auto mlirModule = builder.create<mlir::ModuleOp>(cpuModule.getLoc());
-  
+
   // Clone the functions from CPUModule into the new ModuleOp
   builder.setInsertionPointToStart(mlirModule.getBody());
   for (auto &op : cpuModule.getBody().front().getOperations()) {
-    if (isa<mlir::LLVM::LLVMFuncOp>(op)) {
+    if (isa<mlir::LLVM::LLVMFuncOp>(op) || isa<mlir::LLVM::GlobalOp>(op)) {
       builder.clone(op);
     }
   }
@@ -84,7 +84,7 @@ std::unique_ptr<llvm::Module> convertToLLVMModule(CPUModuleOp cpuModule,
 
   // Use the existing translation infrastructure
   auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext,
-                                                 "llvm-dylib-module");
+                                                  "llvm-dylib-module");
   if (!llvmModule) {
     llvm::errs() << "Failed to convert MLIR ModuleOp to LLVM IR\n";
     return nullptr;
@@ -218,7 +218,9 @@ llvm::LogicalResult verifyAllLLVM(tt::CPUModuleOp module) {
 
   module.walk([&](Operation *op) {
     // check other operations to make sure they're llvm
-    if (op->getDialect() != llvmDialect && !(llvm::isa<tt::CPUModuleOp>(op) || llvm::isa<tt::CPUModuleTerminatorOp>(op)) ) {
+    if (op->getDialect() != llvmDialect &&
+        !(llvm::isa<tt::CPUModuleOp>(op) ||
+          llvm::isa<tt::CPUModuleTerminatorOp>(op))) {
       isAllLLVM = false;
       llvm::errs() << "Non-LLVM operation found: " << op->getName()
                    << " at location " << op->getLoc() << "\n";
@@ -271,11 +273,11 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
     return std::nullopt;
   }
 
-  if (cleanupTempFiles) {
-    llvm::sys::fs::remove_directories(tmpDirName);
-  } else {
-    llvm::outs() << "wrote temp files to: " << tmpDirName << "\n";
-  }
+  // if (cleanupTempFiles) {
+  //   llvm::sys::fs::remove_directories(tmpDirName);
+  // } else {
+  //   llvm::outs() << "wrote temp files to: " << tmpDirName << "\n";
+  // }
 
   return buffer;
 }
@@ -296,8 +298,7 @@ llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
   }
   llvm::LLVMContext llvmContext;
   auto llvmModule = convertToLLVMModule(moduleOp, llvmContext);
-  if (!llvmModule)
-  {
+  if (!llvmModule) {
     return llvm::failure();
   }
   const auto maybeDylibBinary =

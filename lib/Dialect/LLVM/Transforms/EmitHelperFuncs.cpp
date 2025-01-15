@@ -25,19 +25,31 @@ namespace mlir::tt::llvm_util {
 void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
   // Remove existing terminator if present
   if (auto terminator = dyn_cast<tt::CPUModuleTerminatorOp>(
-        moduleOp.getBody().front().getTerminator())) {
+          moduleOp.getBody().front().getTerminator())) {
     terminator->erase();
   }
 
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
 
+  // Define the struct type
+  auto i64Ty = builder.getI64Type();
+  // auto f32Ty = builder.getF32Type();
+  auto ptrTy = LLVM::LLVMPointerType::get(context);
+
+  // auto wrappedTensorTy = LLVM::LLVMStructType::getLiteral(
+  //     context, {
+  //                  ptrTy, // start
+  //                  ptrTy, // aligned_start
+  //                  i64Ty,      // start_idx
+  //                  ptrTy    // sizes_and_strides
+  //              });
+
   for (auto func : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
     if (!func->hasAttr("arg_ranks")) {
       continue;
     }
 
-    // Extract the `arg_ranks` attribute
     auto argRanksAttr = llvm::dyn_cast<ArrayAttr>(func->getAttr("arg_ranks"));
     if (!argRanksAttr) {
       continue;
@@ -45,11 +57,9 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
 
     builder.setInsertionPointToEnd(&moduleOp.getBody().front());
 
-    // Define the helper function name and type
     llvm::SmallString<32> helperName(func.getName());
     helperName.append("_helper");
 
-    // Create the helper function
     auto helperFuncType = LLVM::LLVMFunctionType::get(
         LLVM::LLVMVoidType::get(context), {LLVM::LLVMPointerType::get(context)},
         false);
@@ -60,96 +70,98 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
     Block *entryBlock = helperFunc.addEntryBlock(builder);
     builder.setInsertionPointToStart(entryBlock);
 
-    // Unpack the argument
     Value structArrayPtr = entryBlock->getArgument(0);
     SmallVector<Value, 16> originalCallArgs;
+
+    // Note: we can't create typed pointer types, but we can create the struct
+    // type
+    auto wrappedTensorTy = LLVM::LLVMStructType::getLiteral(
+        context, {
+                     LLVM::LLVMPointerType::get(context), // start
+                     LLVM::LLVMPointerType::get(context), // aligned_start
+                     builder.getI64Type(),                // start_idx
+                     LLVM::LLVMPointerType::get(context)  // sizes_and_strides
+                 });
+
+    // First get the base pointer to array of tensors (do this once)
+    Value baseStructPtr = builder.create<LLVM::LoadOp>(
+        func.getLoc(), LLVM::LLVMPointerType::get(context), structArrayPtr);
 
     // Iterate over arg_ranks to unpack tensors
     int tensorIdx = 0;
     for (auto rankAttr : argRanksAttr) {
+      // Compute the offset for the current tensor (as index * size of
+      // wrapped_tensor)
       Value tensorIndex = builder.create<LLVM::ConstantOp>(
-          func.getLoc(), builder.getI32Type(),
-          builder.getI32IntegerAttr(tensorIdx++));
+          func.getLoc(), builder.getI64Type(),
+          builder.getI64IntegerAttr(tensorIdx++));
 
+      // Calculate the ptr-width offset for the tensor; 3 pointers and one i64
+      // = 4.
+      constexpr auto wrappedTensorSize = 4;
+
+      Value offset = builder.create<LLVM::MulOp>(
+          func.getLoc(), tensorIndex,
+          builder.create<LLVM::ConstantOp>(
+              func.getLoc(), builder.getI64Type(),
+              builder.getI64IntegerAttr(wrappedTensorSize)));
+
+      // Get pointer to the struct for this tensor
       Value structPtr = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context),
-          LLVM::LLVMPointerType::get(context), structArrayPtr,
-          ValueRange(tensorIndex));
+          func.getLoc(), ptrTy, ptrTy, baseStructPtr, ValueRange(offset),
+          /*inbounds=*/true);
 
-      int64_t rank = mlir::cast<IntegerAttr>(rankAttr).getInt();
+      // Load the entire struct
+      Value tensorStruct = builder.create<LLVM::LoadOp>(
+          func.getLoc(), wrappedTensorTy, structPtr);
 
-      Value index = builder.create<LLVM::ConstantOp>(
-          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(0));
-      // `start`
-      Value tensorBase = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context),
-          LLVM::LLVMPointerType::get(context), structPtr, ValueRange{index});
+      // Extract fields using extractvalue
+      Value tensorBase = builder.create<LLVM::ExtractValueOp>(
+          func.getLoc(), ptrTy, tensorStruct,
+          builder.getDenseI64ArrayAttr({0})); // start field
 
-      index = builder.create<LLVM::ConstantOp>(
-          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(1));
-      // `aligned_start`
-      Value alignedBase = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context),
-          LLVM::LLVMPointerType::get(context), structPtr, ValueRange{index});
+      Value alignedBase = builder.create<LLVM::ExtractValueOp>(
+          func.getLoc(), LLVM::LLVMPointerType::get(context), tensorStruct,
+          builder.getDenseI64ArrayAttr({1})); // aligned_start field
 
-      index = builder.create<LLVM::ConstantOp>(
-          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(2));
-      // `start_idx`
-      Value startIdxPtr = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context),
-          builder.getI64Type(), structPtr, ValueRange{index});
-      // Convert the pointer to an integer (i64)
-      Value startIdx = builder.create<LLVM::PtrToIntOp>(
-          func.getLoc(), builder.getI64Type(), startIdxPtr);
+      Value startIdx = builder.create<LLVM::ExtractValueOp>(
+          func.getLoc(), builder.getI64Type(), tensorStruct,
+          builder.getDenseI64ArrayAttr({2})); // start_idx field
 
-      index = builder.create<LLVM::ConstantOp>(
-          func.getLoc(), builder.getI32Type(), builder.getI32IntegerAttr(3));
-      // `sizes_and_strides`
-      Value sizesAndStrides = builder.create<LLVM::GEPOp>(
-          func.getLoc(), LLVM::LLVMPointerType::get(context),
-          LLVM::LLVMPointerType::get(context), structPtr, ValueRange{index});
+      Value sizesAndStrides = builder.create<LLVM::ExtractValueOp>(
+          func.getLoc(), LLVM::LLVMPointerType::get(context), tensorStruct,
+          builder.getDenseI64ArrayAttr({3})); // sizes_and_strides field
 
       originalCallArgs.push_back(tensorBase);
       originalCallArgs.push_back(alignedBase);
       originalCallArgs.push_back(startIdx);
 
       // Iterate over size and stride pairs
+      int64_t rank = mlir::cast<IntegerAttr>(rankAttr).getInt();
       for (int i = 0; i < 2 * rank; i++) {
-        // Compute the address of the i-th element
         Value idx = builder.create<LLVM::ConstantOp>(
             func.getLoc(), builder.getI64Type(), builder.getI64IntegerAttr(i));
 
         Value elementPtr = builder.create<LLVM::GEPOp>(
-            func.getLoc(),
-            LLVM::LLVMPointerType::get(context), // Pointer to i64
-            builder.getI64Type(),
-            sizesAndStrides, // Base pointer
-            ValueRange{idx}  // Offset
-        );
+            func.getLoc(), ptrTy, ptrTy, sizesAndStrides, ValueRange{idx});
 
-        // Load the value from the computed address
-        Value strideOrSize = builder.create<LLVM::LoadOp>(
-            func.getLoc(),
-            builder.getI64Type(), // Type of the loaded value
-            elementPtr            // Computed address
-        );
+        Value strideOrSize =
+            builder.create<LLVM::LoadOp>(func.getLoc(), i64Ty, elementPtr);
 
-        // Add the loaded value to the call arguments
         originalCallArgs.push_back(strideOrSize);
       }
     }
 
-    // Call the original function
+    // Call the function
     builder.create<LLVM::CallOp>(func.getLoc(),
                                  func.getFunctionType().getReturnType(),
                                  func.getName(), originalCallArgs);
 
-    // Return the result
     builder.create<LLVM::ReturnOp>(func.getLoc(), ValueRange());
   }
 
-    builder.setInsertionPointToEnd(&moduleOp.getBody().front());
-    builder.create<tt::CPUModuleTerminatorOp>(moduleOp.getLoc());
+  builder.setInsertionPointToEnd(&moduleOp.getBody().front());
+  builder.create<tt::CPUModuleTerminatorOp>(moduleOp.getLoc());
 }
 
 class LLVMEmitHelperFuncs

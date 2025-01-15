@@ -14,13 +14,12 @@ struct wrapped_tensor {
   float *start;
   float *aligned_start;
   int64_t start_idx;
-  size_t rank; // this tells us how many elements will be in sizes_and_strides
   int64_t *sizes_and_strides;
 };
 
 // generic signature to call all our funcs; args will be an array of input
 // tensors + a counter to tell us how many
-using WrappedFunc = wrapped_tensor (*)(wrapped_tensor *, size_t);
+using WrappedFunc = void (*)(wrapped_tensor *);
 
 void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context);
 

@@ -75,7 +75,7 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
 }
 
-  // TODO: this + all its nasty macros should definitely be in a standalone file
+// TODO: this + all its nasty macros should definitely be in a standalone file
 void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   // Create an in-memory file descriptor
   int memfd = memfd_create("dylib", MFD_CLOEXEC);
@@ -89,7 +89,7 @@ void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
     return nullptr;
   }
   void *handle =
-        dlopen(("/proc/self/fd/" + std::to_string(memfd)).c_str(), RTLD_LAZY);
+      dlopen(("/proc/self/fd/" + std::to_string(memfd)).c_str(), RTLD_LAZY);
   close(memfd); // Can close after dlopen
   if (!handle) {
     std::cerr << "dlopen failed: " << dlerror() << std::endl;
@@ -98,18 +98,17 @@ void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
   return handle;
 }
 
-  static DylibHandleMap openDylibHandles(
-      const ::tt::target::ttnn::Program *program) {
+static DylibHandleMap
+openDylibHandles(const ::tt::target::ttnn::Program *program) {
   DylibHandleMap dlHandleMap;
   for (const auto *dylib : *(program->dylibs())) {
     // TODO: consider some randomized hashing or something here
     // std::string name("/tmp/" + program->name() + ".so") writeTmpDylib(
     //     name, dylib->raw_file()->data(), dylib->raw_file()->size());
     void *handle = loadLibraryFromMemory(dylib->raw_file()->data(),
-                                          dylib->raw_file()->size());
+                                         dylib->raw_file()->size());
     if (!handle) {
-      throw std::runtime_error(
-          "failed to open input dynamic library handle!");
+      throw std::runtime_error("failed to open input dynamic library handle!");
     }
     dlHandleMap.emplace(dylib->dylib_id(), handle);
   }
@@ -129,11 +128,10 @@ public:
       const std::unordered_map<uint32_t, ::ttnn::Tensor *> &liveTensors,
       const std::vector<uint32_t> &programInputs,
       const std::vector<uint32_t> &programOutputs,
-      const DylibHandleMap *programDylibHandles,
-      ::ttnn::MeshDevice *meshDevice)
+      const DylibHandleMap *programDylibHandles, ::ttnn::MeshDevice *meshDevice)
       : executableHandle(executableHandle),
-        context(ProgramContext(liveTensors, programInputs, programOutputs, programDylibHandles,
-                               meshDevice)) {}
+        context(ProgramContext(liveTensors, programInputs, programOutputs,
+                               programDylibHandles, meshDevice)) {}
 
   void runCallback(Binary &executableHandle,
                    const ::tt::target::ttnn::Operation *opContext,
@@ -306,10 +304,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
 }
 
- std::vector<Tensor> runProgram(
-    ::ttnn::MeshDevice & meshDevice, Binary executableHandle,
-    std::uint32_t programIndex,
-    std::vector<::ttnn::Tensor *> const &inputs) {
+std::vector<Tensor> runProgram(::ttnn::MeshDevice &meshDevice,
+                               Binary executableHandle,
+                               std::uint32_t programIndex,
+                               std::vector<::ttnn::Tensor *> const &inputs) {
   ::tt::target::ttnn::TTNNBinary const &fbb = *getBinary(executableHandle);
   ::tt::target::ttnn::Program const *program =
       fbb.programs()->Get(programIndex);
@@ -317,9 +315,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   std::vector<uint32_t> programInputs;
   int inputIndex = 0;
   LOG_ASSERT(program->inputs()->size() == inputs.size(),
-              "Program input size mismatch: ", program->inputs()->size(),
-              " != ", inputs.size());
+             "Program input size mismatch: ", program->inputs()->size(),
+             " != ", inputs.size());
   for (::tt::target::TensorRef const *input : *program->inputs()) {
+    LOG_INFO("Adding input: ", input->global_id());
     auto [iter, inserted] =
         liveTensors.try_emplace(input->global_id(), inputs[inputIndex++]);
     LOG_ASSERT(inserted, "Duplicate input tensor");
@@ -331,7 +330,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   auto dylibMap = openDylibHandles(program);
   ProgramExecutor executor(executableHandle, liveTensors, programInputs,
-                            programOutputs, &dylibMap, &meshDevice);
+                           programOutputs, &dylibMap, &meshDevice);
   executor.execute(program);
   closeDylibHandles(dylibMap);
   std::vector<Tensor> outputTensors = executor.gatherOutputTensors();

@@ -307,9 +307,13 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
       cache.getOrCreate(*op.getResults().begin(), tensorValueToFlatbuffer,
                         kHostAllocatedAddress, kHostAllocatedSize);
 
+  std::string oldName = op.getCallee().str();
+  // Remove the "_decl" suffix and add the "_helper" suffix.
+  std::string funcName = oldName.substr(0, oldName.size() - 5) + "_helper";
+
   return ::tt::target::ttnn::CreateCpuOp(
       *cache.fbb, cache.fbb->CreateVector(ins), output,
-      cache.fbb->CreateString(op.getCallee().str() + "_helper"), dylib_id);
+      cache.fbb->CreateString(funcName), dylib_id);
 }
 
 ::flatbuffers::Offset<::tt::target::DistributionStrategy>
