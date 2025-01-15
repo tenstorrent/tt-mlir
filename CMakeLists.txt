@@ -10,6 +10,11 @@ option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_STABLEHLO "Enable StableHLO support" OFF)
 option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
+option(TTMLIR_ENABLE_DEBUG_STRINGS "Enable debug strings in flatbuffer" ON)
+
+if (TTMLIR_ENABLE_DEBUG_STRINGS)
+  add_compile_definitions(TTMLIR_ENABLE_DEBUG_STRINGS)
+endif()
 
 if (NOT TTMLIR_ENABLE_RUNTIME)
   set (TTMLIR_ENABLE_SHARED_LIB OFF)
