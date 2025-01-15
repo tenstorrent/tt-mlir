@@ -179,7 +179,8 @@ size_t getNumAvailableDevices() {
 }
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize) {
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<bool> enableAsyncTTNN) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
@@ -188,9 +189,9 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
       l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
       ::tt::tt_metal::DispatchCoreType::WORKER);
 
-  bool enableAsync = debug::Env::get().enableAsyncTTNN;
+  bool enableAsyncValue = enableAsyncTTNN.value_or(false);
   for (::ttnn::IDevice *device : meshDevice->get_devices()) {
-    device->enable_async(enableAsync);
+    device->enable_async(enableAsyncValue);
   }
 
   return Device(std::static_pointer_cast<void>(meshDevice),

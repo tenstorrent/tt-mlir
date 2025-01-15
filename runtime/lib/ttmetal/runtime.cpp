@@ -67,7 +67,8 @@ size_t getNumAvailableDevices() {
 }
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize) {
+                  std::optional<size_t> l1SmallSize,
+                  [[maybe_unused]] std::optional<bool> enableAsyncTTNN) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
 
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
