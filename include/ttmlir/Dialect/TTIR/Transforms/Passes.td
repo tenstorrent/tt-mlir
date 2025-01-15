@@ -112,6 +112,23 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
+def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
+  let summary = "Broadcast operation is folded to all the consumers.";
+  let description = [{
+    This pass walks through the graph and folds broadcasts operations when it is implicitly supported by the operation.
+
+    Example:
+    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %2 = tensor.empty() : tensor<1x16x32xf32>
+    %3 = "ttir.multiply"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+    Since multiplyOp supports implicit broadcasting, above broadcast is folded as:
+    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32
+  }];
+}
+
 def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
 {
   let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
