@@ -110,9 +110,12 @@ def compile_shared_object(cpp_file_path, output_dir):
         #
         run_cmake_setup()
 
+        # Remove previous .so if exists
+        if os.path.exists(compiled_so_path):
+            os.remove(compiled_so_path)
+
         # Run build
         #
-        os.remove(compiled_so_path)
         build_command = ["cmake", "--build", build_dir, "--", "ttnn-dylib"]
         subprocess.run(build_command, check=True, cwd=tt_mlir_home)
 
