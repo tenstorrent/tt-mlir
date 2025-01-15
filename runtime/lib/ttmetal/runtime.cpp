@@ -74,7 +74,7 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
   size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          grid, l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid}, l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
           ::tt::tt_metal::DispatchCoreType::WORKER);
 
   return Device(std::static_pointer_cast<void>(meshDevice),
@@ -92,7 +92,7 @@ void closeDevice(Device device) {
     ::tt::tt_metal::detail::DumpDeviceProfileResults(ttmetalDevice);
   }
 #endif
-  ttmetalMeshDevice.close_devices();
+  ttmetalMeshDevice.close();
 }
 
 void deallocateBuffers(Device deviceHandle) {
