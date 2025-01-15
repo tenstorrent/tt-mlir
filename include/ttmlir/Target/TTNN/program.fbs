@@ -193,6 +193,13 @@ table EmbeddingBackwardOp {
   out: tt.target.TensorRef;
 }
 
+table RepeatInterleaveOp {
+  input: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  repeats: uint32;
+  dim: int32;
+}
+
 table SoftmaxOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -362,6 +369,7 @@ union OpType {
   ReductionOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
+  RepeatInterleaveOp,
   SoftmaxOp,
   TransposeOp,
   Conv2dOp,
