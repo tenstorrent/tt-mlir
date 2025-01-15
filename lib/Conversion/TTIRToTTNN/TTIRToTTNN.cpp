@@ -713,7 +713,7 @@ public:
       Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
       float fillValue =
           valueAttr.getElementType().isInteger()
-              ? getIntegerValue(valueAttr)
+              ? getFloatFromIntegerValue(valueAttr)
               : valueAttr.getSplatValue<mlir::APFloat>().convertToFloat();
 
       ::mlir::FloatAttr fillValueAttr = rewriter.getF32FloatAttr(fillValue);
@@ -743,19 +743,29 @@ private:
     return success();
   }
 
-  float getIntegerValue(mlir::ElementsAttr valueAttr) const {
+  float getFloatFromIntegerValue(mlir::ElementsAttr valueAttr) const {
     size_t bitWidth = valueAttr.getElementType().getIntOrFloatBitWidth();
+    Type elementType = valueAttr.getElementType();
+
     switch (bitWidth) {
     case 1:
       return static_cast<float>(valueAttr.getSplatValue<bool>());
     case 8:
-      return static_cast<float>(valueAttr.getSplatValue<int8_t>());
+      return elementType.isUnsignedInteger()
+                 ? static_cast<float>(valueAttr.getSplatValue<uint8_t>())
+                 : static_cast<float>(valueAttr.getSplatValue<int8_t>());
     case 16:
-      return static_cast<float>(valueAttr.getSplatValue<int16_t>());
+      return elementType.isUnsignedInteger()
+                 ? static_cast<float>(valueAttr.getSplatValue<uint16_t>())
+                 : static_cast<float>(valueAttr.getSplatValue<int16_t>());
     case 32:
-      return static_cast<float>(valueAttr.getSplatValue<int>());
+      return elementType.isUnsignedInteger()
+                 ? static_cast<float>(valueAttr.getSplatValue<uint32_t>())
+                 : static_cast<float>(valueAttr.getSplatValue<int32_t>());
     case 64:
-      return static_cast<float>(valueAttr.getSplatValue<int64_t>());
+      return elementType.isUnsignedInteger()
+                 ? static_cast<float>(valueAttr.getSplatValue<uint64_t>())
+                 : static_cast<float>(valueAttr.getSplatValue<int64_t>());
     }
     assert(false && "Unsupported integer type.");
   }
