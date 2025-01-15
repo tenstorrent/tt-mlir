@@ -15,9 +15,15 @@ ExternalProject_Add(
   INSTALL_COMMAND ""
 )
 
+set(PIP_EDITABLE_FLAG "")
+
+if (TT_EXPLORER_EDITABLE)
+  set(PIP_EDITABLE_FLAG "-e")
+endif()
+
 add_custom_target(explorer
   COMMENT "Building tt-explorer... ${TTMLIR_BIN_DIR}"
-  COMMAND pip install $<$<CONFIG:Debug>:-e> ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
+  COMMAND pip install ${PIP_EDITABLE_FLAG} ${CMAKE_CURRENT_SOURCE_DIR}/tt_adapter
   COMMAND pip uninstall -y ai-edge-model-explorer
   COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package/build
   COMMAND pip install --upgrade ${CMAKE_CURRENT_SOURCE_DIR}/model-explorer/src/model-explorer/src/server/package
