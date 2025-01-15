@@ -22,7 +22,9 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRLoadSystemDescOptions systemDescOptions;
   systemDescOptions.path = options.systemDescPath;
 
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(mlir::createCanonicalizerPass());
 
   // Inlines all private functions. I.e flattens the program into the main
   // function. Removes all private functions.

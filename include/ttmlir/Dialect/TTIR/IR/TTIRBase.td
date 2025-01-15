@@ -6,6 +6,7 @@
 #define TTMLIR_TTMLIR_DIALECT_TTIR_TTIRDIALECT_TD
 
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
@@ -41,6 +42,28 @@ def TTIR_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, !listconcat(traits, [Pure])>;
+        Op<TTIR_Dialect, mnemonic, !listconcat([Pure], traits)>;
+
+//===----------------------------------------------------------------------===//
+// TTIR traits definition.
+//===----------------------------------------------------------------------===//
+
+def TwoOperands : ParamNativeOpTrait<"NOperands", "2">;
+def ThreeOperands : ParamNativeOpTrait<"NOperands", "3">;
+def FourOperands : ParamNativeOpTrait<"NOperands", "4">;
+
+class TTIR_Trait<string name, list<Trait> traits = []> : NativeOpTrait<name, traits> {
+  let cppNamespace = "::mlir::tt::ttir::OpTrait";
+}
+
+// Involution is property of an operation where applying the operation twice results in the original value.
+// Example: not(not(x)) == x
+def TTIR_Involution : TTIR_Trait<"TTIRInvolution", [DestinationStyleOpInterface, TwoOperands, NoMemoryEffect]>;
+// Idempotence is property of an operation where applying the operation twice results in the same value as applying it once.
+// Example: abs(abs(x)) == abs(x)
+def TTIR_Idempotence : TTIR_Trait<"TTIRIdempotence", [DestinationStyleOpInterface, TwoOperands, NoMemoryEffect]>;
+// BinaryIdempotence is property of a binary operation where applying the operation on the same value results in the same value.
+// Example: and(x, x) == x
+def TTIR_BinaryIdempotence : TTIR_Trait<"TTIRBinaryIdempotence", [DestinationStyleOpInterface, ThreeOperands, NoMemoryEffect]>;
 
 #endif

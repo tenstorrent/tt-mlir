@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
 #include "ttmlir/Utils.h"
 
@@ -28,6 +27,53 @@
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// BitwiseXorOp
+//===----------------------------------------------------------------------===//
+
+// BitwiseXorOp canonicalization
+void mlir::tt::ttir::BitwiseXorOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // x ^ x == 0
+  patterns.add(
+      +[](mlir::tt::ttir::BitwiseXorOp op, mlir::PatternRewriter &rewriter) {
+        if (op.getInputs()[0] != op.getInputs()[1]) {
+          return mlir::failure();
+        }
+
+        mlir::RankedTensorType tensorType =
+            mlir::cast<mlir::RankedTensorType>(op.getInputs()[0].getType());
+        auto elementType = tensorType.getElementType();
+        Attribute zeroAttr;
+        if (mlir::isa<mlir::FloatType>(elementType)) {
+          zeroAttr = mlir::FloatAttr::get(elementType, 0.0);
+        } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+          zeroAttr = mlir::IntegerAttr::get(elementType, 0);
+        } else {
+          return mlir::failure();
+        }
+        auto resultType = mlir::SplatElementsAttr::get(tensorType, zeroAttr);
+
+        rewriter.replaceOpWithNewOp<ttir::ConstantOp>(
+            op, op->getOperand(0).getType(), resultType);
+        return mlir::success();
+      });
+}
+
+//===----------------------------------------------------------------------===//
+// BroadcastOp
+//===----------------------------------------------------------------------===//
+
+// BroadcastOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
+  // If the input doesn't change the shape, we can fold the operation.
+  if (llvm::all_of(getBroadcastDimensions(),
+                   [](const int32_t dim) { return dim == 1; })) {
+    return getInput();
+  }
+  return {};
+}
 
 //===----------------------------------------------------------------------===//
 // ClampOp
@@ -91,16 +137,6 @@
 // GetDimensionSizeOp
 //===----------------------------------------------------------------------===//
 
-// GetDimensionSizeOp folder
-::mlir::OpFoldResult
-mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
-  RankedTensorType inputTensorType = getOperand().getType();
-  uint32_t dimensionIndex = getDimension();
-  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
-
-  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
-}
-
 // GetDimensionSizeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::GetDimensionSizeOp::verify() {
   RankedTensorType inputTensorType = getOperand().getType();
@@ -113,6 +149,16 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   };
 
   return success();
+}
+
+// GetDimensionSizeOp folder
+::mlir::OpFoldResult
+mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
+  RankedTensorType inputTensorType = getOperand().getType();
+  uint32_t dimensionIndex = getDimension();
+  int32_t dimSize = inputTensorType.getShape()[dimensionIndex];
+
+  return mlir::DenseElementsAttr::get<int32_t>(getType(), dimSize);
 }
 
 //===----------------------------------------------------------------------===//
@@ -376,7 +422,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 // ReshapeOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ReshapeOp::fold(FoldAdaptor adaptor) {
-
   if (getType() == getOperand(0).getType()) {
     return getOperand(0);
   }
@@ -405,8 +450,8 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
   // Verify that inputShape can be legally broadcasted to outputShape.
   llvm::SmallVector<int64_t> broadcastedShape;
-  if (!OpTrait::util::getBroadcastedShape(inputShape, outputShape,
-                                          broadcastedShape)) {
+  if (!mlir::OpTrait::util::getBroadcastedShape(inputShape, outputShape,
+                                                broadcastedShape)) {
     return emitOpError() << "Input tensor shape ("
                          << ttmlir::utils::join(inputShape, ",")
                          << ") is not broadcastable to output shape ("
@@ -859,6 +904,75 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   return success();
 }
 
+// TransposeOp canonicalization
+void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // TransposeOp can be removed if the both 'dim0' and 'dim1' are the same.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        if (op.getDim0() != op.getDim1()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceAllOpUsesWith(op, op.getInput());
+        return success();
+      });
+
+  // Rewrite a transpose of to a canonical form where the 'dim0' is less than
+  // 'dim1'.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        if (op.getDim0() <= op.getDim1()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::TransposeOp>(
+            op, op.getType(), op.getInput(), op.getOutput(), op.getDim1(),
+            op.getDim0());
+        return mlir::success();
+      });
+
+  // Rewrite a tranpose dims to a canonical form where the 'dim0' and 'dim1' are
+  // in range [0, N), where N is a rank of input tensor.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        int64_t rank = op.getInput().getType().getRank();
+        int32_t dim0 = op.getDim0();
+        int32_t dim1 = op.getDim1();
+
+        if (dim0 >= 0 && dim1 >= 0) {
+          return mlir::failure();
+        }
+
+        if (dim0 < 0) {
+          op.setDim0(dim0 + rank);
+        }
+        if (dim1 < 0) {
+          op.setDim1(dim1 + rank);
+        }
+        return mlir::success();
+      });
+
+  // Transposing twice in the row over the same dimensions results in identity,
+  // hence y = T(T(x)) can be replaced with y = x.
+  patterns.add(
+      +[](mlir::tt::ttir::TransposeOp op, mlir::PatternRewriter &rewriter) {
+        auto producerOp =
+            op.getInput().getDefiningOp<mlir::tt::ttir::TransposeOp>();
+        if (!producerOp || op->getName() != producerOp->getName()) {
+          return mlir::failure();
+        }
+
+        if (op.getDim0() != producerOp.getDim0() ||
+            op.getDim1() != producerOp.getDim1()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceAllOpUsesWith(op, producerOp.getInput());
+        return mlir::success();
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
@@ -1087,8 +1201,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     // Verify that the batch dimensions of input A and B are broadcast
     // compatible.
     llvm::SmallVector<int64_t, 4> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            inputABatchDims, inputBBatchDims, broadcastedShape)) {
 
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
@@ -1125,8 +1239,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> matmulShape = expectedOutputShape;
-    if (!OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
-                                            expectedOutputShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(matmulShape, biasShape,
+                                                  expectedOutputShape)) {
       return emitOpError("Bias shape(" + ttmlir::utils::join(biasShape, ",") +
                          ") is not broadcast compatible with the matmul output "
                          "shape(" +
@@ -1170,6 +1284,19 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
   }
 
   return success();
+}
+
+// LinearOp canonicalize method
+::mlir::LogicalResult
+mlir::tt::ttir::LinearOp::canonicalize(ttir::LinearOp op,
+                                       mlir::PatternRewriter &rewriter) {
+  if (op.getBias()) {
+    return mlir::failure();
+  }
+
+  rewriter.replaceOpWithNewOp<ttir::MatmulOp>(op, op.getType(), op.getA(),
+                                              op.getB(), op.getOutput());
+  return mlir::success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1238,8 +1365,8 @@ mlir::tt::ttir::ToLayoutOp::compoundComponents() {
     // Verify that the batch dimensions of input A and B are broadcast
     // compatible
     llvm::SmallVector<int64_t, 4> broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(inputABatchDims, inputBBatchDims,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            inputABatchDims, inputBBatchDims, broadcastedShape)) {
 
       return emitOpError("Batch dimensions of input A(" +
                          ttmlir::utils::join(inputABatchDims, ",") +
@@ -1604,6 +1731,7 @@ bool matchSimpleBlock(mlir::Region &region) {
 // ReverseOp
 //===----------------------------------------------------------------------===//
 
+// ReverseOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ReverseOp::verify() {
   llvm::ArrayRef<int64_t> dimensions = getDimensions();
 
@@ -1632,6 +1760,49 @@ bool matchSimpleBlock(mlir::Region &region) {
   }
 
   return success();
+}
+
+// ReverseOp canonicalization
+void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Reverse dimensions of two consecutive ReverseOps can be folded into a
+  // single ReverseOp where the dimensions are the symmetric difference of the
+  // two sets of dimensions.
+  patterns.add(+[](mlir::tt::ttir::ReverseOp op,
+                   mlir::PatternRewriter &rewriter) {
+    auto producerOp = op.getInput().getDefiningOp<ttir::ReverseOp>();
+    if (!producerOp) {
+      return mlir::failure();
+    }
+
+    llvm::SmallBitVector reverseDimensions(op.getInput().getType().getRank());
+    llvm::for_each(op.getDimensions(), [&reverseDimensions](int64_t dim) {
+      reverseDimensions.flip(dim);
+    });
+    llvm::for_each(
+        producerOp.getDimensions(),
+        [&reverseDimensions](int64_t dim) { reverseDimensions.flip(dim); });
+
+    llvm::SmallVector<int64_t> setIndices;
+    llvm::copy_if(llvm::seq<int64_t>(reverseDimensions.size()),
+                  std::back_inserter(setIndices),
+                  [&](int64_t i) { return reverseDimensions.test(i); });
+
+    rewriter.replaceOpWithNewOp<ttir::ReverseOp>(
+        op, op.getType(), producerOp.getInput(), op.getOutput(), setIndices);
+    return success();
+  });
+
+  // ReverseOp with empty reverse dimensions is a no-op.
+  patterns.add(
+      +[](mlir::tt::ttir::ReverseOp op, mlir::PatternRewriter &rewriter) {
+        if (!op.getDimensions().empty()) {
+          return mlir::failure();
+        }
+
+        rewriter.replaceAllOpUsesWith(op, op.getInput());
+        return mlir::success();
+      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1668,6 +1839,46 @@ bool matchSimpleBlock(mlir::Region &region) {
   }
 
   return success();
+}
+
+// PermuteOp canonicalization
+void mlir::tt::ttir::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Permute dimensions of two consecutive PermuteOps can be folded into a
+  // single PermuteOp where the permutation is the composition of the two
+  // permutations.
+  patterns.add(
+      +[](mlir::tt::ttir::PermuteOp op, mlir::PatternRewriter &rewriter) {
+        auto producerOp = op.getInput().getDefiningOp<ttir::PermuteOp>();
+        if (!producerOp) {
+          return mlir::failure();
+        }
+
+        // I: identity permutation
+        // P1: permutation of producerOp
+        // P2: permutation of op
+        // P: permutation of the composed PermuteOp
+        // P = applyPermutation(applyPermutation(I, P1), P2) =
+        // applyPermutation(P1, P2)
+        llvm::SmallVector<int64_t> composedPermutation =
+            ttmlir::utils::applyPermutation(producerOp.getPermutation(),
+                                            op.getPermutation());
+
+        rewriter.replaceOpWithNewOp<ttir::PermuteOp>(
+            op, op.getType(), producerOp.getInput(), op.getOutput(),
+            composedPermutation);
+        return mlir::success();
+      });
+
+  // PermuteOp with identity permutation is a no-op.
+  patterns.add(
+      +[](mlir::tt::ttir::PermuteOp op, mlir::PatternRewriter &rewriter) {
+        if (llvm::is_sorted(op.getPermutation())) {
+          rewriter.replaceAllOpUsesWith(op, op.getInput());
+          return mlir::success();
+        }
+        return mlir::failure();
+      });
 }
 
 //===----------------------------------------------------------------------===//
