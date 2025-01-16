@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Utility library for parsing MLIR
 import re
+import logging
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 
@@ -38,6 +39,10 @@ class AttrHandler:
             try:
                 return AttrHandler.ATTR_HANDLERS[attr.name](attr.attr)
             except:
+                logging.warning(
+                    "AttributeHandler for <%s> failed. Defaulting to StringAttr",
+                    attr.name,
+                )
                 return AttrHandler.default_parser(attr)
         else:
             # Unknown Attr Type, return default parser
