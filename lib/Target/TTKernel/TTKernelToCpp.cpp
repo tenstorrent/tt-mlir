@@ -2,23 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
+#include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cassert>
-#include <cstddef>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Support/LogicalResult.h>
-#include <llvm/Support/raw_ostream.h>
-#include <memory>
-#include <mlir/Conversion/ArithToEmitC/ArithToEmitCPass.h>
-#include <mlir/Conversion/FuncToEmitC/FuncToEmitCPass.h>
-#include <mlir/Conversion/SCFToEmitC/SCFToEmitC.h>
-#include <mlir/Dialect/EmitC/IR/EmitC.h>
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-#include <mlir/IR/BuiltinOps.h>
-#include <mlir/Pass/PassManager.h>
-#include <mlir/Support/LLVM.h>
-#include <mlir/Support/LogicalResult.h>
-#include <mlir/Target/Cpp/CppEmitter.h>
 
 namespace mlir::tt::ttkernel {
 
