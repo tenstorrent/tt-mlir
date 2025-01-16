@@ -164,12 +164,12 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, name: "run", another_property: "1", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: ON, name: "perf", another_property: "1"},
+          {runs-on: n300, enable_perf: OFF, name: "run", another_property: "1", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: ON, name: "perf", another_property: "1"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }}), ${{ matrix.build.another_property }}"
 
     runs-on:
       - in-service
