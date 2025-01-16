@@ -198,6 +198,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::embedding_backward::run(
         op->type_as_EmbeddingBackwardOp(), context);
   }
+  case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
+    return operations::normalization::run(op->type_as_RepeatInterleaveOp(),
+                                          context);
+  }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
     return operations::normalization::run(op->type_as_SoftmaxOp(), context);
   }
