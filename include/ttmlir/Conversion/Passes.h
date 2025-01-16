@@ -28,7 +28,8 @@ namespace mlir::tt {
 
 struct MLIRModuleCacher {
   mlir::MLIRContext *context;
-  llvm::StringMap<std::string> moduleCache;
+  std::vector<std::pair<std::string, std::string>> moduleCache;
+  // llvm::StringMap<std::string> moduleCache;
 
   void attachContext(mlir::MLIRContext *ctx) {
     context = ctx;
@@ -47,7 +48,9 @@ struct MLIRModuleCacher {
         passAction.getOp()->print(os, flags);
         os.flush();
 
-        this->moduleCache[passAction.getPass().getName().str()] = outString;
+        this->moduleCache.emplace_back(passAction.getPass().getName().str(),
+                                       outString);
+        //[passAction.getPass().getName().str()] = outString;
       }
       transform(); // Run the transformation pass.
     });
