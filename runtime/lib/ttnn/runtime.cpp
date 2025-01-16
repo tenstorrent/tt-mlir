@@ -94,6 +94,19 @@ static DeviceVariant getTargetDevice(::ttnn::MeshDevice &meshDevice) {
   return std::ref(meshDevice);
 }
 
+static tt::runtime::MemoryView
+createMemoryView(tt::tt_metal::detail::MemoryView const &memoryView) {
+  return tt::runtime::MemoryView{
+      .numBanks = memoryView.num_banks,
+      .totalBytesPerBank = memoryView.total_bytes_per_bank,
+      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
+      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
+      .largestContiguousBytesFreePerBank =
+          memoryView.largest_contiguous_bytes_free_per_bank,
+      .blockTable = memoryView.block_table,
+  };
+}
+
 static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
       binary.handle.get());
@@ -223,6 +236,35 @@ void dumpMemoryReport(Device deviceHandle) {
   for (::ttnn::IDevice *device : meshDevice.get_devices()) {
     ::tt::tt_metal::detail::DumpDeviceMemoryState(device);
   }
+}
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle, int deviceID) {
+  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+      memoryMap;
+  ::ttnn::MeshDevice &meshDevice =
+      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  auto *device = meshDevice.get_device(deviceID);
+
+  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::DRAM);
+  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1);
+  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::L1_SMALL);
+  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
+      device, tt::tt_metal::BufferType::TRACE);
+
+  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
+      createMemoryView(dramMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
+      createMemoryView(l1SmallMemoryView);
+  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
+      createMemoryView(traceMemoryView);
+
+  return memoryMap;
 }
 
 void wait(Event event) {

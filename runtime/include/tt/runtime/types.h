@@ -18,6 +18,20 @@
 #pragma clang diagnostic pop
 
 namespace tt::runtime {
+/*
+MemoryBlockTable is a list of memory blocks in the following format:
+[{"blockID": "0", "address": "0", "size": "0", "prevID": "0", "nextID": "0",
+"allocated": true}] address: bytes size: bytes
+*/
+using MemoryBlockTable =
+    std::vector<std::unordered_map<std::string, std::string>>;
+
+enum class MemoryBufferType {
+  DRAM,
+  L1,
+  L1_SMALL,
+  TRACE,
+};
 
 enum class DeviceRuntime {
   Disabled,
@@ -144,6 +158,15 @@ struct CallbackContext : public detail::RuntimeCheckedObjectImpl {
 
 struct OpContext : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
+struct MemoryView {
+  std::uint64_t numBanks = 0;
+  size_t totalBytesPerBank = 0;
+  size_t totalBytesAllocatedPerBank = 0;
+  size_t totalBytesFreePerBank = 0;
+  size_t largestContiguousBytesFreePerBank = 0;
+  MemoryBlockTable blockTable;
 };
 
 } // namespace tt::runtime

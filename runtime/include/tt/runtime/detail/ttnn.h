@@ -95,6 +95,9 @@ void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
 
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device, int deviceID = 0);
+
 void wait(Event event);
 
 void wait(Tensor tensor);
