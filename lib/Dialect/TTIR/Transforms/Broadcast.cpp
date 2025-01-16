@@ -18,10 +18,36 @@ public:
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
 
-    // First check if the op itself has any broadcastable traits
+    if (!op->hasTrait<partiallyBroadcastable::Trait>() &&
+        !op->hasTrait<fullyBroadcastable::Trait>()) {
+      // The op should support implicit broadcast to fold them.
+      return failure();
+    }
+
+    if (op->getNumOperands() < 2) {
+      // This optimization is only applicable to binary ops.
+      return failure();
+    }
+
+    if (op->getNumResults() == 0) {
+      return failure();
+    }
+
+    // Only one operand can implicitly broadcasted, so verify if
+    // an exisiting operand is already implicitly broadcasting.
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    for (Type type : op->getOperands().getTypes()) {
+      if (mlir::cast<RankedTensorType>(type).getShape() !=
+          resultType.getShape()) {
+        // Only a single operand is allowed to perform implicit broadcast.
+        return failure();
+      }
+    }
+
     if (op->hasTrait<partiallyBroadcastable::Trait>()) {
 
-      // This operation can only fold broadcast operation for Operand 0.
+      // This operation only support implicit broadcast for Operand 0.
       ttir::BroadcastOp broadcastOp =
           op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
       if (broadcastOp) {
@@ -30,7 +56,7 @@ public:
       }
     } else if (op->hasTrait<fullyBroadcastable::Trait>()) {
       bool changed = false;
-      // Check all operands for this op
+      // Check all operands of this op
       ttir::BroadcastOp broadcastOp0 =
           op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
       ttir::BroadcastOp broadcastOp1 =
@@ -42,6 +68,7 @@ public:
         rewriter.replaceOp(broadcastOp1, broadcastOp1.getInput());
         changed = true;
       }
+
       return changed ? success() : failure();
     }
 
