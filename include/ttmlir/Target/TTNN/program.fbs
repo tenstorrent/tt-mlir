@@ -269,6 +269,25 @@ table Conv2dOp {
   groups: uint32;
 }
 
+table ConvTranspose2dOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  bias: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  output_padding: [int32];
+  dilation: [int32];
+  groups: uint32;
+}
+
 table MaxPool2dOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -346,6 +365,7 @@ union OpType {
   SoftmaxOp,
   TransposeOp,
   Conv2dOp,
+  ConvTranspose2dOp,
   ConcatOp,
   ReshapeOp,
   SliceOp,

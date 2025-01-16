@@ -897,6 +897,58 @@ def TTIR_Conv2dOp : TTIR_DPSOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
+def TTIR_ConvTranspose2dOp : TTIR_DPSOp<"conv_transpose2d"> {
+    let summary = "ConvTranspose2d operation.";
+    let description = [{
+      Applies a 2D transposed convolution operator over an input image composed of several input planes.
+
+      Inputs:
+      - `input` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+      - `weight` AnyRankedTensor: OIHW format (output_channels x input_channels x height x width)
+      - `bias` Optional<AnyRankedTensor>: (1 x 1 x 1 x output_channels)
+      - `output` AnyRankedTensor: NHWC format (batch_size x height x width x channels)
+
+      Attributes:
+      - `stride` (i32 | array<i32>): Controls the stride for the cross-correlation.
+      - `padding` (i32 | array<i32>): Controls the amount of implicit zero padding on both sides for dilation * (kernel_size - 1) - padding number of points.
+      - `output_padding` (i32 | array<i32>): Controls the additional size added to one side of the output shape.
+      - `dilation` (i32 | array<i32>): Controls the spacing between the kernel points
+      - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
+
+      Example:
+        %input = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %weight = tensor.empty() : () -> tensor<256x256x3x3xbf16>
+        %bias = tensor.empty() : () -> tensor<1x1x1x256xbf16>
+        %output = tensor.empty() : () -> tensor<1x10x10x256xbf16>
+        %0 = "ttir.conv_transpose2d"(%input, %weight, %bias, %output)
+          <{
+            stride = = array<i32: 1, 1>,
+            padding = 0: i32,
+            output_padding = 0: i32,
+            dilation = 1: i32,
+            groups = 1: i32
+          > : (tensor<1x8x8x256xbf16>, tensor<256x256x3x3xbf16>, tensor<1x1x1x256xbf16>, tensor<1x10x10x256xbf16>) -> tensor<1x10x10x256xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ConvolutionOp : TTIR_DPSOp<"convolution"> {
   let summary = "Generalized convolution op.";
   let description = [{
