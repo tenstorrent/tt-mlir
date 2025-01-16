@@ -2,21 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Tools/mlir-translate/Translation.h"
-
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
+#include <mlir/Dialect/EmitC/IR/EmitC.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Tools/mlir-translate/Translation.h>
 using namespace mlir;
 
 namespace mlir::tt::ttkernel {
 
-// TODO: Should generalize this to read kernel type from Attribute?
+// TODO(bug #1874): Should generalize this to read kernel type from Attribute?
 void registerTensixKernelToCpp() {
   TranslateFromMLIRRegistration reg(
       "ttkernel-to-cpp-tensix", "translate tensix kernel to C++",
