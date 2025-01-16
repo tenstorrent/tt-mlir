@@ -728,7 +728,8 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          UI32Attr:$repeats,
-                         SI32Attr:$dim);
+                         SI32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
 

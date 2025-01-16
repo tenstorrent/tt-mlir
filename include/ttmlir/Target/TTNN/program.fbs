@@ -198,6 +198,7 @@ table RepeatInterleaveOp {
   out: tt.target.TensorRef;
   repeats: uint32;
   dim: int32;
+  memory_config: MemoryConfigDesc;
 }
 
 table SoftmaxOp {

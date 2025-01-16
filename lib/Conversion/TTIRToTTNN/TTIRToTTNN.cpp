@@ -418,7 +418,8 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::RepeatInterleaveOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getRepeats(), adaptor.getDim());
+        adaptor.getInput(), adaptor.getRepeats(), adaptor.getDim(),
+        ttnn::MemoryConfigAttr());
     return success();
   }
 };
