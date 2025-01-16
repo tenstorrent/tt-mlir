@@ -168,6 +168,7 @@ jobs:
           {runs-on: n150, enable_perf: ON, name: "perf"},
           {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
           {runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: llmbox, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
 
