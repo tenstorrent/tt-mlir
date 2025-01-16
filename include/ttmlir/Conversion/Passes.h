@@ -40,7 +40,7 @@ struct MLIRModuleCacher {
         // A Pass action has occured, need to store the previous module before
         // transform is completed.
         this->moduleCache[passAction.getPass().getName().str()] =
-            passAction.getOp();
+            passAction.getOp()->clone();
       }
       transform(); // Run the transformation pass.
     });
