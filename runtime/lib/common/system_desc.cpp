@@ -262,7 +262,9 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> meshDevice =
       ::tt::tt_metal::distributed::MeshDevice::create(
-          meshShape, DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
+          ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape =
+                                                            meshShape},
+          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
           ::tt::tt_metal::DispatchCoreType::WORKER);
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
@@ -271,7 +273,7 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   } catch (...) {
     eptr = std::current_exception();
   }
-  meshDevice->close_devices();
+  meshDevice->close();
   if (eptr) {
     std::rethrow_exception(eptr);
   }
