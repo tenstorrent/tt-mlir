@@ -7,12 +7,12 @@
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRBROADCASTFOLD
+#define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
-class TTIRBroadcastFoldRewriter : public RewritePattern {
+class TTIRImplicitBroadcastFoldRewriter : public RewritePattern {
 public:
-  TTIRBroadcastFoldRewriter(MLIRContext *ctx)
+  TTIRImplicitBroadcastFoldRewriter(MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
   LogicalResult matchAndRewrite(Operation *op,
@@ -49,13 +49,14 @@ public:
   }
 };
 
-class TTIRBroadcastFold
-    : public impl::TTIRBroadcastFoldBase<TTIRBroadcastFold> {
+class TTIRImplicitBroadcastFold
+    : public impl::TTIRImplicitBroadcastFoldBase<TTIRImplicitBroadcastFold> {
 public:
-  using impl::TTIRBroadcastFoldBase<TTIRBroadcastFold>::TTIRBroadcastFoldBase;
+  using impl::TTIRImplicitBroadcastFoldBase<
+      TTIRImplicitBroadcastFold>::TTIRImplicitBroadcastFoldBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRBroadcastFoldRewriter>(&getContext());
+    patterns.add<TTIRImplicitBroadcastFoldRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {

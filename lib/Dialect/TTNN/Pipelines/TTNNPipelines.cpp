@@ -120,22 +120,24 @@ void createTTNNPipelineDeallocPassFromString(OpPassManager &pm,
   createTTNNPipelineDeallocPass(pm, *optionsStruct);
 }
 
-void createTTNNPipelineTTIRBroadcastFoldPass(
+void createTTNNPipelineTTIRImplicitBroadcastFoldPass(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
-  pm.addPass(mlir::tt::ttir::createTTIRBroadcastFold());
+  if (options.implicitBroadcastFoldingEnabled) {
+    pm.addPass(mlir::tt::ttir::createTTIRImplicitBroadcastFold());
+  }
 }
 
-void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
-                                                       std::string options) {
+void createTTNNPipelineTTIRImplicitBroadcastFoldPassFromString(
+    OpPassManager &pm, std::string options) {
   auto optionsStruct =
       TTIRToTTNNBackendPipelineOptions::createFromString(options);
-  createTTNNPipelineTTIRBroadcastFoldPass(pm, *optionsStruct);
+  createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, *optionsStruct);
 }
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
   createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
+  createTTNNPipelineTTIRImplicitBroadcastFoldPass(pm, options);
   createTTNNPipelineLoweringPasses(pm, options);
   createTTNNPipelineWorkaroundPass(pm, options);
   createTTNNPipelineAnalysisPasses(pm, options);

@@ -136,6 +136,11 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, "enable-decomposition-workaround-pass",
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
+
+  Option<bool> implicitBroadcastFoldingEnabled{
+      *this, "enable-implicit-broadcast-folding-pass",
+      llvm::cl::desc("Enable implicit broadcast folding pass."),
+      llvm::cl::init(true)};
 };
 
 // TTIR to EmitC pipeline options.

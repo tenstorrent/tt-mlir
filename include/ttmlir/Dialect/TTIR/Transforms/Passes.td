@@ -112,7 +112,7 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
     ];
 }
 
-def TTIRBroadcastFold: Pass<"ttir-broadcast-fold", "::mlir::ModuleOp"> {
+def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
   let summary = "Broadcast operation is folded to all the consumers.";
   let description = [{
     This pass walks through the graph and folds broadcasts operations when it is implicitly supported by the operation.
