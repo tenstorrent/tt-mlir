@@ -49,9 +49,10 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
     }
 
     out = ::ttnn::distributed::distribute_tensor(
-        input, meshDevice,
+        input,
         *::ttnn::distributed::shard_tensor_to_2d_mesh_mapper(
-            meshDevice, meshDevice.shape(), shard2dConfig));
+            meshDevice, meshDevice.shape(), shard2dConfig),
+        meshDevice);
   }
 }
 
