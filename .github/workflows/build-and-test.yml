@@ -164,12 +164,14 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, name: "perf"},
-          {runs-on: n300, enable_perf: OFF, name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, name: "perf"},
+          {runs-on: n150, enable_perf: OFF, enable_async: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n150, enable_perf: OFF, enable_async: ON, name: "run", ttrt_flags: "--non-zero --enable-async-ttnn"},
+          {runs-on: n150, enable_perf: ON, enable_async: OFF, name: "perf"},
+          {runs-on: n300, enable_perf: OFF, enable_async: OFF, name: "run", ttrt_flags: "--non-zero"},
+          {runs-on: n300, enable_perf: OFF, enable_async: ON, name: "run", ttrt_flags: "--non-zero --enable-async-ttnn"},
+          {runs-on: n300, enable_perf: ON, enable_async: OFF, name: "perf"},
         ]
-    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+    name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.name }})"
 
     runs-on:
       - in-service
@@ -194,7 +196,7 @@ jobs:
       id: strings
       shell: bash
       env:
-        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.name }})"
+        job-name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_async }}, ${{ matrix.build.name }})"
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"
@@ -260,10 +262,17 @@ jobs:
 
     - name: Run functional tests
       shell: bash
-      if: matrix.build.enable_perf == 'OFF'
+      if: matrix.build.enable_perf == 'OFF' && matrix.build.enable_async == 'OFF'
       run: |
         source env/activate
         ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon
+
+    - name: Run async TTNN tests
+      shell: bash
+      if: matrix.build.enable_async == 'ON'
+      run: |
+        source env/activate
+        ttrt ${{ matrix.build.name }} ${{ matrix.build.ttrt_flags }} ${{ steps.strings.outputs.build-output-dir }}/test/ttmlir/Silicon/TTNN
 
     - name: Run perf tests
       shell: bash
@@ -277,7 +286,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_results.json
+        name: ${{ matrix.build.runs-on }}_${{ matrix.build.name }}_async_${{ matrix.build.enable_async }}_results.json
         path: ${{ matrix.build.name }}_results.json
 
     - name: Upload Test Report xml
