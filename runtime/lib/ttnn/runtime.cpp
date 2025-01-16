@@ -178,11 +178,14 @@ size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs) {
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
+                  std::optional<size_t> l1SmallSize) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
+  size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
-      grid, kL1SmallSize, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
+      ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
+      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
       ::tt::tt_metal::DispatchCoreType::WORKER);
 
   bool enableAsync = debug::Env::get().enableAsyncTTNN;
@@ -203,7 +206,7 @@ void closeDevice(Device device) {
   }
 #endif
 
-  ttnnMeshDevice.close_devices();
+  ttnnMeshDevice.close();
 }
 
 void deallocateBuffers(Device deviceHandle) {

@@ -284,11 +284,13 @@ public:
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       // Check if the operand is a dps result
-      bool isResult = op.isDpsInit(&operand);
+      bool isDPSResult = op.isDpsInit(&operand);
 
       // TTNN Conv2d moves input, weight, and bias from host to device
       // itself. Inserting the ToLayoutOp on these operands is thus problematic.
-      if (mlir::isa<ttir::Conv2dOp>(op.getOperation()) && !isResult) {
+      if (!isDPSResult &&
+          (mlir::isa<ttir::Conv2dOp>(op.getOperation()) ||
+           mlir::isa<ttir::ConvTranspose2dOp>(op.getOperation()))) {
         // For the weight input of the conv2d op, it specifically needs to be on
         // host, so we create a host to layout op (issue
         // https://github.com/tenstorrent/tt-mlir/issues/1528).
@@ -320,7 +322,7 @@ public:
           modified = true;
           op->setOperand(operand.getOperandNumber(), *desiredLayout);
           // If operand is dps result, update the result type on current op
-          if (isResult) {
+          if (isDPSResult) {
             op->getResult(0).setType(desiredLayout->getType());
           }
         });
