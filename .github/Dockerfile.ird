@@ -13,7 +13,9 @@ RUN apt-get update && apt-get install -y \
     ssh \
     sudo \
     wget \
-    vim
+    vim \
+    tmux \
+    clangd
 
 # Create a directory for the toolchain and set permissions
 RUN mkdir -p $TTMLIR_TOOLCHAIN_DIR && \
