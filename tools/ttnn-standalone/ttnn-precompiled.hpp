@@ -5,7 +5,6 @@
 #ifndef TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
-#include "common/bfloat16.hpp"
 #include "core.hpp"
 #include "device.hpp"
 #include "operations/core/core.hpp"
@@ -16,6 +15,7 @@
 #include "operations/matmul/matmul.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
+#include "tt-metalium/bfloat16.hpp"
 #include "types.hpp"
 
 #include <cstddef>

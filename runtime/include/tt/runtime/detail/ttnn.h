@@ -6,10 +6,10 @@
 #define TT_RUNTIME_DETAIL_TTNN_H
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
-#include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#include "tt_metal/detail/reports/memory_reporter.hpp"
+#include "tt-metalium/host_api.hpp"
+#include "tt-metalium/memory_reporter.hpp"
+#include "tt-metalium/mesh_device.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"

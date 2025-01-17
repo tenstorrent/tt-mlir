@@ -175,7 +175,7 @@ Tensor createTensor(Device device, Layout layout,
   ::ttnn::Tensor tensor = std::visit(
       [&](auto &&device) -> ::ttnn::Tensor {
         return ::ttnn::operations::core::allocate_tensor_on_device(
-            ::ttnn::Shape(shape), layoutDesc.dataType, layoutDesc.layout,
+            ::ttnn::SimpleShape(shape), layoutDesc.dataType, layoutDesc.layout,
             &(device.get()), layoutDesc.memoryConfig);
       },
       targetDevice);
