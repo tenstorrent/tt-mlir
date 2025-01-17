@@ -65,20 +65,22 @@ set(INCLUDE_DIRS
 
     # Metalium
     $ENV{TT_METAL_HOME}
-    $ENV{TT_METAL_HOME}/tt_metal
-    $ENV{TT_METAL_HOME}/tt_metal/include
+    $ENV{TT_METAL_HOME}/tt_metal/api
     $ENV{TT_METAL_HOME}/tt_metal/hostdevcommon/api
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
+    $ENV{TT_METAL_HOME}/tt_metal/include
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/taskflow
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public
 
     # TTNN
+    $ENV{TT_METAL_HOME}/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated

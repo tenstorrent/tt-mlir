@@ -51,6 +51,11 @@
 
 #define FMT_HEADER_ONLY
 
+#include "tt_metal/api/tt-metalium/buffer.hpp"
+#include "tt_metal/api/tt-metalium/buffer_constants.hpp"
+#include "tt_metal/api/tt-metalium/core_coord.hpp"
+#include "tt_metal/api/tt-metalium/device_impl.hpp"
+#include "tt_metal/api/tt-metalium/host_api.hpp"
 #include "ttnn/graph/graph_processor.hpp"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
@@ -62,11 +67,6 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 #include "ttnn/tensor/types.hpp"
-#include <tt-metalium/buffer.hpp>
-#include <tt-metalium/buffer_constants.hpp>
-#include <tt-metalium/core_coord.hpp>
-#include <tt-metalium/device_impl.hpp>
-#include <tt-metalium/host_api.hpp>
 
 #pragma clang diagnostic pop
 
