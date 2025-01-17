@@ -368,6 +368,7 @@ class Run:
         self.logging.debug(f"------finished checking constraints for run API")
 
     def execute(self):
+        self.logging.debug(f"lalalalalalal")
         self.logging.debug(f"------executing run API")
 
         def _execute(binaries):
@@ -519,6 +520,7 @@ class Run:
                                     )
 
                                 elif current_runtime == ttrt.runtime.DeviceRuntime.TTNN:
+                                    self.logging.debug("this is submit")
                                     runtime_outputs = ttrt.runtime.submit(
                                         device,
                                         bin.fbb,

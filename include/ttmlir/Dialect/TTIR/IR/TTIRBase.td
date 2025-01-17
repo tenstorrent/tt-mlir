@@ -42,7 +42,7 @@ def TTIR_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTIR_Dialect, mnemonic, traits>;
+        Op<TTIR_Dialect, mnemonic, !listconcat([Pure], traits)>;
 
 //===----------------------------------------------------------------------===//
 // TTIR traits definition.

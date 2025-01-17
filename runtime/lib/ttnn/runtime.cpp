@@ -120,6 +120,7 @@ Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned) {
 
+  std::cerr << "I AM ONE DEVICE" << std::endl;
   if (owned) {
     // TODO: createOwnedTensor has identical logic as createTensor at the beginning
     // that is on top of this whole thing being a temporary hack
@@ -152,6 +153,7 @@ createTensor(std::vector<std::shared_ptr<void>> &data,
                    return createOwnedTensor(dataShard, shape, stride, itemsize,
                                             dataType);
                  });
+  std::cerr << "I AM MULTIDEVICE" << std::endl;
   DistributedTensorConfig distributionStrategy =
       ::tt::tt_metal::get_distributed_tensor_config(strategy);
   std::shared_ptr<::ttnn::Tensor> tensor = std::make_shared<::ttnn::Tensor>(
@@ -542,7 +544,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::vector<Tensor> const &inputHandles) {
   ::ttnn::MeshDevice &meshDevice =
       deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
+  std::cerr << "I AM SUBMIT=" << programIndex << std::endl;
   // Convert input tensors to the layout expected by the program
   std::vector<Tensor> inputsWithLayout;
   inputsWithLayout.reserve(inputHandles.size());
@@ -551,6 +553,7 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
       std::back_inserter(inputsWithLayout), [&](const Tensor &input) -> Tensor {
         Layout inputLayout = ::tt::runtime::ttnn::getLayout(
             executableHandle, programIndex, inputsWithLayout.size());
+        std::cerr << "layoutiii" << std::endl;
         return ::tt::runtime::ttnn::toLayout(input, deviceHandle, inputLayout);
       });
 
