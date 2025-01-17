@@ -1698,6 +1698,70 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// DownsampleOp
+//===----------------------------------------------------------------------===//
+
+// DownsampleOp verification
+::mlir::LogicalResult DownsampleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Input tensor is assumed to be 4D tensor.
+  if (inputType.getRank() != 4) {
+    return emitOpError("Expected rank of input tensor is 4, got rank " +
+                       std::to_string(inputType.getRank()));
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("Expected rank of output tensor is 4, got rank " +
+                       std::to_string(outputType.getRank()));
+  }
+
+  auto downsampleParams = getDownsampleParams();
+  if (downsampleParams.size() != 5) {
+    return emitOpError("Expected five downsample parameters, got " + std::to_string(downsampleParams.size()));
+  }
+  enum Parameters { BATCH_SIZE = 0, INPUT_H = 1, INPUT_W = 2, SCALE_H = 3, SCALE_W };
+  if (downsampleParams[SCALE_H] <= 0 || downsampleParams[SCALE_W] <= 0) {
+    return emitOpError("Scale factors H = ") << downsampleParams[SCALE_H] << " and W = " << downsampleParams[SCALE_W] << " must be positive integers got " << downsampleParams[SCALE_H] << " and " << downsampleParams[SCALE_W];
+  }
+
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+  // Input tensor is assumed to be in NHWC format.
+  enum Dimensions { DIM_N = 0, DIM_H = 1, DIM_W = 2, DIM_C = 3 };
+  if (inputShape[DIM_N] != downsampleParams[BATCH_SIZE]) {
+    return emitOpError("Expected batch size in downsample parameters to be ") << inputShape[DIM_N] << ", got " << downsampleParams[BATCH_SIZE];
+  }
+  if (inputShape[DIM_H] != downsampleParams[INPUT_H]) {
+    return emitOpError("Expected input H dimension in downsample parameters to be ") << inputShape[DIM_H] << ", got " << downsampleParams[INPUT_H];
+  }
+  if (inputShape[DIM_W] != downsampleParams[INPUT_W]) {
+    return emitOpError("Expected input W dimension in downsample parameters to be ") << inputShape[DIM_W] << ", got " << downsampleParams[INPUT_W];
+  }
+
+  uint32_t outputH = inputShape[DIM_H] / downsampleParams[SCALE_H];
+  uint32_t outputW = inputShape[DIM_W] / downsampleParams[SCALE_W];
+  if (outputH == 0 || outputW == 0) {
+    return emitOpError("Downsample scale factors H = ") << downsampleParams[SCALE_H] << " and W = " << downsampleParams[SCALE_W] << " are too large for input tensor dimensions H = " << inputShape[DIM_H] << " and W = " << inputShape[DIM_W];
+  }
+
+  if (outputH != outputShape[DIM_H]) {
+    return emitOpError("Expected output H dimension to be input H dimension / scaleH = ") << outputH << ", got " << outputShape[DIM_H];
+  }
+  if (outputW != outputShape[DIM_W]) {
+    return emitOpError("Expected output W dimension to be input W dimension / scaleW = ") << outputW << ", got " << outputShape[DIM_W];
+  }
+  if (inputShape[DIM_N] != outputShape[DIM_N]) {
+    return emitOpError("Expected output N dimension to be ") << inputShape[DIM_N] << ", got " << outputShape[DIM_N];
+  }
+  if (inputShape[DIM_C] != outputShape[DIM_C]) {
+    return emitOpError("Expected output C dimension to be ") << inputShape[DIM_C] << ", got " << outputShape[DIM_C];
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Reduction ops
 //===----------------------------------------------------------------------===//
 

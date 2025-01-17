@@ -1564,6 +1564,28 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
     let hasVerifier = 1;
 }
 
+def TTNN_DownsampleOp : TTNN_Op<"downsample"> {
+    let summary = "Downsample 2D op.";
+
+    let description = [{
+      Downsample 2D operation. Input tensor is assumed to be in NHWC format.
+
+      Attributes:
+      - `downsample_params` (array<5xi32>): Expected in format: (batch_size, conv_input H, conv_input_W, conv_stride_H, conv_stride_W).
+
+      Example:
+        // %a: tensor<10x64x32xbf16>
+        %0 = "ttnn.downsample"(%a) <{downsample_params = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>) -> tensor<10x128x128x3xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$downsample_params);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ConstantOp : TTNN_Op<"constant", [AllShapesMatch<["value", "result"]>]> {
     let summary = "Constant op.";
     let description = [{

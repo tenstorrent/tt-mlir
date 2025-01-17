@@ -1296,6 +1296,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<EmptyOpConversionPattern,
                ZerosOpConversionPattern,
                OnesOpConversionPattern,
+               DefaultOpConversionPattern<tt::ttnn::DownsampleOp>,
                DefaultOpConversionPattern<tt::ttnn::FullOp>,
                DefaultOpConversionPattern<tt::ttnn::ArangeOp>,
                DefaultOpConversionPattern<tt::ttnn::ConstantOp>>(typeConverter, ctx);

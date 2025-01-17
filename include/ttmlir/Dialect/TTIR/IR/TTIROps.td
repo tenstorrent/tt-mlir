@@ -1941,6 +1941,34 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
+def TTIR_Downsample2dOp : TTIR_DPSOp<"downsample2d"> {
+    let summary = "Downsample 2D operation.";
+
+    let description = [{
+      Downsample 2D operation.
+
+      Attributes:
+      - `scale_factor` (si32 | array<i32>): The scale factor for downsampling in H and W dimensions respectively.
+
+      Example:
+        %a = tensor.empty() : () -> tensor<10x64x32x3xbf16>
+        %output = tensor.empty() : () -> tensor<10x32x8x3xbf16>
+        %0 = "ttir.downsample"(%a, %output) <{scale_factor = array<i32: 2, 4>}> : (tensor<10x64x32x3xbf16>, tensor<10x32x8x3xbf16>) -> tensor<10x32x8x3xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$output,
+                         AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level generic ops
 //===----------------------------------------------------------------------===//

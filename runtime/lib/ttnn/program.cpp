@@ -40,6 +40,7 @@
 #include "operations/matmul/matmul.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/softmax.h"
+#include "operations/pool/downsample.h"
 #include "operations/pool/maxpool2d.h"
 #include "operations/pool/upsample.h"
 #include "operations/reduction/argmax.h"
@@ -282,6 +283,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::DownsampleOp: {
+    return operations::pool::run(op->type_as_DownsampleOp(), context);
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     return operations::creation::run(op->type_as_ConstantOp(), context);

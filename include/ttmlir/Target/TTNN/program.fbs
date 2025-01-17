@@ -432,6 +432,12 @@ table UpsampleOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table DownsampleOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  downsample_params: [int32];
+}
+
 table CpuOp {
   ins: [tt.target.ttnn.TensorRef];
   out: tt.target.ttnn.TensorRef;
@@ -484,6 +490,7 @@ union OpType {
   PermuteOp,
   RepeatOp,
   UpsampleOp,
+  DownsampleOp,
   PadOp,
   CpuOp,
   ConstantOp,
