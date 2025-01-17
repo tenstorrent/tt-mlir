@@ -151,11 +151,11 @@ def main():
         print(f"Error: Directory '{test_path}' does not exist.")
         sys.exit(1)
 
-    for root, _, files in os.walk(test_path):
+    for dir_path, _, files in os.walk(test_path):
         for file in files:
             if file.endswith(".cpp"):
-                cpp_file_path = os.path.join(root, file)
-                compile_shared_object(cpp_file_path, test_path)
+                cpp_file_path = os.path.join(dir_path, file)
+                compile_shared_object(cpp_file_path, dir_path)
 
 
 if __name__ == "__main__":
