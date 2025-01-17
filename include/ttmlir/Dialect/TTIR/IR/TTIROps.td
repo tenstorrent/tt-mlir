@@ -1125,6 +1125,27 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasFolder = 1;
 }
 
+def TTIR_PadOp: TTIR_DPSOp<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad tensor with low and high values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$padding_value,
+                         AnyRankedTensor:$output,
+                         DenseI64ArrayAttr:$low,
+                         DenseI64ArrayAttr:$high);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{

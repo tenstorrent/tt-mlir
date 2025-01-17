@@ -1688,6 +1688,47 @@ public:
   }
 };
 
+class StableHLOToTTIROpPadOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::PadOp> {
+
+  using OpConversionPattern<mlir::stablehlo::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::PadOp srcOp,
+                  mlir::stablehlo::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    tensor::EmptyOp outputTensor = rewriter.create<tensor::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
+        srcOp,
+        outputType,           // result type
+        adaptor.getOperand(), // input
+        adaptor.getPaddingValue(),
+        outputTensor, // output
+        adaptor.getEdgePaddingLowAttr(), adaptor.getEdgePaddingHighAttr());
+
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::PadOp &srcOp,
+                                   mlir::stablehlo::PadOp::Adaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -1895,6 +1936,11 @@ void addReverseOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
 
+void addPadOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -1924,6 +1970,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReturnOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
+  addPadOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
