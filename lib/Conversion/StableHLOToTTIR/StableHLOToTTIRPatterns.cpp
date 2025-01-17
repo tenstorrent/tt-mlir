@@ -1886,6 +1886,101 @@ public:
   }
 };
 
+class StableHLOToTTIROpPadOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::PadOp> {
+
+  using OpConversionPattern<mlir::stablehlo::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::PadOp srcOp,
+                  mlir::stablehlo::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    LogicalResult legalityResult = checkBasicLegality(srcOp, adaptor, rewriter);
+    if (!legalityResult.succeeded()) {
+      return legalityResult;
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    SmallVector<int32_t> padDim;
+    for (uint32_t i = 0; i < adaptor.getEdgePaddingLow().size(); i++) {
+      padDim.push_back(adaptor.getEdgePaddingLow()[i]);
+      padDim.push_back(adaptor.getEdgePaddingHigh()[i]);
+    }
+
+    Operation *valueDef = adaptor.getPaddingValue().getDefiningOp();
+    while (valueDef && !mlir::isa<ttir::ConstantOp>(valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+
+    mlir::ElementsAttr paddingValueAttr =
+        mlir::cast<mlir::tt::ttir::ConstantOp>(valueDef).getValueAttr();
+
+    float value = 0;
+    if (paddingValueAttr.isSplat()) {
+      value = paddingValueAttr.getElementType().isInteger()
+                  ? static_cast<float>(paddingValueAttr.getSplatValue<int>())
+                  : paddingValueAttr.getSplatValue<float>();
+    }
+
+    rewriter.getF32FloatAttr(value);
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::PadOp>(
+        srcOp,
+        outputType,                            // result type
+        adaptor.getOperand(),                  // input
+        rewriter.getDenseI32ArrayAttr(padDim), // padding dimensions
+        rewriter.getF32FloatAttr(value)        // padding value
+    );
+
+    return success();
+  }
+
+private:
+  LogicalResult checkBasicLegality(mlir::stablehlo::PadOp &srcOp,
+                                   mlir::stablehlo::PadOp::Adaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+
+    // Due to lack of support by device, we do not support interior padding,
+    // so verify if interior padding is requested and exit early with error.
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      if (eachVal != 0) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Unsupported Interior Padding, only "
+                                           "0 interior padding is supported.");
+      }
+    }
+
+    if (srcOp.getEdgePaddingLow().size() != srcOp.getEdgePaddingHigh().size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Low and High padding dimensions should match.");
+    }
+
+    if (srcOp.getEdgePaddingLow().size() % 2 != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Low padding value should be a tuple.");
+    }
+
+    if (srcOp.getEdgePaddingHigh().size() % 2 != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "High padding value should be a tuple.");
+    }
+
+    Operation *valueDef = adaptor.getPaddingValue().getDefiningOp();
+    while (valueDef && !mlir::isa<ttir::ConstantOp>(valueDef)) {
+      valueDef = valueDef->getOperand(0).getDefiningOp();
+    }
+    if (!valueDef) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Padding value is not constant defined.");
+    }
+
+    return success();
+  }
+};
+
 void addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                               RewritePatternSet &patterns,
                                               TypeConverter &typeConverter) {
@@ -2093,6 +2188,11 @@ void addReverseOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOToTTIROpReverseOpConversionPattern>(typeConverter, ctx);
 }
 
+void addPadOpConversionPattern(MLIRContext *ctx, RewritePatternSet &patterns,
+                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIROpPadOpConversionPattern>(typeConverter, ctx);
+}
+
 } // namespace
 
 namespace mlir::tt {
@@ -2122,6 +2222,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addScatterOpConversionPatterns(ctx, patterns, typeConverter);
   addReturnOpConversionPatterns(ctx, patterns, typeConverter);
   addReverseOpConversionPattern(ctx, patterns, typeConverter);
+  addPadOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

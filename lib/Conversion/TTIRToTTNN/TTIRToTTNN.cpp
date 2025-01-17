@@ -729,6 +729,20 @@ public:
   }
 };
 
+class PadOpConversionPattern : public OpConversionPattern<ttir::PadOp> {
+  using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PadOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue());
+    return success();
+  }
+};
+
 class UnsqueezeOpConversionPattern
     : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
@@ -1421,6 +1435,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionProdOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
+           PadOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,

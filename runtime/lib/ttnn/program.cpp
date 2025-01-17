@@ -12,6 +12,7 @@
 #include "operations/creation/full.h"
 #include "operations/creation/ones.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
 #include "operations/data_movement/repeat_interleave.h"
@@ -213,6 +214,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TransposeOp: {
     return operations::data_movement::run(op->type_as_TransposeOp(), context);
+  }
+  case ::tt::target::ttnn::OpType::PadOp: {
+    return operations::data_movement::run(op->type_as_PadOp(), context);
   }
   case ::tt::target::ttnn::OpType::ConcatOp: {
     return operations::data_movement::run(op->type_as_ConcatOp(), context);

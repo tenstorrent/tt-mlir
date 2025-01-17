@@ -1237,6 +1237,41 @@ def TTIR_ReshapeOp: TTIR_DPSOp<"reshape"> {
     let hasFolder = 1;
 }
 
+def TTIR_PadOp: TTIR_Op<"pad"> {
+    let summary = "Pad op.";
+    let description = [{
+      Pad input tensor with tuple of padding values.
+
+      The `padding` attribute must be a sequence of integers that is twice the size as the rank of the input.
+      Each pair of integers in the padding attribute represents the amount of padding to add to the high and low of that dimension.
+      I.e: an input tensor of shape <1x30x30x64xf32> with padding attribute <0, 0, 1, 1, 1, 1, 0, 0> will return a tensor of shape <1x32x32x64xf32>,
+      and so will a padding attribute of <0, 0, 0, 2, 0, 2, 0, 0>.
+
+      Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // padding dimensions:
+      padding: (1, 0, 1, 1) // format: (dim0_low, dim0_high, dim1_low, dim1_high)
+
+      // padding value:
+      // value: 0
+
+      // padded output:
+      output: [[0, 0, 0, 0, 0],
+               [0, 1, 2, 3, 0],
+               [0, 4, 5, 6, 0]]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DenseI32ArrayAttr:$padding,
+                         F32Attr:$value);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SliceOp: TTIR_DPSOp<"slice"> {
     let summary = "Slice op.";
     let description = [{
