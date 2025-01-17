@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttnn.h"
@@ -167,7 +168,7 @@ Tensor createTensor(Device device, Layout layout,
         createOwnedTensor(nullptr, shape, stride, itemsize,
                           utils::fromTTNNDataType(layoutDesc.dataType));
     Tensor out = utils::createRuntimeTensorFromTTNN(tensor);
-    return toLayout(out, device, layout);
+    return ::tt::runtime::ttnn::toLayout(out, device, layout);
   }
   DeviceVariant targetDevice =
       getTargetDevice(device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN));

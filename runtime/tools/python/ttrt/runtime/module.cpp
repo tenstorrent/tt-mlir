@@ -9,6 +9,7 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 #if defined(TTMLIR_ENABLE_RUNTIME_TESTS) && TTMLIR_ENABLE_RUNTIME_TESTS == 1
+#include "tt/runtime/test/dylib.h"
 #include "tt/runtime/test/utils.h"
 #endif
 
@@ -241,6 +242,13 @@ PYBIND11_MODULE(_C, m) {
   testing.def("get_host_row_major_layout",
               &tt::runtime::ttnn::test::getHostRowMajorLayout, py::arg("dtype"),
               "Get host row major layout");
+  testing.def("open_so", &tt::runtime::ttnn::test::openSo, py::arg("path"),
+              "Open a shared object file");
+  testing.def("run_so_program", &tt::runtime::ttnn::test::runSoProgram,
+              py::arg("so"), py::arg("func_name"), py::arg("inputs"),
+              py::arg("device"), "Run a program from a shared object file");
+  testing.def("compare_outs", &tt::runtime::ttnn::test::compareOuts,
+              py::arg("lhs"), py::arg("rhs"));
 #endif
 
   /**

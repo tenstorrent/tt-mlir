@@ -102,20 +102,28 @@ llvm_config.with_environment(
     append_path=True,
 )
 
+# Add `TT_MLIR_HOME` to lit environment.
 if "TT_MLIR_HOME" in os.environ:
-    print(f"{os.environ['TT_MLIR_HOME']}")
     llvm_config.with_environment("TT_MLIR_HOME", os.environ["TT_MLIR_HOME"])
 else:
     raise OSError("Error: TT_MLIR_HOME not set")
 
+# Add `TT_METAL_HOME` to lit environment.
 if "TT_METAL_HOME" in os.environ:
-    print(f"{os.environ['TT_METAL_HOME']}")
     llvm_config.with_environment("TT_METAL_HOME", os.environ["TT_METAL_HOME"])
 else:
     raise OSError("Error: TT_METAL_HOME not set")
 
+# Add `TT_METAL_BUILD_HOME` to lit environment.
+if "TT_METAL_BUILD_HOME" in os.environ:
+    llvm_config.with_environment(
+        "TT_METAL_BUILD_HOME", os.environ["TT_METAL_BUILD_HOME"]
+    )
+else:
+    raise OSError("Error: TT_METAL_BUILD_HOME not set")
+
+# Add `ARCH_NAME` to lit environment.
 if "ARCH_NAME" in os.environ:
-    print(f"ARCH_NAME={os.environ['ARCH_NAME']}")
     llvm_config.with_environment("ARCH_NAME", os.environ["ARCH_NAME"])
 else:
     raise OSError("Error: ARCH_NAME not set.")
