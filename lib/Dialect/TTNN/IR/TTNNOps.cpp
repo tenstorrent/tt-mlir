@@ -1288,12 +1288,36 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult MeshShardOp::verify() {
-  auto shardType = getShardType();
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> shardShape = getShardShape().getShape();
+  ::mlir::tt::MeshShardType shardType = getShardType();
 
   // Check sharding is one of replicate or devices
   if (shardType != ::mlir::tt::MeshShardType::Replicate &&
       shardType != ::mlir::tt::MeshShardType::Devices) {
     return emitOpError("Invalid shard_type for mesh_shard op.");
+  }
+
+  if (shardType == ::mlir::tt::MeshShardType::Devices) {
+    // Check if input rank is equal to or greater than two
+    if (inputShape.size() < 2) {
+      return emitOpError(
+          "Invalid input rank (<2) for mesh_shard op with devices partition.");
+    }
+
+    // Check if shardShape is eqaul to or greater than two
+    if (shardShape.size() < 2) {
+      return emitOpError(
+          "Invalid shard_shape (<2) for mesh_shard op with devices partition.");
+    }
+
+    // Check if overall partition is eqaul to or greater than two
+    auto overall_partition = std::accumulate(
+        shardShape.begin(), shardShape.end(), 1, std::multiplies<int64_t>());
+    if (overall_partition < 2) {
+      return emitOpError("Invalid overall partition (<2) for mesh_shard op "
+                         "with devices partition.");
+    }
   }
 
   return success();
