@@ -120,14 +120,14 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc() {
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+                    std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned) {
   LOG_ASSERT(not shape.empty());
   LOG_ASSERT(not stride.empty());
   LOG_ASSERT(itemsize > 0);
 #if defined(TT_RUNTIME_ENABLE_TTNN)
   if (getCurrentRuntime() == DeviceRuntime::TTNN) {
     return ::tt::runtime::ttnn::createTensor(data, shape, stride, itemsize,
-                                             dataType);
+                                             dataType, owned);
   }
 #endif
 

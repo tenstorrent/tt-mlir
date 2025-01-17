@@ -105,7 +105,13 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType) {
+                    std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned) {
+
+  if (owned) {
+    // TODO: createOwnedTensor has identical logic as createTensor at the beginning
+    // that is on top of this whole thing being a temporary hack
+    return utils::createRuntimeTensorFromTTNN(createOwnedTensor(data, shape, stride, itemsize, dataType));
+  }
   std::uint32_t numElements = shape[0] * stride[0];
 
   ::tt::tt_metal::SmallVector<uint32_t> small_vector_shape(shape.begin(),

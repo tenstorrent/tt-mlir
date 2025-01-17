@@ -35,7 +35,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+                    std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned = false);
 
 Tensor
 createTensor(std::vector<std::shared_ptr<void>> &data,
@@ -49,9 +49,9 @@ Tensor createTensor(Device device, Layout layout,
                     std::vector<std::uint32_t> const &stride,
                     std::uint32_t itemsize);
 
-inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc) {
+inline Tensor createTensor(std::shared_ptr<void> data, TensorDesc const &desc, bool owned = false) {
   return ::tt::runtime::createTensor(data, desc.shape, desc.stride,
-                                     desc.itemsize, desc.dataType);
+                                     desc.itemsize, desc.dataType, owned);
 }
 
 inline Tensor
