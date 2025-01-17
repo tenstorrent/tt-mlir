@@ -722,12 +722,11 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
       Parameters:
       - `input`: The input tensor.
       - `repeats`: Specifies the number of repetitions for each element, each element is repeated that number of times.
-      - `dim` (int, optional): The dimension along which to repeat values. If not specified, the input tensor is flattened,
-        and the output will be a flat tensor.
+      - `dim`: The dimension along which to repeat values.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         UI32Attr:$repeats,
+                         I32Attr:$repeats,
                          SI32Attr:$dim,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 

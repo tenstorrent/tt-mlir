@@ -1207,28 +1207,33 @@ mlir::tt::ttnn::ToLayoutOp::canonicalize(ToLayoutOp toLayoutOp,
   uint32_t repeats = getRepeats();
   int32_t dim = getDim();
 
-  // Verify that the input is at least a 1D tensor
+  // Verify that the input is at least a 1D tensor.
   if (inputType.getRank() < 1) {
     return emitOpError("Input must be at least a 1D tensor");
   }
 
-  // Check that the repeats is not zero
+  // Check that the repeats is not zero.
   if (repeats == 0) {
     return emitOpError("Repeats attribute must be non-zero");
   }
 
-  // Check that the dim is within the bounds of the input tensor
+  // Check that the dim is within the bounds of the input tensor.
   if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
     return emitOpError("Dimension attribute must be within the bounds")
-           << "(" << -inputType.getRank() << ", " << inputType.getRank() << ")"
+           << "[" << -inputType.getRank() << ", " << inputType.getRank() << ")"
            << ", got " << inputType.getRank();
   }
 
-  // Compute the expected output shape
+  // Normalize dim to [0, n) range.
+  if (dim < 0) {
+    dim += inputType.getRank();
+  }
+
+  // Compute the expected output shape.
   llvm::SmallVector<int64_t> expectedOutputShape(inputType.getShape());
   expectedOutputShape[dim] *= repeats;
 
-  // Verify that the output shape matches the expected shape
+  // Verify that the output shape matches the expected shape.
   if (outputType.getShape() != ::llvm::ArrayRef(expectedOutputShape)) {
     return emitOpError("Output shape ")
            << "[" << ttmlir::utils::join(outputType.getShape(), ",") << "]"
