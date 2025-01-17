@@ -22,12 +22,13 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <llvm/Support/LogicalResult.h>
+#include "llvm/Support/LogicalResult.h"
 
 #include <cstdint>
 
@@ -747,6 +748,39 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RepeatOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), repeatDimensionsAttr);
+
+    return success();
+  }
+};
+} // namespace
+namespace {
+class PadOpConversionPattern : public OpConversionPattern<ttir::PadOp> {
+  using OpConversionPattern<ttir::PadOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::PadOp op, ttir::PadOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn::MemoryConfigAttr memcfg = nullptr;
+    if (ttnn::TTNNLayoutAttr layoutAttr =
+            mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                op.getResult().getType().getEncoding());
+        layoutAttr.getBufferType() != ttnn::BufferType::SystemMemory) {
+      memcfg = ttnn::MemoryConfigAttr::get(
+          op.getContext(),
+          ttnn::BufferTypeAttr::get(op.getContext(),
+                                    layoutAttr.getBufferType()),
+          ttnn::ShardSpecAttr::get(
+              op.getContext(),
+              ttnn::ShapeAttr::get(op.getContext(),
+                                   layoutAttr.getShardShape())),
+          layoutAttr.getMemLayout());
+    }
+    rewriter.replaceOpWithNewOp<ttnn::PadOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getPaddingAttr(), adaptor.getValue(),
+        /* use_multicore */ true, memcfg);
 
     return success();
   }
@@ -1478,6 +1512,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionProdOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
+           PadOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,
