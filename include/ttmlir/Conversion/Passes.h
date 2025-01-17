@@ -55,9 +55,9 @@ struct MLIRModuleCacher {
                 std::find(passNamesToCache.begin(), passNamesToCache.end(),
                           passName) != passNamesToCache.end()) {
               this->moduleCache.emplace_back(passName, outString);
+            } else if (passNamesToCache.empty()) {
+              this->moduleCache.emplace_back(passName, outString);
             }
-          } else {
-            this->moduleCache.emplace_back(action.getTag().str(), "");
           }
           transform(); // Run the transformation pass.
         });
