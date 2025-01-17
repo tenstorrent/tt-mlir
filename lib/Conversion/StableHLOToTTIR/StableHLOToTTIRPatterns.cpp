@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/Support/raw_ostream.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
@@ -118,12 +121,12 @@ private:
         srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
 
     // Can't reuse the original dimensions attribute because it uses i64 type.
-    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+    mlir::ArrayAttr dimArgValue = rewriter.getI32ArrayAttr(
         llvm::SmallVector<int32_t>(srcOp.getDimensions()));
 
     rewriter.replaceOpWithNewOp<DestOp>(
         srcOp, outputType, adaptor.getInputs().front(), outputTensor,
-        false /* keep_dim */, dimArg);
+        false /* keep_dim */, dimArgValue);
 
     return success();
   }
@@ -527,9 +530,14 @@ public:
                        SmallVector<int64_t>(windowDimensions.size() * 2, 0));
 
     mlir::tt::ttir::PoolingMethod poolingMethod;
+    int64_t dimArgValue = -1;
     if (isMaxPool(srcOp)) {
       poolingMethod = mlir::tt::ttir::PoolingMethod::Max;
+    }
+    if (isCumSum(srcOp, adaptor, dimArgValue)) {
+      llvm::errs() << "CumSum op found\n";
     } else {
+      llvm::errs() << "Unsupported pooling method\n";
       return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
     }
 
@@ -546,6 +554,124 @@ public:
   }
 
 private:
+  int64_t isCumSum(mlir::stablehlo::ReduceWindowOp &srcOp,
+                   mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+                   int64_t &dimArg) const {
+    if (srcOp.getBody().getBlocks().size() != 1) {
+      return false;
+    }
+
+    // Find constant input(s)
+    Operation *initValue;
+    for (uint64_t i = 0; i < srcOp.getInitValues().size(); i++) {
+      initValue = srcOp.getInitValues()[i].getDefiningOp();
+      while (initValue->getOpOperands().size() == 1) {
+        initValue = initValue->getOpOperand(0).get().getDefiningOp();
+      }
+      if (!isa<stablehlo::ConstantOp>(initValue)) {
+        return false;
+      }
+
+      stablehlo::ConstantOp initValueOp =
+          mlir::cast<stablehlo::ConstantOp>(initValue);
+
+      if (!checkInitValue(initValueOp, TypicalInitReductionValue::ZERO)) {
+        return false;
+      }
+    }
+
+    Block &block = *srcOp.getBody().getBlocks().begin();
+    uint32_t opIdx = 0;
+    for (Operation &op : block) {
+      if (opIdx == 0 && !isa<mlir::stablehlo::AddOp>(op)) {
+        return false;
+      }
+      if (opIdx == 1 && !isa<mlir::stablehlo::ReturnOp>(op)) {
+        return false;
+      }
+      if (opIdx >= 2) {
+        return false; // More than two ops in the block
+      }
+      opIdx++;
+    }
+
+    auto verifyAttribute = [](mlir::DenseI64ArrayAttr arrAttr) -> bool {
+      if (!arrAttr) {
+        return true;
+      }
+      auto array = arrAttr.asArrayRef();
+      return std::all_of(array.begin(), array.end(),
+                         [](int value) { return value == 1; });
+    };
+
+    if (!verifyAttribute(adaptor.getWindowStridesAttr())) {
+      return false;
+    }
+
+    if (!verifyAttribute(adaptor.getBaseDilationsAttr())) {
+      return false;
+    }
+
+    if (!verifyAttribute(adaptor.getWindowDilationsAttr())) {
+      return false;
+    }
+
+    RankedTensorType inputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getInputs()[0].getType()));
+
+    int64_t inputRank = inputType.getRank();
+    llvm::ArrayRef<int64_t> windowDimensions =
+        adaptor.getWindowDimensionsAttr().asArrayRef();
+    int64_t dimArgValue = 1;
+    int64_t counter = -1;
+
+    for (auto windowDim : windowDimensions) {
+      ++counter;
+      if (windowDim == 1) {
+        continue;
+      }
+      if (windowDim != 1 && dimArgValue != 1) {
+        return false;
+      }
+      dimArgValue = windowDim;
+      dimArg = counter;
+    }
+    if (dimArgValue != inputType.getShape()[dimArg]) {
+      return false;
+    }
+
+    auto padding = adaptor.getPaddingAttr();
+    if (padding.size() != (inputRank * 2)) {
+      return false;
+      ;
+    }
+
+    if (padding.isSplat()) {
+      if ((dimArgValue != 1) || (padding.getSplatValue<int64_t>() != 0)) {
+        return false;
+      }
+    } else {
+      if (dimArgValue == 1) {
+        return false;
+      }
+
+      auto padding_value = padding.getValues<int64_t>();
+      for (int64_t idx = 0; idx < padding.size(); idx++) {
+        if (idx == (dimArg * 2)) {
+          if (padding_value[idx] != (dimArgValue - 1)) {
+            return false;
+          }
+          continue;
+        }
+        if (padding_value[idx] != 0) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
   void eraseInitValueSubgraph(ConversionPatternRewriter &rewriter,
                               Operation *op) const {
 
