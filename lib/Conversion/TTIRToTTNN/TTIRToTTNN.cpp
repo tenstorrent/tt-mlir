@@ -379,7 +379,8 @@ public:
     llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R, gradShape.back()};
 
     auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
-        adaptor.getInGradient(), reshapedGradShape, rewriter);
+        mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
+        reshapedGradShape, rewriter);
 
     // Get TTNNLayoutAttr of the result type.
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
@@ -861,8 +862,9 @@ public:
 
     std::vector<int64_t> flattenedInputShape = {
         1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]};
-    Value flattenedInput =
-        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
+    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
+        rewriter);
 
     std::vector<int64_t> flattenedOutputShape = {
         1, 1, output_shape[0] * output_shape[1] * output_shape[2],
@@ -1019,8 +1021,9 @@ public:
     auto channels =
         rewriter.getSI32IntegerAttr(input_shape[input_shape.size() - 1]);
 
-    Value flattenedInput =
-        ttir_to_ttnn::utils::generateNHWFlatten(adaptor.getInput(), rewriter);
+    Value flattenedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(adaptor.getInput()),
+        rewriter);
 
     auto output_ty =
         mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
