@@ -50,7 +50,7 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 Tensor createTensor(std::shared_ptr<void> data,
                     std::vector<std::uint32_t> const &shape,
                     std::vector<std::uint32_t> const &stride,
-                    std::uint32_t itemsize, ::tt::target::DataType dataType);
+                    std::uint32_t itemsize, ::tt::target::DataType dataType, bool owned = false);
 
 Tensor
 createTensor(std::vector<std::shared_ptr<void>> &data,
