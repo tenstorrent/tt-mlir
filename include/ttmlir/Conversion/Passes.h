@@ -29,31 +29,36 @@ namespace mlir::tt {
 struct MLIRModuleCacher {
   mlir::MLIRContext *context;
   std::vector<std::pair<std::string, std::string>> moduleCache;
-  // llvm::StringMap<std::string> moduleCache;
 
-  void attachContext(mlir::MLIRContext *ctx) {
+  void attachContext(mlir::MLIRContext *ctx,
+                     std::vector<std::string> passNamesToCache = {}) {
     context = ctx;
 
-    context->registerActionHandler([this](llvm::function_ref<void()> transform,
-                                          const mlir::tracing::Action &action) {
-      if (mlir::isa<mlir::PassExecutionAction>(action)) {
-        auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
-        // A Pass action has occured, need to store the previous module before
-        // transform is completed.
+    context->registerActionHandler(
+        [this, passNamesToCache](llvm::function_ref<void()> transform,
+                                 const mlir::tracing::Action &action) {
+          if (mlir::isa<mlir::PassExecutionAction>(action)) {
+            auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
+            // A Pass action has occured, need to store the previous module
+            // before transform is completed.
 
-        std::string outString;
-        llvm::raw_string_ostream os(outString);
-        mlir::OpPrintingFlags flags;
-        flags.enableDebugInfo();
-        passAction.getOp()->print(os, flags);
-        os.flush();
+            std::string outString;
+            llvm::raw_string_ostream os(outString);
+            mlir::OpPrintingFlags flags;
+            flags.enableDebugInfo();
+            passAction.getOp()->print(os, flags);
+            os.flush();
 
-        this->moduleCache.emplace_back(passAction.getPass().getName().str(),
-                                       outString);
-        //[passAction.getPass().getName().str()] = outString;
-      }
-      transform(); // Run the transformation pass.
-    });
+            std::string passName = passAction.getPass().getName().str();
+
+            if (not passNamesToCache.empty() and
+                std::find(passNamesToCache.begin(), passNamesToCache.end(),
+                          passName) != passNamesToCache.end()) {
+              this->moduleCache.emplace_back(passName, outString);
+            }
+          }
+          transform(); // Run the transformation pass.
+        });
   }
 };
 
