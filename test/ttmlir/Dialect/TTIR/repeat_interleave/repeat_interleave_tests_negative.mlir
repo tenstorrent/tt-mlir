@@ -28,7 +28,7 @@ module {
 module {
   func.func @repeat_interleave_dim_out_of_bounds_1(%arg0: tensor<4xf32>) -> tensor<8xf32>
   {
-    // CHECK: error: 'ttir.repeat_interleave' op Dimension attribute must be within the bounds(-1, 1), got 1
+    // CHECK: error: 'ttir.repeat_interleave' op Dimension attribute must be within the bounds[-1, 1), got 1
     %0 = tensor.empty() : tensor<8xf32>
     %1 = "ttir.repeat_interleave"(%arg0, %0) {repeats = 2 : ui32, dim = 1 : si32} : (tensor<4xf32>, tensor<8xf32>) -> tensor<8xf32>
     return %1 : tensor<8xf32>
@@ -38,7 +38,7 @@ module {
 module {
   func.func @repeat_interleave_dim_out_of_bounds_2(%arg0: tensor<1x4x1x2xf32>) -> tensor<1x4x1x8xf32>
   {
-    // CHECK: error: 'ttir.repeat_interleave' op Dimension attribute must be within the bounds(-4, 4), got 4
+    // CHECK: error: 'ttir.repeat_interleave' op Dimension attribute must be within the bounds[-4, 4), got 4
     %0 = tensor.empty() : tensor<1x4x1x8xf32>
     %1 = "ttir.repeat_interleave"(%arg0, %0) {repeats = 4 : ui32, dim = 4 : si32} : (tensor<1x4x1x2xf32>, tensor<1x4x1x8xf32>) -> tensor<1x4x1x8xf32>
     return %1 : tensor<1x4x1x8xf32>
