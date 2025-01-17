@@ -15,8 +15,8 @@
 #include "operations/matmul/matmul.hpp"
 #include "tensor/tensor.hpp"
 #include "tensor/types.hpp"
+#include "tt-metalium/bfloat16.hpp"
 #include "types.hpp"
-#include <tt-metalium/bfloat16.hpp>
 
 #include <cstddef>
 #include <iostream>
