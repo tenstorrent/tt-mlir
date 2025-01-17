@@ -102,15 +102,17 @@ There were very few issues with these previously, and they were caused by incons
 
 ### Attrs vs Types
 
-Some operands, like ints & floats, are naturally represented as Attrs in MLIR, so they should be used. Other operands might be a bit of a gray area, like `ttnn::Shape` - in TTNN lib, these need to be constructed, so it naturally follows that they should have their own SSA value within the IR, implying that they should be implemented as Types. However, there are several downsides to this:
+General guideline is that if a value is known at compile time, it should probably be an `Attr`. Example: dims in transpose op, pooling windows in a conv, etc. If the value is unknown at compile time (e.g. tensor) it should be a `Type`.
+
+There's another consideration to account for: does the value need its own SSA? Remember, `Attr`s need something to latch onto, like an op or a `Type`, but `Type`s need to be constructed, i.e. have their own SSA, in order to exist. Let's look at `ttnn::Shape` for example - in TTNN lib, these need to be constructed, so it naturally follows that they should have their own SSA value within the IR, implying that they should be implemented as `Type`s. However, there are several downsides to this:
 - More IR is produced
 - Diminished readability as they're not attached to the object whose shape they're describing
 - Not as easy to construct in code
-- Runtime would need to keep track of all the Shape objects (it currently maps all SSAs, which are just tensors and devices)
+- Runtime would need to keep track of all the Shape objects (it currently maps all SSAs, which are currently only tensors and devices)
 
-One upside for implementing `ttnn::Shape` as a type is that it would enable optimizing out multiple constructor calls for the same Shape.
+One upside for implementing `ttnn::Shape` as a `Type` is that it would enable optimizing out multiple constructor calls for the same Shape.
 
-It is agreed that we should prefer using Attrs in these scenarios. However, this guideline is not set in stone - stakeholders should be notified if anyone believes there's a need to implement an object as a Type.
+It is agreed that we should prefer using `Attr`s in these scenarios. However, this guideline is not set in stone - stakeholders should be notified if anyone believes there's a need to implement an object as a `Type`.
 
 ### Destination-passing style (DPS)
 
