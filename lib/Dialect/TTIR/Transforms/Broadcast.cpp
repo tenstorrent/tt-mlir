@@ -5,7 +5,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -18,18 +17,22 @@ public:
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
 
-    if (!op->hasTrait<partiallyBroadcastable::Trait>() &&
-        !op->hasTrait<fullyBroadcastable::Trait>()) {
+    if (!op->hasTrait<PartiallyBroadcastable::Trait>() &&
+        !op->hasTrait<FullyBroadcastable::Trait>()) {
       // The op should support implicit broadcast to fold them.
       return failure();
     }
 
     if (op->getNumOperands() < 2) {
       // This optimization is only applicable to binary ops.
+      assert(op->getNumOperands() < 2 &&
+             "Implicit broadcast requires at least a binary operation.");
       return failure();
     }
 
     if (op->getNumResults() == 0) {
+      assert(op->getNumResults() == 0 &&
+             "Implicit broadcast requires the operation to produce a result.");
       return failure();
     }
 
@@ -45,34 +48,37 @@ public:
       }
     }
 
-    if (op->hasTrait<partiallyBroadcastable::Trait>()) {
-
+    bool changed = false;
+    if (op->hasTrait<PartiallyBroadcastable::Trait>()) {
       // This operation only support implicit broadcast for Operand 0.
       ttir::BroadcastOp broadcastOp =
           op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
       if (broadcastOp) {
-        rewriter.replaceOp(broadcastOp, broadcastOp.getInput());
-        return success();
+        Operation *newOp = rewriter.clone(*op);
+        newOp->setOperand(0, broadcastOp.getInput());
+        rewriter.replaceOp(op, newOp);
+        changed = true;
       }
-    } else if (op->hasTrait<fullyBroadcastable::Trait>()) {
-      bool changed = false;
+    } else if (op->hasTrait<FullyBroadcastable::Trait>()) {
       // Check all operands of this op
       ttir::BroadcastOp broadcastOp0 =
           op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
       ttir::BroadcastOp broadcastOp1 =
           op->getOperand(1).getDefiningOp<ttir::BroadcastOp>();
       if (broadcastOp0) {
-        rewriter.replaceOp(broadcastOp0, broadcastOp0.getInput());
+        Operation *newOp = rewriter.clone(*op);
+        newOp->setOperand(0, broadcastOp0.getInput());
+        rewriter.replaceOp(op, newOp);
         changed = true;
       } else if (broadcastOp1) {
-        rewriter.replaceOp(broadcastOp1, broadcastOp1.getInput());
+        Operation *newOp = rewriter.clone(*op);
+        newOp->setOperand(1, broadcastOp1.getInput());
+        rewriter.replaceOp(op, newOp);
         changed = true;
       }
-
-      return changed ? success() : failure();
     }
 
-    return failure();
+    return changed ? success() : failure();
   }
 };
 
