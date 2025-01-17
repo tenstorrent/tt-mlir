@@ -818,7 +818,7 @@ def TTIR_RepeatInterleaveOp : TTIR_DPSOp<"repeat_interleave"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$output,
-                         I32Attr:$repeats,
+                         UI32Attr:$repeats,
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
