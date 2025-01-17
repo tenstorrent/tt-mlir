@@ -24,7 +24,7 @@ module {
 module {
   func.func @test_repeat_interleave(%arg0: tensor<1x8x1x12x4xf32>) -> tensor<1x8x1x12x16xf32> {
     // CHECK: "ttnn.repeat_interleave"
-    // CHECK-SAME: dim = 4 : si32
+    // CHECK-SAME: dim = -1 : si32
     // CHECK-SAME: repeats = 4 : ui32
     %0 = tensor.empty() : tensor<1x8x1x12x16xf32>
     %1 = "ttir.repeat_interleave"(%arg0, %0) {repeats = 4 : ui32, dim = -1 : si32} : (tensor<1x8x1x12x4xf32>, tensor<1x8x1x12x16xf32>) -> tensor<1x8x1x12x16xf32>
