@@ -27,6 +27,20 @@ def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Attach a TTMetal layout to operands of a TTIR op.
+  }];
+
+  let options = [
+    Option<"initMemorySpace", "init-memory-space",
+          "::mlir::tt::MemorySpace",
+          /*default=*/"::mlir::tt::MemorySpace::System",
+           "Set the initial memory space for tensors to start in">
+  ];
+}
+
 def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
