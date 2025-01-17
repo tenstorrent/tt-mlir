@@ -22,13 +22,7 @@ namespace mlir::tt::llvm_util {
 #define GEN_PASS_DEF_LLVMEMITHELPERFUNCS
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h.inc"
 
-void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
-  // Remove existing terminator if present
-  if (auto terminator = dyn_cast<tt::CPUModuleTerminatorOp>(
-          moduleOp.getBody().front().getTerminator())) {
-    terminator->erase();
-  }
-
+void generateLLVMHelpersForArgRanks(ModuleOp moduleOp) {
   auto *context = moduleOp.getContext();
   OpBuilder builder(context);
 
@@ -55,7 +49,7 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
       continue;
     }
 
-    builder.setInsertionPointToEnd(&moduleOp.getBody().front());
+    builder.setInsertionPointToEnd(moduleOp.getBody());
 
     llvm::SmallString<32> helperName(func.getName());
     helperName.append("_helper");
@@ -84,8 +78,8 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
                  });
 
     // First get the base pointer to array of tensors (do this once)
-    Value baseStructPtr = builder.create<LLVM::LoadOp>(
-        func.getLoc(), LLVM::LLVMPointerType::get(context), structArrayPtr);
+    // Value baseStructPtr = builder.create<LLVM::LoadOp>(
+    //     func.getLoc(), LLVM::LLVMPointerType::get(context), structArrayPtr);
 
     // Iterate over arg_ranks to unpack tensors
     int tensorIdx = 0;
@@ -108,7 +102,7 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
 
       // Get pointer to the struct for this tensor
       Value structPtr = builder.create<LLVM::GEPOp>(
-          func.getLoc(), ptrTy, ptrTy, baseStructPtr, ValueRange(offset),
+          func.getLoc(), ptrTy, ptrTy, structArrayPtr, ValueRange(offset),
           /*inbounds=*/true);
 
       // Load the entire struct
@@ -153,15 +147,13 @@ void generateLLVMHelpersForArgRanks(tt::CPUModuleOp moduleOp) {
     }
 
     // Call the function
-    builder.create<LLVM::CallOp>(func.getLoc(),
-                                 func.getFunctionType().getReturnType(),
-                                 func.getName(), originalCallArgs);
+    builder.create<LLVM::CallOp>(func.getLoc(), TypeRange(), func.getName(),
+                                 originalCallArgs);
 
     builder.create<LLVM::ReturnOp>(func.getLoc(), ValueRange());
   }
 
-  builder.setInsertionPointToEnd(&moduleOp.getBody().front());
-  builder.create<tt::CPUModuleTerminatorOp>(moduleOp.getLoc());
+  builder.setInsertionPointToEnd(moduleOp.getBody());
 }
 
 class LLVMEmitHelperFuncs

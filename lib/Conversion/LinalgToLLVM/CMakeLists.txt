@@ -1,5 +1,5 @@
 add_mlir_library(TTMLIRLinalgToLLVM
-  LinalgToLLVMPass.cpp
+  # LinalgToLLVMPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToLinalg

@@ -82,7 +82,7 @@ static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
 // original op with a callOp to the extern function.
 static void hoistOperationToFunction(mlir::Operation *opToHoist,
                                      mlir::ModuleOp sourceModule,
-                                     tt::CPUModuleOp targetModule) {
+                                     mlir::ModuleOp targetModule) {
 
   const llvm::SmallVector<int64_t, 4> ranks = getOperandTensorRanks(opToHoist);
 
@@ -106,28 +106,15 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
     }
 
     // Create the function signature.
-    mlir::FunctionType funcType =
+    mlir::FunctionType localFuncType =
         mlir::FunctionType::get(context, operandTypes, resultTypes);
-
-    // Create the function in the target module.
-    mlir::Region &cpuModuleBody = targetModule.getBody();
-    mlir::Block *cpuModuleBlock;
-    if (cpuModuleBody.empty()) {
-      mlir::OpBuilder cpuBlockBuilder(cpuModuleBody);
-      cpuModuleBlock = cpuBlockBuilder.createBlock(&cpuModuleBody);
-    } else {
-      cpuModuleBlock = &cpuModuleBody.front();
-    }
+    mlir::FunctionType funcType =
+        mlir::FunctionType::get(context, operandTypes, {});
 
     // Insert the function and the terminator
     auto hoistedFunc =
         func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
-    cpuModuleBlock->push_back(
-        hoistedFunc); // Add function inside CPUModuleOp region
-
-    // Create the terminator
-    // builder.create<tt::CPUModuleTerminatorOp>(
-    //     cpuModuleBlock->getTerminator()->getLoc());
+    targetModule.push_back(hoistedFunc);
 
     // Add a basic block to the function.
     mlir::Block *block = hoistedFunc.addEntryBlock();
@@ -144,15 +131,16 @@ static void hoistOperationToFunction(mlir::Operation *opToHoist,
       mapping.map(std::get<0>(operand), std::get<1>(operand));
     }
 
-    mlir::Operation *clonedOp = builder.clone(*opToHoist, mapping);
+    builder.clone(*opToHoist, mapping);
 
-    // Add a return operation to the function.
-    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
-                                         clonedOp->getResults());
+    // // Add a return operation to the function.
+    // builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
+    //                                      clonedOp->getResults());
+    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(), ValueRange());
 
     // Declare the function prototype in the source module.
     localFunc = func::FuncOp::create(opToHoist->getLoc(),
-                                     localFunctionName.str(), funcType);
+                                     localFunctionName.str(), localFuncType);
     localFunc.setPrivate();
     sourceModule.push_back(localFunc);
 
@@ -204,13 +192,48 @@ public:
       TTIRHoistTransform>::TTIRHoistTransformBase;
 
   void runOnOperation() final {
-    mlir::ModuleOp moduleOp = getOperation();
+    mlir::ModuleOp rootModule = getOperation();
+
+    // We must run this transform on the root ModuleOp, since we are creating
+    // new Op's within the root.
+    if (rootModule->getParentOp() != nullptr) {
+      return;
+    }
+    // Search upwards for root ModuleOp
+
+    // Operation *parentOp = moduleOp->getParentOp();
+    // while (parentOp) {
+    //     if (auto parentModule = dyn_cast<ModuleOp>(parentOp)) {
+    //         // We found another ModuleOp above us - check if it's the root
+    //         if (parentOp->getParentOp() == nullptr) {
+    //           rootModule = parentModule;
+    //             // This is a nested ModuleOp since we found the root above us
+    //             // Continue with the pass on this nested ModuleOp
+    //             break;
+    //         }
+    //     }
+    //     parentOp = parentOp->getParentOp();
+    // }
+    tt::DeviceModuleOp deviceModule;
+    for (Operation &op : rootModule.getBodyRegion().front()) {
+      if (auto maybeDeviceModule = dyn_cast<tt::DeviceModuleOp>(op)) {
+        deviceModule = maybeDeviceModule;
+        break;
+      }
+    }
+    assert(deviceModule &&
+           "must run tt::WrapDeviceModulePass on IR before hoisting!");
+
+    ModuleOp deviceInnerModule = dyn_cast_or_null<mlir::ModuleOp>(
+        deviceModule.getBodyRegion().front().front());
+    assert(deviceInnerModule &&
+           "tt::DeviceModuleOp must have single ModuleOp child!");
 
     IRRewriter rewriter(&getContext());
 
-    auto loc = moduleOp->getLoc();
+    auto loc = rootModule->getLoc();
 
-    TTIRHoistAnalyze analysisPass(moduleOp);
+    TTIRHoistAnalyze analysisPass(deviceInnerModule);
     const TTIRHoistAnalyze::HoistOpSet &hoistOpSets = analysisPass.getResults();
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
@@ -220,31 +243,30 @@ public:
 
     // Check if a "cpu_module" already exists.
     tt::CPUModuleOp cpuModule;
-    for (auto &op : moduleOp.getBody()->getOperations()) {
+    mlir::ModuleOp cpuInnerModule;
+    for (auto &op : rootModule.getBody()->getOperations()) {
       if (auto module = llvm::dyn_cast<tt::CPUModuleOp>(op)) {
         cpuModule = module;
+        cpuInnerModule = dyn_cast_or_null<mlir::ModuleOp>(
+            cpuModule.getBodyRegion().front().front());
+        assert(cpuInnerModule && "CPUModuleOp must contain 1 ModuleOp!");
         break;
       }
     }
 
     // If no CPU module exists, create one.
     if (!cpuModule) {
-      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      rewriter.setInsertionPointToEnd(rootModule.getBody());
       cpuModule = rewriter.create<tt::CPUModuleOp>(loc);
+      rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
+      cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }
 
     for (const auto &opSet : hoistOpSets) {
       assert(opSet.size() == 1 &&
              "currently don't support hoisting multiple instructions at once!");
-      hoistOperationToFunction(*opSet.begin(), moduleOp, cpuModule);
-    }
-
-    // Ensure the CPU module has a terminator.
-    auto &cpuModuleBlock = cpuModule.getBody().front();
-    if (cpuModuleBlock.empty() ||
-        !cpuModuleBlock.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
-      rewriter.setInsertionPointToEnd(&cpuModuleBlock);
-      rewriter.create<tt::CPUModuleTerminatorOp>(loc);
+      hoistOperationToFunction(*opSet.begin(), deviceInnerModule,
+                               cpuInnerModule);
     }
   }
 };

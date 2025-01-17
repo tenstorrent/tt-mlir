@@ -61,37 +61,93 @@ def TT_TupleOp : TT_Op<"tuple", [Pure, DeclareOpInterfaceMethods<InferTypeOpInte
   }];
 }
 
-def TT_CPUModuleTerminatorOp : TT_Op<"cpu_module_terminator", [
-    HasParent<"CPUModuleOp">,
-    Terminator,
-  ]> {
-  let summary = [{terminator pseudo-op for the module op}];
+// def TT_CPUModuleTerminatorOp : TT_Op<"cpu_module_terminator", [
+//     HasParent<"CPUModuleOp">,
+//     Terminator,
+//   ]> {
+//   let summary = [{terminator pseudo-op for the module op}];
 
-  let assemblyFormat = "attr-dict";
-}
+//   let assemblyFormat = "attr-dict";
+// }
 
-def TT_CPUModuleOp : TT_Op<"cpu_module", [
+def TT_DeviceModuleOp : TT_Op<"device_module", [
     IsolatedFromAbove,
-    SingleBlockImplicitTerminator<"CPUModuleTerminatorOp">,
-    // Symbol,
+    NoRegionArguments,
+    NoTerminator,
+    SingleBlock,
     SymbolTable,
 ]> {
-  let summary = "Module-like operation containing functions";
+  let summary = "Module-wrapper operation for device ops";
   let description = [{
-    Custom module operation that can contain func.func or llvm.func operations.
+    Custom module operation that can a single ModuleOp, which should contain all funcs which should be run on device.
 
     Example:
     ```mlir
-    custom.module {
-      func.func @foo() { ... }
-      llvm.func @bar() { ... }
+    tt.device_module {
+      module {
+        func.func foo() { ... }
+      }
     }
     ```
   }];
 
-  let regions = (region SizedRegion<1>:$body);
+  let regions = (region SizedRegion<1>:$bodyRegion);
+
+  let assemblyFormat = "attr-dict-with-keyword $bodyRegion";
+
+  // let builders = [OpBuilder<>];
+  let builders = [OpBuilder<(ins)>];
+
+
+  // We need to ensure the block inside the region is properly terminated;
+  // the auto-generated builders do not guarantee that.
+  let skipDefaultBuilders = 1;
+
+  let hasVerifier = 1;
+}
+
+// def TT_ModuleTerminatorOp : TT_Op<"module_terminator", [
+//   HasParent<"CPUModuleOp", "DeviceModuleOp">
+//   Terminator
+// ]> {
+//   let summary = "Terminator for DeviceModuleOp and CPUModuleOp regions.";
+
+// }
+
+def TT_CPUModuleOp : TT_Op<"cpu_module", [
+    IsolatedFromAbove,
+    NoTerminator,
+    NoRegionArguments,
+    SingleBlock,
+    // SingleBlockImplicitTerminator<"CPUModuleTerminatorOp">,
+    // Symbol,
+    SymbolTable,
+]> {
+  let summary = "Module-wrapper operation for CPU ops";
+  let description = [{
+    Custom module operation that can a single ModuleOp, which should contain all funcs which should be run on CPU.
+
+    Example:
+    ```mlir
+    tt.cpu_module {
+      module {
+        func.func foo() { ... }
+      }
+    }
+    ```
+  }];
+
+  let regions = (region SizedRegion<1>:$bodyRegion);
 
   let assemblyFormat = "attr-dict-with-keyword regions";
+
+  let builders = [OpBuilder<(ins)>];
+
+  // We need to ensure the block inside the region is properly terminated;
+  // the auto-generated builders do not guarantee that.
+  let skipDefaultBuilders = 1;
+
+  let hasVerifier = 1;
 }
 
 #endif

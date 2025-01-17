@@ -8,6 +8,8 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
+#include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -135,25 +137,40 @@ void createTTNNPipelineTTIRBroadcastFoldPassFromString(OpPassManager &pm,
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  llvm::outs() << "createTTIRToTTNNBackendPipeline pm addr:" << &pm << "\n";
+  pm.addPass(tt::createWrapDeviceModulePass());
+
+  // create CPUModuleOp w/ hoisted ops (if any)
   pm.addPass(ttir::createTTIRHoistTransform());
-  pm.addPass(createConvertTTIRToLinalgPass());
-  pm.addPass(createConvertLinalgToLLVMPass());
-  pm.addPass(llvm_util::createLLVMEmitHelperFuncs());
 
-  // ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
-  // ttir::createLinalgToLLVMPipeline(pm, linalgToLLLVMOptions);
+  // OpPassManager& devicePm = pm.nest<tt::DeviceModuleOp>();
+  // OpPassManager& cpuPm = pm.nest<tt::CPUModuleOp>();
 
-  createTTNNPipelineTTIRPasses(pm, options);
-  createTTNNPipelineTTIRBroadcastFoldPass(pm, options);
-  createTTNNPipelineLoweringPasses(pm, options);
-  createTTNNPipelineWorkaroundPass(pm, options);
-  createTTNNPipelineAnalysisPasses(pm, options);
-  createTTNNPipelineLayoutDecompositionPass(pm, options);
-  createTTNNPipelineDeallocPass(pm, options);
+  // pm.nest<tt::CPUModuleOp>(cpuPm);
+  {
+    OpPassManager &devicePm =
+        pm.nest<tt::DeviceModuleOp>().nest<mlir::ModuleOp>();
+    createTTNNPipelineTTIRPasses(devicePm, options);
+    createTTNNPipelineTTIRBroadcastFoldPass(devicePm, options);
+    createTTNNPipelineLoweringPasses(devicePm, options);
+    createTTNNPipelineWorkaroundPass(devicePm, options);
+    createTTNNPipelineAnalysisPasses(devicePm, options);
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+    createTTNNPipelineDeallocPass(devicePm, options);
+  }
+
+  {
+    OpPassManager &cpuPm = pm.nest<tt::CPUModuleOp>().nest<mlir::ModuleOp>();
+    cpuPm.addPass(createConvertTTIRToLinalgPass());
+    ttir::LinalgToLLVMPipelineOptions linalgToLLLVMOptions;
+    ttir::createLinalgToLLVMPipeline(cpuPm, linalgToLLLVMOptions);
+    cpuPm.addPass(llvm_util::createLLVMEmitHelperFuncs());
+  }
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options) {
+  llvm::outs() << "createTTIRToEmitCPipeline pm addr:" << &pm << "\n";
   createTTIRToTTNNBackendPipeline(pm, options);
   pm.addPass(createConvertTTNNToEmitCPass());
 }

@@ -56,7 +56,7 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   // OpPassManager &funcPassManager = modulePassManager.nest<func::FuncOp>();
   // These are initial passes to ensure we start with well-formed linalg dialect
   // operations.
-  manager.addPass(mlir::createCanonicalizerPass());
+  // manager.addPass(mlir::createCanonicalizerPass());
   manager.addPass(mlir::createConvertElementwiseToLinalgPass());
   manager.addPass(mlir::createConvertTensorToLinalgPass());
 

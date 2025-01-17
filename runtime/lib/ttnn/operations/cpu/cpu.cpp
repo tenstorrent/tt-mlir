@@ -45,7 +45,7 @@ std::vector<wrapped_tensor> pack_tensors(
     float *raw_data_ptr = static_cast<float *>(get_raw_host_data_ptr(tens));
     LOG_INFO("raw_ptr for ", i, " is ", raw_data_ptr);
     LOG_INFO("aligned_ptr for ", i, " is ", align_to_64(raw_data_ptr));
-    packed_tensors.emplace_back(raw_data_ptr, align_to_64(raw_data_ptr), 0,
+    packed_tensors.emplace_back(raw_data_ptr, raw_data_ptr, 0,
                                 sizes_and_strides);
   }
   // const size_t rank = out->desc()->shape()->size();

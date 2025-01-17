@@ -1237,8 +1237,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
 std::shared_ptr<void>
 ttnnToFlatbuffer(Operation *op,
                  std::unordered_map<std::string, GoldenTensor> goldenMap) {
-  ModuleOp module = dyn_cast<ModuleOp>(op);
-  assert(module && "Expected ModuleOp as top level operation");
+  ModuleOp rootModule = dyn_cast<ModuleOp>(op);
+  assert(rootModule && "Expected ModuleOp as top level operation");
+
+  // If we have a nested module structure, we want to use nested module inside
+  // DeviceModule for most conversions.
+  ModuleOp module = rootModule;
+  if (auto deviceModule = findOpAtTopLevel<tt::DeviceModuleOp>(module)) {
+    module = dyn_cast_or_null<mlir::ModuleOp>(
+        deviceModule.getBodyRegion().front().front());
+    assert(module && "Found tt::DeviceModuleOp but it didn't contain a single "
+                     "mlir::ModuleOp!");
+  }
 
   ::flatbuffers::FlatBufferBuilder fbb;
   FlatbufferObjectCache cache(&fbb);
@@ -1251,7 +1261,9 @@ ttnnToFlatbuffer(Operation *op,
       toFlatbuffer(cache, mlir::cast<tt::SystemDescAttr>(
                               module->getAttr(tt::SystemDescAttr::name)));
 
-  auto mlir = toDebugInfo(fbb, "ttnn", module);
+  // Always get debug info for top-level module.
+  auto mlir = toDebugInfo(fbb, "ttnn", rootModule);
+
   std::string cpp;
   llvm::raw_string_ostream os(cpp);
   auto result = mlir::tt::ttnn::emitTTNNAsCpp(module, os);
@@ -1261,12 +1273,14 @@ ttnnToFlatbuffer(Operation *op,
   // Currently, we only have 1 CPUModuleOp and 1 top-level ModuleOp; we use a
   // vector here in case in the future we support more complex arrangements.
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::DynamicLib>> dylibs;
-  if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(module);
+  if (auto cpuModule = findOpAtTopLevel<tt::CPUModuleOp>(rootModule);
       cpuModule != nullptr) {
+    mlir::ModuleOp cpuNestedModule = dyn_cast_or_null<mlir::ModuleOp>(
+        cpuModule.getBodyRegion().front().front());
     llvm::SmallVector<char, 2048> binaryBuffer;
     llvm::raw_svector_ostream dylibStream(binaryBuffer);
-    auto result =
-        mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuModule, dylibStream);
+    auto result = mlir::tt::llvm_to_cpu::translateLLVMToDyLib(cpuNestedModule,
+                                                              dylibStream);
     if (llvm::succeeded(result)) {
       auto rawFileVector = fbb.CreateVector(
           reinterpret_cast<const uint8_t *>(binaryBuffer.data()),

@@ -35,6 +35,7 @@
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
+#include "tt/runtime/ttnn/dylib.h"
 #include "tt/runtime/ttnn/types.h"
 #include "tt/runtime/ttnn/utils.h"
 #include "tt/runtime/utils.h"
@@ -42,21 +43,6 @@
 
 #ifdef TT_RUNTIME_ENABLE_PERF_TRACE
 #include "tracy/Tracy.hpp"
-#endif
-
-#include <cstring>
-#include <dlfcn.h>
-#include <iostream>
-#include <string>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-// Linux memfd_create syscall number, if not available in <sys/mman.h>
-#ifndef MFD_CLOEXEC
-#define MFD_CLOEXEC 0x0001U
-#endif
-#ifndef SYS_memfd_create
-#define SYS_memfd_create 319
 #endif
 
 namespace tt::runtime::ttnn {
@@ -73,52 +59,6 @@ static ::tt::target::ttnn::TTNNBinary const *getBinary(Flatbuffer binary) {
       binary.handle.get());
   LOG_ASSERT(isTTNN, "Unsupported binary format");
   return ::tt::target::ttnn::GetSizePrefixedTTNNBinary(binary.handle.get());
-}
-
-// TODO: this + all its nasty macros should definitely be in a standalone file
-void *loadLibraryFromMemory(const uint8_t *data, size_t size) {
-  // Create an in-memory file descriptor
-  int memfd = memfd_create("dylib", MFD_CLOEXEC);
-  if (memfd == -1) {
-    perror("memfd_create");
-    return nullptr;
-  }
-  if (write(memfd, data, size) != static_cast<ssize_t>(size)) {
-    perror("write");
-    close(memfd);
-    return nullptr;
-  }
-  void *handle =
-      dlopen(("/proc/self/fd/" + std::to_string(memfd)).c_str(), RTLD_LAZY);
-  close(memfd); // Can close after dlopen
-  if (!handle) {
-    std::cerr << "dlopen failed: " << dlerror() << std::endl;
-    return nullptr;
-  }
-  return handle;
-}
-
-static DylibHandleMap
-openDylibHandles(const ::tt::target::ttnn::Program *program) {
-  DylibHandleMap dlHandleMap;
-  for (const auto *dylib : *(program->dylibs())) {
-    // TODO: consider some randomized hashing or something here
-    // std::string name("/tmp/" + program->name() + ".so") writeTmpDylib(
-    //     name, dylib->raw_file()->data(), dylib->raw_file()->size());
-    void *handle = loadLibraryFromMemory(dylib->raw_file()->data(),
-                                         dylib->raw_file()->size());
-    if (!handle) {
-      throw std::runtime_error("failed to open input dynamic library handle!");
-    }
-    dlHandleMap.emplace(dylib->dylib_id(), handle);
-  }
-  return dlHandleMap;
-}
-
-static void closeDylibHandles(DylibHandleMap handles) {
-  for (const auto [_, handle] : handles) {
-    dlclose(handle);
-  }
 }
 
 class ProgramExecutor {

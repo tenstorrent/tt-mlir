@@ -56,19 +56,19 @@ def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::func::FuncOp">
                            "mlir::tt::ttkernel::TTKernelDialect"];
 }
 
-def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "tt::CPUModuleOp"> {
+def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
   let summary = "Convert TTIR dialect to Linalg dialect.";
   let constructor = "createConvertTTIRToLinalgPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect"];
 }
 
-def ConvertLinalgToLLVM: Pass<"convert-linalg-to-llvm", "tt::CPUModuleOp">
+def ConvertLinalgToLLVM: Pass<"convert-linalg-to-llvm", "::mlir::ModuleOp">
 {
   let summary = "Small wrapper to create a PassManager + run conversion pipeline on contents of CPUModuleOp.  This is easiest way to enforce that the conversion only runs on CPUModuleOp vs entire module and still works properly.";
   let constructor = "createConvertTTIRToLinalgPass()";
   let dependentDialects = [
     "mlir::LLVM::LLVMDialect",
-    "mlir::linalg::LinalgDialect", 
+    "mlir::linalg::LinalgDialect",
     "mlir::bufferization::BufferizationDialect",
     "mlir::func::FuncDialect",
     "mlir::arith::ArithDialect",

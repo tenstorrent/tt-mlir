@@ -7,7 +7,7 @@ add_subdirectory(TTIRToLinalg)
 add_subdirectory(TTIRToTTNN)
 add_subdirectory(TTIRToTTMetal)
 add_subdirectory(TTKernelToEmitC)
-add_subdirectory(LinalgToLLVM)
+# add_subdirectory(LinalgToLLVM)
 
 if (TTMLIR_ENABLE_STABLEHLO)
 add_subdirectory(StableHLOToTTIR)
@@ -23,7 +23,7 @@ TTMLIRTTIRToTTNN
 TTMLIRTTIRToTTMetal
 TTMLIRTTKernelToEmitC
 TTMLIRTTIRToLinalg
-TTMLIRLinalgToLLVM
+# TTMLIRLinalgToLLVM
 )
 
 if (TTMLIR_ENABLE_STABLEHLO)

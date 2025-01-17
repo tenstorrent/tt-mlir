@@ -30,6 +30,7 @@
 #include "llvm/TargetParser/Host.h"
 
 #include <fstream>
+#include <mlir/IR/BuiltinOps.h>
 
 namespace mlir::tt::llvm_to_cpu {
 
@@ -64,26 +65,9 @@ llvm::SmallString<128> createTempFile(llvm::StringRef tempDir,
 
 // Function to convert MLIR ModuleOp to LLVM Module
 std::unique_ptr<llvm::Module>
-convertToLLVMModule(CPUModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
+convertToLLVMModule(mlir::ModuleOp cpuModule, llvm::LLVMContext &llvmContext) {
   mlir::registerLLVMDialectTranslation(*cpuModule.getContext());
-  // Create a new MLIR module
-  mlir::OpBuilder builder(cpuModule.getContext());
-  auto mlirModule = builder.create<mlir::ModuleOp>(cpuModule.getLoc());
-
-  // Clone the functions from CPUModule into the new ModuleOp
-  builder.setInsertionPointToStart(mlirModule.getBody());
-  for (auto &op : cpuModule.getBody().front().getOperations()) {
-    if (isa<mlir::LLVM::LLVMFuncOp>(op) || isa<mlir::LLVM::GlobalOp>(op)) {
-      builder.clone(op);
-    }
-  }
-
-  llvm::outs() << "mlir module: \n\n";
-  mlirModule.dump();
-  llvm::outs() << "\n\n";
-
-  // Use the existing translation infrastructure
-  auto llvmModule = mlir::translateModuleToLLVMIR(mlirModule, llvmContext,
+  auto llvmModule = mlir::translateModuleToLLVMIR(cpuModule, llvmContext,
                                                   "llvm-dylib-module");
   if (!llvmModule) {
     llvm::errs() << "Failed to convert MLIR ModuleOp to LLVM IR\n";
@@ -211,16 +195,14 @@ linkDynamicLibrary(llvm::StringRef libraryName,
 
 // checker to make sure we don't attempt translation unless entire module is
 // properly converted to LLVM Dialect
-llvm::LogicalResult verifyAllLLVM(tt::CPUModuleOp module) {
+llvm::LogicalResult verifyAllLLVM(mlir::ModuleOp module) {
   auto llvmDialect = module.getContext()->getOrLoadDialect<LLVM::LLVMDialect>();
 
   bool isAllLLVM = true;
 
   module.walk([&](Operation *op) {
     // check other operations to make sure they're llvm
-    if (op->getDialect() != llvmDialect &&
-        !(llvm::isa<tt::CPUModuleOp>(op) ||
-          llvm::isa<tt::CPUModuleTerminatorOp>(op))) {
+    if (op->getDialect() != llvmDialect && !llvm::isa<mlir::ModuleOp>(op)) {
       isAllLLVM = false;
       llvm::errs() << "Non-LLVM operation found: " << op->getName()
                    << " at location " << op->getLoc() << "\n";
@@ -283,13 +265,12 @@ compileAndLinkToSharedLibrary(llvm::Module &module,
 }
 
 llvm::LogicalResult translateLLVMToDyLib(Operation *op, llvm::raw_ostream &os) {
-
-  if (!llvm::isa<tt::CPUModuleOp>(op)) {
+  auto moduleOp = llvm::dyn_cast<mlir::ModuleOp>(op);
+  if (!moduleOp) {
     llvm::errs() << "The operation is not a ModuleOp, cannot perform this "
                     "translation on anything but entire modules\n";
     return llvm::failure();
   }
-  auto moduleOp = llvm::dyn_cast<tt::CPUModuleOp>(op);
   llvm::outs() << "CPU Module:\n\n";
   moduleOp->dump();
   llvm::outs() << "\n\n";
