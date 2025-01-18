@@ -144,6 +144,29 @@ void populatePassesModule(py::module &m) {
         }
       },
       py::arg("module"), py::arg("options") = "");
+  m.def(
+      "ttkernel_to_emitc_backend_pipeline",
+      [](MlirModule module, std::string options = "") {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+        mlir::DialectRegistry registry;
+        mlir::tt::registerAllDialects(registry);
+        mlir::tt::registerAllExtensions(registry);
+        mlir::MLIRContext *ctx = unwrap(mlirModuleGetContext(module));
+        ctx->appendDialectRegistry(registry);
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttkernel-to-emitc-pipeline");
+        mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)>
+            err_handler =
+                [](const llvm::Twine &loc) { return mlir::failure(); };
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      py::arg("module"), py::arg("options") = "");
 
   py::class_<std::shared_ptr<void>>(m, "SharedVoidPtr")
       .def(py::init<>())
