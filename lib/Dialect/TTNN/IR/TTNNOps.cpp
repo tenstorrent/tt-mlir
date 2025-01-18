@@ -1546,6 +1546,36 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
   return mlir::success();
 }
 
+// Verifier for Reduce ProdOp.
+static mlir::LogicalResult
+verifyReduceProdOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
+                   const std::optional<mlir::ArrayAttr> &reduceDims) {
+  int64_t inputTensorRank = inputType.getRank();
+  int64_t numReduceDims = reduceDims ? reduceDims->size() : inputTensorRank;
+  mlir::Type elementType = inputType.getElementType();
+
+  if (inputTensorRank > 4) {
+    return reduceOp->emitOpError(
+        "Input tensor rank is greater than 4 for reduce(product).");
+  }
+  // [TODO](mmanzoor) Decompose ttnn.prod op into multiple ttnn.prod to handle
+  // reduction along multiple dimensions.
+  // https://github.com/tenstorrent/tt-mlir/issues/1861
+  if ((numReduceDims > 1) && (numReduceDims != inputTensorRank)) {
+    return reduceOp->emitOpError("TTNN only supports reduce(prod) along one "
+                                 "dimension or all dimensions.");
+  }
+  // [TODO](mmanzoor) Add workaround to typecast the input tensor to bfloat16
+  // then typecast the output again to match the requirements.
+  // https://github.com/tenstorrent/tt-mlir/issues/1864
+  if ((numReduceDims == inputTensorRank) && !elementType.isBF16()) {
+    return reduceOp->emitOpError("TTNN only supports Reduce(prod) along all "
+                                 "dimensions for bfloat16 datatype.");
+  }
+
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // MaxOp
 //===----------------------------------------------------------------------===//
@@ -1588,7 +1618,12 @@ verifyReduceOp(mlir::Operation *reduceOp, mlir::RankedTensorType inputType,
 
 // ProdOp verification.
 ::mlir::LogicalResult ProdOp::verify() {
-  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  mlir::LogicalResult legalityResult =
+      verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+  if (!legalityResult.succeeded()) {
+    return legalityResult;
+  }
+  return verifyReduceProdOp(getOperation(), getInput().getType(), getDimArg());
 }
 
 } // namespace mlir::tt::ttnn
