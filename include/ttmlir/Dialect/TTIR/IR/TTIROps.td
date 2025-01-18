@@ -707,7 +707,21 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
 def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
   let summary = "Product reduction op.";
   let description = [{
-    Product reduction op.
+    This op computes the product of all elements of the tensor (full product)
+    or along a specific dimension.
+
+    Example:
+      input: [[1, 2, 3],
+              [4, 5, 6]]
+
+      // Computing along dim 0
+      output: [4, 10, 18]
+
+      // Computing along dim 1
+      output: [6, 120]
+
+      // Computing full product
+      output: 720
   }];
 }
 
