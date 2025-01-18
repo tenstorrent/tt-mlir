@@ -35,34 +35,6 @@ static void runReductionOp(
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
-static void runReductionProdOp(::tt::target::ttnn::ReductionOp const *op,
-                               ProgramTensorPool &tensorPool) {
-
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
-  const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
-  DEBUG_ASSERT(in.is_allocated());
-
-  const auto *fbDimArg = op->dim_arg();
-  int dim = 0;
-  bool all_dimensions = false;
-  if (fbDimArg) {
-    ::ttnn::SmallVector<int> dimArg =
-        ::ttnn::SmallVector<int>(fbDimArg->begin(), fbDimArg->end());
-    dim = dimArg[0];
-    if (dimArg.size() == 4) {
-      all_dimensions = true;
-    }
-  } else {
-    all_dimensions = true;
-  }
-
-  ::ttnn::Tensor out = ::ttnn::prod(in, all_dimensions, dim, op->keep_dim(),
-                                    outputMemoryConfig /* memory_config_arg */);
-
-  tensorPool.insert_or_assign(op->out()->global_id(), out);
-}
-
 void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
@@ -80,10 +52,6 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
   }
   case ::tt::target::ttnn::ReductionOpType::Min: {
     runReductionOp(op, tensorPool, ::ttnn::min);
-    break;
-  }
-  case ::tt::target::ttnn::ReductionOpType::Prod: {
-    runReductionProdOp(op, tensorPool);
     break;
   }
   }
