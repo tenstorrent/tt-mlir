@@ -776,8 +776,6 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
     type = ::tt::target::ttnn::ReductionOpType::Mean;
   } else if constexpr (std::is_same_v<ReductionOp, MaxOp>) {
     type = ::tt::target::ttnn::ReductionOpType::Max;
-  } else if constexpr (std::is_same_v<ReductionOp, ProdOp>) {
-    type = ::tt::target::ttnn::ReductionOpType::Prod;
   } else {
     llvm_unreachable("unhandled ReductionOp");
   }
@@ -791,6 +789,20 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
 
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
                                                dim_arg, op.getKeepDim());
+}
+
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionProdOp>
+createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto dim_arg =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+
+  return ::tt::target::ttnn::CreateReductionProdOp(*cache.fbb, in, output,
+                                                   dim_arg, op.getKeepDim());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
@@ -1153,8 +1165,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto prodOp = dyn_cast<ProdOp>(op); prodOp) {
-    return createOperation(cache, createReductionOp(cache, prodOp), debugString,
-                           locInfo);
+    return createOperation(cache, createReductionProdOp(cache, prodOp),
+                           debugString, locInfo);
   }
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
     return createOperation(cache, createEmbeddingOp(cache, embeddingOp),

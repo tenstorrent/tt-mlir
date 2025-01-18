@@ -168,11 +168,17 @@ enum ReductionOpType: uint32 {
   Sum,
   Mean,
   Max,
-  Prod,
 }
 
 table ReductionOp {
   type: ReductionOpType;
+  in: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  dim_arg: [int32];
+  keep_dim: bool;
+}
+
+table ReductionProdOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
   dim_arg: [int32];
@@ -361,6 +367,7 @@ union OpType {
   LinearOp,
   MatmulOp,
   ReductionOp,
+  ReductionProdOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
   SoftmaxOp,
