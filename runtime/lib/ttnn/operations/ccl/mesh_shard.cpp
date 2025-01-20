@@ -27,9 +27,6 @@ void FullToShardShape(const ::ttnn::Tensor &input, ::ttnn::Tensor &out,
     auto rowMesh = static_cast<size_t>(shardShape[0]);
     auto colMesh = static_cast<size_t>(shardShape[1]);
     int lastDim = input.get_shape().rank() - 1;
-    DEBUG_ASSERT((rowMesh * colMesh) > 1,
-                 "Sharding requires higher than 1. row=", rowMesh,
-                 ", col=" colMesh);
 
     ::ttnn::distributed::Shard2dConfig shard2dConfig;
     // last tile replicate
