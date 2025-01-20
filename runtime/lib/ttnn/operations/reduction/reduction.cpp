@@ -50,6 +50,10 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
     runReductionOp(op, tensorPool, ::ttnn::max);
     break;
   }
+  case ::tt::target::ttnn::ReductionOpType::Min: {
+    runReductionOp(op, tensorPool, ::ttnn::min);
+    break;
+  }
   }
 }
 } // namespace tt::runtime::ttnn::operations::reduction

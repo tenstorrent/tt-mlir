@@ -609,6 +609,13 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
   }];
 }
 
+def TTNN_MinOp : TTNN_ReductionOp<"min"> {
+  let summary = "Min reduction op.";
+  let description = [{
+    Min reduction op.
+  }];
+}
+
 def TTNN_EmbeddingOp : TTNN_NamedDPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{
