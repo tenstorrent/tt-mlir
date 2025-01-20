@@ -403,6 +403,22 @@ public:
   }
 };
 
+class RepeatInterleaveOpConversionPattern
+    : public OpConversionPattern<ttir::RepeatInterleaveOp> {
+public:
+  using OpConversionPattern<ttir::RepeatInterleaveOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RepeatInterleaveOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::RepeatInterleaveOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getRepeats(), adaptor.getDim(),
+        ttnn::MemoryConfigAttr());
+    return success();
+  }
+};
+
 class SoftmaxOpConversionPattern : public OpConversionPattern<ttir::SoftmaxOp> {
 public:
   using OpConversionPattern<ttir::SoftmaxOp>::OpConversionPattern;
@@ -1319,6 +1335,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,
            EmbeddingBackwardOpConversionPattern,
+           RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            TransposeOpConversionPattern,
            TypecastOpConversionPattern,

@@ -715,6 +715,29 @@ def TTNN_TransposeOp : TTNN_Op<"transpose"> {
     let hasVerifier = 1;
 }
 
+def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
+    let summary = "Repeat interleave op.";
+    let description = [{
+      Repeats elements of a tensor along a specified dimension.
+      It allows for flexible repetition patterns, where each element can be repeated a different number of times.
+      This is particularly useful for tasks that require duplicating elements in a non-uniform manner.
+
+      Parameters:
+      - `input`: The input tensor.
+      - `repeats`: Specifies the number of repetitions for each element, each element is repeated that number of times.
+      - `dim`: The dimension along which to repeat values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$repeats,
+                         SI32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ConcatOp : TTNN_NamedDPSOp<"concat"> {
     let summary = "Concat op.";
     let description = [{
