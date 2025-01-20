@@ -84,6 +84,10 @@ public:
       return matchAndRewriteInternal<mlir::tt::ttir::MaxOp>(srcOp, adaptor,
                                                             rewriter);
     }
+    if (mlir::isa<mlir::stablehlo::AndOp>(innerOp)) {
+      return matchAndRewriteInternal<mlir::tt::ttir::ReduceAndOp>(
+          srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
@@ -607,7 +611,7 @@ private:
     }
 
     // Constant operand must be -inf if this is to be a max pool
-    // since bfloat16 is not a type we acually have I must compare the raw
+    // since bfloat16 is not a type we actually have I must compare the raw
     // bits
     if (initValueOp.getResult().getType().getElementType().isBF16()) {
       // Collect the values into a vector

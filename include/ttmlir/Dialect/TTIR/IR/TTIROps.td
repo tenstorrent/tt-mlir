@@ -704,6 +704,13 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
   }];
 }
 
+def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
+    let summary = "And reduction op.";
+    let description = [{
+      And reduction op.
+    }];
+}
+
 def TTIR_EmbeddingOp : TTIR_DPSOp<"embedding"> {
     let summary = "Embedding op.";
     let description = [{

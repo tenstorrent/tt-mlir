@@ -2213,3 +2213,19 @@ void mlir::tt::ttir::SumOp::buildGenericRegion(::mlir::OpBuilder &opBuilder,
 ::mlir::LogicalResult mlir::tt::ttir::SumOp::verify() {
   return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
 }
+
+//===----------------------------------------------------------------------===//
+// ReduceAndOp
+//===----------------------------------------------------------------------===//
+
+// ReduceAndOp kernel builder.
+void mlir::tt::ttir::ReduceAndOp::buildGenericRegion(
+    ::mlir::OpBuilder &opBuilder, ::mlir::Block *block) {
+  // NOLINTNEXTLINE
+  createReduceOp(opBuilder, block, getLoc(), "and");
+}
+
+// ReduceAndOp verification.
+::mlir::LogicalResult mlir::tt::ttir::ReduceAndOp::verify() {
+  return verifyReduceOp(getOperation(), getInput().getType(), getDimArg());
+}
