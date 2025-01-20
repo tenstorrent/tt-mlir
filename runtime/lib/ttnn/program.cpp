@@ -35,6 +35,7 @@
 #include "operations/matmul/matmul.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/maxpool2d.h"
+#include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "tt/runtime/detail/debug.h"
 #include "tt/runtime/detail/logger.h"
@@ -188,6 +189,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::matmul::run(op->type_as_MatmulOp(), context);
   }
   // ANCHOR_END: adding_an_op_matmul_runtime_program
+  case ::tt::target::ttnn::OpType::ReductionProdOp: {
+    return operations::reduction::run(op->type_as_ReductionProdOp(), context);
+  }
   case ::tt::target::ttnn::OpType::ReductionOp: {
     return operations::reduction::run(op->type_as_ReductionOp(), context);
   }

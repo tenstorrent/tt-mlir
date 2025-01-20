@@ -791,6 +791,20 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
                                                dim_arg, op.getKeepDim());
 }
 
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionProdOp>
+createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
+  auto in =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                                  kHostAllocatedAddress, kHostAllocatedSize);
+  auto dim_arg =
+      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+
+  return ::tt::target::ttnn::CreateReductionProdOp(*cache.fbb, in, output,
+                                                   dim_arg, op.getKeepDim());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
 createTransposeOp(FlatbufferObjectCache &cache, TransposeOp op) {
   auto in =
@@ -1149,6 +1163,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto maxOp = dyn_cast<MaxOp>(op); maxOp) {
     return createOperation(cache, createReductionOp(cache, maxOp), debugString,
                            locInfo);
+  }
+  if (auto prodOp = dyn_cast<ProdOp>(op); prodOp) {
+    return createOperation(cache, createReductionProdOp(cache, prodOp),
+                           debugString, locInfo);
   }
   if (auto embeddingOp = dyn_cast<EmbeddingOp>(op); embeddingOp) {
     return createOperation(cache, createEmbeddingOp(cache, embeddingOp),
