@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Rewrite/FrozenRewritePatternSet.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -54,15 +55,42 @@ public:
     return updated;
   }
 
+  bool convertFuncType(Operation *op, PatternRewriter &rewriter) const {
+    auto funcOp = dyn_cast<func::FuncOp>(op);
+    if (not funcOp) {
+      return false;
+    }
+    SmallVector<Type> inputTypes(funcOp.getArgumentTypes());
+    SmallVector<Type> outputTypes(funcOp.getResultTypes());
+    for (Type &ty : inputTypes) {
+      ty = converter->convertType(ty);
+    }
+    for (Type &ty : outputTypes) {
+      ty = converter->convertType(ty);
+    }
+    auto newType = rewriter.getType<FunctionType>(inputTypes, outputTypes);
+    if (funcOp.getFunctionType() == newType) {
+      return false;
+    }
+    funcOp.setFunctionType(newType);
+
+    Block &entryBlock = funcOp.getBody().front();
+    for (unsigned i = 0; i < entryBlock.getNumArguments(); ++i) {
+      entryBlock.getArgument(i).setType(inputTypes[i]);
+    }
+
+    return true;
+  }
+
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
     
     bool updated = false;
-    llvm::outs() << op->getName() << "\n";
     SmallVector<Type> operands;
     SmallVector<Type> results;
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
+    updated |= convertFuncType(op, rewriter);
 
     return updated ? success() : failure();
   }
