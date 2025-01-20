@@ -5,7 +5,9 @@
 #include "ttmlir/RegisterAll.h"
 
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
+#include "mlir/IR/Action.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "ttmlir/Conversion/Passes.h"
