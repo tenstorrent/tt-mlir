@@ -506,7 +506,16 @@ mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
 //===----------------------------------------------------------------------===//
 
 // PadOp verification
-::mlir::LogicalResult mlir::tt::ttir::PadOp::verify() { return success(); }
+::mlir::LogicalResult mlir::tt::ttir::PadOp::verify() {
+
+  // Check that either one of low or high PadOp is non empty
+  if (getLow().empty() && getHigh().empty()) {
+    return emitOpError("At least one of the low or high padding dimensions "
+                       "must be non-empty.");
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // ReshapeOp

@@ -1725,6 +1725,14 @@ private:
                                    mlir::stablehlo::PadOp::Adaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
 
+    for (int64_t eachVal : srcOp.getInteriorPadding()) {
+      if (eachVal != 0) {
+        return rewriter.notifyMatchFailure(srcOp,
+                                           "Unsupported Interior Padding, only "
+                                           "0 interior padding is supported.");
+      }
+    }
+
     return success();
   }
 };
