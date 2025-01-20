@@ -18,17 +18,21 @@ class TTIRDataTypeConverter : public TypeConverter {
 public:
   TTIRDataTypeConverter(MLIRContext *ctx) {
     addConversion([](Type type) { return type; });
-    addConversion(
-        [ctx](RankedTensorType type) -> Type {
-          auto encoding = mlir::cast<MetalLayoutAttr>(type.getEncoding());
-          auto memref = encoding.getMemref();
-          if (memref.getElementType()) {
-            // auto newMemRef = MemRefType::get(type.getShape(), mlir::FloatType::getF32(ctx), memref.getLayout(), memref.getMemorySpace());
-            auto newEncoding = MetalLayoutAttr::get(ctx, type, encoding.getMemorySpace(), encoding.getGrid(), mlir::Float32Type::get(ctx), encoding.getMemLayout());
-            return RankedTensorType::get(type.getShape(), type.getElementType(), newEncoding);
-          }
-          return type;
-        });
+    addConversion([ctx](RankedTensorType type) -> Type {
+      auto encoding = mlir::cast<MetalLayoutAttr>(type.getEncoding());
+      auto memref = encoding.getMemref();
+      if (memref.getElementType()) {
+        // auto newMemRef = MemRefType::get(type.getShape(),
+        // mlir::FloatType::getF32(ctx), memref.getLayout(),
+        // memref.getMemorySpace());
+        auto newEncoding = MetalLayoutAttr::get(
+            ctx, type, encoding.getMemorySpace(), encoding.getGrid(),
+            mlir::Float32Type::get(ctx), encoding.getMemLayout());
+        return RankedTensorType::get(type.getShape(), type.getElementType(),
+                                     newEncoding);
+      }
+      return type;
+    });
   }
 };
 
@@ -37,7 +41,7 @@ public:
   TTIRDataTypeRewriter(const TypeConverter &converter, MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx),
         converter(&converter) {}
- 
+
   template <typename ValueRange>
   bool convertTypes(ValueRange valueRange, SmallVector<Type> &newTypes) const {
     bool updated = false;
@@ -84,7 +88,7 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
-    
+
     bool updated = false;
     SmallVector<Type> operands;
     SmallVector<Type> results;
@@ -121,4 +125,4 @@ class TTIRDataTypeSelection
   }
 };
 
-} // namespace mlir::tt::ttir 
+} // namespace mlir::tt::ttir
