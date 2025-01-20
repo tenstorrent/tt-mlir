@@ -41,6 +41,13 @@ def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> 
   ];
 }
 
+def TTIRDataTypeSelection: Pass<"ttir-data-type-selection", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Select the data type for each tensor based on op.
+  }];
+}
+
 def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
