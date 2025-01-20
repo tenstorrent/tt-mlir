@@ -241,13 +241,8 @@ public:
 private:
   bool shouldForceRowMajor(ttir::ToLayoutOp op) const {
     // Check if the output tensor is used by an op that only supports row major.
-    //
-    // EmbeddingBackwardOp supports row major layout for the first and second
-    // operands.
     for (mlir::Operation *user : op.getResult().getUsers()) {
-      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user) ||
-          (isa<ttir::EmbeddingBackwardOp>(user) &&
-           (user->getOperand(0) == op || user->getOperand(1) == op))) {
+      if (isa<ttir::Conv2dOp>(user) || isa<ttir::SliceOp>(user)) {
         return true;
       }
     }

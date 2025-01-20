@@ -699,13 +699,7 @@ namespace mlir::tt::ttnn {
   ::mlir::RankedTensorType outputType = getOutput().getType();
 
   // inputType checks:
-  // 1. Must be of type bfloat16 or int32.
-  // 2. Last dimension must be divisible by TILE_WIDTH.
-  if (!inputType.getElementType().isBF16() &&
-      !inputType.getElementType().isInteger(32)) {
-    llvm::errs() << inputType.getElementType() << "\n";
-    return emitOpError("Input must be of type bfloat16 or int32");
-  }
+  // 1. Last dimension must be divisible by TILE_WIDTH.
   if (inputType.getShape().back() % TILE_WIDTH != 0) {
     return emitOpError("Input's last dim must be divisible by TILE_WIDTH");
   }
@@ -739,9 +733,6 @@ namespace mlir::tt::ttnn {
   if (inputGradType.getDimSize(3) != weightType.getDimSize(1)) {
     return emitOpError("Input gradient second dimension must match the second "
                        "dimension of the weight tensor");
-  }
-  if (!inputGradType.getElementType().isBF16()) {
-    return emitOpError("Input gradient must be of type bfloat16 or bfloat8");
   }
   if (inputGradType.getElementType() != outputType.getElementType()) {
     return emitOpError("Input gradient and output must have the same dtype");

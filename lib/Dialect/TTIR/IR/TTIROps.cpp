@@ -1231,9 +1231,6 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
   }
 
   // inputGradType checks.
-  if (!inputGradType.getElementType().isBF16()) {
-    return emitOpError("Input gradient must be of type bfloat16 or bfloat8");
-  }
   if (inputGradType.getElementType() != outputType.getElementType()) {
     return emitOpError("Input gradient and output must have the same dtype");
   }
