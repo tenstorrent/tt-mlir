@@ -4,7 +4,9 @@
 
 #include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRIMPLICITBROADCASTFOLD
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
@@ -60,7 +62,7 @@ public:
         changed = true;
       }
     } else if (op->hasTrait<FullyBroadcastable::Trait>()) {
-      // Check all operands of this op
+      // Check all operands of this op.
       ttir::BroadcastOp broadcastOp0 =
           op->getOperand(0).getDefiningOp<ttir::BroadcastOp>();
       ttir::BroadcastOp broadcastOp1 =
