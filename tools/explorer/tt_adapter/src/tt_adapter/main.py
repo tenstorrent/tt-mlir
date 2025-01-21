@@ -5,7 +5,7 @@ from typing import Dict
 import model_explorer
 from . import runner, utils, mlir
 import dataclasses
-import enum
+import logging
 from ttmlir import optimizer_overrides
 
 OPTIMIZER_DISABLED_POLICY = "Optimizer Disabled"
@@ -92,7 +92,7 @@ class TTAdapter(model_explorer.Adapter):
         if optimized_model_path := self.model_runner.get_optimized_model_path(
             model_path
         ):
-            print(f"Using optimized model: {optimized_model_path}")
+            logging.info(f"Using optimized model: {optimized_model_path}")
             # Get performance results.
             perf_trace = self.model_runner.get_perf_trace(model_path)
 
