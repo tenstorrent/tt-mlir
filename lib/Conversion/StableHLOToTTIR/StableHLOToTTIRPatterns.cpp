@@ -3,9 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <cmath>
-#include <cstdint>
 #include <limits>
-#include <llvm/ADT/SmallVector.h>
 #include <vector>
 
 #include "mlir/Dialect/Traits.h"
