@@ -21,10 +21,10 @@ void run(const ::tt::target::ttnn::ToMemoryConfigOp *op,
   LOG_ASSERT(not utils::inSystemMemory(op->out()),
              "Should not be converting memory config for host tensor");
 
-  ::ttnn::MemoryConfig memoryConfig =
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
       utils::createMemoryConfig(op->memcfg(), op->out());
   ::ttnn::Tensor out =
-      ::ttnn::to_memory_config(inputTensor, memoryConfig, std::nullopt);
+      ::ttnn::to_memory_config(inputTensor, memoryConfig.value(), std::nullopt);
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::layout

@@ -39,8 +39,7 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   }
 
   if (op->memcfg()) {
-    memoryConfig =
-        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
+    memoryConfig = utils::createMemoryConfig(op->memcfg(), op->out());
   }
 
   ::ttnn::Tensor out;

@@ -15,13 +15,13 @@ static void runEltwiseTernaryWhereOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const ::ttnn::Tensor &, const ::ttnn::Tensor &,
-        const std::optional<::tt::tt_metal::MemoryConfig> &)> &ttnnOp) {
+        const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
   ::ttnn::Tensor *first = nullptr;
   ::ttnn::Tensor *second = nullptr;
   ::ttnn::Tensor *third = nullptr;
   getEltwiseTernaryOpInputTensors(op, tensorPool, &first, &second, &third);
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*first, *second, *third, outputMemoryConfig);

@@ -30,8 +30,7 @@ void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
   }
   if (op->memcfg()) {
-    memoryConfig =
-        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
+    memoryConfig = utils::createMemoryConfig(op->memcfg(), op->out());
   }
   ::ttnn::Tensor out =
       ::ttnn::embedding_bw(input, weight, inGrad, dtype, memoryConfig);

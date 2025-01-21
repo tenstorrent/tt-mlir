@@ -29,16 +29,18 @@ bool inSystemMemory(const ::tt::target::TensorRef *tensorRef) {
       tensorRef->desc()->layout()->memory_desc()->data_type());
 }
 
-::tt::tt_metal::MemoryConfig
+std::optional<::ttnn::MemoryConfig>
 createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
                    const ::tt::target::TensorRef *tensorRef) {
 
+  ::ttnn::BufferType bufferType =
+      ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());
+  if (bufferType == ::ttnn::BufferType::SYSTEM_MEMORY) {
+    return std::nullopt;
+  }
   ::ttnn::TensorMemoryLayout tensorMemoryLayout =
       ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
           memcfg->tensor_memory_layout());
-
-  ::ttnn::BufferType bufferType =
-      ::tt::runtime::ttnn::utils::toTTNNBufferType(memcfg->buffer_type());
 
   const ::tt::target::LayoutDesc *layout = tensorRef->desc()->layout();
   const ::flatbuffers::Vector<const tt::target::Dim2dRange *>

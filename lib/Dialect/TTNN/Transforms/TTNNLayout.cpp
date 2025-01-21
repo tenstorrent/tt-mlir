@@ -24,7 +24,7 @@ static const std::array<std::pair<int64_t, int64_t>, 1> g_defaultCollapseDims =
 // Default memory space for tensors on host
 static const BufferType g_defaultMemorySpaceHost = BufferType::SystemMemory;
 
-// Default memory space for tesnors on device
+// Default memory space for tensors on device
 static const BufferType g_defaultMemorySpaceDevice = BufferType::DRAM;
 
 // Default memory layout for tensors on device
@@ -149,10 +149,6 @@ public:
     updated |= convertTypes(op->getOperands(), operands);
     updated |= convertTypes(op->getResults(), results);
     updated |= convertFuncType(op, rewriter);
-    if (updated) {
-      llvm::outs() << "TTNNLayoutTensorTypeRewriter::mAR succeeded on op:\n";
-      op->dump();
-    }
     return updated ? success() : failure();
   }
 
@@ -262,9 +258,9 @@ createToLayoutOp(PatternRewriter &rewriter, Location loc, Value input,
 static bool changeLayoutToHost(DestinationStyleOpInterface &op,
                                OpOperand &operand, PatternRewriter &rewriter) {
   Location newLoc = appendInputSuffix(op.getLoc(), operand.getOperandNumber());
-  std::optional<Value> layout =
-      createToLayoutOp(rewriter, newLoc, operand.get(),
-                       BufferType::SystemMemory, nullptr, false /* tiled */);
+  std::optional<Value> layout = createToLayoutOp(
+      rewriter, newLoc, operand.get(), BufferType::SystemMemory,
+      nullptr /* desiredMemLayoutAttr */, false /* tiled */);
   if (layout.has_value()) {
     rewriter.modifyOpInPlace(
         op, [&]() { op->setOperand(operand.getOperandNumber(), *layout); });
@@ -284,12 +280,9 @@ public:
 
   LogicalResult matchAndRewrite(DestinationStyleOpInterface op,
                                 PatternRewriter &rewriter) const final {
-    llvm::outs() << "s TTNNLayoutDPSOperandsRewriter::mAR\n";
-    op.dump();
-
     // To layout op is a special case, we don't want to rewrite it
-    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation()) || op->getParentOfType<tt::CPUModuleOp>()) {
-      llvm::outs() << "e -- f TTNNLayoutDPSOperandsRewriter::mAR\n";
+    if (mlir::isa<ttir::ToLayoutOp>(op.getOperation()) ||
+        op->getParentOfType<tt::CPUModuleOp>()) {
       return failure();
     }
 
@@ -339,8 +332,6 @@ public:
         });
       }
     }
-    llvm::outs() << "e -- " << (modified ? "s" : "f")
-                 << " TTNNLayoutDPSOperandsRewriter::mAR\n";
 
     return modified ? success() : failure();
   }
@@ -355,21 +346,10 @@ public:
   // Match and rewrite the CallOp.
   LogicalResult matchAndRewrite(func::CallOp callOp,
                                 PatternRewriter &rewriter) const override {
-    llvm::outs() << "s TTNNLayoutHoistedFuncCallRewriter::mAR\n";
-
-    llvm::outs() << "0\n";
-
-    llvm::outs() << "Address of callOp: " << &callOp << "\n";
-    llvm::outs() << "Details of callOp: " << callOp << "\n";
-
-    llvm::outs() << callOp->getName() << "\n";
-    if (!callOp->hasAttr("hoisted_call") || callOp->hasAttr("replaced")) {
-      llvm::outs() << "e -- f TTNNLayoutHoistedFuncCallRewriter::mAR\n";
+    if (!callOp->hasAttr("hoisted_call")) {
       return failure();
     }
     auto device = utils::getOrInsertDevice(rewriter, callOp);
-
-    llvm::outs() << "1\n";
 
     // Create a FromDevice operation for each operand.
     SmallVector<Value, 4> fromDeviceOperands;
@@ -378,52 +358,32 @@ public:
       // Insert FromDevice op before the operand and collect the new operands.
       auto fromDeviceOp = rewriter.create<ttnn::FromDeviceOp>(
           callOp.getLoc(), operand.getType(), operand);
-      fromDeviceOp.dump();
       Location newLoc = appendInputSuffix(callOp.getLoc(), locIdx++);
       std::optional<Value> maybeLayoutOp = createToLayoutOp(
           rewriter, newLoc, fromDeviceOp.getResult(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
       Value hostOpValue = maybeLayoutOp.has_value() ? maybeLayoutOp.value()
                                                     : fromDeviceOp.getResult();
       fromDeviceOperands.push_back(hostOpValue);
     }
-
-    llvm::outs() << "2\n";
 
     // Create the original CallOp with the new operands (FromDevice'd).
     auto newCallOp = rewriter.create<func::CallOp>(
         callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
         fromDeviceOperands);
 
-    llvm::outs() << "3\n";
-
-    // Now, insert ToDevice ops for the results of the CallOp
+    // Now, insert ToDevice ops for the results of the CallOp.
     SmallVector<Value, 4> toDeviceResults;
     for (auto result : newCallOp.getResults()) {
-      // Insert ToDevice op after the result
+      // Insert ToDevice op after the result.
       auto toDeviceOp = rewriter.create<ttnn::ToDeviceOp>(
           callOp.getLoc(), result.getType(), result, device,
           ttnn::MemoryConfigAttr{});
-      Location newLoc =
-          appendInputSuffix(callOp.getLoc(), result.getResultNumber() + locIdx);
-      std::optional<Value> maybeLayoutOp = createToLayoutOp(
-          rewriter, newLoc, toDeviceOp.getResult(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, true /* tiled */);
-      Value deviceResultValue = maybeLayoutOp.has_value()
-                                    ? maybeLayoutOp.value()
-                                    : toDeviceOp.getResult();
-      toDeviceResults.push_back(deviceResultValue);
+      toDeviceResults.push_back(toDeviceOp.getResult());
     }
-    llvm::outs() << "4\n";
 
     // Replace the original call with the new ToDevice results.
     rewriter.replaceOp(callOp, toDeviceResults);
-    // rewriter.eraseOp(callOp);
-    callOp->setAttr("replaced", rewriter.getUnitAttr());
-
-    llvm::outs() << "5\n";
-
-    llvm::outs() << "e -- s TTNNLayoutHoistedFuncCallRewriter::mAR\n";
 
     return success();
   }
@@ -439,29 +399,19 @@ public:
 
   LogicalResult matchAndRewrite(mlir::func::ReturnOp op,
                                 PatternRewriter &rewriter) const final {
-    llvm::outs() << "s TTNNLayoutFuncReturnRewriter::mAR\n";
-
     bool modified = false;
     for (OpOperand &operand : op->getOpOperands()) {
       Location newLoc =
           appendInputSuffix(op.getLoc(), operand.getOperandNumber());
       std::optional<Value> layout = createToLayoutOp(
           rewriter, newLoc, operand.get(), BufferType::SystemMemory,
-          nullptr /* tensorMemoryLayoutAttr */, false /* tiled */);
+          nullptr /* desiredMemLayoutAttr */, false /* tiled */);
       if (layout.has_value()) {
         rewriter.modifyOpInPlace(
             op, [&]() { op.setOperand(operand.getOperandNumber(), *layout); });
         modified = true;
       }
     }
-    llvm::outs() << "e -- ";
-    if (modified) {
-      llvm::outs() << "s";
-      op.dump();
-    } else {
-      llvm::outs() << "f";
-    }
-    llvm::outs() << " TTNNLayoutFuncReturnRewriter::mAR\n";
 
     return modified ? success() : failure();
   }
@@ -501,8 +451,6 @@ public:
         signalPassFailure();
         return;
       }
-      llvm::outs() << "IR dump:\n";
-      getOperation()->dump();
     }
     {
       RewritePatternSet patterns(&getContext());
@@ -522,9 +470,6 @@ public:
         signalPassFailure();
         return;
       }
-      llvm::outs() << "IR dump:\n";
-      getOperation()->dump();
-      llvm::outs() << "e TTNNLayout::rOO\n";
     }
   }
 

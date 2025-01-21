@@ -25,7 +25,11 @@ void run(const ::tt::target::ttnn::ArangeOp *op, ProgramContext &context) {
   }
 
   if (op->memcfg()) {
-    memoryConfig = utils::createMemoryConfig(op->memcfg(), op->out());
+    std::optional<::ttnn::MemoryConfig> maybeMemoryConfig =
+        utils::createMemoryConfig(op->memcfg(), op->out());
+    if (maybeMemoryConfig.has_value()) {
+      memoryConfig = maybeMemoryConfig.value();
+    }
   }
 
   if (op->device()) {

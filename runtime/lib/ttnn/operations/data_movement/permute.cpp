@@ -19,9 +19,9 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
   std::vector<int64_t> permutation(op->permutation()->begin(),
                                    op->permutation()->end());
   std::optional<tt::tt_metal::MemoryConfig> memoryConfig =
-      op->memory_config() ? std::make_optional(utils::createMemoryConfig(
-                                op->memory_config(), op->out()))
-                          : std::nullopt;
+      op->memory_config()
+          ? utils::createMemoryConfig(op->memory_config(), op->out())
+          : std::nullopt;
   float padValue = op->pad_value();
 
   ::ttnn::Tensor out = ::ttnn::permute(in, permutation, memoryConfig, padValue);

@@ -159,7 +159,7 @@ memoryConfigToFlatbuffer(FlatbufferObjectCache &cache,
       (memoryConfigTensorLayout)
           ? ::tt::mlir::ttnn::utils::toTargetTensorMemoryLayout(
                 memoryConfigTensorLayout.getValue())
-          : ::tt::target::TensorMemoryLayout::SingleBank;
+          : ::tt::target::TensorMemoryLayout::None;
   ::tt::target::BufferType bufferType =
       ::tt::mlir::ttnn::utils::toTargetBufferType(
           memoryConfig.getBufferType().getValue());

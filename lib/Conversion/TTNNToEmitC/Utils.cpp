@@ -67,6 +67,9 @@ emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
 
 emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
                                             ttnn::TensorMemoryLayoutAttr attr) {
+  if (!attr) {
+    return builder.getType<emitc::OpaqueAttr>("nullptr");
+  }
   switch (attr.getValue()) {
   case ttnn::TensorMemoryLayout::BlockSharded:
     return builder.getType<emitc::OpaqueAttr>(
@@ -208,23 +211,9 @@ emitc::CallOpaqueOp createMemoryConfigOp(ConversionPatternRewriter &rewriter,
   //
   // TODO(svuckovic): (#620) Currently missing ShardSpec
   //
-  // Check if tensor_memory_layout exists
-  auto tensorMemoryLayout = memoryConfig ? memoryConfig.getTensorMemoryLayout()
-                                         : nullptr;
-
-  // Provide a default value if the attribute doesn't exist
-  if (!tensorMemoryLayout) {
-    llvm::outs() << "(vwells) tensor_memory_layout attribute not found. Using default.\n";
-
-    // Replace `DefaultEnumValue` with the specific default you want to use
-    auto defaultLayout = ttnn::TensorMemoryLayout::SingleBank;
-
-    // Create the default attribute
-    tensorMemoryLayout = ttnn::TensorMemoryLayoutAttr::get(rewriter.getContext(), defaultLayout);
-  }
-   ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
+  ArrayAttr memCfgArrayAttrs = rewriter.getArrayAttr(
       {convertTensorMemoryLayout(rewriter,
-                                 tensorMemoryLayout),
+                                 memoryConfig.getTensorMemoryLayout()),
        convertBufferType(rewriter, memoryConfig.getBufferType())});
   // Create MemoryConfig object
   //

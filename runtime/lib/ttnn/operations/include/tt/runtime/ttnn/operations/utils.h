@@ -22,7 +22,7 @@ getMemorySpace(const ::tt::target::TensorRef *tensorRef);
 
 ::ttnn::DataType getDataType(const ::tt::target::TensorRef *tensorRef);
 
-::tt::tt_metal::MemoryConfig
+std::optional<::ttnn::MemoryConfig>
 createMemoryConfig(const ::tt::target::MemoryConfigDesc *memcfg,
                    const ::tt::target::TensorRef *tensorRef);
 

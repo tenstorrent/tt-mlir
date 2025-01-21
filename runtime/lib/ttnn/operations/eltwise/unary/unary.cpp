@@ -14,15 +14,14 @@ namespace tt::runtime::ttnn::operations::unary {
 
 static void runEltwiseUnaryOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &,
-                       const std::optional<::tt::tt_metal::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
+    const std::function<::ttnn::Tensor(
+        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
+        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig, std::nullopt);
@@ -33,13 +32,13 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
     const std::function<
         ::ttnn::Tensor(const ::ttnn::Tensor &, const bool,
-                       const std::optional<::tt::tt_metal::MemoryConfig> &,
+                       const std::optional<::ttnn::MemoryConfig> &,
                        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
 
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out =
@@ -50,13 +49,12 @@ static void runEltwiseUnaryWithFastAndApproximateModeOp(
 static void runEltwiseUnaryWithFloatParameterOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(const ::ttnn::Tensor &, float,
-                                       const ::tt::tt_metal::MemoryConfig &)>
-        &ttnnOp) {
+                                       const ::ttnn::MemoryConfig &)> &ttnnOp) {
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
   float parameter = op->params_as_EltwiseOpWithFloatParams()->parameter();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ttnnOp(*in, parameter, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);

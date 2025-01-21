@@ -15,7 +15,7 @@ void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
   DEBUG_ASSERT(in.is_allocated());
   int32_t dim0 = op->dim0();
   int32_t dim1 = op->dim1();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out = ::ttnn::transpose(in, dim0, dim1, outputMemoryConfig);
   tensorPool.insert_or_assign(op->out()->global_id(), out);

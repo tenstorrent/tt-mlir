@@ -27,8 +27,10 @@ struct EmptyTensorConfig {
     if (op->device()) {
       LOG_ASSERT(op->memcfg(),
                  "Memory config must be provided when device is provided");
+      LOG_INFO("before createMemoryConfig");
       memoryConfig = ::tt::runtime::ttnn::operations::utils::createMemoryConfig(
           op->memcfg(), op->out());
+      LOG_INFO("after createMemoryConfig");
     }
     validate();
   }
@@ -76,8 +78,9 @@ createEmptyOnMultiDevice(ProgramContext &context, EmptyTensorConfig &config,
 static ::ttnn::Tensor
 createEmptyOnSingleDevice(ProgramContext &context, EmptyTensorConfig &config,
                           const ::tt::target::DeviceRef *deviceRef) {
-  if (deviceRef && config.memoryConfig.value().buffer_type !=
-                       ::ttnn::BufferType::SYSTEM_MEMORY) {
+  if (deviceRef && config.memoryConfig.has_value() &&
+      config.memoryConfig.value().buffer_type !=
+          ::ttnn::BufferType::SYSTEM_MEMORY) {
     ::ttnn::MeshDevice &subMesh = context.getSubMesh(deviceRef->global_id());
     LOG_ASSERT(subMesh.num_devices() == 1);
     ::ttnn::Device *device = subMesh.get_device_index(0);

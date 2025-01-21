@@ -24,8 +24,7 @@ void run(const ::tt::target::ttnn::OnesOp *op, ProgramContext &context) {
   std::optional<::ttnn::DataType> dtype = std::optional<::ttnn::DataType>();
   std::optional<::ttnn::Layout> layout = std::optional<::ttnn::Layout>();
   std::optional<std::reference_wrapper<::ttnn::Device>> device = std::nullopt;
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      std::optional<::ttnn::MemoryConfig>();
+  std::optional<::ttnn::MemoryConfig> memoryConfig;
 
   if (op->dtype()) {
     dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));

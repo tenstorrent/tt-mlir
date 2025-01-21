@@ -20,10 +20,13 @@ static void runEltwiseUnaryCompositeOp(
   ::ttnn::Tensor *in = nullptr;
   getEltwiseUnaryOpInputTensor(op, tensorPool, &in);
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+  assert(outputMemoryConfig.has_value() &&
+         "runEltwiseUnaryCompositeOp requires valid memoryConfig (which means "
+         "tensor must be on device, not on host)!");
 
-  ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig);
+  ::ttnn::Tensor out = ttnnOp(*in, outputMemoryConfig.value());
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 
@@ -37,9 +40,12 @@ static void runEltwiseUnaryCompositeClampOp(
 
   float min = op->params_as_ClampOpParams()->min();
   float max = op->params_as_ClampOpParams()->max();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
-  ::ttnn::Tensor out = ttnnOp(*in, min, max, outputMemoryConfig);
+  assert(outputMemoryConfig.has_value() &&
+         "runEltwiseUnaryCompositeClampOp requires valid memoryConfig (which "
+         "means tensor must be on device, not on host)!");
+  ::ttnn::Tensor out = ttnnOp(*in, min, max, outputMemoryConfig.value());
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 

@@ -449,6 +449,10 @@ Tensor getOpOutputTensor(OpContext opContextHandle,
     globalId = opContext.type_as_AllGatherOp()->out()->global_id();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp: {
+    globalId = opContext.type_as_CpuOp()->out()->global_id();
+    break;
+  }
   case ::tt::target::ttnn::OpType::DeallocateOp: {
     LOG_WARNING("getting output tensor for DeallocateOp is not supported");
     return createNullTensor();

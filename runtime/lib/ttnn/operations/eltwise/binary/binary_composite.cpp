@@ -12,15 +12,15 @@ namespace tt::runtime::ttnn::operations::binary::composite {
 
 static void runEltwiseBinaryCompositeOp(
     const ::tt::target::ttnn::EltwiseOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &, const ::ttnn::Tensor &,
-        const std::optional<::tt::tt_metal::MemoryConfig> &)> &ttnnOp) {
+    const std::function<
+        ::ttnn::Tensor(const ::ttnn::Tensor &, const ::ttnn::Tensor &,
+                       const std::optional<::ttnn::MemoryConfig> &)> &ttnnOp) {
 
   ::ttnn::Tensor *lhs = nullptr;
   ::ttnn::Tensor *rhs = nullptr;
   getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);

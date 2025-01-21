@@ -13,7 +13,7 @@ void run(const ::tt::target::ttnn::AllGatherOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &input = tensorPool.at(op->in()->global_id());
   int32_t dim = op->dim();
   int32_t num_links = op->num_links();
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   ::ttnn::Tensor out =
       ::ttnn::all_gather(input, dim, num_links, outputMemoryConfig);

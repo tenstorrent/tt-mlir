@@ -18,11 +18,9 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   DEBUG_ASSERT(lhs.is_allocated());
   DEBUG_ASSERT(rhs.is_allocated());
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
-  const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
-      std::make_optional(outputMemoryConfig);
+  const std::optional<const ::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   const std::optional<const ::ttnn::DataType> dtype =
       std::make_optional(outputDataType);
@@ -49,11 +47,9 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   DEBUG_ASSERT(!bias || bias->is_allocated());
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
-  const std::optional<const ::tt::tt_metal::MemoryConfig> memoryConfig =
-      std::make_optional(outputMemoryConfig);
+  const std::optional<const ::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   const std::optional<const ::ttnn::DataType> dtype =
       std::make_optional(outputDataType);

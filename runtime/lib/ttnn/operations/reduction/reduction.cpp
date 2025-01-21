@@ -14,10 +14,10 @@ static void runReductionOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &,
         const std::optional<std::variant<int, ::ttnn::SmallVector<int>>> &,
-        const bool, const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const bool, const std::optional<::ttnn::MemoryConfig> &,
         const std::optional<::ttnn::DeviceComputeKernelConfig> &, float)>
         &ttnnOp) {
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());

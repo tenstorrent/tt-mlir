@@ -19,8 +19,7 @@ void run(const ::tt::target::ttnn::ToDeviceOp *op, ProgramContext &context) {
   std::optional<::ttnn::MemoryConfig> memoryConfig = std::nullopt;
 
   if (op->memcfg()) {
-    memoryConfig =
-        std::make_optional(utils::createMemoryConfig(op->memcfg(), op->out()));
+    memoryConfig = utils::createMemoryConfig(op->memcfg(), op->out());
   }
   DeviceVariant targetDevice =
       context.getTargetDevice(op->device()->global_id());

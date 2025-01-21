@@ -2,6 +2,7 @@ add_library(TTRuntimeTTNNHelpers
   STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/types.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/tt/runtime/ttnn/dylib.cpp
 )
 set_property(TARGET TTRuntimeTTNNHelpers PROPERTY CXX_STANDARD 20)
 target_compile_options(TTRuntimeTTNNHelpers PUBLIC -mavx -mavx2 -fsized-deallocation)

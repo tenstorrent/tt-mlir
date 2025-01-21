@@ -16,7 +16,7 @@ static void runEltwiseBinaryOp(
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const ::ttnn::Tensor &,
         const std::optional<const ::ttnn::DataType> &,
-        const std::optional<::tt::tt_metal::MemoryConfig> &,
+        const std::optional<::ttnn::MemoryConfig> &,
         std::optional<::ttnn::Tensor>,
         std::optional<::ttnn::operations::unary::FusedActivations>,
         std::optional<::ttnn::operations::unary::UnaryWithParam>)> &ttnnOp) {
@@ -26,7 +26,7 @@ static void runEltwiseBinaryOp(
   getEltwiseBinaryOpInputTensors(op, tensorPool, &lhs, &rhs);
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
-  ::tt::tt_metal::MemoryConfig outputMemoryConfig =
+  ::ttnn::MemoryConfig outputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
 
   ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
