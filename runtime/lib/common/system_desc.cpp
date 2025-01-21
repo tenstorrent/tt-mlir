@@ -257,6 +257,11 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
 std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
+
+  ::tt::tt_metal::DispatchCoreType type;
+  type = numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
+                                      : ::tt::tt_metal::DispatchCoreType::ETH;
   std::vector<chip_id_t> deviceIds(numDevices);
   std::iota(deviceIds.begin(), deviceIds.end(), 0);
   ::tt::tt_metal::distributed::MeshShape meshShape = {1, numDevices};
@@ -264,8 +269,10 @@ std::pair<::tt::runtime::SystemDesc, DeviceIds> getCurrentSystemDesc() {
       ::tt::tt_metal::distributed::MeshDevice::create(
           ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape =
                                                             meshShape},
-          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1,
-          ::tt::tt_metal::DispatchCoreType::WORKER);
+          DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1, type);
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
   std::exception_ptr eptr = nullptr;
   std::unique_ptr<::tt::runtime::SystemDesc> desc;
   try {

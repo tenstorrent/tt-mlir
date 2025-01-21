@@ -193,14 +193,37 @@ size_t getNumAvailableDevices() {
 }
 
 Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
-                  std::optional<size_t> l1SmallSize) {
+                  std::optional<size_t> l1SmallSize,
+                  std::optional<DispatchCoreType> dispatchCoreType) {
+
+  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
+
+  ::tt::tt_metal::DispatchCoreType type;
+  if (dispatchCoreType.has_value()) {
+    if (dispatchCoreType == DispatchCoreType::ETH) {
+      type = ::tt::tt_metal::DispatchCoreType::ETH;
+    } else if (dispatchCoreType == DispatchCoreType::WORKER) {
+      type = ::tt::tt_metal::DispatchCoreType::WORKER;
+    } else {
+      LOG_FATAL("Unsupported dispatch core type");
+    }
+  } else {
+    type = numDevices == numPCIeDevices
+               ? ::tt::tt_metal::DispatchCoreType::WORKER
+               : ::tt::tt_metal::DispatchCoreType::ETH;
+  }
+
   LOG_ASSERT(deviceIds.size(), "No devices specified");
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   size_t l1SmallSizeValue = l1SmallSize.value_or(kL1SmallSize);
   std::shared_ptr<::ttnn::MeshDevice> meshDevice = ::ttnn::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{.mesh_shape = grid},
-      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs,
-      ::tt::tt_metal::DispatchCoreType::WORKER);
+      l1SmallSizeValue, DEFAULT_TRACE_REGION_SIZE, numHWCQs, type);
+
+  CoreCoord logical_grid_size = meshDevice->compute_with_storage_grid_size();
+  LOG_INFO("Grid size = { ", logical_grid_size.x, ", ", logical_grid_size.y,
+           "}");
 
   bool enableAsync = debug::Env::get().enableAsyncTTNN;
   for (::ttnn::IDevice *device : meshDevice->get_devices()) {
