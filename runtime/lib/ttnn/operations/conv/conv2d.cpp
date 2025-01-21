@@ -13,29 +13,20 @@
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
-  ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
+  const ::ttnn::Tensor &input = tensorPool.at(op->input()->global_id());
+  const ::ttnn::Tensor &weight = tensorPool.at(op->weight()->global_id());
   DEBUG_ASSERT(input.is_allocated());
   DEBUG_ASSERT(weight.is_allocated());
 
   std::optional<::ttnn::Tensor> bias =
       op->bias() ? std::make_optional(tensorPool.at(op->bias()->global_id()))
                  : std::nullopt;
-
   auto config = ::ttnn::operations::conv::Conv2dConfig();
   config.dtype = utils::getDataType(op->input());
   config.weights_dtype = utils::getDataType(op->weight());
 
-  bool cast_input = op->input_height() == 608;
-  if (cast_input) {
-    input = ::ttnn::typecast(input, ::ttnn::DataType::BFLOAT8_B);
-    config.dtype = ::ttnn::DataType::BFLOAT8_B;
-  }
-
   // Use defaults for now, until compiler drives this.
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig =
-      ::ttnn::WormholeComputeKernelConfig(MathFidelity::LoFi, true, true, false,
-                                          false);
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
 
   ::ttnn::MemoryConfig outMemConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
@@ -53,9 +44,7 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
             config, computeConfig, outMemConfig));
       },
       targetDevice);
-  if (cast_input) {
-    out = ::ttnn::typecast(out, ::ttnn::DataType::BFLOAT16);
-  }
+
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }
 } // namespace tt::runtime::ttnn::operations::conv
