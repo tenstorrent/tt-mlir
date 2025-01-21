@@ -787,11 +787,11 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  auto dim_arg =
+  auto dimArg =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
-                                               dim_arg, op.getKeepDim());
+                                               dimArg, op.getKeepDim());
 }
 
 template <typename ReductionOp>
@@ -801,11 +801,12 @@ createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  auto dim_arg =
+  auto dimArg =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+  bool allDimensions = op.getDimArg() ? false : true;
 
-  return ::tt::target::ttnn::CreateReductionProdOp(*cache.fbb, in, output,
-                                                   dim_arg, op.getKeepDim());
+  return ::tt::target::ttnn::CreateReductionProdOp(
+      *cache.fbb, in, output, allDimensions, dimArg, op.getKeepDim());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>

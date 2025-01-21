@@ -1,15 +1,22 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.ttnn
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline %s | \
-// RUN:     ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" > %t.mlir
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline \
+// RUN:     --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: FileCheck --input-file=%t.mlir %s
 // UNSUPPORTED: true
-// These tests are currently failing due reshape op mismatched tensor volume. A
-// new workaround is required to handle the shape and full product.
-// https://github.com/tenstorrent/tt-mlir/issues/1859
-// TODO(mmanzoor): Enable these tests once TTNN workaround is ready.
+// These tests are failing due to two reasons.
+// 1. Input tensor rank is less than 4.
+// tt-mlir issue: https://github.com/tenstorrent/tt-mlir/issues/1859
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/16909
+// 2. Inconsistent output tensor shape compared to other tt-metal reduction ops
+// (e.g. ttnn.sum, ttnn.max, etc.)
+// tt-mlir issue: https://github.com/tenstorrent/tt-mlir/issues/1890
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/16915
+// These issues can be fixed by updating workarounds in tt-mlir.
+// TODO(mmanzoor): Enable these tests either issues are fixed in tt-metal or
+// workarounds are added in tt-mlir.
 
 module @jit_reduce_prod attributes {} {
   func.func public @test_reduce_prod_4to0dim(%arg0: tensor<128x10x32x4xbf16>, %cst_0: tensor<bf16>) -> tensor<bf16> {

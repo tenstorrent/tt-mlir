@@ -19,10 +19,10 @@ static void runReductionProdOp(::tt::target::ttnn::ReductionProdOp const *op,
 
   const auto *fbDimArg = op->dim_arg();
   int dim = fbDimArg ? static_cast<int>(*fbDimArg->begin()) : 0;
-  bool all_dimensions = fbDimArg ? false : true;
 
-  ::ttnn::Tensor out = ::ttnn::prod(in, all_dimensions, dim, op->keep_dim(),
-                                    outputMemoryConfig /* memory_config_arg */);
+  ::ttnn::Tensor out =
+      ::ttnn::prod(in, op->all_dimensions(), dim, op->keep_dim(),
+                   outputMemoryConfig /* memory_config_arg */);
 
   tensorPool.insert_or_assign(op->out()->global_id(), out);
 }

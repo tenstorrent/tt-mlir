@@ -1,7 +1,7 @@
 // REQUIRES: stablehlo
 // RUN: rm -rf %t.ttnn
 // RUN: rm -rf %t.mlir
-// RUN: ttmlir-opt %s --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" > %t.mlir
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: FileCheck --input-file=%t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // UNSUPPORTED: true
