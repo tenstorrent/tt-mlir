@@ -21,10 +21,10 @@ class AtLeastRegion<int numBlocks> : Region<
   CPred<"$_self.getBlocks().size() >= " # numBlocks>,
   "region with " # numBlocks # " blocks">;
 
-def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch op.";
+def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+    let summary = "Enqueue program op.";
     let description = [{
-      Dispatch operation
+      Enqueue program operation
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,

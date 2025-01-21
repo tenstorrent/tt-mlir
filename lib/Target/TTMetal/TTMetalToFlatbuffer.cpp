@@ -289,10 +289,10 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
     }
 
     entry->walk([&](mlir::Operation *op) {
-      if (auto dispatchOp = dyn_cast_or_null<tt::ttmetal::DispatchOp>(op);
-          dispatchOp) {
+      if (auto enqueueProgramOp = dyn_cast_or_null<tt::ttmetal::EnqueueProgramOp>(op);
+          enqueueProgramOp) {
         std::vector<::flatbuffers::Offset<::tt::target::TensorRef>> operands;
-        for (auto operand : dispatchOp.getOperands()) {
+        for (auto operand : enqueueProgramOp.getOperands()) {
           operands.push_back(cache.at<::tt::target::TensorRef>(
               getOperandThroughDPSOps(operand)));
         }
@@ -300,15 +300,15 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
         std::vector<::flatbuffers::Offset<::tt::target::metal::KernelDesc>>
             kernels;
 
-        llvm::SmallVector<std::string> cppKernels(dispatchOp->getNumRegions());
+        llvm::SmallVector<std::string> cppKernels(enqueueProgramOp->getNumRegions());
         llvm::LogicalResult success =
-            emitDispatchOpRegionsAsCpp(dispatchOp, cppKernels);
+            emitEnqueueProgramOpRegionsAsCpp(enqueueProgramOp, cppKernels);
         assert(success.succeeded() &&
-               "failed to emit dispatch op regions as cpp");
-        for (auto &region : dispatchOp.getRegions()) {
+               "failed to emit enqueue program op regions as cpp");
+        for (auto &region : enqueueProgramOp.getRegions()) {
           std::vector<::tt::target::Dim2dRange> coreRangeSet = {
               toFlatbuffer(mlir::cast<CoreRangeAttr>(
-                  dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
+                  enqueueProgramOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
           size_t argNumber = 0;
           for (auto arg : region.getArguments()) {
@@ -326,7 +326,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
 
           // Get pair of kernel's config type and config itself.
           auto kernelConfig =
-              dispatchOp.getKernelConfigs()[region.getRegionNumber()];
+              enqueueProgramOp.getKernelConfigs()[region.getRegionNumber()];
           auto [kernelConfigType, kernelConfigUnion] = toFlatbuffer(
               fbb, mlir::cast<ttkernel::KernelConfigInterface>(kernelConfig));
 

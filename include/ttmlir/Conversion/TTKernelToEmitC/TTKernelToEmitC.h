@@ -30,9 +30,9 @@ LogicalResult emitOpRegionAsCpp(Region *region, std::string &regionCpp,
 LogicalResult emitOpRegionAsCpp(Region *region, llvm::raw_ostream &os,
                                 const ttkernel::ThreadType &threadType);
 
-// Converts dispatch op's regions to C++ code.
+// Converts enqueue program op's regions to C++ code.
 LogicalResult
-emitDispatchOpRegionsAsCpp(ttmetal::DispatchOp dispatchOp,
+emitEnqueueProgramOpRegionsAsCpp(ttmetal::EnqueueProgramOp enqueueProgramOp,
                            llvm::SmallVector<std::string> &cppStrings);
 
 LogicalResult emitKernelAsCpp(mlir::ModuleOp op, llvm::raw_ostream &os,

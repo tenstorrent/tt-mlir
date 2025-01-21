@@ -271,7 +271,7 @@ public:
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
 
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+    auto metalEnqueueProgram = rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
@@ -286,14 +286,14 @@ public:
 
     int regIdx = 0;
     for (auto [dstCoord, transactions] : dm) {
-      Block *block = rewriter.createBlock(&metalDispatch.getRegion(regIdx++));
+      Block *block = rewriter.createBlock(&metalEnqueueProgram.getRegion(regIdx++));
       createDataMovementThread(op->getLoc(), block, inputBaseAddress,
                                outputBaseAddress, transactions,
                                physicalCoordMapping, addressAlignment);
       OpBuilder endBuilder = OpBuilder::atBlockEnd(block);
       endBuilder.create<ttkernel::ReturnOp>(op->getLoc());
     }
-    rewriter.replaceOp(op, metalDispatch);
+    rewriter.replaceOp(op, metalEnqueueProgram);
 
     return llvm::success();
   }
@@ -365,7 +365,7 @@ public:
         rewriter.getAttr<ttmetal::CoreRangeAttr>(inputLayout.getGrid()),
     };
 
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
+    auto metalEnqueueProgram = rewriter.create<ttmetal::EnqueueProgramOp>(
         op.getLoc(), SmallVector<Type>({outputTy}),
         SmallVector<Value>({op.getInput()}),
         SmallVector<Value>({op.getOutput()}), rewriter.getArrayAttr(coreRanges),
@@ -373,7 +373,7 @@ public:
 
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
-    Block *tensixBlock = rewriter.createBlock(&metalDispatch.getRegion(0));
+    Block *tensixBlock = rewriter.createBlock(&metalEnqueueProgram.getRegion(0));
     OpBuilder tensixBuilder(tensixBlock, tensixBlock->begin());
     uint64_t pageSize = inputLayout.isTiled()
                             ? inputLayout.getElementSizeBytes()
@@ -435,7 +435,7 @@ public:
 
     tensixBuilder.create<ttkernel::ReturnOp>(op.getLoc());
 
-    rewriter.replaceOp(op, metalDispatch);
+    rewriter.replaceOp(op, metalEnqueueProgram);
 
     return success();
   }
@@ -503,7 +503,7 @@ public:
   }
 };
 
-class TTIRToTTMetalDispatchRewriter : public OpRewritePattern<ttir::GenericOp> {
+class TTIRToTTMetalEnqueueProgramRewriter : public OpRewritePattern<ttir::GenericOp> {
 public:
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
@@ -1225,10 +1225,10 @@ public:
   }
 
   // Builds instructions to execute after loops are finished.
-  void buildEndSection(OpBuilder &dispatchBlockBuilder,
+  void buildEndSection(OpBuilder &enqueueProgramBlockBuilder,
                        Block *origGenericOpBlock) const {
     // Place return op at the end of block, after loops.
-    dispatchBlockBuilder.create<ttkernel::ReturnOp>(
+    enqueueProgramBlockBuilder.create<ttkernel::ReturnOp>(
         origGenericOpBlock->getTerminator()->getLoc());
   }
 
@@ -1618,7 +1618,7 @@ public:
   void generateDataMovementThreads(
       ttir::GenericOp op, Block *tensixBlock,
       ArrayRef<StreamedOperand> streamedOperands, PatternRewriter &rewriter,
-      ttmetal::DispatchOp &metalDispatch,
+      ttmetal::EnqueueProgramOp &metalEnqueueProgram,
       ArrayRef<Type> rewrittenBlockArgumentTypes) const {
 
     // TODO(1159) move TTIRToTTMetalLayoutRewriter::createDataMovementThreads
@@ -1634,7 +1634,7 @@ public:
       for (auto [dstCoord, srcs] : operand.dataMovement) {
         Block *block =
             coordToBlock.find(dstCoord) == coordToBlock.end()
-                ? rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++))
+                ? rewriter.createBlock(&metalEnqueueProgram.getRegion(dmThreadIdx++))
                 : coordToBlock[dstCoord];
         coordToBlock[dstCoord] = block;
 
@@ -1654,7 +1654,7 @@ public:
       if (coordToBlock.empty()) {
         // No data movement, so we need to add a block for the scaler.
         coordToBlock[PhysicalCoreCoord()] =
-            rewriter.createBlock(&metalDispatch.getRegion(dmThreadIdx++));
+            rewriter.createBlock(&metalEnqueueProgram.getRegion(dmThreadIdx++));
       }
 
       Type scalerCBType;
@@ -1760,39 +1760,39 @@ public:
           getContext(), {dstCoord.y, dstCoord.x}, gridShape));
     }
 
-    // Wire generic's operands to dispatch op's operands with respect to the CB
+    // Wire generic's operands to enqueue program op's operands with respect to the CB
     // mapping.
-    SmallVector<Value> inputsToDispatchOp;
+    SmallVector<Value> inputsToEnqueueProgramOp;
     for (size_t i = 0; i < op.getInputs().size(); ++i) {
       auto operand = op.getOperandCbMapping()[i] == -1
                          ? op.getMatchingOperand(i)
                          : op.getCbs()[op.getOperandCbMapping()[i]];
-      inputsToDispatchOp.push_back(operand);
+      inputsToEnqueueProgramOp.push_back(operand);
     }
 
-    auto metalDispatch = rewriter.create<ttmetal::DispatchOp>(
-        op.getLoc(), op.getResults().getTypes(), inputsToDispatchOp,
+    auto metalEnqueueProgram = rewriter.create<ttmetal::EnqueueProgramOp>(
+        op.getLoc(), op.getResults().getTypes(), inputsToEnqueueProgramOp,
         op.getOutputs(), rewriter.getArrayAttr(coreRanges),
         rewriter.getArrayAttr(kernelConfigs), kernelConfigs.size());
 
-    Block *tensixBlock = &metalDispatch.getRegion(0).emplaceBlock();
+    Block *tensixBlock = &metalEnqueueProgram.getRegion(0).emplaceBlock();
 
     for (auto ty : rewrittenBlockArgumentTypes) {
       tensixBlock->addArgument(ty, op.getLoc());
     }
 
     generateDataMovementThreads(op, tensixBlock, streamedOperands, rewriter,
-                                metalDispatch, rewrittenBlockArgumentTypes);
+                                metalEnqueueProgram, rewrittenBlockArgumentTypes);
 
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
                op.getIndexingMaps(), op.getInputs().size());
 
     addSyncronizationForDataMovement(op, tensixBlock, streamedOperands);
 
-    // Regions for dispatch op are allocated up-front, but some of them may be
+    // Regions for enqueue program op are allocated up-front, but some of them may be
     // empty at the end of lowering due to no data movement requirements. Insert
     // return op in those regions.
-    for (Region &reg : metalDispatch->getRegions()) {
+    for (Region &reg : metalEnqueueProgram->getRegions()) {
       if (reg.empty()) {
         auto &block = reg.emplaceBlock();
         OpBuilder builder = OpBuilder::atBlockEnd(&block);
@@ -1800,7 +1800,7 @@ public:
       }
     }
 
-    rewriter.replaceOp(op, metalDispatch);
+    rewriter.replaceOp(op, metalEnqueueProgram);
 
     return success();
   }
@@ -1849,7 +1849,7 @@ void populateTTIRToTTMetalPatterns(MLIRContext *ctx,
                                    RewritePatternSet &patterns,
                                    TypeConverter & /*typeConverter*/) {
   patterns.add<ttmetal::TTIRToTTMetalLayoutRewriter,
-               ttmetal::TTIRToTTMetalDispatchRewriter,
+               ttmetal::TTIRToTTMetalEnqueueProgramRewriter,
                ttmetal::TTIRToTTMetalAllocRewriter,
                ttmetal::TTIRToTTMetalDeallocRewriter,
                ttmetal::TTIRToTTMetalFillRewriter>(ctx);

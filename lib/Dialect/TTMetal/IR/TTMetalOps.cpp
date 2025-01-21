@@ -73,7 +73,7 @@ namespace mlir::tt::ttmetal {
   return success();
 }
 
-::mlir::LogicalResult DispatchOp::verify() {
+::mlir::LogicalResult EnqueueProgramOp::verify() {
   // Assert inputs/outputs device memspace
   for (auto operand : getOperands()) {
     auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
