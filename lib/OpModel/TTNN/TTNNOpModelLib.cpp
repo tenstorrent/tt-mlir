@@ -47,7 +47,7 @@ std::tuple<bool, std::optional<std::tuple<size_t, size_t, size_t>>,
            std::optional<std::string>>
 getOpConstraints(const std::string_view &name, Callable &callable,
                  auto &&...args) {
-  ::ttnn::graph::QueryResponse query;
+  ::ttnn::graph::ConstraintQueryResponse query;
   try {
     query = callable(std::forward<decltype(args)>(args)...);
   } catch (const std::exception &e) {
