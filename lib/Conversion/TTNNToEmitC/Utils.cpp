@@ -67,6 +67,11 @@ emitc::OpaqueAttr convertShape(Builder &builder, ttnn::ShapeAttr attr) {
 
 emitc::OpaqueAttr convertTensorMemoryLayout(Builder &builder,
                                             ttnn::TensorMemoryLayoutAttr attr) {
+  // If this attr is null, it should mean device is on host; this should be
+  // legal, so we propagate here.
+  if (!attr) {
+    return builder.getType<emitc::OpaqueAttr>("nullptr");
+  }
   switch (attr.getValue()) {
   case ttnn::TensorMemoryLayout::BlockSharded:
     return builder.getType<emitc::OpaqueAttr>(
@@ -213,7 +218,6 @@ emitc::CallOpaqueOp createMemoryConfigOp(ConversionPatternRewriter &rewriter,
       {convertTensorMemoryLayout(rewriter,
                                  memoryConfig.getTensorMemoryLayout()),
        convertBufferType(rewriter, memoryConfig.getBufferType())});
-
   // Create MemoryConfig object
   //
   emitc::CallOpaqueOp memCfgOp = rewriter.create<emitc::CallOpaqueOp>(
