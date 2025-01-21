@@ -612,7 +612,21 @@ def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
 def TTNN_MinOp : TTNN_ReductionOp<"min"> {
   let summary = "Min reduction op.";
   let description = [{
-    Min reduction op.
+    This op computes the minimum of all elements of the tensor or along
+    specified dimension.
+
+    Example:
+      input: [[1, 5, 3],
+              [4, 2, 6]]
+
+      // Computing along dim 0
+      output: [1, 2, 3]
+
+      // Computing along dim 1
+      output: [1, 2]
+
+      // Computing for entire tensor
+      output: 1
   }];
 }
 
