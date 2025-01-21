@@ -125,10 +125,10 @@ public:
       return Builder(ctx).getI32Type();
     });
     addConversion(
-    [ctx](mlir::tt::ttkernel::L1AddrPtrType type) -> emitc::PointerType {
-      return emitc::PointerType::get(
-          emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
-    });
+        [ctx](mlir::tt::ttkernel::L1AddrPtrType type) -> emitc::PointerType {
+          return emitc::PointerType::get(
+              emitc::OpaqueType::get(ctx, "volatile tt_l1_ptr uint32_t"));
+        });
   }
 };
 
@@ -287,8 +287,8 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), "uint32_t"));
       return ArrayAttr::get(op.getContext(), template_args);
     }
-      return ArrayAttr();
-    }
+    return ArrayAttr();
+  }
 
   LogicalResult
   matchAndRewrite(SourceOp op, Adaptor adaptor,
@@ -451,8 +451,7 @@ public:
           TTMetalToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
           TTMetalToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
-          TTMetalToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>>(
+          TTMetalToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>>(
           typeConverter, funcOp.getContext());
 
       patterns.add<TTMetalToEmitCOpaqueRewriter<ttkernel::GetNocAddrXYOp>>(

@@ -587,7 +587,7 @@ def TTKernel_NocSemaphoreWaitMinOp : TTKernel_Op<"noc_semaphore_wait_min"> {
     let summary = "NocSemaphoreWaitMin";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
-      the Tensix core executing this function becomes equal to a target value.
+      the Tensix core executing this function becomes equal or greater than a target value.
       This L1 memory address is used as a semaphore of size 4 Bytes, as a
       synchronization mechanism. Also, see *noc_semaphore_set*.
     }];
@@ -613,7 +613,11 @@ def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multica
       *noc_semaphore_set_multicast_loopback_src* can be used.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr, TTKernel_NocAddr:$dst_noc_addr_multicast, I32:$num_dests, BoolAttr:$linked, BoolAttr:$multicast_path_reserve);
+    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
+                         TTKernel_NocAddr:$dst_noc_addr_multicast,
+                         I32:$num_dests,
+                         BoolAttr:$linked,
+                         BoolAttr:$multicast_path_reserve);
 }
 
 def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set_multicast_loopback_src"> {
@@ -634,7 +638,11 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
       regular non multicast operations such as *noc_async_write* in this case.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr, TTKernel_NocAddr:$dst_noc_addr_multicast, I32:$num_dests, BoolAttr:$linked, BoolAttr:$multicast_path_reserve);
+    let arguments = (ins TTKernel_L1Addr:$src_local_l1_addr,
+                         TTKernel_NocAddr:$dst_noc_addr_multicast,
+                         I32:$num_dests,
+                         BoolAttr:$linked,
+                         BoolAttr:$multicast_path_reserve);
 }
 
 //===----------------------------------------------------------------------===//
@@ -649,7 +657,7 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
 
     let arguments = (ins I32:$arg_index);
 
-    let results = (outs I32:$arg_val);
+    let results = (outs AnyTypeOf<[TTKernel_Semaphore, I32]>:$arg_val);
 }
 
 //===----------------------------------------------------------------------===//
@@ -662,9 +670,18 @@ def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr ui
       Cast specified addr to L1 pointer.
     }];
 
-    let arguments = (ins TTKernel_L1Addr:$addr);
+    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
 
     let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
+}
+
+def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
+    let summary = "StoreToL1";
+    let description = [{
+      Store value to L1.
+    }];
+
+    let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 }
 
 //===----------------------------------------------------------------------===//
@@ -788,26 +805,6 @@ def TTKernel_GetWritePtrOp : TTKernel_Op<"get_write_ptr"> {
 
     let arguments = (ins TTKernel_CB:$cb);
     let results = (outs I32:$writePtr);
-}
-
-def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
-    let summary = "CastToL1Ptr";
-    let description = [{
-      Cast specified addr to L1 pointer.
-    }];
-
-    let arguments = (ins AnyTypeOf<[I32, TTKernel_L1Addr]>:$addr);
-
-    let results = (outs TTKernel_L1AddrPtr:$l1_ptr);
-}
-
-def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
-    let summary = "StoreToL1";
-    let description = [{
-      Store value to L1.
-    }];
-
-    let arguments = (ins I32:$value, TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
 }
 
 #endif
