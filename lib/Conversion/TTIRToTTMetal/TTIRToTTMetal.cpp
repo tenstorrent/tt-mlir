@@ -51,8 +51,8 @@ namespace mlir::tt::ttmetal {
 
 // This routine walks the SSA value chain to find the address of the value.
 // It runs into and gets the address from one of the following:
-//   - ttir::CreateBufferOp: The address is the address of the allocation is embedded
-//   in the op attributes.
+//   - ttir::CreateBufferOp: The address is the address of the allocation is
+//   embedded in the op attributes.
 //   - func::FuncOp Argument: The address is taken from ArgumentAllocationAttr.
 //
 // This routine is used to lookup the address of tensors for address generation
@@ -286,7 +286,8 @@ public:
 
     int regIdx = 0;
     for (auto [dstCoord, transactions] : dm) {
-      Block *block = rewriter.createBlock(&metalEnqueueProgram.getRegion(regIdx++));
+      Block *block =
+          rewriter.createBlock(&metalEnqueueProgram.getRegion(regIdx++));
       createDataMovementThread(op->getLoc(), block, inputBaseAddress,
                                outputBaseAddress, transactions,
                                physicalCoordMapping, addressAlignment);
@@ -373,7 +374,8 @@ public:
 
     std::int64_t inputBaseAddress = lookupAddress(op.getInput());
     std::int64_t outputBaseAddress = lookupAddress(op.getOutput());
-    Block *tensixBlock = rewriter.createBlock(&metalEnqueueProgram.getRegion(0));
+    Block *tensixBlock =
+        rewriter.createBlock(&metalEnqueueProgram.getRegion(0));
     OpBuilder tensixBuilder(tensixBlock, tensixBlock->begin());
     uint64_t pageSize = inputLayout.isTiled()
                             ? inputLayout.getElementSizeBytes()
@@ -503,7 +505,8 @@ public:
   }
 };
 
-class TTIRToTTMetalEnqueueProgramRewriter : public OpRewritePattern<ttir::GenericOp> {
+class TTIRToTTMetalEnqueueProgramRewriter
+    : public OpRewritePattern<ttir::GenericOp> {
 public:
   using OpRewritePattern<ttir::GenericOp>::OpRewritePattern;
 
@@ -1632,10 +1635,10 @@ public:
         continue;
       }
       for (auto [dstCoord, srcs] : operand.dataMovement) {
-        Block *block =
-            coordToBlock.find(dstCoord) == coordToBlock.end()
-                ? rewriter.createBlock(&metalEnqueueProgram.getRegion(dmThreadIdx++))
-                : coordToBlock[dstCoord];
+        Block *block = coordToBlock.find(dstCoord) == coordToBlock.end()
+                           ? rewriter.createBlock(
+                                 &metalEnqueueProgram.getRegion(dmThreadIdx++))
+                           : coordToBlock[dstCoord];
         coordToBlock[dstCoord] = block;
 
         block->addArgument(rewrittenBlockArgumentTypes[operand.blockArgIndex],
@@ -1760,8 +1763,8 @@ public:
           getContext(), {dstCoord.y, dstCoord.x}, gridShape));
     }
 
-    // Wire generic's operands to enqueue program op's operands with respect to the CB
-    // mapping.
+    // Wire generic's operands to enqueue program op's operands with respect to
+    // the CB mapping.
     SmallVector<Value> inputsToEnqueueProgramOp;
     for (size_t i = 0; i < op.getInputs().size(); ++i) {
       auto operand = op.getOperandCbMapping()[i] == -1
@@ -1782,16 +1785,17 @@ public:
     }
 
     generateDataMovementThreads(op, tensixBlock, streamedOperands, rewriter,
-                                metalEnqueueProgram, rewrittenBlockArgumentTypes);
+                                metalEnqueueProgram,
+                                rewrittenBlockArgumentTypes);
 
     lowerBlock(&op->getRegion(0).front(), tensixBlock, op.getIteratorTypes(),
                op.getIndexingMaps(), op.getInputs().size());
 
     addSyncronizationForDataMovement(op, tensixBlock, streamedOperands);
 
-    // Regions for enqueue program op are allocated up-front, but some of them may be
-    // empty at the end of lowering due to no data movement requirements. Insert
-    // return op in those regions.
+    // Regions for enqueue program op are allocated up-front, but some of them
+    // may be empty at the end of lowering due to no data movement requirements.
+    // Insert return op in those regions.
     for (Region &reg : metalEnqueueProgram->getRegions()) {
       if (reg.empty()) {
         auto &block = reg.emplaceBlock();
@@ -1824,7 +1828,8 @@ public:
 
   LogicalResult matchAndRewrite(ttir::DeallocOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op, op.getResult());
+    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op,
+                                                             op.getResult());
     return success();
   }
 };

@@ -44,8 +44,8 @@ struct TTMetalDialectFoldInterface : public DialectFoldInterface {
   /// operation that is *not* isolated from above, should be used when
   /// materializing constants.
   bool shouldMaterializeInto(Region *region) const final {
-    // If this is a EnqueueProgramOp, protect it from hoisting constants outside of
-    // its region body
+    // If this is a EnqueueProgramOp, protect it from hoisting constants outside
+    // of its region body
     return isa<EnqueueProgramOp>(region->getParentOp());
   }
 };
