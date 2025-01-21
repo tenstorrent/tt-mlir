@@ -625,12 +625,12 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
       void buildGenericRegion(::mlir::OpBuilder &opBuilder, ::mlir::Block* block);
 
       SmallVector<int64_t> getReduceDims() {
-        mlir::Attribute reduceDimsAttr = getDim().value_or(mlir::Attribute{});
-        SmallVector<int64_t> reduceDimsVec;
-        if (!reduceDimsAttr) {
-          return reduceDimsVec;
+        if (!getDim()) {
+          return {};
         }
 
+        mlir::Attribute reduceDimsAttr = getDim().value();
+        SmallVector<int64_t> reduceDimsVec;
         if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(reduceDimsAttr)) {
           reduceDimsVec.push_back(intAttr.getSInt());
         } else {
