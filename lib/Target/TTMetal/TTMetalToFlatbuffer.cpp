@@ -345,13 +345,13 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
             ::tt::target::metal::CreateEnqueueProgramCommandDirect(
                 fbb, &operands, program),
             op);
-      } else if (auto allocOp = dyn_cast_or_null<tt::ttmetal::AllocOp>(op);
-                 allocOp) {
+      } else if (auto createBufferOp = dyn_cast_or_null<tt::ttmetal::CreateBufferOp>(op);
+                 createBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateCreateBufferCommand(
                 fbb,
-                cache.getOrCreate(allocOp.getResult(), tensorValueToFlatbuffer,
-                                  allocOp.getAddress(), allocOp.getSize())),
+                cache.getOrCreate(createBufferOp.getResult(), tensorValueToFlatbuffer,
+                                  createBufferOp.getAddress(), createBufferOp.getSize())),
             op);
       } else if (auto deallocOp = dyn_cast_or_null<tt::ttmetal::DeallocOp>(op);
                  deallocOp) {

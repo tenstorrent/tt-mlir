@@ -40,7 +40,7 @@ namespace mlir::tt::ttmetal {
   return success();
 }
 
-::mlir::LogicalResult AllocOp::verify() {
+::mlir::LogicalResult CreateBufferOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {

@@ -51,7 +51,7 @@ namespace mlir::tt::ttmetal {
 
 // This routine walks the SSA value chain to find the address of the value.
 // It runs into and gets the address from one of the following:
-//   - ttir::AllocOp: The address is the address of the allocation is embedded
+//   - ttir::CreateBufferOp: The address is the address of the allocation is embedded
 //   in the op attributes.
 //   - func::FuncOp Argument: The address is taken from ArgumentAllocationAttr.
 //
@@ -1812,7 +1812,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::AllocOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::AllocOp>(
+    rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, op.getType(), op.getAddress(), op.getSize(), op.getMemorySpace());
     return success();
   }

@@ -74,10 +74,10 @@ def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [Destination
     let hasVerifier = 1;
 }
 
-def TTMetal_AllocOp : TTMetal_Op<"alloc"> {
-    let summary = "Alloc op.";
+def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer"> {
+    let summary = "Create buffer op.";
     let description = [{
-      Tensor Alloc operation
+      Create buffer operation
     }];
 
     let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
