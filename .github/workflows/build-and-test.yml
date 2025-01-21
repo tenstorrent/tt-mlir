@@ -166,11 +166,15 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf"},
-          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, name: "run", build_name: "emitc", ttrt_flags: "--emitc"},
-          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero"},
-          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n150, enable_perf: OFF, enable_emitc: ON, name: "run", build_name: "emitc", ttrt_flags: "--emitc", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: n300, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0"},
+          {runs-on: llmbox, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: llmbox, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: tg, enable_perf: OFF, enable_emitc: OFF, name: "run", build_name: "run", ttrt_flags: "--non-zero", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
+          {runs-on: tg, enable_perf: ON, enable_emitc: OFF, name: "perf", build_name: "perf", container-options: "--device /dev/tenstorrent/0 --device /dev/tenstorrent/1 --device /dev/tenstorrent/2 --device /dev/tenstorrent/3"},
         ]
     name: "run-tests (${{ matrix.build.runs-on }}, ${{ matrix.build.enable_perf }}, ${{ matrix.build.enable_emitc }}, ${{ matrix.build.build_name }})"
 
@@ -180,7 +184,7 @@ jobs:
 
     container:
       image: ${{ needs.build-image.outputs.docker-image }}
-      options: --device /dev/tenstorrent/0
+      options: --device ${{ matrix.build.container-options }}
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
