@@ -41,10 +41,10 @@ def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOp
     let hasVerifier = 1;
 }
 
-def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]> {
-    let summary = "Host write op.";
+def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [DestinationStyleOpInterface]> {
+    let summary = "Enqueue write buffer op.";
     let description = [{
-      Host write operation
+      Enqueue write buffer operation
     }];
 
     let arguments = (ins AnyRankedTensor:$output, ElementsAttr:$value);

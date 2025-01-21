@@ -14,7 +14,7 @@
 
 namespace mlir::tt::ttmetal {
 
-::mlir::LogicalResult HostWriteOp::verify() {
+::mlir::LogicalResult EnqueueWriteBufferOp::verify() {
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto outputLayout =
       mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());

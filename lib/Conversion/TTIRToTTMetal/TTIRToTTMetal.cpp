@@ -1835,7 +1835,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::FillOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::HostWriteOp>(
+    rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(
         op, op.getResult().getType(), op.getOutput(), op.getValue());
     return success();
   }

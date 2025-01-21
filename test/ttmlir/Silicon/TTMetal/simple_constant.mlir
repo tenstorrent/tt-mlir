@@ -4,7 +4,7 @@
 
 func.func public @add5(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   // CHECK: %[[C:.*]] = "ttmetal.alloc"[[C:.*]]
-  // CHECK: %[[C:.*]] = "ttmetal.host_write"[[C:.*]]
+  // CHECK: %[[C:.*]] = "ttmetal.enqueue_write_buffer"[[C:.*]]
   %0 = "ttir.constant"() <{value = dense<5.0> : tensor<32x32xf32>}> : () -> tensor<32x32xf32>
   %1 = tensor.empty() : tensor<32x32xf32>
   %2 = "ttir.add"(%arg0, %0, %1) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
