@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Utility library for parsing MLIR
 import re
-import logging
 from collections import defaultdict
 from model_explorer import graph_builder, node_data_builder
 
@@ -36,14 +35,7 @@ class AttrHandler:
     @staticmethod
     def parse_attr(attr):
         if attr.name in AttrHandler.ATTR_HANDLERS:
-            try:
-                return AttrHandler.ATTR_HANDLERS[attr.name](attr.attr)
-            except:
-                logging.warning(
-                    "AttributeHandler for <%s> failed. Defaulting to StringAttr",
-                    attr.name,
-                )
-                return AttrHandler.default_parser(attr)
+            return AttrHandler.ATTR_HANDLERS[attr.name](attr.attr)
         else:
             # Unknown Attr Type, return default parser
             return AttrHandler.default_parser(attr)
@@ -332,6 +324,9 @@ def parse_force(attr):
 @AttrHandler.register_handler("dtype")
 def parse_dtype(attr):
     dtype = tt.ir.DataTypeAttr.maybe_downcast(attr)
+    if dtype is None:
+        # Potential for dtype to be StringAttr instead of tt.DataTypeAttr
+        return AttrHandler.default_parser(attr)
     return [
         graph_builder.KeyValue(
             key="dtype", value=str(tt.DataType(dtype.data_type_as_int))
