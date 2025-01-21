@@ -513,7 +513,9 @@ jobs:
         pytest -ssv runtime/test/python/ttnn/test_runtime_api.py
 
   build-and-test-explorer:
-    needs: build-ttmlir
+    needs:
+      - build-image
+      - build-ttmlir
     timeout-minutes: 60
     strategy:
       fail-fast: false
