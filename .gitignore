@@ -15,3 +15,4 @@ cluster_descriptor.yaml
 # TTNN and TTMetal flatbuffers
 *.ttnn
 *.ttm
+*.make
