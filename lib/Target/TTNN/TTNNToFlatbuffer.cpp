@@ -34,6 +34,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
+#include <cstdint>
 #include <optional>
 
 namespace mlir::tt {
@@ -915,6 +916,22 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
       op.getPaddingWidth());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
+createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  uint32_t repeats = op.getRepeats();
+  int32_t dim = op.getDim();
+  return ::tt::target::ttnn::CreateRepeatInterleaveOp(
+      *cache.fbb, input, out, repeats, dim,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto in =
@@ -1159,6 +1176,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(
         cache, createEmbeddingBackwardOp(cache, embeddingBackwardOp),
         debugString, locInfo);
+  }
+  if (auto repeatInterleaveOp = dyn_cast<RepeatInterleaveOp>(op);
+      repeatInterleaveOp) {
+    return createOperation(cache,
+                           createRepeatInterleaveOp(cache, repeatInterleaveOp),
+                           debugString, locInfo);
   }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
