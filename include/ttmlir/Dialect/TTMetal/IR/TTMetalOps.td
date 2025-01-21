@@ -86,10 +86,10 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer"> {
     let hasVerifier = 1;
 }
 
-def TTMetal_DeallocOp : TTMetal_Op<"dealloc"> {
-    let summary = "Dealloc op.";
+def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer"> {
+    let summary = "Deallocate buffer op.";
     let description = [{
-      Tensor Dealloc operation
+      Deallocate buffer operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input);

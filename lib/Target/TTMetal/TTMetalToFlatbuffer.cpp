@@ -353,12 +353,12 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                 cache.getOrCreate(createBufferOp.getResult(), tensorValueToFlatbuffer,
                                   createBufferOp.getAddress(), createBufferOp.getSize())),
             op);
-      } else if (auto deallocOp = dyn_cast_or_null<tt::ttmetal::DeallocOp>(op);
-                 deallocOp) {
+      } else if (auto deallocateBufferOp = dyn_cast_or_null<tt::ttmetal::DeallocateBufferOp>(op);
+                 deallocateBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateDeallocateBufferCommand(
                 fbb, cache.at<::tt::target::TensorRef>(
-                         getOperandThroughDPSOps(deallocOp.getInput()))),
+                         getOperandThroughDPSOps(deallocateBufferOp.getInput()))),
             op);
       } else if (auto enqueueReadBufferOp =
                      dyn_cast_or_null<tt::ttmetal::EnqueueReadBufferOp>(op);

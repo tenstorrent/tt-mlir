@@ -1824,7 +1824,7 @@ public:
 
   LogicalResult matchAndRewrite(ttir::DeallocOp op,
                                 PatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::DeallocOp>(op, op.getResult());
+    rewriter.replaceOpWithNewOp<ttmetal::DeallocateBufferOp>(op, op.getResult());
     return success();
   }
 };
