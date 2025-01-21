@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../libTTMLIRTTKernelToEmitC.a CMakeFiles/obj.TTMLIRTTKernelToEmitC.dir/TTKernelToEmitC.cpp.o
-/usr/bin/ranlib -D ../../libTTMLIRTTKernelToEmitC.a

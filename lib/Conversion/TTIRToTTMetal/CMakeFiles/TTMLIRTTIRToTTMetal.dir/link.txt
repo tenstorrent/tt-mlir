@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../libTTMLIRTTIRToTTMetal.a CMakeFiles/obj.TTMLIRTTIRToTTMetal.dir/TTIRToTTMetal.cpp.o CMakeFiles/obj.TTMLIRTTIRToTTMetal.dir/TTIRToTTMetalPass.cpp.o
-/usr/bin/ranlib -D ../../libTTMLIRTTIRToTTMetal.a

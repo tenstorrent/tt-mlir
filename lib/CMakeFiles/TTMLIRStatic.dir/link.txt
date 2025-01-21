@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc libTTMLIRStatic.a CMakeFiles/obj.TTMLIRStatic.dir/RegisterAll.cpp.o
-/usr/bin/ranlib -D libTTMLIRStatic.a

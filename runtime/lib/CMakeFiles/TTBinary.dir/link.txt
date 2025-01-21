@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc libTTBinary.a CMakeFiles/TTBinary.dir/binary.cpp.o
-/usr/bin/ranlib -D libTTBinary.a

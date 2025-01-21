@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../../libTTMLIRTTNNUtils.a CMakeFiles/obj.TTMLIRTTNNUtils.dir/Utils.cpp.o CMakeFiles/obj.TTMLIRTTNNUtils.dir/OptimizerOverrides.cpp.o
-/usr/bin/ranlib -D ../../../libTTMLIRTTNNUtils.a

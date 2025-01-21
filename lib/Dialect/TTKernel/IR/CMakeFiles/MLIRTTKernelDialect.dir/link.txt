@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../../libMLIRTTKernelDialect.a CMakeFiles/obj.MLIRTTKernelDialect.dir/TTKernelDialect.cpp.o CMakeFiles/obj.MLIRTTKernelDialect.dir/TTKernelOps.cpp.o CMakeFiles/obj.MLIRTTKernelDialect.dir/TTKernelOpsTypes.cpp.o
-/usr/bin/ranlib -D ../../../libMLIRTTKernelDialect.a

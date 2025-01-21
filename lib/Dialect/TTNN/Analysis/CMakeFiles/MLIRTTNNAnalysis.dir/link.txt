@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../../libMLIRTTNNAnalysis.a CMakeFiles/obj.MLIRTTNNAnalysis.dir/LegalGridAnalysis.cpp.o CMakeFiles/obj.MLIRTTNNAnalysis.dir/OpConfigAnalysis.cpp.o CMakeFiles/obj.MLIRTTNNAnalysis.dir/MemoryLayoutAnalysis.cpp.o CMakeFiles/obj.MLIRTTNNAnalysis.dir/L1ChainConfig.cpp.o CMakeFiles/obj.MLIRTTNNAnalysis.dir/DFShardingPolicy.cpp.o CMakeFiles/obj.MLIRTTNNAnalysis.dir/L1InterleavedPolicy.cpp.o CMakeFiles/obj.MLIRTTNNAnalysis.dir/ShardSolver.cpp.o
-/usr/bin/ranlib -D ../../../libMLIRTTNNAnalysis.a

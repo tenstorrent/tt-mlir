@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../../libMLIRTTDialect.a CMakeFiles/obj.MLIRTTDialect.dir/TTOpsTypes.cpp.o CMakeFiles/obj.MLIRTTDialect.dir/TTDialect.cpp.o CMakeFiles/obj.MLIRTTDialect.dir/TTOps.cpp.o
-/usr/bin/ranlib -D ../../../libMLIRTTDialect.a

@@ -1,2 +1,0 @@
-/usr/bin/ar Dqc ../../../libMLIRTTMetalPipelines.a CMakeFiles/obj.MLIRTTMetalPipelines.dir/TTMetalPipelines.cpp.o
-/usr/bin/ranlib -D ../../../libMLIRTTMetalPipelines.a
