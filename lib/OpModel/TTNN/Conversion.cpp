@@ -88,7 +88,7 @@ getShardSpec(const mlir::tt::ttnn::TTNNLayoutAttr &layout) {
   return isShardedMemoryLayout(layout.getMemLayout().getValue())
              ? std::make_optional(ShardSpec(getCoreRangeSet(layout),
                                             getShardShape(layout),
-                                            ShardOrientation::ROW_MAJOR, false))
+                                            ShardOrientation::ROW_MAJOR))
              : std::nullopt;
 }
 

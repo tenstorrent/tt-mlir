@@ -44,6 +44,9 @@ endif()
 if("$ENV{TT_METAL_HOME}" STREQUAL "")
     message(FATAL_ERROR "TT_METAL_HOME is not set")
 endif()
+if("$ENV{TT_METAL_BUILD_HOME}" STREQUAL "")
+    message(FATAL_ERROR "TT_METAL_BUILD_HOME is not set")
+endif()
 if("$ENV{ARCH_NAME}" STREQUAL "")
     message(FATAL_ERROR "ARCH_NAME is not set")
 endif()
@@ -62,18 +65,22 @@ set(INCLUDE_DIRS
 
     # Metalium
     $ENV{TT_METAL_HOME}
-    $ENV{TT_METAL_HOME}/tt_metal
+    $ENV{TT_METAL_HOME}/tt_metal/api
+    $ENV{TT_METAL_HOME}/tt_metal/hostdevcommon/api
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
+    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
+    $ENV{TT_METAL_HOME}/tt_metal/include
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/taskflow
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_EXTRA_DIR}
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME}
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public
 
     # TTNN
+    $ENV{TT_METAL_HOME}/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated
@@ -82,7 +89,7 @@ set(INCLUDE_DIRS
 # Link directories
 #
 set(LINK_DIRS
-    $ENV{TT_METAL_HOME}-build/lib
+    $ENV{TT_METAL_BUILD_HOME}/lib
 )
 
 # Libraries to link
@@ -95,7 +102,7 @@ set(LINK_LIBS
 
     # TTNN
     # _ttnn  # Why doesn't this work?
-    $ENV{TT_METAL_HOME}-build/lib/_ttnn.so
+    $ENV{TT_METAL_BUILD_HOME}/lib/_ttnn.so
 )
 
 # Compile definitions
@@ -135,4 +142,4 @@ target_link_directories(ttnn-dylib PRIVATE ${LINK_DIRS})
 target_link_libraries(ttnn-dylib PRIVATE ${LINK_LIBS})
 set_target_properties(ttnn-dylib PROPERTIES PUBLIC_HEADER ttnn-dylib.h)
 
-target_precompile_headers(ttnn-dylib PRIVATE ttnn-dylib.hpp)
+target_precompile_headers(ttnn-dylib PRIVATE ttnn-precompiled.hpp)

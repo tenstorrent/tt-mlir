@@ -218,6 +218,9 @@ public:
 
   // Create workarounds for embedding op operands.
   static TTNNOperandsWorkarounds createEmbeddingOpOperandsWorkarounds();
+
+  // Create workarounds for embedding backward op operands.
+  static TTNNOperandsWorkarounds createEmbeddingBackwardOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

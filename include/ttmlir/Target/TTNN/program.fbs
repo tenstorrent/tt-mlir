@@ -193,6 +193,14 @@ table EmbeddingBackwardOp {
   out: tt.target.TensorRef;
 }
 
+table RepeatInterleaveOp {
+  input: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  repeats: uint32;
+  dim: int32;
+  memory_config: MemoryConfigDesc;
+}
+
 table SoftmaxOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -269,6 +277,25 @@ table Conv2dOp {
   groups: uint32;
 }
 
+table ConvTranspose2dOp {
+  input: tt.target.TensorRef;
+  weight: tt.target.TensorRef;
+  bias: tt.target.TensorRef;
+  out: tt.target.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  output_padding: [int32];
+  dilation: [int32];
+  groups: uint32;
+}
+
 table MaxPool2dOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
@@ -322,8 +349,8 @@ table MeshShardOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
   device: tt.target.DeviceRef;
-  shard_direction: uint32;
-  shard_type: uint32;
+  shard_direction: tt.target.MeshShardDirection;
+  shard_type: tt.target.MeshShardType;
   shard_shape: [int64];
 }
 
@@ -343,9 +370,11 @@ union OpType {
   ReductionOp,
   EmbeddingOp,
   EmbeddingBackwardOp,
+  RepeatInterleaveOp,
   SoftmaxOp,
   TransposeOp,
   Conv2dOp,
+  ConvTranspose2dOp,
   ConcatOp,
   ReshapeOp,
   SliceOp,

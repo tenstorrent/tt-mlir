@@ -3,19 +3,18 @@
 Welcome to the tt-explorer wiki! The Wiki will serve as a source for documentation, examples, and general knowledge related to the TT-MLIR visualization project. The sidebar will provide navigation to relevant pages. If this is your first time hearing about the project, take a look at Project Architecture for an in-depth introduction to the tool and motivations behind it :)
 
 ## Quick Start
-TT-Explorer is made to be as painless as possible, as such the installation on top of the pre-existing [`tt-mlir`](https://github.com/tenstorrent/tt-mlir) project is as minimal as possible.
+TT-Explorer comes packaged as a tool in the `tt-mlir` repo.
 
-1. Build `tt-mlir`, add the `-DTT_EXPLORER_EDITABLE=ON` flag to the cmake build to install the `tt-explorer` package in editable mode.
-2. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
-3. Install the explorer tool by building the `explorer` target using `cmake --build build -- explorer`
-4. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
-5. Ensure server has started in `tt-explorer` shell instance (check for message below)
+1. Run `source env/activate` to be in `tt-mlir` virtualenv for the following steps
+2. Build `explorer` target in `tt-mlir` using `cmake --build build -- explorer`
+3. Run `tt-explorer` in terminal to start tt-explorer instance. (Refer to CLI section in API for specifics)
+4. Ensure server has started in `tt-explorer` shell instance (check for message below)
 ```sh
 Starting Model Explorer server at:
 http://localhost:8080
 ```
 
-Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provide a platform for human-driven overrides to _gameify_ model tuning.
+Visualizer tool for `ttmlir`-powered compiler results. Visualizes from emitted `.mlir` files to display compiled model, attributes, performance results, and provides a platform for human-driven overrides to _gameify_ model tuning.
 
 ## TT-Explorer - Project Architecture
 
@@ -59,9 +58,9 @@ TT-RT is the runtime library for TT-Forge, which provides an API to run Flatbuff
 **Ingests**: Flatbuffers
 **Emits**: Performance Trace, Model Results
 
-#### [Model-Explorer](https://github.com/google-ai-edge/model-explorer)
+#### [Model-Explorer](https://github.com/tenstorrent/model-explorer)
 
-Model Explorer is the backbone of the client and visualization of these models. It is deceptively placed in the “Client” portion of the diagram, but realistically TT-Explorer will be run on the host, and so will the model-explorer instance. The frontend will be a client of the REST API created by TT-Adapter and will use URLs from the model-explorer server to visualize the models.
+Model Explorer is the backbone of the client and visualization of these models. It is deceptively placed in the “Client” portion of the diagram, but realistically TT-Explorer will be run on the host, and so will the model-explorer instance. The frontend will be a client of the REST API created by TT-Adapter and will use URLs from the model-explorer server to visualize the models. Currently TT maintains a fork of model-explorer which has overriden UI elements for overrides and displaying performance traces.
 
 **Ingests**: Model Explorer Graph, User-Provided Overrides (UI), Performance Trace
 **Emits**: Overrides JSON, Model Visualization

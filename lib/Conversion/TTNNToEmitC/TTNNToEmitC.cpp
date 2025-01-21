@@ -480,7 +480,7 @@ public:
           getDeviceOp = currGetDeviceOp;
         });
 
-    // Create ttnn::Shape() call
+    // Create ttnn::SimpleShape() call
     //
     emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, shapeAttr, srcOp->getBlock(), srcOp.getLoc());
@@ -502,7 +502,7 @@ public:
     // Create ArrayAttr object holding attributes and pointers to operands
     //
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(0), // ttnn::Shape
+        rewriter.getIndexAttr(0), // ttnn::SimpleShape
         ttnn_to_emitc::utils::convertDType(rewriter, dataTypeAttr),
         ttnn_to_emitc::utils::convertLayoutAttr(rewriter, layoutAttr),
         rewriter.getIndexAttr(1), // ttnn::Device
@@ -547,16 +547,16 @@ public:
     // Attrs (like shape) need to be instantiated into objects before being
     // passed to the op. Therefore:
     //
-    // We first create a ttnn::Shape object (SSA) by calling createShapeOp()
-    // and add it to the operands vector, but also add an IndexAttr in
-    // ArrayAttr to reference it (this is an EmitC mechanism that allows for
-    // combining Attrs and Values when calling an OpaqueOp). All the other
-    // input params are optional, so we create them on-the-fly into the
+    // We first create a ttnn::SimpleShape object (SSA) by calling
+    // createShapeOp() and add it to the operands vector, but also add an
+    // IndexAttr in ArrayAttr to reference it (this is an EmitC mechanism that
+    // allows for combining Attrs and Values when calling an OpaqueOp). All the
+    // other input params are optional, so we create them on-the-fly into the
     // ArrayAttr, whether they are an actual Attr, or a Value pointed to by
     // IndexAttr. If they are present, we create the object and pass it to the
     // op. If not, we pass std::nullopt.
 
-    // Create ttnn::Shape() call
+    // Create ttnn::SimpleShape() call
     //
     emitc::ExpressionOp shapeExpressionOp = ttnn_to_emitc::utils::createShapeOp(
         rewriter, srcOp.getShapeAttr(), srcOp->getBlock(), srcOp.getLoc());
@@ -572,7 +572,7 @@ public:
     //
     size_t operandIndex = 0;
     ArrayAttr arrayAttr = rewriter.getArrayAttr({
-        rewriter.getIndexAttr(operandIndex++), // ttnn::Shape
+        rewriter.getIndexAttr(operandIndex++), // ttnn::SimpleShape
         srcOp.getDtype().has_value()
             ? ttnn_to_emitc::utils::convertDType(rewriter, srcOp.getDtypeAttr())
             : ttnn_to_emitc::utils::createStdNullopt(
@@ -778,31 +778,32 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Eltwise unary ops
   //
-  patterns.add<DefaultOpConversionPattern<ttnn::AbsOp>,
-               DefaultOpConversionPattern<ttnn::CbrtOp>,
-               DefaultOpConversionPattern<ttnn::ClampOp>,
-               DefaultOpConversionPattern<ttnn::FloorOp>,
-               DefaultOpConversionPattern<ttnn::IsFiniteOp>,
-               DefaultOpConversionPattern<ttnn::LogicalNotOp>,
-               DefaultOpConversionPattern<ttnn::BitwiseNotOp>,
-               DefaultOpConversionPattern<ttnn::NegOp>,
+  patterns.add<EltwiseUnaryOpConversionPattern<ttnn::AbsOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::CbrtOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::ClampOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::FloorOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::IsFiniteOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::LogicalNotOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::BitwiseNotOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::NegOp>,
                EltwiseUnaryOpConversionPattern<ttnn::ReluOp>,
-               DefaultOpConversionPattern<ttnn::LeakyReluOp>,
-               DefaultOpConversionPattern<ttnn::GeluOp>,
-               DefaultOpConversionPattern<ttnn::SqrtOp>,
-               DefaultOpConversionPattern<ttnn::RsqrtOp>,
-               DefaultOpConversionPattern<ttnn::SignOp>,
-               DefaultOpConversionPattern<ttnn::SigmoidOp>,
-               DefaultOpConversionPattern<ttnn::Log1pOp>,
-               DefaultOpConversionPattern<ttnn::ReciprocalOp>,
-               DefaultOpConversionPattern<ttnn::ExpOp>,
-               DefaultOpConversionPattern<ttnn::CeilOp>,
-               DefaultOpConversionPattern<ttnn::SinOp>,
-               DefaultOpConversionPattern<ttnn::CosOp>,
-               DefaultOpConversionPattern<ttnn::Expm1Op>,
-               DefaultOpConversionPattern<ttnn::TanOp>,
-               DefaultOpConversionPattern<ttnn::TanhOp>,
-               DefaultOpConversionPattern<ttnn::LogOp>>(typeConverter, ctx);
+               EltwiseUnaryOpConversionPattern<ttnn::LeakyReluOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::GeluOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::SqrtOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::RsqrtOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::SignOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::SigmoidOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::Log1pOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::ReciprocalOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::ExpOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::CeilOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::SinOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::CosOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::Expm1Op>,
+               EltwiseUnaryOpConversionPattern<ttnn::TanOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::TanhOp>,
+               EltwiseUnaryOpConversionPattern<ttnn::LogOp>>(typeConverter,
+                                                             ctx);
 
   // Eltwise binary ops
   //
@@ -812,21 +813,21 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                EltwiseBinaryOpConversionPattern<ttnn::LogicalAndOp>,
                EltwiseBinaryOpConversionPattern<ttnn::LogicalOrOp>,
                EltwiseBinaryOpConversionPattern<ttnn::LogicalXorOp>,
-               DefaultOpConversionPattern<ttnn::BitwiseAndOp>,
-               DefaultOpConversionPattern<ttnn::BitwiseOrOp>,
-               DefaultOpConversionPattern<ttnn::BitwiseXorOp>,
-               DefaultOpConversionPattern<ttnn::EqualOp>,
-               DefaultOpConversionPattern<ttnn::NotEqualOp>,
-               DefaultOpConversionPattern<ttnn::GreaterEqualOp>,
-               DefaultOpConversionPattern<ttnn::GreaterThanOp>,
-               DefaultOpConversionPattern<ttnn::LessEqualOp>,
-               DefaultOpConversionPattern<ttnn::LessThanOp>,
-               DefaultOpConversionPattern<ttnn::MaximumOp>,
-               DefaultOpConversionPattern<ttnn::MinimumOp>,
-               DefaultOpConversionPattern<ttnn::DivOp>,
-               DefaultOpConversionPattern<ttnn::ScatterOp>,
-               DefaultOpConversionPattern<ttnn::RemainderOp>>(typeConverter,
-                                                              ctx);
+               EltwiseBinaryOpConversionPattern<ttnn::BitwiseAndOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::BitwiseOrOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::BitwiseXorOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::EqualOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::NotEqualOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::GreaterEqualOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::GreaterThanOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::LessEqualOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::LessThanOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::MaximumOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::MinimumOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::DivOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::ScatterOp>,
+               EltwiseBinaryOpConversionPattern<ttnn::RemainderOp>>(
+      typeConverter, ctx);
 
   // Tensor manipulation ops
   //
@@ -834,6 +835,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                DefaultOpConversionPattern<ttnn::ConcatOp>,
                DefaultOpConversionPattern<ttnn::ReshapeOp>,
                DefaultOpConversionPattern<ttnn::RepeatOp>,
+               DefaultOpConversionPattern<ttnn::RepeatInterleaveOp>,
                DefaultOpConversionPattern<ttnn::SliceOp>,
                DefaultOpConversionPattern<ttnn::PermuteOp>>(typeConverter, ctx);
 
@@ -851,6 +853,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Conv ops
   //
   patterns.add<DefaultOpConversionPattern<ttnn::Conv2dOp>>(typeConverter, ctx);
+  patterns.add<DefaultOpConversionPattern<ttnn::ConvTranspose2dOp>>(
+      typeConverter, ctx);
   patterns.add<DefaultOpConversionPattern<ttnn::MaxPool2dOp>>(typeConverter,
                                                               ctx);
 

@@ -6,10 +6,10 @@
 #define TT_RUNTIME_DETAIL_TTNN_H
 
 #define FMT_HEADER_ONLY
-#include "distributed/mesh_device.hpp"
-#include "host_api.hpp"
 #include "hostdevcommon/common_values.hpp"
-#include "tt_metal/detail/reports/memory_reporter.hpp"
+#include "tt-metalium/host_api.hpp"
+#include "tt-metalium/memory_reporter.hpp"
+#include "tt-metalium/mesh_device.hpp"
 #include "ttnn/device.hpp"
 #include "ttnn/operations/ccl/all_gather/all_gather.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
@@ -20,6 +20,7 @@
 #include "ttnn/operations/data_movement/concat/concat.hpp"
 #include "ttnn/operations/data_movement/permute/permute.hpp"
 #include "ttnn/operations/data_movement/repeat/repeat.hpp"
+#include "ttnn/operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "ttnn/operations/data_movement/transpose/transpose.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
@@ -86,13 +87,17 @@ tt::target::DataType getTensorDataType(Tensor tensor);
 
 size_t getNumAvailableDevices();
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
+                  std::optional<size_t> l1SmallSize = std::nullopt);
 
 void closeDevice(Device device);
 
 void deallocateBuffers(Device device);
 
 void dumpMemoryReport(Device device);
+
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device, int deviceID = 0);
 
 void wait(Event event);
 

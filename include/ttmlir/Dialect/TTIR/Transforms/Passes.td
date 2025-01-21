@@ -27,6 +27,20 @@ def TTIRGenericKernel: Pass<"ttir-generic-kernel", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTIRAttachMetalLayout: Pass<"ttir-attach-metal-layout", "::mlir::ModuleOp"> {
+  let summary = "";
+  let description = [{
+    Attach a TTMetal layout to operands of a TTIR op.
+  }];
+
+  let options = [
+    Option<"initMemorySpace", "init-memory-space",
+          "::mlir::tt::MemorySpace",
+          /*default=*/"::mlir::tt::MemorySpace::System",
+           "Set the initial memory space for tensors to start in">
+  ];
+}
+
 def TTIRGenericRegion: Pass<"ttir-generic", "::mlir::ModuleOp"> {
   let summary = "";
   let description = [{
@@ -110,6 +124,23 @@ def TTIRLoadSystemDesc: Pass<"ttir-load-system-desc", "::mlir::ModuleOp"> {
   list<Option> options = [
         Option<"path", "path", "std::string", "", "System desc path">,
     ];
+}
+
+def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::ModuleOp"> {
+  let summary = "Broadcast operation is folded to all the consumers.";
+  let description = [{
+    This pass walks through the graph and folds broadcasts operations when it is implicitly supported by the operation.
+
+    Example:
+    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %1 = "ttir.broadcast"(%arg1, %0) <{broadcast_dimensions = array<i32: 1, 16, 1>}> : (tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+    %2 = tensor.empty() : tensor<1x16x32xf32>
+    %3 = "ttir.multiply"(%arg0, %1, %2) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x16x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+
+    Since MultiplyOp supports implicit broadcasting, above broadcast is folded as:
+    %0 = tensor.empty() : tensor<1x16x32xf32>
+    %1 = "ttir.multiply"(%arg0, %arg1, %0) <{operandSegmentSizes = array<i32: 2, 1>}> : (tensor<1x16x32xf32>, tensor<1x1x32xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32
+  }];
 }
 
 def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">

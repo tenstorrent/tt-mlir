@@ -109,9 +109,8 @@ void populatePassesModule(py::module &m) {
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttnn-backend-pipeline");
 
-        mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)>
-            err_handler =
-                [](const llvm::Twine &loc) { return mlir::failure(); };
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
 
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
           throw std::runtime_error("Failed to add pipeline to pass manager");
@@ -135,9 +134,8 @@ void populatePassesModule(py::module &m) {
         ctx->appendDialectRegistry(registry);
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-backend-pipeline");
-        mlir::function_ref<mlir::LogicalResult(const llvm::Twine &)>
-            err_handler =
-                [](const llvm::Twine &loc) { return mlir::failure(); };
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
           throw std::runtime_error("Failed to add pipeline to pass manager");
         }

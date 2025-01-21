@@ -20,6 +20,19 @@ std::pair<SystemDesc, DeviceIds> getCurrentSystemDesc();
 namespace detail {
 void deallocateBuffers(Device device);
 void dumpMemoryReport(Device device);
+
+/*
+This function get the memory view per device
+  {
+    "DRAM": MemoryView,
+    "L1": MemoryView,
+    "L1Small": MemoryView,
+    "Trace": MemoryView
+  }
+*/
+std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
+getMemoryView(Device device, int deviceID = 0);
+
 } // namespace detail
 
 DeviceRuntime getCurrentRuntime();
@@ -71,7 +84,8 @@ tt::target::DataType getTensorDataType(Tensor tensor);
 
 size_t getNumAvailableDevices();
 
-Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1);
+Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs = 1,
+                  std::optional<size_t> l1SmallSize = std::nullopt);
 
 void closeDevice(Device device);
 

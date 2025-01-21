@@ -34,6 +34,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
+#include <cstdint>
 #include <optional>
 
 namespace mlir::tt {
@@ -467,6 +468,40 @@ createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
       op.getGroups());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
+createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
+  auto in0 =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto in1 = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto in2 = op.getODSOperands(2).empty()
+                 ? flatbuffers::Offset<::tt::target::TensorRef>()
+                 : cache.at<::tt::target::TensorRef>(
+                       getOperandThroughDPSOps(op.getBias()));
+  auto output = cache.at<::tt::target::TensorRef>(
+      getOperandThroughDPSOps(op.getResult()));
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> outputPadding =
+      toFlatbuffer(cache, op.getOutputPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+
+  return ::tt::target::ttnn::CreateConvTranspose2dOp(
+      *cache.fbb, in0, in1, in2, output,
+      cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), kernelSize, stride, padding, outputPadding, dilation,
+      op.getGroups());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
 createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input =
@@ -499,11 +534,31 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
   auto device = getOperandThroughDPSOps(op.getDevice());
+  const mlir::tt::MeshShardDirection shardDirection = op.getShardDirection();
+  const mlir::tt::MeshShardType shardType = op.getShardType();
   llvm::ArrayRef<int64_t> shardShape = op.getShardShape().getShape();
+
+  ::tt::target::MeshShardDirection meshShardDirection;
+  if (shardDirection == mlir::tt::MeshShardDirection::FullToShard) {
+    meshShardDirection = ::tt::target::MeshShardDirection::FullToShardShape;
+  } else if (shardDirection == mlir::tt::MeshShardDirection::ShardToFull) {
+    meshShardDirection = ::tt::target::MeshShardDirection::ShardToFullShape;
+  } else {
+    llvm_unreachable("unhandled mesh_shard direction");
+  }
+
+  ::tt::target::MeshShardType meshShardType;
+  if (shardType == mlir::tt::MeshShardType::Replicate) {
+    meshShardType = ::tt::target::MeshShardType::Replicate;
+  } else if (shardType == mlir::tt::MeshShardType::Devices) {
+    meshShardType = ::tt::target::MeshShardType::Devices;
+  } else {
+    llvm_unreachable("unhandled mesh_shard type");
+  }
+
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      static_cast<uint32_t>(op.getShardDirection()),
-      static_cast<uint32_t>(op.getShardType()),
+      meshShardDirection, meshShardType,
       cache.fbb->CreateVector<int64_t>(shardShape));
 }
 
@@ -861,6 +916,22 @@ createMaxPool2dOp(FlatbufferObjectCache &cache, MaxPool2dOp op) {
       op.getPaddingWidth());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
+createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
+  auto input =
+      cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
+                               kHostAllocatedAddress, kHostAllocatedSize);
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  uint32_t repeats = op.getRepeats();
+  int32_t dim = op.getDim();
+  return ::tt::target::ttnn::CreateRepeatInterleaveOp(
+      *cache.fbb, input, out, repeats, dim,
+      memoryConfig ? cache.getOrCreate(*memoryConfig, memoryConfigToFlatbuffer)
+                   : 0);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto in =
@@ -1106,6 +1177,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
         cache, createEmbeddingBackwardOp(cache, embeddingBackwardOp),
         debugString, locInfo);
   }
+  if (auto repeatInterleaveOp = dyn_cast<RepeatInterleaveOp>(op);
+      repeatInterleaveOp) {
+    return createOperation(cache,
+                           createRepeatInterleaveOp(cache, repeatInterleaveOp),
+                           debugString, locInfo);
+  }
   if (auto softmaxOp = dyn_cast<SoftmaxOp>(op); softmaxOp) {
     return createOperation(cache, createSoftmaxOp(cache, softmaxOp),
                            debugString, locInfo);
@@ -1121,6 +1198,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString,
                            locInfo);
+  }
+  if (auto conv_transpose2dOp = dyn_cast<ConvTranspose2dOp>(op);
+      conv_transpose2dOp) {
+    return createOperation(cache, createOp(cache, conv_transpose2dOp),
+                           debugString, locInfo);
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,

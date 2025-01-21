@@ -25,10 +25,10 @@ ttnn::Tensor forward(ttnn::Tensor v1, ttnn::Tensor v2) {
       ttnn::to_layout(v8, ttnn::Layout::TILE, std::nullopt, std::nullopt,
                       static_cast<::ttnn::IDevice *>(nullptr));
   ttnn::deallocate(v8, false);
-  ttnn::Shape v10 = ttnn::Shape(tt::tt_metal::LegacyShape({
+  ttnn::SimpleShape v10 = ttnn::SimpleShape({
       32,
       32,
-  }));
+  });
   ttnn::MemoryConfig v11 = ttnn::MemoryConfig(
       ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::DRAM);
   ttnn::Tensor v12 =
@@ -50,10 +50,10 @@ int main() {
   //
   const size_t tensor_height = 32;
   const size_t tensor_width = 32;
-  ttnn::Shape xs =
-      ttnn::Shape(tt::tt_metal::LegacyShape{1, 1, tensor_height, tensor_width});
-  ttnn::Shape ys =
-      ttnn::Shape(tt::tt_metal::LegacyShape{1, 1, tensor_height, tensor_width});
+  ttnn::SimpleShape xs =
+      ttnn::SimpleShape({1, 1, tensor_height, tensor_width});
+  ttnn::SimpleShape ys =
+      ttnn::SimpleShape({1, 1, tensor_height, tensor_width});
 
   // Create tensors on cpu
   //

@@ -125,14 +125,6 @@ brew install graphviz
 
 ## Dependencies
 
-### Ubuntu Common
-
-Make sure to have Git LFS installed. You can install it with the following command:
-
-```bash
-sudo apt-get install git-lfs
-```
-
 ### Ubuntu 22.04
 
 On Ubuntu 22.04 we need to install clang, ninja, and to update the version of cmake because 3.20 is the minimum required for this project.
@@ -207,26 +199,6 @@ CMake Error at CMakeLists.txt:2 (project):
 ```
 
 If you get the following error, it means you need to install clang which you can do with `sudo apt install clang` on Ubuntu.
-
-### `sfpi`, `trisc`, `ncrisc` build failure
-
-```
-tt-forge-fe/third_party/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/sfpi/compiler/bin/riscv32-unknown-elf-g++: 1: version: not found
-tt-forge-fe/third_party/tt-mlir/third_party/tt-metal/src/tt-metal/tt_metal/third_party/sfpi/compiler/bin/riscv32-unknown-elf-g++: 2: oid: not found
-size: '1961632': No such file
-size: '1961632': No such file
-size: '1961632': No such file
-Always | FATAL | ncrisc build failed
-```
-
-If you got the above error, it means that SFPI or similar component build failed. First, make sure you have GIT LFS setup (e.g. sudo apt-get install git-lfs). Then, try to pull SFPI submodule manually:
-
-```bash
-cd third_party/tt-metal/src/tt-metal
-git submodule foreach 'git lfs fetch --all && git lfs pull'
-```
-
-Then, try to build again.
 
 ## Common Runtime Errors
 
