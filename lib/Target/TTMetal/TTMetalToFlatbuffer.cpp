@@ -360,16 +360,16 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                 fbb, cache.at<::tt::target::TensorRef>(
                          getOperandThroughDPSOps(deallocOp.getInput()))),
             op);
-      } else if (auto hostReadOp =
-                     dyn_cast_or_null<tt::ttmetal::HostReadOp>(op);
-                 hostReadOp) {
+      } else if (auto enqueueReadBufferOp =
+                     dyn_cast_or_null<tt::ttmetal::EnqueueReadBufferOp>(op);
+                 enqueueReadBufferOp) {
         cqBuilder.appendCommand(
             ::tt::target::metal::CreateEnqueueReadBufferCommand(
                 fbb,
                 cache.at<::tt::target::TensorRef>(
-                    getOperandThroughDPSOps(hostReadOp.getInput())),
+                    getOperandThroughDPSOps(enqueueReadBufferOp.getInput())),
                 cache.at<::tt::target::TensorRef>(
-                    getOperandThroughDPSOps(hostReadOp.getOutput()))),
+                    getOperandThroughDPSOps(enqueueReadBufferOp.getOutput()))),
             op);
       } else if (auto enqueueWriteBufferOp =
                      dyn_cast_or_null<tt::ttmetal::EnqueueWriteBufferOp>(op);

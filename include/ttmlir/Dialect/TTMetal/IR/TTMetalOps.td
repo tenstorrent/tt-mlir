@@ -57,10 +57,10 @@ def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [Destinati
     let hasVerifier = 1;
 }
 
-def TTMetal_HostReadOp : TTMetal_Op<"host_read", [DestinationStyleOpInterface]> {
-    let summary = "Host read op.";
+def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [DestinationStyleOpInterface]> {
+    let summary = "Enqueue read buffer op.";
     let description = [{
-      Host read operation
+      Enqueue read buffer operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

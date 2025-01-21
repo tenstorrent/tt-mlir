@@ -471,7 +471,7 @@ public:
         assert(false && "System memory to device memory is not supported yet");
       } else if (outputLayout.isSystemMemorySpace()) {
         assert(inputLayout.isDeviceMemorySpace());
-        rewriter.replaceOpWithNewOp<ttmetal::HostReadOp>(
+        rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(
             op, outputTy, op.getInput(), op.getOutput());
       } else {
         return relayout(op, rewriter);
