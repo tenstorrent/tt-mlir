@@ -5,19 +5,15 @@
 #ifndef TTMLIR_UTILS_H
 #define TTMLIR_UTILS_H
 
-#include "ttmlir/Dialect/TT/IR/TTOpsTypes.h"
-
 #include "mlir-c/IR.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Error.h"
 
-#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
