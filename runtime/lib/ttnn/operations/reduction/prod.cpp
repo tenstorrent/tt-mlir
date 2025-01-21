@@ -13,7 +13,9 @@ static void runReductionProdOp(::tt::target::ttnn::ReductionProdOp const *op,
                                ProgramTensorPool &tensorPool) {
 
   ::tt::tt_metal::MemoryConfig outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+      op->memcfg() ? utils::createMemoryConfig(op->memcfg(), op->out())
+                   : ::tt::runtime::ttnn::utils::createMemoryConfig(op->out());
+
   const ::ttnn::Tensor &in = tensorPool.at(op->in()->global_id());
   DEBUG_ASSERT(in.is_allocated());
 

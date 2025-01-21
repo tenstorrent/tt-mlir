@@ -185,6 +185,7 @@ table ReductionProdOp {
   all_dimensions: bool;
   dim_arg: int64;
   keep_dim: bool;
+  memcfg: tt.target.MemoryConfigDesc;
 }
 
 table EmbeddingOp {

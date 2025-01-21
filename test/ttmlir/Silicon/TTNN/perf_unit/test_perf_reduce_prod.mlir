@@ -9,13 +9,10 @@ module {
     // CHECK-LABEL: func.func public @reduce_prod_not_keep_dim
     %0 = tensor.empty() : tensor<128x32x4xf32>
     // CHECK: "ttnn.prod"
-    // CHECK-SAME: dim_arg = [1 : i32]
-    // CHECK-SAME: keep_dim = true
+    // CHECK: all_dimensions = false
+    // CHECK-SAME: dim_arg = 1
+    // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x32x4xf32,
-    // CHECK-SAME: -> tensor<128x1x32x4xf32,
-    // CHECK: "ttnn.reshape"
-    // CHECK-SAME: shape = [128 : i32, 32 : i32, 4 : i32]
-    // CHECK-SAME: tensor<128x1x32x4xf32,
     // CHECK-SAME: -> tensor<128x32x4xf32,
     %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x32x4xf32>, tensor<128x32x4xf32>) -> tensor<128x32x4xf32>
     return %1 : tensor<128x32x4xf32>

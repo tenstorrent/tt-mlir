@@ -334,6 +334,40 @@ public:
   }
 };
 
+class ReductionProdOpConversionPattern
+    : public OpConversionPattern<ttir::ProdOp> {
+public:
+  using OpConversionPattern<ttir::ProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    int64_t inputRank = op.getInput().getType().getRank();
+    auto dimArg = op.getDimArg();
+    int64_t size = dimArg ? dimArg->size() : inputRank;
+
+    // [TODO](mmanzoor) Decompose ttnn.prod op into multiple ttnn.prod to handle
+    // reduction along multiple dimensions.
+    // https://github.com/tenstorrent/tt-mlir/issues/1861
+    if ((size > 1) && (size < inputRank)) {
+      return rewriter.notifyMatchFailure(
+          op, "tt-metal only supports reduce(prod) along one dimension or all "
+              "dimensions.");
+    }
+
+    bool allDimensions = (size == inputRank) ? true : false;
+    int64_t dimension =
+        dimArg ? (mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0])).getInt()
+               : 0;
+
+    rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), allDimensions, adaptor.getKeepDim(), dimension,
+        /*memoryConfig*/ nullptr);
+    return success();
+  }
+};
+
 class EmbeddingOpConversionPattern
     : public OpConversionPattern<ttir::EmbeddingOp> {
 public:
@@ -1332,7 +1366,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReductionOpConversionPattern<ttir::MeanOp, ttnn::MeanOp>,
            ReductionOpConversionPattern<ttir::MaxOp, ttnn::MaxOp>,
            ReductionOpConversionPattern<ttir::MinOp, ttnn::MinOp>,
-           ReductionOpConversionPattern<ttir::ProdOp, ttnn::ProdOp>,
+           ReductionProdOpConversionPattern,
            ElementwiseUnaryWithFloatParameterOpConversionPattern<ttir::LeakyReluOp, ttnn::LeakyReluOp>,
            BroadcastOpConversionPattern,
            EmbeddingOpConversionPattern,

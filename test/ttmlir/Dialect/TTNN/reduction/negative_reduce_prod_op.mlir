@@ -1,7 +1,7 @@
 // RUN: not ttmlir-opt --ttir-to-ttnn-backend-pipeline --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for reduce(prod) op
 
-// CHECK: error: 'ttnn.prod' op TTNN only supports reduce(prod) along one dimension or all dimensions.
+// CHECK: error: failed to legalize operation 'ttir.prod'
 func.func public @test_reduce_prod_multiple_dims(%arg0: tensor<128x10x32x4xf32>) -> tensor<128x32xf32> {
   %0 = tensor.empty() : tensor<128x32xf32>
   %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1 : i32, 3 : i32], keep_dim = false}> : (tensor<128x10x32x4xf32>, tensor<128x32xf32>) -> tensor<128x32xf32>
