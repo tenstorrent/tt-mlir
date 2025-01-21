@@ -27,15 +27,11 @@ jobs:
     if: github.event.pull_request.head.ref == 'uplift'
     strategy:
       matrix:
-        include:
-        - target-repo: 'tenstorrent/tt-forge-fe'
-          workflow-name: 'build-and-test.yml'
-        - target-repo: 'tenstorrent/tt-torch'
-          workflow-name: 'on-pr.yml'
+        target-repo: ['tenstorrent/tt-forge-fe', 'tenstorrent/tt-torch', 'tenstorrent/tt-xla']
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       TARGET_REPO: ${{ matrix.target-repo }}
-      WORKFLOW_NAME: ${{ matrix.workflow-name }}
+      WORKFLOW_NAME: 'on-pr.yml'
     steps:
       - name: Trigger ${{ env.TARGET_REPO }} tests
         shell: bash
