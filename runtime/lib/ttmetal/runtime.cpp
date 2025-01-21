@@ -4,6 +4,7 @@
 
 #include <variant>
 
+#include "tt/runtime/detail/common.h"
 #include "tt/runtime/detail/logger.h"
 #include "tt/runtime/detail/ttmetal.h"
 #include "tt/runtime/runtime.h"
@@ -84,23 +85,8 @@ Device openDevice(DeviceIds const &deviceIds, size_t numHWCQs,
                   std::optional<DispatchCoreType> dispatchCoreType) {
   LOG_ASSERT(deviceIds.size(), "No devices specified");
 
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
-
-  ::tt::tt_metal::DispatchCoreType type;
-  if (dispatchCoreType.has_value()) {
-    if (dispatchCoreType == DispatchCoreType::ETH) {
-      type = ::tt::tt_metal::DispatchCoreType::ETH;
-    } else if (dispatchCoreType == DispatchCoreType::WORKER) {
-      type = ::tt::tt_metal::DispatchCoreType::WORKER;
-    } else {
-      LOG_FATAL("Unsupported dispatch core type");
-    }
-  } else {
-    type = numDevices == numPCIeDevices
-               ? ::tt::tt_metal::DispatchCoreType::WORKER
-               : ::tt::tt_metal::DispatchCoreType::ETH;
-  }
+  ::tt::tt_metal::DispatchCoreType type =
+      tt::runtime::common::getDispatchCoreType(dispatchCoreType);
 
   ::tt::tt_metal::distributed::MeshShape grid = {1, deviceIds.size()};
   size_t l1SmallSizeValue = l1SmallSize.value_or(DEFAULT_L1_SMALL_SIZE);

@@ -65,6 +65,9 @@ PYBIND11_MODULE(_C, m) {
       .value("Disabled", ::tt::runtime::DeviceRuntime::Disabled)
       .value("TTNN", ::tt::runtime::DeviceRuntime::TTNN)
       .value("TTMetal", ::tt::runtime::DeviceRuntime::TTMetal);
+  py::enum_<::tt::runtime::DispatchCoreType>(m, "DispatchCoreType")
+      .value("WORKER", ::tt::runtime::DispatchCoreType::WORKER)
+      .value("ETH", ::tt::runtime::DispatchCoreType::ETH);
   m.def("get_current_runtime", &tt::runtime::getCurrentRuntime,
         "Get the backend device runtime type");
   m.def("get_available_runtimes", &tt::runtime::getAvailableRuntimes,
