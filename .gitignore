@@ -16,3 +16,5 @@ cluster_descriptor.yaml
 *.ttnn
 *.ttm
 *.make
+*.marks
+*.cmake
