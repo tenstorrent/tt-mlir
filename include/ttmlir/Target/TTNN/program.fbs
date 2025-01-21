@@ -183,7 +183,7 @@ table ReductionProdOp {
   in: tt.target.TensorRef;
   out: tt.target.TensorRef;
   all_dimensions: bool;
-  dim_arg: [int32];
+  dim_arg: int64;
   keep_dim: bool;
 }
 

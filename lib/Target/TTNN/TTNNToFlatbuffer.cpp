@@ -801,12 +801,16 @@ createReductionProdOp(FlatbufferObjectCache &cache, ReductionOp op) {
       cache.at<::tt::target::TensorRef>(getOperandThroughDPSOps(op.getInput()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer,
                                   kHostAllocatedAddress, kHostAllocatedSize);
-  auto dimArg =
-      arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
-  bool allDimensions = op.getDimArg() ? false : true;
+  auto dimArg = op.getDimArg();
+  // arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
+  bool allDimensions = dimArg ? false : true;
+  int64_t dimension =
+      dimArg ? (mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0])).getInt()
+             : 0;
+  llvm::errs() << "dimension: " << dimension << '\t' << allDimensions << '\n';
 
   return ::tt::target::ttnn::CreateReductionProdOp(
-      *cache.fbb, in, output, allDimensions, dimArg, op.getKeepDim());
+      *cache.fbb, in, output, allDimensions, dimension, op.getKeepDim());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
