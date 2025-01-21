@@ -24,7 +24,11 @@ public:
     IRRewriter rewriter(&getContext());
     llvm::SmallVector<Operation *> opsToReplace;
     module->walk([&](func::FuncOp func) {
-      assert(func.getBody().hasOneBlock());
+      if (func.isDeclaration()) {
+        return;
+      }
+      assert(func.getBody().hasOneBlock() &&
+             "found func that didn't have one block!");
       func->walk([&](Operation *op) {
         if (!isa<ttnn::ToLayoutOp>(op)) {
           return;
