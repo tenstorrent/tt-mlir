@@ -176,10 +176,8 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
       }
 
   }];
-  let options = [
-    ListOption<"hoistLocs", "hoist-locations", "std::string",
-               "comma-separated list of NameLoc's from input.">,
-  ];
+
+  let dependentDialects = ["::mlir::tt::TTDialect"];
 }
 
 #endif

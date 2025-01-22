@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TT/IR/TT.h"
 #include "ttmlir/Dialect/TT/IR/TTOps.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -13,9 +15,13 @@
 #include <llvm/Support/Casting.h>
 
 namespace mlir::tt {
-
-class WrapDeviceModulePass
-    : public PassWrapper<WrapDeviceModulePass, OperationPass<ModuleOp>> {
+#define GEN_PASS_DEF_TTWRAPDEVICEMODULEPASS
+#include "ttmlir/Dialect/TT/Transforms/Passes.h.inc"
+class TTWrapDeviceModulePass
+    : public impl::TTWrapDeviceModulePassBase<TTWrapDeviceModulePass> {
+public:
+  using impl::TTWrapDeviceModulePassBase<
+      TTWrapDeviceModulePass>::TTWrapDeviceModulePassBase;
   void runOnOperation() override {
     ModuleOp rootModule = getOperation();
 
@@ -59,9 +65,16 @@ class WrapDeviceModulePass
     }
   }
 };
+} // namespace mlir::tt
 
-class UnwrapDeviceModulePass
-    : public PassWrapper<UnwrapDeviceModulePass, OperationPass<ModuleOp>> {
+namespace mlir::tt {
+#define GEN_PASS_DEF_TTUNWRAPDEVICEMODULEPASS
+#include "ttmlir/Dialect/TT/Transforms/Passes.h.inc"
+class TTUnwrapDeviceModulePass
+    : public impl::TTUnwrapDeviceModulePassBase<TTUnwrapDeviceModulePass> {
+public:
+  using impl::TTUnwrapDeviceModulePassBase<
+      TTUnwrapDeviceModulePass>::TTUnwrapDeviceModulePassBase;
   void runOnOperation() override {
     ModuleOp rootModule = getOperation();
 
@@ -103,12 +116,4 @@ class UnwrapDeviceModulePass
     deviceModuleOp->erase();
   }
 };
-
-std::unique_ptr<Pass> createWrapDeviceModulePass() {
-  return std::make_unique<WrapDeviceModulePass>();
-}
-
-std::unique_ptr<Pass> createUnwrapDeviceModulePass() {
-  return std::make_unique<UnwrapDeviceModulePass>();
-}
 } // namespace mlir::tt

@@ -4,12 +4,9 @@
 
 #include "ttmlir/RegisterAll.h"
 
-#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
-#include "mlir/IR/DialectRegistry.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TT/IR/TT.h"
+#include "ttmlir/Dialect/TT/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -22,12 +19,16 @@
 
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/InitAllDialects.h"
+#include "mlir/InitAllPasses.h"
 
-#ifdef TTMLIR_ENABLE_STABLEHLO
+#ifdef TTMLIR_ENABLE_STABLEHLOP
 #include "stablehlo/dialect/Register.h"
 #endif
 
@@ -67,6 +68,7 @@ void mlir::tt::registerAllPasses() {
   // unused OPs/operands after conversion.
   mlir::registerPass(mlir::createRemoveDeadValuesPass);
 
+  mlir::tt::registerPasses();
   mlir::tt::ttir::registerPasses();
   mlir::tt::ttnn::registerTTNNOptimizer();
   mlir::tt::ttnn::registerPasses();
