@@ -124,6 +124,7 @@ set(TTMLIR_PYTHON_SOURCES
   MLIRPythonSources.Dialects.ml_program
   MLIRPythonSources.Dialects.scf
   MLIRPythonSources.Dialects.tosa
+  MLIRPythonSources.Dialects.memref
   TTMLIRPythonSources
   TTMLIRPythonExtensions
   TTMLIRPythonTestInfra
@@ -151,6 +152,7 @@ install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packag
 
 set(TTSHARDON_PYTHON_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shardon")
 
+# cmake flags for optional build
 declare_mlir_python_sources(TTSHARDONPythonSources
   ROOT_DIR "${TTSHARDON_PYTHON_ROOT_DIR}"
   SOURCES
