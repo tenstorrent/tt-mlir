@@ -53,6 +53,13 @@ cmake --build build
 | Ubuntu 20.04  | ✅ | ❌ | ❌ |
 | MacOS         | ✅ | ❌ | ❌ |
 
+## Test
+
+```bash
+source env/activate
+cmake --build build -- check-ttmlir
+```
+
 ## Lint
 
 ```bash
