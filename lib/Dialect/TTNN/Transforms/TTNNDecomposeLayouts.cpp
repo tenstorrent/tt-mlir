@@ -220,17 +220,36 @@ private:
                                    args...);
   }
 
+  template <typename OpType, typename... Args>
+  mlir::Value createOp(IRRewriter &rewriter, ttnn::ToLayoutOp op,
+                       RankedTensorType newResultType, mlir::Value currentInput,
+                       Args... args) const {
+    rewriter.setInsertionPoint(op);
+    return rewriter.create<OpType>(op.getLoc(), newResultType, currentInput,
+                                   args...);
+  }
+
   mlir::Value createToDeviceOpIfNeeded(ttnn::ToLayoutOp op,
                                        IRRewriter &rewriter,
                                        mlir::Value currentInput,
-                                       const OpCreationInfo &info) const {
-    if (not info.opsToCreate.createToDeviceOp) {
+                                       const OpCreationInfo &info,
+                                       bool forceCreate = false) const {
+    if (not info.opsToCreate.createToDeviceOp && !forceCreate) {
       return currentInput;
     }
     ttnn::MemoryConfigAttr memoryConfigAttr =
         info.output.createMemoryConfigAttr(op.getContext());
-    return this->createOp<ttnn::ToDeviceOp>(op, rewriter, currentInput,
-                                            info.device, memoryConfigAttr);
+    RankedTensorType currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    RankedTensorType newResultType =
+        utils::createRankedTensorTypeWithBufferType(currentInputType,
+                                                    info.output.bufferType);
+    newResultType = utils::createRankedTensorTypeWithMemoryLayout(
+        newResultType, info.output.tensorMemoryLayout.getValue());
+    // Create new ranked tensor type with host memory buffer type
+    return this->createOp<ttnn::ToDeviceOp>(rewriter, op, newResultType,
+                                            currentInput, info.device,
+                                            memoryConfigAttr);
   }
 
   // FromDeviceOp
@@ -239,10 +258,16 @@ private:
                                          mlir::Value currentInput,
                                          const OpCreationInfo &info,
                                          bool forceCreate = false) const {
-    if (not info.opsToCreate.createFromDeviceOp) {
+    if (not info.opsToCreate.createFromDeviceOp && !forceCreate) {
       return currentInput;
     }
-    return this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
+    RankedTensorType currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    RankedTensorType newResultType =
+        utils::createRankedTensorTypeWithBufferType(
+            currentInputType, ttnn::BufferType::SystemMemory);
+    return this->createOp<ttnn::FromDeviceOp>(rewriter, op, newResultType,
+                                              currentInput);
   }
 
   mlir::Value createToLayoutOpIfNeeded(ttnn::ToLayoutOp op,
@@ -254,8 +279,16 @@ private:
     }
     ttnn::LayoutAttr layoutAttr =
         ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    Type memrefElementType = utils::getElementType(
+        op.getContext(), info.output.layoutEnum, info.output.dataType);
+    RankedTensorType newResultType =
+        utils::createRankedTensorTypeWithElementType(inputType,
+                                                     memrefElementType);
     return this->createOp<ttnn::ToLayoutOp>(
-        op, rewriter, currentInput, layoutAttr, /*dtype*/ nullptr,
+        rewriter, op, newResultType, currentInput, layoutAttr,
+        /*dtype*/ nullptr,
         /*memory_config*/ nullptr, /*device*/ nullptr);
   }
 
@@ -268,8 +301,15 @@ private:
     }
     DataTypeAttr dtypeAttr =
         DataTypeAttr::get(op.getContext(), info.output.dataType);
-    return this->createOp<ttnn::TypecastOp>(op, rewriter, currentInput,
-                                            dtypeAttr);
+    RankedTensorType currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    Type nmemrefElementType = utils::getElementType(
+        op.getContext(), info.input.layoutEnum, info.output.dataType);
+    RankedTensorType newResultType =
+        utils::createRankedTensorTypeWithElementType(currentInputType,
+                                                     nmemrefElementType);
+    return this->createOp<ttnn::TypecastOp>(rewriter, op, newResultType,
+                                            currentInput, dtypeAttr);
   }
 
   mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,
@@ -519,17 +559,14 @@ private:
        untilize it, and then move it back to device */
     if (info.shouldUntilize() and not opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
-      currentInput =
-          this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
+      currentInput = this->createFromDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, true /* forceCreate */);
       // untilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert memory config if needed
-      currentInput = this->createOp<ttnn::ToDeviceOp>(
-          op, rewriter, currentInput, info.device,
-          /* optional MemConfigAttr */ nullptr);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      currentInput = createToDeviceOpIfNeeded(op, rewriter, currentInput, info,
+                                              true /* forceCreate */);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }
@@ -564,15 +601,14 @@ private:
     if (info.shouldTilize() and input.dataType != DataType::BFloat16 and
         not opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
-      currentInput =
-          this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
+      currentInput = this->createFromDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, true /* forceCreate */);
       // tilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert memory config if needed
-      currentInput = this->createOp<ttnn::ToDeviceOp>(
-          op, rewriter, currentInput, info.device,
-          /* optional MemConfigAttr */ nullptr);
+      currentInput = this->createToDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, true /* forceCreate */);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                           currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -661,17 +697,14 @@ private:
       currentInput =
           this->createTypecastOpIfNeeded(op, rewriter, currentInput, info);
       // Force-create a FromDeviceOp
-      currentInput =
-          this->createOp<ttnn::FromDeviceOp>(op, rewriter, currentInput);
+      currentInput = this->createFromDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, true /* forceCreate */);
       // untilize on host
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       // move back to device and convert memory config if needed
-      currentInput = this->createOp<ttnn::ToDeviceOp>(
-          op, rewriter, currentInput, info.device,
-          /* optional MemConfigAttr */ nullptr);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      currentInput = this->createToDeviceOpIfNeeded(
+          op, rewriter, currentInput, info, true /* forceCreate */);
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }
