@@ -606,7 +606,7 @@ jobs:
     - name: Download Tests
       uses: actions/download-artifact@v4
       with:
-        name: build-artifact-${{ matrix.build.name }}
+        name: build-artifacts-${{ matrix.build.name }}
         path: ${{ steps.strings.outputs.build-output-dir }}
 
     - name: 'Untar build directory'
