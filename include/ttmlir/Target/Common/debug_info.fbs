@@ -24,18 +24,9 @@ table MLIR {
   source: string;
 }
 
-table ModuleCacheItem {
-  pass_name: string;
-  module: string;
-}
-
-table ModuleCache {
-  module_cache: [ModuleCacheItem];
-}
-
 table DebugInfo {
   mlir: MLIR;
   cpp: string;
   golden_info: GoldenInfo;
-  module_cache: ModuleCache;
+  mlir_stages: [MLIR];
 }

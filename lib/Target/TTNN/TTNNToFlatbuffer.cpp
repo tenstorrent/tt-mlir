@@ -1222,10 +1222,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   llvm_unreachable("unhandled op in emitTTNNOperation");
 }
 
-std::shared_ptr<void>
-ttnnToFlatbuffer(Operation *op,
-                 std::unordered_map<std::string, GoldenTensor> goldenMap,
-                 std::vector<std::pair<std::string, std::string>> moduleCache) {
+std::shared_ptr<void> ttnnToFlatbuffer(
+    Operation *op,
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   ModuleOp module = dyn_cast<ModuleOp>(op);
   assert(module && "Expected ModuleOp as top level operation");
 
@@ -1260,21 +1260,19 @@ ttnnToFlatbuffer(Operation *op,
   }
 
   // Load the ModuleCache if present and populate DebugInfo
-  std::vector<::flatbuffers::Offset<::tt::target::ModuleCacheItem>>
-      moduleCacheList;
+  std::vector<::flatbuffers::Offset<::tt::target::MLIR>> moduleCacheList;
   moduleCacheList.reserve(moduleCache.size());
 
   for (const auto &item : moduleCache) {
-    auto moduleCacheItem = ::tt::target::CreateModuleCacheItemDirect(
+    // Here the Name is the Pass Name and Source is the IR itself
+    auto moduleCacheItem = ::tt::target::CreateMLIRDirect(
         fbb, item.first.c_str(), item.second.c_str());
     moduleCacheList.push_back(moduleCacheItem);
   }
 
-  auto moduleCacheFbb =
-      ::tt::target::CreateModuleCacheDirect(fbb, &moduleCacheList);
   auto goldenInfo = ::tt::target::CreateGoldenInfoDirect(fbb, &goldenKVList);
   auto debugInfo = ::tt::target::CreateDebugInfoDirect(
-      fbb, mlir, cpp.c_str(), goldenInfo, moduleCacheFbb);
+      fbb, mlir, cpp.c_str(), goldenInfo, &moduleCacheList);
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
   module->walk([&](func::FuncOp func) {
@@ -1304,8 +1302,8 @@ ttnnToFlatbuffer(Operation *op,
 
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap,
-    std::vector<std::pair<std::string, std::string>> moduleCache) {
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap,
+    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
   std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));

@@ -13,16 +13,17 @@ namespace mlir::tt::ttnn {
 
 // Convert a TTNNIR operation to a flatbuffer
 std::shared_ptr<void> ttnnToFlatbuffer(
-    Operation *op, std::unordered_map<std::string, GoldenTensor> goldenMap = {},
-    std::vector<std::pair<std::string, std::string>> moduleCache = {});
+    Operation *op,
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap = {},
+    const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
 
 // Convert a TTNNIR operation to a flatbuffer
 // This function signature is required in order to register the conversion in
 // mlir translation framework
 LogicalResult translateTTNNToFlatbuffer(
     Operation *op, llvm::raw_ostream &os,
-    std::unordered_map<std::string, GoldenTensor> goldenMap = {},
-    std::vector<std::pair<std::string, std::string>> moduleCache = {});
+    const std::unordered_map<std::string, GoldenTensor> &goldenMap = {},
+    const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
 } // namespace mlir::tt::ttnn
 
 #endif

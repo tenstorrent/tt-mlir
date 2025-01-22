@@ -26,7 +26,7 @@ namespace mlir::tt {
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Conversion/Passes.h.inc"
 
-struct MLIRModuleCacher {
+struct MLIRModuleLogger {
   mlir::MLIRContext *context;
   std::vector<std::pair<std::string, std::string>> moduleCache;
 
@@ -41,21 +41,19 @@ struct MLIRModuleCacher {
             auto passAction = mlir::cast<mlir::PassExecutionAction>(action);
             // A Pass action has occured, need to store the previous module
             // before transform is completed.
-
-            std::string outString;
-            llvm::raw_string_ostream os(outString);
-            mlir::OpPrintingFlags flags;
-            flags.enableDebugInfo();
-            passAction.getOp()->print(os, flags);
-            os.flush();
-
             std::string passName = passAction.getPass().getName().str();
 
-            if (not passNamesToCache.empty() and
+            if (passNamesToCache.empty() or
                 std::find(passNamesToCache.begin(), passNamesToCache.end(),
                           passName) != passNamesToCache.end()) {
-              this->moduleCache.emplace_back(passName, outString);
-            } else if (passNamesToCache.empty()) {
+
+              std::string outString;
+              llvm::raw_string_ostream os(outString);
+              mlir::OpPrintingFlags flags;
+              flags.enableDebugInfo();
+              passAction.getOp()->print(os, flags);
+              os.flush();
+
               this->moduleCache.emplace_back(passName, outString);
             }
           }
