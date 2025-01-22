@@ -220,6 +220,15 @@ cbTypeToFlatbuffer(FlatbufferObjectCache &cache, ttkernel::CBType cbType) {
       memref, cbType.getPageSize(), cbType.getNumBuffers());
 }
 
+std::pair<::tt::target::metal::RuntimeArg, ::flatbuffers::Offset<void>>
+toFlatbuffer(FlatbufferObjectCache &cache, ttkernel::SemaphoreType sem) {
+  auto runtimeArgType =
+      ::tt::target::metal::RuntimeArg::RuntimeArgSemaphoreAddress;
+  auto semAddr = ::tt::target::metal::CreateRuntimeArgSemaphoreAddress(
+      *cache.fbb, sem.getInitialValue());
+  return std::make_pair(runtimeArgType, semAddr.Union());
+}
+
 std::pair<::tt::target::metal::HostBuffer, ::flatbuffers::Offset<void>>
 hostBufferToFlatbuffer(FlatbufferObjectCache &cache,
                        ElementsAttr elementsAttr) {
@@ -311,14 +320,27 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
                   dispatchOp.getCoreRanges()[region.getRegionNumber()]))};
           std::vector<::flatbuffers::Offset<::tt::target::CBRef>> cbs;
           size_t argNumber = 0;
+          std::vector<::tt::target::metal::RuntimeArg> runtime_args_type;
+          std::vector<::flatbuffers::Offset<void>> runtime_args;
           for (auto arg : region.getArguments()) {
-            auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
-            auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
-            auto tensorRef =
-                argNumber >= operands.size() ? 0 : operands[argNumber++];
-            cbs.push_back(
-                ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
-                                          cbType.getAddress(), cbDesc));
+            if (mlir::isa<ttkernel::CBType>(arg.getType())) {
+              auto cbType = mlir::cast<ttkernel::CBType>(arg.getType());
+              auto cbDesc = cache.getOrCreate(cbType, cbTypeToFlatbuffer);
+              auto tensorRef =
+                  argNumber >= operands.size() ? 0 : operands[argNumber++];
+              cbs.push_back(
+                  ::tt::target::CreateCBRef(fbb, cache.global_id++, tensorRef,
+                                            cbType.getAddress(), cbDesc));
+            } else if (mlir::isa<ttkernel::SemaphoreType>(arg.getType())) {
+              auto semType = mlir::cast<ttkernel::SemaphoreType>(arg.getType());
+              auto [runtime_arg_type, runtime_arg] =
+                  toFlatbuffer(cache, semType);
+              runtime_args_type.push_back(runtime_arg_type);
+              runtime_args.push_back(runtime_arg);
+            } else {
+              llvm_unreachable(
+                  "Block arguments must be either CBType or SemaphoreType");
+            }
           }
 
           std::string &source = cppKernels[region.getRegionNumber()];
@@ -335,7 +357,7 @@ static std::shared_ptr<void> translateModuleToFlatbuffer(
               ::tt::target::metal::CreateKernelSourceDirect(
                   fbb, source.c_str(), kernelConfigType, kernelConfigUnion)
                   .Union(),
-              &coreRangeSet, &cbs, nullptr, nullptr, /* TODO rtargs*/
+              &coreRangeSet, &cbs, &runtime_args_type, &runtime_args,
               nullptr /*TODO debug info*/));
         }
         ::flatbuffers::Offset<::tt::target::metal::ProgramDesc> program =
