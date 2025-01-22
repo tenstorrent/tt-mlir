@@ -94,6 +94,10 @@ void TTIRDialect::initialize() {
 #define GET_OP_LIST
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.cpp.inc"
       >();
+  addOperations<
+#define GET_OP_LIST
+#include "ttmlir/Dialect/TTIR/IR/TTIRTileOps.cpp.inc"
+      >();
   addInterfaces<TTIRInlinerInterface, TTIRDialectFoldInterface>();
   // NOLINTNEXTLINE
   addAttributes<

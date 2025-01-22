@@ -4,7 +4,9 @@
 
 #include <cstdint>
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 
 #include <llvm/ADT/ArrayRef.h>
@@ -32,8 +34,8 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   for (const auto operandShape :
        llvm::drop_end(operandShapes, outputSegmentSize)) {
     const auto prevBroadcastedShape = broadcastedShape;
-    if (!OpTrait::util::getBroadcastedShape(prevBroadcastedShape, operandShape,
-                                            broadcastedShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(
+            prevBroadcastedShape, operandShape, broadcastedShape)) {
       return op->emitOpError("Operands are not broadcast compatible");
     }
   }
@@ -46,4 +48,19 @@ mlir::tt::ttir::detail::verifyBroadcastable(mlir::Operation *op) {
   }
 
   return success();
+}
+
+mlir::LogicalResult
+mlir::tt::ttir::detail::verifyGenericParent(mlir::Operation *op) {
+  mlir::Operation *parent = op->getParentOp();
+
+  while (parent) {
+    if (llvm::dyn_cast<ttir::GenericOp>(parent) ||
+        llvm::dyn_cast<linalg::GenericOp>(parent)) {
+      return success();
+    }
+    parent = op->getParentOp();
+  }
+
+  return op->emitOpError("TTIR Tile Ops must be inside a generic region");
 }
