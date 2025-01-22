@@ -21,10 +21,10 @@ class AtLeastRegion<int numBlocks> : Region<
   CPred<"$_self.getBlocks().size() >= " # numBlocks>,
   "region with " # numBlocks # " blocks">;
 
-def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
-    let summary = "Dispatch op.";
+def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [DestinationStyleOpInterface, AttrSizedOperandSegments]> {
+    let summary = "Enqueue program op.";
     let description = [{
-      Dispatch operation
+      Enqueue program operation
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
@@ -41,10 +41,10 @@ def TTMetal_DispatchOp : TTMetal_Op<"dispatch", [DestinationStyleOpInterface, At
     let hasVerifier = 1;
 }
 
-def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]> {
-    let summary = "Host write op.";
+def TTMetal_EnqueueWriteBufferOp : TTMetal_Op<"enqueue_write_buffer", [DestinationStyleOpInterface]> {
+    let summary = "Enqueue write buffer op.";
     let description = [{
-      Host write operation
+      Enqueue write buffer operation
     }];
 
     let arguments = (ins AnyRankedTensor:$output, ElementsAttr:$value);
@@ -57,10 +57,10 @@ def TTMetal_HostWriteOp : TTMetal_Op<"host_write", [DestinationStyleOpInterface]
     let hasVerifier = 1;
 }
 
-def TTMetal_HostReadOp : TTMetal_Op<"host_read", [DestinationStyleOpInterface]> {
-    let summary = "Host read op.";
+def TTMetal_EnqueueReadBufferOp : TTMetal_Op<"enqueue_read_buffer", [DestinationStyleOpInterface]> {
+    let summary = "Enqueue read buffer op.";
     let description = [{
-      Host read operation
+      Enqueue read buffer operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -74,10 +74,10 @@ def TTMetal_HostReadOp : TTMetal_Op<"host_read", [DestinationStyleOpInterface]> 
     let hasVerifier = 1;
 }
 
-def TTMetal_AllocOp : TTMetal_Op<"alloc"> {
-    let summary = "Alloc op.";
+def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer"> {
+    let summary = "Create buffer op.";
     let description = [{
-      Tensor Alloc operation
+      Create buffer operation
     }];
 
     let arguments = (ins I64Attr:$address, I64Attr:$size, TT_MemorySpaceAttr:$memory_space);
@@ -86,10 +86,10 @@ def TTMetal_AllocOp : TTMetal_Op<"alloc"> {
     let hasVerifier = 1;
 }
 
-def TTMetal_DeallocOp : TTMetal_Op<"dealloc"> {
-    let summary = "Dealloc op.";
+def TTMetal_DeallocateBufferOp : TTMetal_Op<"deallocate_buffer"> {
+    let summary = "Deallocate buffer op.";
     let description = [{
-      Tensor Dealloc operation
+      Deallocate buffer operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input);

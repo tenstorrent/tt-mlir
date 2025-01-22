@@ -14,7 +14,7 @@
 
 namespace mlir::tt::ttmetal {
 
-::mlir::LogicalResult HostWriteOp::verify() {
+::mlir::LogicalResult EnqueueWriteBufferOp::verify() {
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto outputLayout =
       mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
@@ -27,7 +27,7 @@ namespace mlir::tt::ttmetal {
   return success();
 }
 
-::mlir::LogicalResult HostReadOp::verify() {
+::mlir::LogicalResult EnqueueReadBufferOp::verify() {
   ::mlir::RankedTensorType outputTy = getOutput().getType();
   auto outputLayout =
       mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(outputTy.getEncoding());
@@ -40,7 +40,7 @@ namespace mlir::tt::ttmetal {
   return success();
 }
 
-::mlir::LogicalResult AllocOp::verify() {
+::mlir::LogicalResult CreateBufferOp::verify() {
   auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
       getResult().getType().getEncoding());
   if (not layout) {
@@ -73,7 +73,7 @@ namespace mlir::tt::ttmetal {
   return success();
 }
 
-::mlir::LogicalResult DispatchOp::verify() {
+::mlir::LogicalResult EnqueueProgramOp::verify() {
   // Assert inputs/outputs device memspace
   for (auto operand : getOperands()) {
     auto layout = mlir::dyn_cast_or_null<mlir::tt::MetalLayoutAttr>(
