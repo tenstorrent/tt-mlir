@@ -13,6 +13,7 @@ namespace tt {
 namespace ttir {
 namespace detail {
 mlir::LogicalResult verifyBroadcastable(mlir::Operation *op);
+mlir::LogicalResult verifyGenericParent(mlir::Operation *op);
 } // namespace detail
 } // namespace ttir
 } // namespace tt
