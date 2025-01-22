@@ -611,7 +611,7 @@ jobs:
 
     - name: 'Untar build directory'
       shell: bash
-      working-directory: ${{ steps.strings.outputs.install-output-dir }}
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
       run: tar xvf artifact.tar
 
     - name: Run tt-explorer tests
